@@ -244,7 +244,7 @@ async function monitorAptCache(event) {
 
   // we don't care about apt-get update error, most likely
   // apt-get update was already running (this uses a different lock
-  // thab apt-get install)
+  // than apt-get install)
   if (options.command === 'update') {
     aptQueue.resume();
     return;

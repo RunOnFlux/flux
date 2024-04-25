@@ -273,9 +273,6 @@ describe('FiFoQueue tests', () => {
       // 7 for the first task, 1 normal attempt, 5 retries. Then another normal attempt
       // after the resume(), then 9 normal tasks = 16.
       expect(count).to.equal(16);
-
-
-
     })
   })
 })

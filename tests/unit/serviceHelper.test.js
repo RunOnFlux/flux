@@ -559,6 +559,7 @@ describe('serviceHelper tests', () => {
 
   describe('minVersionSatisfy tests', () => {
     const minimalVersion = '3.4.12';
+    const majorMinorOnly = '3.4'
 
     it('should return true if major version is higher than minimalVersion', async () => {
       const versionAllowed = await serviceHelper.minVersionSatisfy('4.0.0', minimalVersion);
@@ -600,6 +601,64 @@ describe('serviceHelper tests', () => {
       const versionAllowed = await serviceHelper.minVersionSatisfy('2.3.11', minimalVersion);
 
       expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return false if minor version is below to minimalVersion and no patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.3', majorMinorOnly);
+
+      expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return false if major version is below to minimalVersion and no patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('2.3', majorMinorOnly);
+
+      expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return true if major version is higher than minimalVersion and no patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('4.0', majorMinorOnly);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if minor version is higher than minimalVersion and no patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.6', majorMinorOnly);
+
+      expect(versionAllowed).to.equal(true);
+    });
+  });
+
+  describe("parseVersion tests", () => {
+    it('should parse all semantic versions and also dpkg versions', () => {
+      const versions = [
+        ['1.2', '1.2'],
+        ['5.7-prerelease', '5.7'],
+        ['1.218-4ubuntu1', '1.218'],
+        ['1.219~d12', '1.219'],
+        ['0.0.4', '0.0.4'],
+        ['1.2.3', '1.2.3'],
+        ['10.20.30', '10.20.30'],
+        ['1.1.2-prerelease+meta', '1.1.2'],
+        ['1.1.2+meta', '1.1.2'],
+        ['1.0.0-alpha', '1.0.0'],
+        ['1.0.0-alpha.beta', '1.0.0'],
+        ['1.0.0-alpha.1', '1.0.0'],
+        ['1.0.0-alpha.0valid', '1.0.0'],
+        ['1.0.0-rc.1+build.1', '1.0.0'],
+        ['1.2.3-beta', '1.2.3'],
+        ['10.2.3-DEV-SNAPSHOT', '10.2.3'],
+        ['1.2.3-SNAPSHOT-123', '1.2.3'],
+        ['1.0.0', '1.0.0'],
+        ['2.0.0+build.1848', '2.0.0'],
+        ['2.0.1-alpha.1227', '2.0.1'],
+        ['1.0.0-alpha+beta', '1.0.0'],
+        ['1.2.3----RC-SNAPSHOT.12.9.1--.12+788', '1.2.3'],
+      ]
+
+      for (let index = 0; index++; index < versions.length) {
+        const { version } = serviceHelper.parseVersion(versions[index[0]]);
+        expect(version).to.equal(versions[index[1]]);
+      }
     });
   });
 });

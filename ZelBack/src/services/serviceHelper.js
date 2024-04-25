@@ -338,7 +338,6 @@ function parseVersion(rawVersion) {
   // I.e. dpkg-query --showformat='${Version}' --show netcat-openbsd
   // 1.218-4ubuntu1
 
-  //const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*))(-(0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
   const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)([-~](0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
 
   const match = semver.exec(rawVersion);
