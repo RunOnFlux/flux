@@ -1,21 +1,36 @@
+const EventEmitter = require('node:events');
+
 /**
  * A reusable implementation of a First In First Out queue.
  * You can pass in a worker, then whenever you pass in at item,
  * it will be run by the worker. If there are already items running,
  * they will queue up.
  */
-class FifoQueue {
+class FifoQueue extends EventEmitter {
+  /**
+   * The main queue
+   */
   list = [];
+  /**
+   * If the queue is being processed
+   */
   working = false;
+  /**
+   * If work has been halted due to error
+   */
+  halted = false;
 
   /**
    *
-   * @param {{worker?: () => Promise<void>, retries?: number, retryDelay?: number}} options
+   * @param {{worker?: () => Promise<void>, retries?: number, retryDelay?: number, maxSize?: number}} options
    */
   constructor(options = {}) {
+    super();
+
     this.worker = options.worker || null;
-    this.retries = options.retries ?? 5;
+    this.retries = options.retries ?? 1;
     this.retryDelay = options.retryDelay ?? 10 * 1000; // 10s
+    this.maxSize = options.maxSize ?? 10; // 0 infinite
   }
 
   /**
@@ -24,6 +39,14 @@ class FifoQueue {
    */
   get workAvailable() {
     return Boolean(this.list.length);
+  }
+
+  get length() {
+    return this.list.length
+  }
+
+  get queueFull() {
+    return Boolean(this.maxSize && this.list.length >= this.maxSize);
   }
 
   /**
@@ -38,13 +61,33 @@ class FifoQueue {
   }
 
   /**
+   * Stop any work on the queue
+   */
+  halt() {
+    this.halted = true;
+  }
+
+  /**
+   * Resumes any work on the queue (if any)
+   */
+  resume() {
+    this.halted = false;
+    this.work();
+  }
+
+  /**
    * @param {Boolean} wait If we should wait for the work to be finished
    * @param {Object} payload The properties to pass to the worker
    * @return {Promise<Any>}
    */
   async push(wait, payload) {
     return new Promise((resolve) => {
+      // oldest items get torched if the queue is full.
+      // Maybe it would be better to reject. Or configurable?
+      if (this.queueFull) this.list.shift();
+
       this.list.push([payload, resolve]);
+
       if (this.worker) this.work();
       if (!wait) resolve({ error: null });
     })
@@ -82,7 +125,7 @@ class FifoQueue {
   async runWorker(props) {
     const [options, resolve] = props;
 
-    const { workerOptions, ...commandOptions } = options;
+    const { workerOptions, commandOptions } = options;
 
     // nullish coalescing to allow for zero
     let retriesRemaining = workerOptions.retries ?? this.retries;
@@ -98,7 +141,19 @@ class FifoQueue {
         resolve(res);
         return;
       } catch (error) {
-        if (!retriesRemaining) resolve({ error });
+        if (!retriesRemaining) {
+          // the emit callback runs before the resolve (resolve is awaited)
+          resolve({ error });
+          this.emit('failed', { options, error });
+          this.halted = true;
+          return;
+        }
+        // we have emitted a failure event, if we get halted externally,
+        // we put this task back at the start of the queue and bail.
+        if (this.halted) {
+          this.list.unshift(props);
+          break;
+        }
         // wait default 10 seconds between retries
         await new Promise(r => setTimeout(r, retryDelay));
       }
@@ -107,10 +162,10 @@ class FifoQueue {
 
   async work() {
     if (this.working) return;
+    this.working = true;
 
     try {
-      while (this.workAvailable) {
-        this.working = true;
+      while (this.workAvailable && !this.halted) {
         const props = this.shift();
 
         if (!Object.keys(props).length) return;

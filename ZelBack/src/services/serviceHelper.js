@@ -11,6 +11,11 @@ const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
 /**
+ * The max time a child process can run for (15 minutes)
+ */
+const MAX_CHILD_PROCESS_TIME = 15 * 60 * 1000;
+
+/**
  * Allows for exclusive locks when running child processes
  */
 const locks = new Map();
@@ -261,6 +266,9 @@ async function runCommand(userCmd, options = {}) {
   const params = options.params || [];
   delete execOptions.params;
 
+  // Default max of 15 minutes
+  if (!execOptions.hasOwnProperty('timeout')) execOptions['timeout'] = MAX_CHILD_PROCESS_TIME;
+
   if (!userCmd) {
     res.error = new Error('Command must be present');
     return res;
@@ -324,7 +332,14 @@ async function runCommand(userCmd, options = {}) {
  * @returns {{version, major, minor, patch} | null} The parsed version
  */
 function parseVersion(rawVersion) {
-  const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*))(-(0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
+  // Todo: tests
+
+  // modified this to allow for just major and minor. (and also ~ instead of - after version)
+  // I.e. dpkg-query --showformat='${Version}' --show netcat-openbsd
+  // 1.218-4ubuntu1
+
+  //const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*))(-(0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
+  const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)([-~](0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
 
   const match = semver.exec(rawVersion);
 
