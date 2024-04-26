@@ -1,5 +1,6 @@
 const chai = require('chai');
 const sinon = require('sinon');
+
 const { expect } = chai;
 
 const config = require('config');
@@ -182,13 +183,13 @@ describe('system Services tests', () => {
 
       sinon.assert.calledOnceWithExactly(axiosStub, statsEndpoint, { timeout: 10000 });
       sinon.assert.calledWith(logSpy, `Checking package syncthing is updated to version ${statsVersion}`);
-    })
+    });
 
     it('should fallback to local syncthing version if there is an axios error', async () => {
       const statsEndpoint = 'https://stats.runonflux.io/getmodulesminimumversions';
       const localVersion = '1.25.2';
 
-      config.minimumSyncthingAllowedVersion = localVersion
+      config.minimumSyncthingAllowedVersion = localVersion;
 
       const axiosStub = sinon.stub(axios, 'get').rejects(new Error('Simulated Axios error'));
 
@@ -198,7 +199,7 @@ describe('system Services tests', () => {
 
       sinon.assert.calledOnceWithExactly(axiosStub, statsEndpoint, { timeout: 10000 });
       sinon.assert.calledWith(logSpy, `Checking package syncthing is updated to version ${localVersion}`);
-    })
+    });
 
     it('should fallback to local syncthing version if there is a fluxstats error', async () => {
       const statsEndpoint = 'https://stats.runonflux.io/getmodulesminimumversions';
@@ -206,7 +207,7 @@ describe('system Services tests', () => {
 
       config.minimumSyncthingAllowedVersion = localVersion;
 
-      const axiosStub = sinon.stub(axios, 'get').resolves({ data: { status: 'error', data: { code: 123, error: 'Test error', 'message': 'Broken' } } });
+      const axiosStub = sinon.stub(axios, 'get').resolves({ data: { status: 'error', data: { code: 123, error: 'Test error', message: 'Broken' } } });
 
       runCmdStub.resolves({ error: null, stdout: localVersion });
 
@@ -214,7 +215,7 @@ describe('system Services tests', () => {
 
       sinon.assert.calledOnceWithExactly(axiosStub, statsEndpoint, { timeout: 10000 });
       sinon.assert.calledWith(logSpy, `Checking package syncthing is updated to version ${localVersion}`);
-    })
+    });
 
     it('should fallback to local syncthing version if fluxstats syncthing response is empty', async () => {
       const statsEndpoint = 'https://stats.runonflux.io/getmodulesminimumversions';
@@ -230,14 +231,14 @@ describe('system Services tests', () => {
 
       sinon.assert.calledOnceWithExactly(axiosStub, statsEndpoint, { timeout: 10000 });
       sinon.assert.calledWith(logSpy, `Checking package syncthing is updated to version ${localVersion}`);
-    })
+    });
 
     it('should upgrade syncthing immediately if on lower version', async () => {
       const now = 1713858779721;
 
       const statsVersion = '2.2.2';
 
-      const axiosRes = { data: { status: 'success', data: { syncthing: statsVersion } } }
+      const axiosRes = { data: { status: 'success', data: { syncthing: statsVersion } } };
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
@@ -245,7 +246,7 @@ describe('system Services tests', () => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '1.27.3' };
         if (cmd === 'apt-get') return { error: null };
         return null;
-      })
+      });
 
       runCmdStub.callsFake(cmdRunner);
 
@@ -259,14 +260,14 @@ describe('system Services tests', () => {
       await systemService.monitorSyncthingPackage();
 
       sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
-    })
+    });
 
     it('should not call upgradeSyncthing if on correct version', async () => {
       const now = 1713858779721;
 
       const statsVersion = '2.2.2';
 
-      const axiosRes = { data: { status: 'success', data: { syncthing: statsVersion } } }
+      const axiosRes = { data: { status: 'success', data: { syncthing: statsVersion } } };
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
@@ -274,7 +275,7 @@ describe('system Services tests', () => {
         if (cmd === 'dpkg-query') return { error: null, stdout: statsVersion };
         if (cmd === 'apt-get') return { error: null };
         return null;
-      })
+      });
 
       runCmdStub.callsFake(cmdRunner);
 
@@ -296,7 +297,6 @@ describe('system Services tests', () => {
 
     beforeEach(() => {
       systemService.resetTimers();
-      statStub = sinon.stub(fs, 'stat');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
       errorSpy = sinon.spy(log, 'error');
     });
@@ -314,7 +314,7 @@ describe('system Services tests', () => {
         // apt-get check
         if (cmd === 'apt-get') return { error: new Error('Still broken') };
         return null;
-      })
+      });
 
       runCmdStub.callsFake(cmdRunner);
 
@@ -334,7 +334,7 @@ describe('system Services tests', () => {
 
       let count = 0;
 
-      const worker = () => { count += 1 };
+      const worker = () => { count += 1; };
 
       const queue = systemService.getQueue();
 
@@ -365,7 +365,7 @@ describe('system Services tests', () => {
           return { error: lockError };
         }
         return null;
-      })
+      });
 
       runCmdStub.callsFake(cmdRunner);
 
@@ -379,9 +379,9 @@ describe('system Services tests', () => {
       await clock.tickAsync(10 * 60 * 1000);
       expect(checkCount).to.equal(3);
 
-      await promise
+      await promise;
       expect(checkCount).to.equal(3);
-      sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours.')
+      sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours.');
     });
 
     it('should resume if there is a lock error and it clears', async () => {
@@ -389,7 +389,7 @@ describe('system Services tests', () => {
       let checkCount = 0;
       let workCount = 0;
 
-      const worker = () => { workCount += 1 };
+      const worker = () => { workCount += 1; };
 
       const queue = systemService.getQueue();
 
@@ -407,10 +407,10 @@ describe('system Services tests', () => {
         if (cmd === 'apt-get') {
           checkCount += 1;
           if (checkCount === 1) return { error: lockError };
-          return { error: null }
+          return { error: null };
         }
         return null;
-      })
+      });
 
       runCmdStub.callsFake(cmdRunner);
 
@@ -422,7 +422,7 @@ describe('system Services tests', () => {
       await clock.tickAsync(10 * 60 * 1000);
       expect(checkCount).to.equal(2);
 
-      await promise
+      await promise;
       expect(checkCount).to.equal(2);
       expect(workCount).to.equal(1);
 
@@ -445,7 +445,7 @@ describe('system Services tests', () => {
           return { error: null };
         }
         return null;
-      })
+      });
 
       runCmdStub.callsFake(cmdRunner);
 
@@ -456,10 +456,9 @@ describe('system Services tests', () => {
     });
 
     it('should resume if there is a non lock error and it clears after running dpkg configure', async () => {
-      const clock = sinon.useFakeTimers();
       let workCount = 0;
 
-      const worker = () => { workCount += 1 };
+      const worker = () => { workCount += 1; };
 
       const queue = systemService.getQueue();
 
@@ -476,7 +475,7 @@ describe('system Services tests', () => {
         // apt-get check
         if (cmd === 'apt-get') return { error: null };
         return null;
-      })
+      });
 
       runCmdStub.callsFake(cmdRunner);
 
@@ -490,7 +489,7 @@ describe('system Services tests', () => {
       const clock = sinon.useFakeTimers();
       let workCount = 0;
 
-      const worker = () => { workCount += 1 };
+      const worker = () => { workCount += 1; };
 
       const queue = systemService.getQueue();
 
@@ -508,14 +507,14 @@ describe('system Services tests', () => {
         if (cmd === 'apt-get') return { error: nonLockError };
         if (cmd === 'dpkg') return { error: null };
         return null;
-      })
+      });
 
       runCmdStub.callsFake(cmdRunner);
 
       await systemService.monitorAptCache(event);
 
       sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours.');
-      expect(workCount).to.equal(0)
+      expect(workCount).to.equal(0);
 
       // roll forward 11 hours
       await clock.tickAsync(1000 * 3600 * 11);

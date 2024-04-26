@@ -267,7 +267,9 @@ async function runCommand(userCmd, options = {}) {
   delete execOptions.params;
 
   // Default max of 15 minutes
-  if (!execOptions.hasOwnProperty('timeout')) execOptions['timeout'] = MAX_CHILD_PROCESS_TIME;
+  if (!Object.prototype.hasOwnProperty.call(execOptions, 'timeout')) {
+    execOptions.timeout = MAX_CHILD_PROCESS_TIME;
+  }
 
   if (!userCmd) {
     res.error = new Error('Command must be present');
@@ -338,7 +340,7 @@ function parseVersion(rawVersion) {
   // I.e. dpkg-query --showformat='${Version}' --show netcat-openbsd
   // 1.218-4ubuntu1
 
-  const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)([-~](0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/
+  const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)([-~](0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
 
   const match = semver.exec(rawVersion);
 

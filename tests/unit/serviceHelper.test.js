@@ -560,7 +560,7 @@ describe('serviceHelper tests', () => {
 
   describe('minVersionSatisfy tests', () => {
     const minimalVersion = '3.4.12';
-    const majorMinorOnly = '3.4'
+    const majorMinorOnly = '3.4';
 
     it('should return true if major version is higher than minimalVersion', async () => {
       const versionAllowed = await serviceHelper.minVersionSatisfy('4.0.0', minimalVersion);
@@ -629,7 +629,7 @@ describe('serviceHelper tests', () => {
     });
   });
 
-  describe("parseVersion tests", () => {
+  describe('parseVersion tests', () => {
     it('should parse all semantic versions and also dpkg versions', () => {
       const versions = [
         ['1.2', '1.2'],
@@ -654,9 +654,9 @@ describe('serviceHelper tests', () => {
         ['2.0.1-alpha.1227', '2.0.1'],
         ['1.0.0-alpha+beta', '1.0.0'],
         ['1.2.3----RC-SNAPSHOT.12.9.1--.12+788', '1.2.3'],
-      ]
+      ];
 
-      for (let index = 0; index++; index < versions.length) {
+      for (let index = 0; index < versions.length; index += 1) {
         const { version } = serviceHelper.parseVersion(versions[index[0]]);
         expect(version).to.equal(versions[index[1]]);
       }

@@ -8,19 +8,24 @@ const EventEmitter = require('node:events');
  */
 class FifoQueue extends EventEmitter {
   // Class constants
-  static get defaultRetries() { return 5; };
-  static get defaultRetryDelay() { return 10000; }; // 10s
-  static get defaultMaxSize() { return 10; };
-  static get defaultRetainErrors() { true };
+  static get defaultRetries() { return 5; }
+
+  static get defaultRetryDelay() { return 10000; } // 10s
+
+  static get defaultMaxSize() { return 10; }
+
+  static get defaultRetainErrors() { return true; }
 
   /**
    * The main queue
    */
   #list = [];
+
   /**
    * If the queue is being processed
    */
   working = false;
+
   /**
    * If work has been halted due to error
    */
@@ -54,7 +59,7 @@ class FifoQueue extends EventEmitter {
   }
 
   get length() {
-    return this.#list.length
+    return this.#list.length;
   }
 
   get queueFull() {
@@ -65,7 +70,7 @@ class FifoQueue extends EventEmitter {
    * The items as passed in by the user.
    */
   get list() {
-    return this.#list.map(x => x[0]);
+    return this.#list.map((x) => x[0]);
   }
 
   /**
@@ -76,7 +81,7 @@ class FifoQueue extends EventEmitter {
     if (this.worker) return;
 
     this.worker = worker;
-    if (this.workAvailable) this.work();
+    if (this.workAvailable) this.empty = this.work();
   }
 
   /**
@@ -91,8 +96,7 @@ class FifoQueue extends EventEmitter {
    */
   resume() {
     this.halted = false;
-    this.empty = Promise.resolve();
-    this.work();
+    this.empty = this.work();
   }
 
   /**
@@ -118,9 +122,9 @@ class FifoQueue extends EventEmitter {
 
       this.#list.push([payload, resolve]);
 
-      if (this.worker && !this.working) this.work();
+      if (this.worker && !this.working) this.empty = this.work();
       if (!wait) resolve({ error: null });
-    })
+    });
   }
 
   /**
@@ -172,6 +176,7 @@ class FifoQueue extends EventEmitter {
     while (retriesRemaining) {
       retriesRemaining -= 1;
       try {
+        // eslint-disable-next-line no-await-in-loop
         const res = await this.worker(commandOptions);
         resolve(res);
         return;
@@ -190,7 +195,8 @@ class FifoQueue extends EventEmitter {
         }
 
         // wait default 10 seconds between retries
-        await new Promise(r => setTimeout(r, retryDelay));
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => { setTimeout(r, retryDelay); });
       }
     }
   }
@@ -204,21 +210,19 @@ class FifoQueue extends EventEmitter {
   async work() {
     if (this.working) return;
     this.working = true;
-    this.empty = new Promise(async (resolve) => {
-      try {
-        while (this.workAvailable && !this.halted) {
-          const props = this.shift();
+    try {
+      while (this.workAvailable && !this.halted) {
+        const props = this.shift();
 
-          if (!Object.keys(props).length) return;
+        if (!Object.keys(props).length) return;
 
-          await this.runWorker(props)
-        }
-      } finally {
-        this.working = false;
-        resolve();
+        // eslint-disable-next-line no-await-in-loop
+        await this.runWorker(props);
       }
-    });
+    } finally {
+      this.working = false;
+    }
   }
 }
 
-module.exports = { FifoQueue }
+module.exports = { FifoQueue };

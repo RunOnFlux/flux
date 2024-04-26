@@ -20,21 +20,21 @@ describe('FiFoQueue tests', () => {
       expect(queue.retries).to.equal(5);
       expect(queue.retryDelay).to.equal(10000);
       expect(queue.maxSize).to.equal(10);
-    })
+    });
     it('should add the worker if defined at instantiation', () => {
-      const worker = () => { }
+      const worker = () => { };
 
       const queue = new fifoQueue.FifoQueue({ worker });
       expect(queue.worker).to.equal(worker);
-    })
+    });
     it('should add the worker if added via addWorker', () => {
-      const worker = () => { }
+      const worker = () => { };
 
       const queue = new fifoQueue.FifoQueue();
       queue.addWorker(worker);
 
       expect(queue.worker).to.equal(worker);
-    })
+    });
     it('should not start work if work is avaiable but no worker present', () => {
       const queue = new fifoQueue.FifoQueue();
       queue.push('hi there');
@@ -43,20 +43,20 @@ describe('FiFoQueue tests', () => {
       expect(queue.working).to.equal(false);
       expect(queue.list.length).to.equal(1);
       expect(queue.halted).to.equal(false);
-    })
-  })
+    });
+  });
 
   describe('FifoQueue work tests', () => {
     beforeEach(() => {
 
-    })
+    });
     afterEach(() => {
       sinon.restore();
-    })
+    });
 
     it('should start work if worker present and task added to queue', async () => {
       let called = 0;
-      const worker = async () => { called += 1; }
+      const worker = async () => { called += 1; };
       const queue = new fifoQueue.FifoQueue({ worker });
 
       const promise = queue.push('hi there');
@@ -64,7 +64,7 @@ describe('FiFoQueue tests', () => {
       await promise;
       expect(queue.working).to.equal(false);
       expect(called).to.equal(1);
-    })
+    });
 
     it('should await work if worker present and task added to queue', async () => {
       const clock = sinon.useFakeTimers();
@@ -73,10 +73,10 @@ describe('FiFoQueue tests', () => {
       const wait = true;
 
       const worker = async () => {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise((r) => { setTimeout(r, 1000); });
         called += 1;
-        return 42
-      }
+        return 42;
+      };
 
       const queue = new fifoQueue.FifoQueue({ worker });
 
@@ -90,7 +90,7 @@ describe('FiFoQueue tests', () => {
       expect(queue.working).to.equal(false);
       expect(called).to.equal(1);
       expect(res).to.equal(42);
-    })
+    });
 
     it('should retry task if task has an error', async () => {
       const clock = sinon.useFakeTimers();
@@ -104,12 +104,12 @@ describe('FiFoQueue tests', () => {
           throw new Error('Simulated task error');
         }
         called += 1;
-        return 42
-      }
+        return 42;
+      };
 
       const queue = new fifoQueue.FifoQueue({ retries: 1, worker });
 
-      queue.on('failed', () => { error += 1 });
+      queue.on('failed', () => { error += 1; });
 
       queue.push(['lets work!']);
       expect(called).to.equal(1);
@@ -119,23 +119,21 @@ describe('FiFoQueue tests', () => {
       expect(called).to.equal(2);
       expect(error).to.equal(0);
       expect(queue.working).to.equal(false);
-      await queue.empty
-    })
+      await queue.empty;
+    });
 
     it('should emit error if task is unrecoverable', async () => {
       const clock = sinon.useFakeTimers();
 
       let error = 0;
 
-      const wait = true;
-
       const worker = async () => {
         throw new Error('Simulated task error');
-      }
+      };
 
       const queue = new fifoQueue.FifoQueue({ retries: 2, retryDelay: 500, worker });
 
-      queue.on('failed', () => error += 1);
+      queue.on('failed', () => { error += 1; });
 
       queue.push(['lets work!']);
 
@@ -143,8 +141,8 @@ describe('FiFoQueue tests', () => {
       await clock.tickAsync(1000);
 
       expect(error).to.equal(1);
-      await queue.empty
-    })
+      await queue.empty;
+    });
 
     it('should run tasks synchronously', async () => {
       const clock = sinon.useFakeTimers();
@@ -155,15 +153,15 @@ describe('FiFoQueue tests', () => {
       const wait = true;
 
       const worker = async (input) => {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise((r) => { setTimeout(r, 1000); });
         count += 1;
-        return input
-      }
+        return input;
+      };
 
       const queue = new fifoQueue.FifoQueue({ worker });
 
-      const tasks = []
-      for (let i = 0; i < 5; i++) {
+      const tasks = [];
+      for (let i = 0; i < 5; i += 1) {
         tasks.push(queue.push(i, wait));
       }
 
@@ -171,7 +169,7 @@ describe('FiFoQueue tests', () => {
       await clock.tickAsync(2 * 1000);
       expect(count).to.equal(2);
 
-      for (let i = 5; i < 10; i++) {
+      for (let i = 5; i < 10; i += 1) {
         tasks.push(queue.push(i, wait));
       }
 
@@ -183,8 +181,8 @@ describe('FiFoQueue tests', () => {
       expect(count).to.equal(10);
       expect(results).to.deep.equal(expected);
 
-      await queue.empty
-    })
+      await queue.empty;
+    });
 
     it('should halt any further tasks if a task errors', async () => {
       const clock = sinon.useFakeTimers();
@@ -196,19 +194,19 @@ describe('FiFoQueue tests', () => {
       const wait = true;
 
       const worker = async (input) => {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise((r) => { setTimeout(r, 1000); });
         if (count === 3) throw new Error('Simulated task error');
 
         count += 1;
 
-        return input
-      }
+        return input;
+      };
 
       const queue = new fifoQueue.FifoQueue({ worker });
-      queue.on('failed', () => error += 1);
+      queue.on('failed', () => { error += 1; });
 
-      const tasks = []
-      for (let i = 0; i < 10; i++) {
+      const tasks = [];
+      for (let i = 0; i < 10; i += 1) {
         tasks.push(queue.push(i, wait));
       }
 
@@ -226,11 +224,11 @@ describe('FiFoQueue tests', () => {
       expect(queue.halted).to.equal(true);
       expect(queue.workAvailable).to.equal(true);
       // task gets added back to start of queue
-      expect(queue.length).to.equal(7)
+      expect(queue.length).to.equal(7);
 
       expect(count).to.equal(3);
       expect(queue.list).to.deep.equal(expectedRemaining);
-    })
+    });
 
     it('should resume tasks if there was a previous error', async () => {
       const clock = sinon.useFakeTimers();
@@ -246,32 +244,32 @@ describe('FiFoQueue tests', () => {
         // so if it's the first item in the queue
         if (!input && count <= 6) throw new Error('Simulated task error');
 
-        return input
-      }
+        return input;
+      };
 
       const queue = new fifoQueue.FifoQueue({ worker });
-      queue.on('failed', () => error += 1);
+      queue.on('failed', () => { error += 1; });
 
-      const tasks = []
-      for (let i = 0; i < 10; i++) {
+      const tasks = [];
+      for (let i = 0; i < 10; i += 1) {
         tasks.push(queue.push(i, wait));
       }
 
       // run out the retry clock
-      await clock.tickAsync(50 * 1000)
+      await clock.tickAsync(50 * 1000);
 
       expect(error).to.equal(1);
       expect(queue.halted).to.equal(true);
 
       // run out the clock some more, if tasks were still running,
       // they would have finished a long time ago
-      await clock.tickAsync(50 * 1000)
+      await clock.tickAsync(50 * 1000);
       expect(queue.halted).to.equal(true);
       queue.resume();
-      await queue.empty
+      await queue.empty;
       // 7 for the first task, 1 normal attempt, 5 retries. Then another normal attempt
       // after the resume(), then 9 normal tasks = 16.
       expect(count).to.equal(16);
-    })
-  })
-})
+    });
+  });
+});

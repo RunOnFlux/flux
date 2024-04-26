@@ -17,12 +17,11 @@ let syncthingTimer = null;
  */
 let aptCacheTimer = null;
 
-
 /**
  * A FIFO queue used to store and run apt commands
  * @type {fifoQueue.FifoQueue}
  */
-const aptQueue = new fifoQueue.FifoQueue()
+const aptQueue = new fifoQueue.FifoQueue();
 
 /**
  * For testing
@@ -56,8 +55,8 @@ async function aptRunner(options = {}) {
   // this is so this command can be retried by the worker runner
   if (error) throw error;
 
-  log.info(`Command: apt-get ${userParams.join(' ')} ran successfully`)
-  return { error: null }
+  log.info(`Command: apt-get ${userParams.join(' ')} ran successfully`);
+  return { error: null };
 }
 
 /**
@@ -105,15 +104,15 @@ async function queueAptGetCommand(command, options = {}) {
   const params = options.params || [];
 
   if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
-    log.error('Malformed apt params. Must be an Array of strings... not running.')
-    return;
+    log.error('Malformed apt params. Must be an Array of strings... not running.');
+    return Promise.resolve();
   }
 
   const wait = options.wait || false;
-  const commandOptions = { command, params, timeout: options.timeout }
-  const workerOptions = { retries: options.retries }
+  const commandOptions = { command, params, timeout: options.timeout };
+  const workerOptions = { retries: options.retries };
 
-  return aptQueue.push({ commandOptions, workerOptions }, wait)
+  return aptQueue.push({ commandOptions, workerOptions }, wait);
 }
 
 /**
@@ -140,7 +139,7 @@ async function updateAptCache() {
     // We can still get a race condition if another entity on the system
     // updates the cache before us. In that instance, the command throws,
     // since this is just a cache update, we assume it was fine and don't retry.
-    const { error } = await queueAptGetCommand('update', { wait: true, retries: 0 })
+    const { error } = await queueAptGetCommand('update', { wait: true, retries: 0 });
     if (!error) log.info('Apt Cache updated');
     return Boolean(error);
   }
@@ -177,7 +176,7 @@ async function upgradePackage(systemPackage) {
   // we don't care about any errors here.
   await updateAptCache();
 
-  const { error } = await queueAptGetCommand('install', { wait: true, params: [systemPackage] })
+  const { error } = await queueAptGetCommand('install', { wait: true, params: [systemPackage] });
   return Boolean(error);
 }
 
@@ -222,14 +221,14 @@ async function monitorSyncthingPackage() {
 
     const versionChecker = async () => {
       const {
-        data: { data }
+        data: { data },
       } = await axios
         .get('https://stats.runonflux.io/getmodulesminimumversions', {
           timeout: 10000,
         })
         .catch((error) => {
           log.error(error);
-          return { data: { data: {} } }
+          return { data: { data: {} } };
         });
 
       // we don't need to check that status here, if there is an error 'syncthing' won't
@@ -237,7 +236,7 @@ async function monitorSyncthingPackage() {
       const syncthingVersion = data.syncthing || config.minimumSyncthingAllowedVersion;
 
       await ensurePackageVersion('syncthing', syncthingVersion);
-    }
+    };
 
     await versionChecker();
 
@@ -293,16 +292,17 @@ async function monitorAptCache(event) {
   // this is for lock errors only
   while (!nonLockError && retriesRemaining) {
     retriesRemaining -= 1;
-    // 10 minutes
+    // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(10 * 60 * 1000);
-    const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
-    if (!error) {
+    // eslint-disable-next-line no-await-in-loop
+    const { error: lockCheckError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
+    if (!lockCheckError) {
       aptCacheTimer = null;
       aptQueue.resume();
       return;
-    };
+    }
 
-    if (!error.message.includes('/var/lib/dpkg/lock-frontend')) {
+    if (!lockCheckError.message.includes('/var/lib/dpkg/lock-frontend')) {
       nonLockError = error;
       break;
     }
@@ -330,7 +330,7 @@ async function monitorAptCache(event) {
   aptCacheTimer = setTimeout(() => {
     aptCacheTimer = null;
     aptQueue.resume();
-  }, 1000 * 3600 * 12)
+  }, 1000 * 3600 * 12);
 }
 
 /**
