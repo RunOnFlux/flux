@@ -440,5 +440,6 @@
    "mbround18/valheim:latest",
    "avasdao",
    "splunk",
-   "ollama"
+   "ollama",
+   "ghcr.io/open-webui/open-webui"
 ]
