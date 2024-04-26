@@ -7,6 +7,12 @@ const EventEmitter = require('node:events');
  * they will queue up.
  */
 class FifoQueue extends EventEmitter {
+  // Class constants
+  static get defaultRetries() { return 5; };
+  static get defaultRetryDelay() { return 10000; }; // 10s
+  static get defaultMaxSize() { return 10; };
+  static get defaultRetainErrors() { true };
+
   /**
    * The main queue
    */
@@ -27,15 +33,16 @@ class FifoQueue extends EventEmitter {
 
   /**
    *
-   * @param {{worker?: () => Promise<void>, retries?: number, retryDelay?: number, maxSize?: number}} options
+   * @param {{worker?: () => Promise<void>, retries?: number, retryDelay?: number, maxSize?: number, retainErrors?: Boolean}} options
    */
   constructor(options = {}) {
     super();
 
     this.worker = options.worker || null;
-    this.retries = options.retries ?? 5;
-    this.retryDelay = options.retryDelay ?? 10 * 1000; // 10s
-    this.maxSize = options.maxSize ?? 10; // 0 infinite
+    this.retries = options.retries ?? FifoQueue.defaultRetries;
+    this.retryDelay = options.retryDelay ?? FifoQueue.defaultRetryDelay;
+    this.maxSize = options.maxSize ?? FifoQueue.defaultMaxSize; // 0 infinite
+    this.retainErrors = options.retainErrors ?? FifoQueue.defaultRetainErrors;
   }
 
   /**
@@ -84,12 +91,23 @@ class FifoQueue extends EventEmitter {
    */
   resume() {
     this.halted = false;
+    this.empty = Promise.resolve();
     this.work();
   }
 
   /**
+   * Remove all items from queue
+   */
+  clear() {
+    this.#list.length = 0;
+    this.working = false;
+    this.halted = false;
+    this.empty = Promise.resolve();
+  }
+
+  /**
    * @param {Object} payload The properties to pass to the worker
-   * @param {Boolean} wait If we should wait for the work to be finished
+   * @param {Boolean?} wait If we should wait for the work to be finished
    * @return {Promise<Any>}
    */
   async push(payload, wait = false) {
@@ -167,7 +185,7 @@ class FifoQueue extends EventEmitter {
         // Can get halted externally too.
         // we put this task back at the start of the queue and bail.
         if (this.halted) {
-          this.#list.unshift(props);
+          if (this.retainErrors) this.#list.unshift(props);
           break;
         }
 

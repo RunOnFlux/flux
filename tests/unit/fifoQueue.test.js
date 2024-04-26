@@ -6,7 +6,6 @@ const { expect } = chai;
 
 const fifoQueue = require('../../ZelBack/src/services/utils/fifoQueue');
 
-
 describe('FiFoQueue tests', () => {
   describe('FiFoQueue initialization tests', () => {
     it('should instantiate with defaults, and be an instance of EventEmitter', async () => {

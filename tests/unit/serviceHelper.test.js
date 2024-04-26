@@ -78,6 +78,7 @@ describe('serviceHelper tests', () => {
 
       expect(ensureNumberOutput).to.be.NaN;
     });
+
     it('parameter {name: 1} of type object should return NaN', () => {
       const ensureNumberOutput = serviceHelper.ensureNumber({ name: 1 });
 

@@ -25,16 +25,22 @@ let aptCacheTimer = null;
 const aptQueue = new fifoQueue.FifoQueue()
 
 /**
+ * For testing
+ * @returns {fifoQueue.FifoQueue}
+ */
+function getQueue() {
+  return aptQueue;
+}
+
+/**
  * Runs an apt command, by default for any install commands, it will
  * use the native lock waiter and wait for 3 minutes, retrying 5 times.
  * For a total of 15 minutes + 50 seconds until failure.
- * @param {string} command
- * @param {Array<string>} userParams
- * @param {number} timeout
+ * @param {{command: string, params: Array<string>, timeout?: number}} options
+ * @returns {Promise<void>}
  */
 async function aptRunner(options = {}) {
-  const command = options.command;
-  const userParams = [command, ...options.params];
+  const userParams = [options.command, ...options.params];
   const timeout = options.timeout || 180;
 
   // using -o DPkg::Lock::Timeout=180, apt-get will wait for 3 minutes for a lock
@@ -57,9 +63,11 @@ async function aptRunner(options = {}) {
 /**
  * For testing
  */
-function resetTimer() {
+function resetTimers() {
   clearInterval(syncthingTimer);
+  clearInterval(aptCacheTimer);
   syncthingTimer = null;
+  aptCacheTimer = null;
 }
 
 /**
@@ -183,7 +191,6 @@ async function ensurePackageVersion(systemPackage, version) {
   try {
     log.info(`Checking package ${systemPackage} is updated to version ${version}`);
     const currentVersion = await getPackageVersion(systemPackage);
-
     if (!currentVersion) {
       log.info(`Package ${systemPackage} not found on system`);
       await upgradePackage(systemPackage);
@@ -213,33 +220,44 @@ async function monitorSyncthingPackage() {
   try {
     if (syncthingTimer) return;
 
-    let syncthingVersion = config.minimumSyncthingAllowedVersion;
-    const axiosConfig = {
-      timeout: 10000,
-    };
-    let response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
-    if (response && response.data && response.data.status === 'success') {
-      syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
+    const versionChecker = async () => {
+      const {
+        data: { data }
+      } = await axios
+        .get('https://stats.runonflux.io/getmodulesminimumversions', {
+          timeout: 10000,
+        })
+        .catch((error) => {
+          log.error(error);
+          return { data: { data: {} } }
+        });
+
+      // we don't need to check that status here, if there is an error 'syncthing' won't
+      // have a value
+      const syncthingVersion = data.syncthing || config.minimumSyncthingAllowedVersion;
+
+      await ensurePackageVersion('syncthing', syncthingVersion);
     }
 
-    await ensurePackageVersion('syncthing', syncthingVersion);
+    await versionChecker();
 
-    syncthingTimer = setInterval(async () => {
-      syncthingVersion = config.minimumSyncthingAllowedVersion;
-      response = await axios.get('https://stats.runonflux.io/getmodulesminimumversions', axiosConfig).catch((error) => log.error(error));
-      if (response && response.data && response.data.status === 'success') {
-        syncthingVersion = response.data.data.syncthing || config.minimumSyncthingAllowedVersion;
-      }
-      ensurePackageVersion('syncthing', syncthingVersion);
-    }, 1000 * 60 * 60 * 24); // 24 hours
+    syncthingTimer = setInterval(versionChecker, 1000 * 60 * 60 * 24); // 24 hours
   } catch (error) {
     log.error(error);
   }
 }
 
+/**
+ * Checks the state of the apt cache. Checks if other processes have the cache
+ * locked. If there is an error that doesn't involve a lock, it tries to configure the cache
+ * to fix the error. If the error resolves, the queue is resumed, otherwise, it waits 12 hours and tries again.
+ * @param {{options, error}} event The event emitted to trigger apt cache monitoring
+ * @returns {Promise<void>}
+ */
 async function monitorAptCache(event) {
   if (aptCacheTimer) return;
 
+  // The options are what the worker was called with by the user
   const { options, error } = event;
 
   // we don't care about apt-get update error, most likely
@@ -261,6 +279,8 @@ async function monitorAptCache(event) {
   // E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?
 
   let nonLockError = null;
+  let failed = false;
+
   // check the error message. This is brittle, as it is dependent on
   // apt-get not changing output etc.
   if (!error.message.includes('/var/lib/dpkg/lock-frontend')) {
@@ -270,36 +290,47 @@ async function monitorAptCache(event) {
   // wait a further 30 minutes for lock to release. (seems a long time?)
   let retriesRemaining = 3;
 
+  // this is for lock errors only
   while (!nonLockError && retriesRemaining) {
     retriesRemaining -= 1;
     // 10 minutes
     await serviceHelper.delay(10 * 60 * 1000);
     const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
-    if (!error) break;
+    if (!error) {
+      aptCacheTimer = null;
+      aptQueue.resume();
+      return;
+    };
 
     if (!error.message.includes('/var/lib/dpkg/lock-frontend')) {
-      // this will break loop
       nonLockError = error;
+      break;
     }
+
+    if (!retriesRemaining) failed = true;
   }
 
+  // at this point, the cache could still be locked, or there could be a different error
   if (nonLockError) {
-    // we have another error, and it's not a lock. Try dpkg configure as
-    // a last resort.
+    // Try dpkg configure as a last resort.
     await serviceHelper.runCommand('dpkg', { runAsRoot: true, params: ['--configure', '-a'] });
   }
 
-  // check if we can resume
-  const { error: checkError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
+  if (!failed) {
+    const { error: checkError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
 
-  if (!checkError) {
-    aptCacheTimer = null;
-    aptQueue.resume();
-    return;
+    if (!checkError) {
+      aptCacheTimer = null;
+      aptQueue.resume();
+      return;
+    }
   }
 
-  log.error('Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours');
-  aptCacheTimer = setTimeout(() => aptQueue.resume(), 1000 * 3600 * 12)
+  log.error('Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours.');
+  aptCacheTimer = setTimeout(() => {
+    aptCacheTimer = null;
+    aptQueue.resume();
+  }, 1000 * 3600 * 12)
 }
 
 /**
@@ -335,14 +366,17 @@ if (require.main === module) {
 }
 
 module.exports = {
-  getPackageVersion,
-  monitorSyncthingPackage,
   monitorSystem,
-  queueAptGetCommand,
   // testing exports
+  aptRunner,
   cacheUpdateTime,
-  resetTimer,
+  ensurePackageVersion,
+  getPackageVersion,
+  getQueue,
+  monitorAptCache,
+  monitorSyncthingPackage,
+  queueAptGetCommand,
+  resetTimers,
   updateAptCache,
   upgradePackage,
-  ensurePackageVersion,
 };
