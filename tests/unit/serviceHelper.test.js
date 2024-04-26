@@ -444,7 +444,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd', { runAsRoot: true });
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'sudo', ['testCmd'], {});
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'sudo', ['testCmd'], { timeout: 900000 });
       sinon.assert.calledOnceWithExactly(debugSpy, 'Run Cmd: sudo testCmd');
     });
 
@@ -501,7 +501,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd');
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], {});
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { timeout: 900000 });
       sinon.assert.calledOnceWithExactly(debugSpy, 'Run Cmd: testCmd ');
     });
 
@@ -520,7 +520,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd');
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], {});
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { timeout: 900000 });
       sinon.assert.calledOnceWithExactly(errorSpy, error);
     });
     it('should return error and not log it if command causes an error and logError is false', async () => {
@@ -538,7 +538,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd', { logError: false });
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], {});
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { timeout: 900000 });
       sinon.assert.notCalled(errorSpy);
     });
     it('should pass along any exec options to execFile', async () => {
@@ -553,7 +553,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd', { cwd: '/home/testuser' });
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { cwd: '/home/testuser' });
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { cwd: '/home/testuser', timeout: 900000 });
       sinon.assert.notCalled(errorSpy);
     });
   });
@@ -657,8 +657,8 @@ describe('serviceHelper tests', () => {
       ];
 
       for (let index = 0; index < versions.length; index += 1) {
-        const { version } = serviceHelper.parseVersion(versions[index[0]]);
-        expect(version).to.equal(versions[index[1]]);
+        const { version } = serviceHelper.parseVersion(versions[index][0]);
+        expect(version).to.equal(versions[index][1]);
       }
     });
   });
