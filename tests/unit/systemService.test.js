@@ -177,6 +177,9 @@ describe('system Services tests', () => {
 
       const axiosStub = sinon.stub(axios, 'get').resolves(axiosRes);
 
+      // for aptSource
+      statStub.resolves(true);
+
       runCmdStub.resolves({ error: null, stdout: statsVersion });
 
       await systemService.monitorSyncthingPackage();
@@ -192,6 +195,9 @@ describe('system Services tests', () => {
       config.minimumSyncthingAllowedVersion = localVersion;
 
       const axiosStub = sinon.stub(axios, 'get').rejects(new Error('Simulated Axios error'));
+
+      // for aptSource
+      statStub.resolves(true);
 
       runCmdStub.resolves({ error: null, stdout: localVersion });
 
@@ -209,6 +215,9 @@ describe('system Services tests', () => {
 
       const axiosStub = sinon.stub(axios, 'get').resolves({ data: { status: 'error', data: { code: 123, error: 'Test error', message: 'Broken' } } });
 
+      // for aptSource
+      statStub.resolves(true);
+
       runCmdStub.resolves({ error: null, stdout: localVersion });
 
       await systemService.monitorSyncthingPackage();
@@ -224,6 +233,9 @@ describe('system Services tests', () => {
       config.minimumSyncthingAllowedVersion = localVersion;
 
       const axiosStub = sinon.stub(axios, 'get').resolves({ data: { status: 'success', data: { syncthing: null } } });
+
+      // for aptSource
+      statStub.resolves(true);
 
       runCmdStub.resolves({ error: null, stdout: localVersion });
 
