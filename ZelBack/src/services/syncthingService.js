@@ -2201,7 +2201,7 @@ async function startSyncthing() {
 
     while (!syncthingExecutable) {
       // eslint-disable-next-line no-await-in-loop
-      const { error } = await serviceHelper.runCommand('syncthing', { params: '--version' });
+      const { error } = await serviceHelper.runCommand('syncthing', { params: ['--version'] });
       if (!error) {
         syncthingExecutable = true;
         startSyncthing();
