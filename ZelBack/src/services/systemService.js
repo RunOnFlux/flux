@@ -1,6 +1,6 @@
 const fs = require('node:fs/promises');
 const os = require('node:os');
-const path = require('node:path')
+const path = require('node:path');
 
 const axios = require('axios');
 
@@ -193,33 +193,42 @@ async function upgradePackage(systemPackage) {
  * Downloads a gpg key and stores it in /usr/share/keyrings
  * @param {string} url  The url to fetch the key from
  * @param {string} keyringName The name of the keyring file
- * @returns {Promise<Boolean>}
+ * @returns {Promise<Boolean>} If the add action was successful
  */
 async function addGpgKey(url, keyringName) {
   let keyring = '';
 
-  let remainingAttempts = 3
+  let remainingAttempts = 3;
   while (!keyring && remainingAttempts) {
     remainingAttempts -= 1;
-    const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 10000 }).catch(async (error) => {
+    // eslint-disable-next-line no-await-in-loop
+    const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 10000 }).catch(async () => {
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(30 * 1000);
       return { data: null };
-    })
+    });
     if (data) keyring = Buffer.from(data, 'binary');
   }
 
-  if (!keyring) return false;
+  if (!keyring) {
+    log.error('Unable to fetch syncthing gpg keyring');
+    return false;
+  }
 
   const filePath = `/usr/share/keyrings/${keyringName}`;
 
   // this is a hack until we fork a small nodejs process with IPC as root for apt management / fs management (idea)
   // check /usr/share/keyrings is writeable
-  await fs.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK).catch(async () => {
+  // eslint-disable-next-line no-bitwise
+  const keyringAccessError = await fs.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK).catch(async () => {
     const user = os.userInfo().username;
     const { error } = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${user}:${user}`, path.dirname(filePath)] });
-    if (error) return false;
-  })
+    if (error) return true;
+
+    return false;
+  });
+
+  if (keyringAccessError) return false;
 
   let success = true;
   // as long as the directory exists, this shouldn't error
@@ -232,7 +241,7 @@ async function addGpgKey(url, keyringName) {
 }
 
 async function addAptSource(packageName, url, dist, components, options = {}) {
-  const source = options.source || 'deb'
+  const source = options.source || 'deb';
   const opts = options.options || [];
 
   const targetItems = [source, url, dist, ...components];
@@ -241,17 +250,22 @@ async function addAptSource(packageName, url, dist, components, options = {}) {
     targetItems.splice(1, 0, `[ ${opts.join(' ')} ]`);
   }
 
-  const target = targetItems.join(' ') + '\n';
+  const target = `${targetItems.join(' ')}\n`;
 
   const filePath = `/etc/apt/sources.list.d/${packageName}.list`;
 
   // this is a hack until we fork a smaller nodejs process as root for apt management (idea)
   // check /etc/apt/sources.list.d is writeable
-  await fs.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK).catch(async () => {
+  // eslint-disable-next-line no-bitwise
+  const sourcesAccessError = await fs.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK).catch(async () => {
     const user = os.userInfo().username;
     const { error } = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${user}:${user}`, path.dirname(filePath)] });
-    if (error) return false;
-  })
+    if (error) return true;
+
+    return false;
+  });
+
+  if (sourcesAccessError) return false;
 
   let success = true;
 
@@ -454,7 +468,7 @@ async function monitorSystem() {
     // don't await these, let the queue deal with it
 
     // ubuntu 18.04 -> 24.04 all share this package
-    ensurePackageVersion('ca-certificates', '20230311')
+    ensurePackageVersion('ca-certificates', '20230311');
     // 18.04 == 1.187
     // 20.04 == 1.206
     // 22.04 == 1.218

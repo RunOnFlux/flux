@@ -2090,6 +2090,7 @@ function isRunning() {
  * Check if Synchtng is installed and if not install it
  */
 let syncthingExecutable = false;
+// eslint-disable-next-line no-unused-vars
 async function installSyncthing() { // can throw
   // check if syncthing is installed or not
   log.info('Checking if Syncthing is installed...');
@@ -2199,12 +2200,14 @@ async function startSyncthing() {
     run += 1;
 
     while (!syncthingExecutable) {
+      // eslint-disable-next-line no-await-in-loop
       const { error } = await serviceHelper.runCommand('syncthing', { params: '--version' });
       if (!error) {
         syncthingExecutable = true;
         startSyncthing();
         return;
       }
+      log.warn('Unable to find syncthing excutable... trying again in 15s.');
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(15 * 1000);
     }
