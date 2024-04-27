@@ -1,4 +1,7 @@
 const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path')
+
 const axios = require('axios');
 
 const config = require('config');
@@ -41,6 +44,9 @@ function getQueue() {
 async function aptRunner(options = {}) {
   const userParams = [options.command, ...options.params];
   const timeout = options.timeout || 180;
+
+  // ubuntu 18.04 only has apt 1.6.14 (1.16.17 after upgrade) - so doesn't have Lock
+  // timeout. It is safe to use as apt will just ignore it
 
   // using -o DPkg::Lock::Timeout=180, apt-get will wait for 3 minutes for a lock
 
@@ -118,15 +124,18 @@ async function queueAptGetCommand(command, options = {}) {
 /**
  * Updates the apt cache, will only update if it hasn't
  * been updated within 24 hours.
+ * @param {{force?: Boolean}} options
  * @returns {Promise<Boolean>} If there was an error
  */
-async function updateAptCache() {
+async function updateAptCache(options = {}) {
+  const force = options.force || false;
+
   // for testing, if you want to reset the lastUpdate time, you can run:
   //  sudo touch -d '2007-01-31 8:46:26' /var/lib/apt/periodic/update-success-stamp
   const oneDay = 86400 * 1000;
   const lastUpdate = await cacheUpdateTime();
 
-  if (lastUpdate + oneDay < Date.now()) {
+  if (force || lastUpdate + oneDay < Date.now()) {
     // update uses the /var/lib/apt/lists dir for a lock.
     // This isn't affected by the DPkg::Lock::Timeout option. It only
     // seems to care about the install /var/lib/dpkg/lock-frontend lock.
@@ -181,6 +190,105 @@ async function upgradePackage(systemPackage) {
 }
 
 /**
+ * Downloads a gpg key and stores it in /usr/share/keyrings
+ * @param {string} url  The url to fetch the key from
+ * @param {string} keyringName The name of the keyring file
+ * @returns {Promise<Boolean>}
+ */
+async function addGpgKey(url, keyringName) {
+  let keyring = '';
+
+  let remainingAttempts = 3
+  while (!keyring && remainingAttempts) {
+    remainingAttempts -= 1;
+    const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 10000 }).catch(async (error) => {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(30 * 1000);
+      return { data: null };
+    })
+    if (data) keyring = Buffer.from(data, 'binary');
+  }
+
+  if (!keyring) return false;
+
+  const filePath = `/usr/share/keyrings/${keyringName}`;
+
+  // this is a hack until we fork a small nodejs process with IPC as root for apt management / fs management (idea)
+  // check /usr/share/keyrings is writeable
+  await fs.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK).catch(async () => {
+    const user = os.userInfo().username;
+    const { error } = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${user}:${user}`, path.dirname(filePath)] });
+    if (error) return false;
+  })
+
+  let success = true;
+  // as long as the directory exists, this shouldn't error
+  await fs.writeFile(filePath, keyring).catch((error) => {
+    log.error(error);
+    success = false;
+  });
+
+  return success;
+}
+
+async function addAptSource(packageName, url, dist, components, options = {}) {
+  const source = options.source || 'deb'
+  const opts = options.options || [];
+
+  const targetItems = [source, url, dist, ...components];
+
+  if (opts.length) {
+    targetItems.splice(1, 0, `[ ${opts.join(' ')} ]`);
+  }
+
+  const target = targetItems.join(' ') + '\n';
+
+  const filePath = `/etc/apt/sources.list.d/${packageName}.list`;
+
+  // this is a hack until we fork a smaller nodejs process as root for apt management (idea)
+  // check /etc/apt/sources.list.d is writeable
+  await fs.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK).catch(async () => {
+    const user = os.userInfo().username;
+    const { error } = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${user}:${user}`, path.dirname(filePath)] });
+    if (error) return false;
+  })
+
+  let success = true;
+
+  await fs.writeFile(filePath, target).catch((error) => {
+    log.error(error);
+    success = false;
+  });
+
+  return success;
+}
+
+/**
+ * If the syncthing apt source doesn't exist, create it
+ * @returns {Promise<void>}
+ */
+async function addSyncthingAptSource() {
+  const sourceExists = await fs.stat('/etc/apt/sources.list.d/syncthing.list').catch(() => false);
+  if (sourceExists) return;
+
+  const url = 'https://syncthing.net/release-key.gpg';
+  const keyringName = 'syncthing-archive-keyring.gpg';
+
+  // this will log errors
+  const keyAdded = await addGpgKey(url, keyringName);
+
+  if (!keyAdded) return;
+
+  const params = ['syncthing', 'https://apt.syncthing.net/', 'syncthing', ['stable']];
+  // this will log errors
+  const sourceAdded = await addAptSource(...params, { options: ['signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg'] });
+
+  if (!sourceAdded) return;
+
+  await updateAptCache({ force: true });
+}
+
+/**
  *  Makes sure the package version is above the minimum version provided
  * @param {string} systemPackage The package version to check
  * @param {string} version The minimum acceptable version
@@ -218,6 +326,8 @@ async function ensurePackageVersion(systemPackage, version) {
 async function monitorSyncthingPackage() {
   try {
     if (syncthingTimer) return;
+
+    await addSyncthingAptSource();
 
     const versionChecker = async () => {
       const {
@@ -343,10 +453,13 @@ async function monitorSystem() {
 
     // don't await these, let the queue deal with it
 
+    // ubuntu 18.04 -> 24.04 all share this package
+    ensurePackageVersion('ca-certificates', '20230311')
+    // 18.04 == 1.187
     // 20.04 == 1.206
     // 22.04 == 1.218
     // Debian 12 = 1.219
-    ensurePackageVersion('netcat-openbsd', '1.206');
+    ensurePackageVersion('netcat-openbsd', '1.187');
     monitorSyncthingPackage();
   } catch (error) {
     log.error(error);
@@ -354,15 +467,17 @@ async function monitorSystem() {
 }
 
 if (require.main === module) {
+  // aptQueue.addWorker(aptRunner);
+  // aptQueue.on('failed', monitorAptCache);
   aptQueue.addWorker(aptRunner);
-  aptQueue.on('failed', monitorAptCache);
+  addSyncthingAptSource();
   // updateAptCache().then(res => {
   //   console.log("Cache update error:", res)
   // })
   // upgradePackage('syncthing').then(res => {
   //   console.log("Package upgrade error:", res)
   // })
-  monitorSystem();
+  // monitorSystem();
 }
 
 module.exports = {

@@ -561,6 +561,7 @@ describe('serviceHelper tests', () => {
   describe('minVersionSatisfy tests', () => {
     const minimalVersion = '3.4.12';
     const majorMinorOnly = '3.4';
+    const majorOnly = '20230311';
 
     it('should return true if major version is higher than minimalVersion', async () => {
       const versionAllowed = await serviceHelper.minVersionSatisfy('4.0.0', minimalVersion);
@@ -627,11 +628,24 @@ describe('serviceHelper tests', () => {
 
       expect(versionAllowed).to.equal(true);
     });
+
+    it('should return true if major version is higher than minimalVersion and no minor or patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('20240507', majorOnly);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return false if major version is lower than minimalVersion and no minor or patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('20221023', majorOnly);
+
+      expect(versionAllowed).to.equal(false);
+    });
   });
 
   describe('parseVersion tests', () => {
     it('should parse all semantic versions and also dpkg versions', () => {
       const versions = [
+        ['20230311ubuntu0.22.04.1', '20230311'],
         ['1.2', '1.2'],
         ['5.7-prerelease', '5.7'],
         ['1.218-4ubuntu1', '1.218'],

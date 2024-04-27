@@ -334,15 +334,14 @@ async function runCommand(userCmd, options = {}) {
  * @returns {{version, major, minor, patch} | null} The parsed version
  */
 function parseVersion(rawVersion) {
-  // Todo: tests
+  // modified this to allow for just major and minor or just major. (and also ~ instead of - after version)
+  // I.e:
+  //    dpkg-query --showformat='${Version}' --show netcat-openbsd    1.218-4ubuntu1
+  //    dpkg-query --showformat='${Version}' --show ca-certificates   20230311ubuntu0.22.04.1
 
-  // modified this to allow for just major and minor. (and also ~ instead of - after version)
-  // I.e. dpkg-query --showformat='${Version}' --show netcat-openbsd
-  // 1.218-4ubuntu1
+  const versionRegex = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)(?:\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)?)([-~]?(0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
 
-  const semver = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)([-~](0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
-
-  const match = semver.exec(rawVersion);
+  const match = versionRegex.exec(rawVersion);
 
   if (match) {
     const {
@@ -392,6 +391,10 @@ function minVersionSatisfy(targetVersion, minimumVersion) {
     return false;
   }
   return true;
+}
+
+if (require.main === module) {
+  console.log(parseVersion('20230311ubuntu0.22.04.1'));
 }
 
 module.exports = {
