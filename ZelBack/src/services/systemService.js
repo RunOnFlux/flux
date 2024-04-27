@@ -1,4 +1,7 @@
 const fs = require('node:fs/promises');
+// we do this for node 14.18.1... it doesn't have constants on fs/promises
+const { constants: fsConstants } = require('node:fs');
+
 const os = require('node:os');
 const path = require('node:path');
 
@@ -220,7 +223,7 @@ async function addGpgKey(url, keyringName) {
   // this is a hack until we fork a small nodejs process with IPC as root for apt management / fs management (idea)
   // check /usr/share/keyrings is writeable
   // eslint-disable-next-line no-bitwise
-  const keyringAccessError = await fs.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK).catch(async () => {
+  const keyringAccessError = await fs.access(path.dirname(filePath), fsConstants.R_OK | fsConstants.W_OK).catch(async () => {
     const user = os.userInfo().username;
     const { error } = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${user}:${user}`, path.dirname(filePath)] });
     if (error) return true;
@@ -257,7 +260,7 @@ async function addAptSource(packageName, url, dist, components, options = {}) {
   // this is a hack until we fork a smaller nodejs process as root for apt management (idea)
   // check /etc/apt/sources.list.d is writeable
   // eslint-disable-next-line no-bitwise
-  const sourcesAccessError = await fs.access(path.dirname(filePath), fs.constants.R_OK | fs.constants.W_OK).catch(async () => {
+  const sourcesAccessError = await fs.access(path.dirname(filePath), fsConstants.R_OK | fsConstants.W_OK).catch(async () => {
     const user = os.userInfo().username;
     const { error } = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${user}:${user}`, path.dirname(filePath)] });
     if (error) return true;
