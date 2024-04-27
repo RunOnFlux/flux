@@ -983,16 +983,20 @@ async function dockerGetUsage() {
  * @returns {Promise<void>}
  */
 async function dockerLogsFix() {
-  const cwd = path.join(__dirname, '../../../helpers');
-  const scriptPath = path.join(cwd, 'dockerLogsFix.sh');
-  const { stdout } = await serviceHelper.runCommand(scriptPath, { cwd });
+  try {
+    const cwd = path.join(__dirname, '../../../helpers');
+    const scriptPath = path.join(cwd, 'dockerLogsFix.sh');
+    const { stdout } = await serviceHelper.runCommand(scriptPath, { cwd });
 
-  // we do this so we don't log empty lines if there is no output
-  const lines = stdout.split('\n');
-  // this always has length
-  if (lines.slice(-1)[0] === '') lines.pop();
+    // we do this so we don't log empty lines if there is no output
+    const lines = stdout.split('\n');
+    // this always has length
+    if (lines.slice(-1)[0] === '') lines.pop();
 
-  lines.forEach((line) => log.info(line));
+    lines.forEach((line) => log.info(line));
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 module.exports = {

@@ -373,6 +373,7 @@ describe('serviceHelper tests', () => {
       expect(o[6]).to.equal("it doesn't matter.");
     });
   });
+
   describe('runCommand tests', () => {
     let debugSpy;
     let infoSpy;
@@ -394,8 +395,8 @@ describe('serviceHelper tests', () => {
     it('should return error if no command is passed', async () => {
       const expected = {
         error: new Error('Command must be present'),
-        stdout: null,
-        stderr: null,
+        stdout: '',
+        stderr: '',
       };
 
       const response = await serviceHelper.runCommand();
@@ -408,8 +409,8 @@ describe('serviceHelper tests', () => {
         error: new Error(
           'Invalid params for command, must be an Array of strings',
         ),
-        stdout: null,
-        stderr: null,
+        stdout: '',
+        stderr: '',
       };
 
       const response = await serviceHelper.runCommand('testCmd', { params: {} });
@@ -422,8 +423,8 @@ describe('serviceHelper tests', () => {
         error: new Error(
           'Invalid params for command, must be an Array of strings',
         ),
-        stdout: null,
-        stderr: null,
+        stdout: '',
+        stderr: '',
       };
 
       const response = await serviceHelper.runCommand('testCmd', { params: ['test', {}] });
@@ -435,10 +436,10 @@ describe('serviceHelper tests', () => {
       const expected = {
         error: null,
         stdout: 'test output',
-        stderr: null,
+        stderr: '',
       };
 
-      runCmdStub.resolves({ stdout: 'test output', stderr: null, error: null });
+      runCmdStub.resolves({ stdout: 'test output', stderr: '', error: null });
 
       const response = await serviceHelper.runCommand('testCmd', { runAsRoot: true });
 
@@ -451,7 +452,7 @@ describe('serviceHelper tests', () => {
       const expected = {
         error: null,
         stdout: 'test output',
-        stderr: null,
+        stderr: '',
       };
 
       const clock = sinon.useFakeTimers();
@@ -544,7 +545,7 @@ describe('serviceHelper tests', () => {
       const expected = {
         error: null,
         stdout: 'Test output',
-        stderr: null,
+        stderr: '',
       };
 
       runCmdStub.resolves(expected);
