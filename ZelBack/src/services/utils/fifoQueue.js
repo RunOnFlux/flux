@@ -10,7 +10,7 @@ class FifoQueue extends EventEmitter {
   // Class constants
   static get defaultRetries() { return 5; }
 
-  static get defaultRetryDelay() { return 10000; } // 10s
+  static get defaultRetryDelay() { return 60000; } // 1m
 
   static get defaultMaxSize() { return 10; }
 
@@ -169,7 +169,6 @@ class FifoQueue extends EventEmitter {
     // nullish coalescing to allow for zero
     let retriesRemaining = workerOptions.retries ?? this.retries;
     const retryDelay = workerOptions.retryDelay ?? this.retryDelay;
-
     // we add one for the initial attempt
     retriesRemaining += 1;
 

@@ -40,7 +40,8 @@ function getQueue() {
 /**
  * Runs an apt command, by default for any install commands, it will
  * use the native lock waiter and wait for 3 minutes, retrying 5 times.
- * For a total of 15 minutes + 50 seconds until failure.
+ * For a total of 15 minutes + 5 minutes until failure. (1 minute between retries)
+ * However, Ubuntu 18 only has apt 1.6.14, so can't use the lock feature.
  * @param {{command: string, params: Array<string>, timeout?: number}} options
  * @returns {Promise<void>}
  */
@@ -107,7 +108,7 @@ async function cacheUpdateTime() {
  * retries: how many times to retry (3 default)
  * wait: should the queue item be awaited
  *
- * @returns {Promise<void>}
+ * @returns {Promise<Object | void>}
  */
 async function queueAptGetCommand(command, options = {}) {
   const params = options.params || [];
@@ -120,7 +121,6 @@ async function queueAptGetCommand(command, options = {}) {
   const wait = options.wait || false;
   const commandOptions = { command, params, timeout: options.timeout };
   const workerOptions = { retries: options.retries };
-
   return aptQueue.push({ commandOptions, workerOptions }, wait);
 }
 
@@ -284,21 +284,30 @@ async function addAptSource(packageName, url, dist, components, options = {}) {
  * If the syncthing apt source doesn't exist, create it
  * @returns {Promise<void>}
  */
-async function addSyncthingAptSource() {
+async function addSyncthingRepository() {
   const sourceExists = await fs.stat('/etc/apt/sources.list.d/syncthing.list').catch(() => false);
   if (sourceExists) return;
 
-  const url = 'https://syncthing.net/release-key.gpg';
+  // source vars
+  const packageName = 'syncthing';
+  // syncthing does this weird
+  const dist = 'syncthing';
+  const sourceUrl = 'https://apt.syncthing.net/';
+  const components = ['stable'];
+  const sourceOptions = ['signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg'];
+
+  // keyring vars
+  const keyUrl = 'https://syncthing.net/release-key.gpg';
   const keyringName = 'syncthing-archive-keyring.gpg';
 
   // this will log errors
-  const keyAdded = await addGpgKey(url, keyringName);
+  const keyAdded = await addGpgKey(keyUrl, keyringName);
 
   if (!keyAdded) return;
 
-  const params = ['syncthing', 'https://apt.syncthing.net/', 'syncthing', ['stable']];
+  const params = [packageName, sourceUrl, dist, components];
   // this will log errors
-  const sourceAdded = await addAptSource(...params, { options: ['signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg'] });
+  const sourceAdded = await addAptSource(...params, { options: sourceOptions });
 
   if (!sourceAdded) return;
 
@@ -344,7 +353,7 @@ async function monitorSyncthingPackage() {
   try {
     if (syncthingTimer) return;
 
-    await addSyncthingAptSource();
+    await addSyncthingRepository();
 
     const versionChecker = async () => {
       const {
@@ -487,7 +496,7 @@ if (require.main === module) {
   // aptQueue.addWorker(aptRunner);
   // aptQueue.on('failed', monitorAptCache);
   aptQueue.addWorker(aptRunner);
-  addSyncthingAptSource();
+  addSyncthingRepository();
   // updateAptCache().then(res => {
   //   console.log("Cache update error:", res)
   // })
@@ -500,6 +509,9 @@ if (require.main === module) {
 module.exports = {
   monitorSystem,
   // testing exports
+  addAptSource,
+  addGpgKey,
+  addSyncthingRepository,
   aptRunner,
   cacheUpdateTime,
   ensurePackageVersion,

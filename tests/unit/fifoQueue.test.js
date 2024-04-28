@@ -18,7 +18,7 @@ describe('FiFoQueue tests', () => {
       expect(queue.queueFull).to.equal(false);
       // defaults
       expect(queue.retries).to.equal(5);
-      expect(queue.retryDelay).to.equal(10000);
+      expect(queue.retryDelay).to.equal(60000);
       expect(queue.maxSize).to.equal(10);
     });
     it('should add the worker if defined at instantiation', () => {
@@ -114,7 +114,7 @@ describe('FiFoQueue tests', () => {
       queue.push(['lets work!']);
       expect(called).to.equal(1);
 
-      await clock.tickAsync(10 * 1000);
+      await clock.tickAsync(60 * 1000);
 
       expect(called).to.equal(2);
       expect(error).to.equal(0);
@@ -215,7 +215,7 @@ describe('FiFoQueue tests', () => {
       expect(count).to.equal(3);
 
       // allow 5 retries for faulty task (and 6000ms for tasks)
-      await clock.tickAsync(5 * 10000 + 6000);
+      await clock.tickAsync(5 * 60000 + 6000);
       expect(error).to.equal(1);
 
       // allow enough time that the tasks could run if the queue wasn't halted
@@ -256,7 +256,7 @@ describe('FiFoQueue tests', () => {
       }
 
       // run out the retry clock
-      await clock.tickAsync(50 * 1000);
+      await clock.tickAsync(300 * 1000);
 
       expect(error).to.equal(1);
       expect(queue.halted).to.equal(true);
