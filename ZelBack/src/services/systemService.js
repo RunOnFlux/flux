@@ -165,9 +165,9 @@ async function updateAptCache(options = {}) {
  * @returns {Promise<string>}
  */
 async function getPackageVersion(systemPackage) {
-  // eslint-disable-next-line no-template-curly-in-string
   const { stdout, error } = await serviceHelper.runCommand('dpkg-query', {
     logError: false,
+    // eslint-disable-next-line no-template-curly-in-string
     params: ["--showformat='${Version}:${Status}'", '--show', systemPackage],
   });
 
