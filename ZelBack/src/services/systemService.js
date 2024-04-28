@@ -166,14 +166,31 @@ async function updateAptCache(options = {}) {
  */
 async function getPackageVersion(systemPackage) {
   // eslint-disable-next-line no-template-curly-in-string
-  const { stdout, error } = await serviceHelper.runCommand('dpkg-query', { runAsRoot: true, logError: false, params: ["--showformat='${Version}'", '--show', systemPackage] });
+  const { stdout, error } = await serviceHelper.runCommand('dpkg-query', {
+    logError: false,
+    params: ["--showformat='${Version}:${Status}'", '--show', systemPackage],
+  });
 
   if (error) return '';
 
-  const parsed = serviceHelper.parseVersion(stdout.replace(/'/g, ''));
+  // At this point, we should just write a /var/lib/dpkg/status parser and do it ourselves,
+  // Wouldn't take that much effort. The file is world readable.
 
-  if (parsed) {
-    return parsed.version;
+  // response should be in this format '1.27.6:install ok installed'
+
+  // Uninstalled but still with config files (without purge) show status of:
+  //  deinstall ok config-files
+
+  if (!stdout || !stdout.includes(':')) return '';
+
+  const [version, status] = stdout.replace(/'/g, '').split(':');
+
+  if (status !== 'install ok installed') return '';
+
+  const parsedVersion = serviceHelper.parseVersion(version);
+
+  if (parsedVersion) {
+    return parsedVersion.version;
   }
 
   return '';

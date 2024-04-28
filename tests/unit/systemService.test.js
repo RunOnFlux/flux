@@ -255,7 +255,36 @@ describe('system Services tests', () => {
       sinon.stub(axios, 'get').resolves(axiosRes);
 
       const cmdRunner = sinon.fake((cmd) => {
-        if (cmd === 'dpkg-query') return { error: null, stdout: '1.27.3' };
+        if (cmd === 'dpkg-query') return { error: null, stdout: '1.27.3:install ok installed' };
+        if (cmd === 'apt-get') return { error: null };
+        return null;
+      });
+
+      runCmdStub.callsFake(cmdRunner);
+
+      // don't update apt cache
+      statStub.resolves({ mtimeMs: now });
+
+      sinon.useFakeTimers({
+        now,
+      });
+
+      await systemService.monitorSyncthingPackage();
+
+      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
+    });
+
+    it('should upgrade syncthing immediately if correct version present but uninstalled', async () => {
+      const now = 1713858779721;
+
+      const statsVersion = '2.2.2';
+
+      const axiosRes = { data: { status: 'success', data: { syncthing: statsVersion } } };
+
+      sinon.stub(axios, 'get').resolves(axiosRes);
+
+      const cmdRunner = sinon.fake((cmd) => {
+        if (cmd === 'dpkg-query') return { error: null, stdout: '2.2.2:deinstall ok config-files' };
         if (cmd === 'apt-get') return { error: null };
         return null;
       });
@@ -277,7 +306,7 @@ describe('system Services tests', () => {
     it('should not call upgradeSyncthing if on correct version', async () => {
       const now = 1713858779721;
 
-      const statsVersion = '2.2.2';
+      const statsVersion = '2.2.2:install ok installed';
 
       const axiosRes = { data: { status: 'success', data: { syncthing: statsVersion } } };
 
