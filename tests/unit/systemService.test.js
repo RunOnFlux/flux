@@ -321,7 +321,7 @@ describe('system Services tests', () => {
 
     after(() => {
       systemService.getQueue().worker = systemService.aptRunner;
-    })
+    });
 
     it('should bail out if the apt cache is alredy being monitored', async () => {
       const event = { options: { command: 'install', params: ['syncthing'] }, error: new Error('Non lock error') };
@@ -547,7 +547,8 @@ describe('system Services tests', () => {
     let statStub;
     let runCmdStub;
     let axiosStub;
-    let logSpy;
+    let accessStub;
+    let writeStub;
 
     beforeEach(() => {
       systemService.resetTimers();
@@ -556,7 +557,6 @@ describe('system Services tests', () => {
       writeStub = sinon.stub(fs, 'writeFile');
       axiosStub = sinon.stub(axios, 'get');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-      logSpy = sinon.spy(log, 'info');
     });
 
     afterEach(() => {
@@ -567,13 +567,12 @@ describe('system Services tests', () => {
       // for aptSource
       statStub.resolves(true);
 
-      await systemService.addSyncthingRepository()
+      await systemService.addSyncthingRepository();
 
       sinon.assert.calledOnceWithExactly(statStub, '/etc/apt/sources.list.d/syncthing.list');
       sinon.assert.notCalled(axiosStub);
       sinon.assert.notCalled(runCmdStub);
     });
-
 
     it('should fetch and install keyfile in keyring', async () => {
       const expectedPath = '/usr/share/keyrings/syncthing-archive-keyring.gpg';
@@ -590,12 +589,12 @@ describe('system Services tests', () => {
       writeStub.resolves(null);
 
       // can update cache
-      runCmdStub.resolves({ error: false })
+      runCmdStub.resolves({ error: false });
 
-      await systemService.addSyncthingRepository()
+      await systemService.addSyncthingRepository();
 
       sinon.assert.calledWithExactly(statStub, '/etc/apt/sources.list.d/syncthing.list');
-      sinon.assert.calledOnceWithExactly(axiosStub, 'https://syncthing.net/release-key.gpg', { responseType: 'arraybuffer', timeout: 10000 })
+      sinon.assert.calledOnceWithExactly(axiosStub, 'https://syncthing.net/release-key.gpg', { responseType: 'arraybuffer', timeout: 10000 });
       sinon.assert.calledWithExactly(accessStub, '/usr/share/keyrings', 6);
       sinon.assert.calledWithExactly(writeStub, expectedPath, Buffer.from(axiosRes.data, 'binary'));
     });
@@ -614,11 +613,11 @@ describe('system Services tests', () => {
       const axiosFake = sinon.fake(async () => {
         calls += 1;
         if (calls === 1) {
-          return Promise.reject('Axios Error');
+          return Promise.reject(new Error('Axios Error'));
         }
         return axiosRes;
-      })
-      axiosStub.callsFake(axiosFake)
+      });
+      axiosStub.callsFake(axiosFake);
 
       // can access /usr/share/keyrings
       accessStub.resolves(null);
@@ -627,16 +626,16 @@ describe('system Services tests', () => {
       writeStub.resolves(null);
 
       // can update cache
-      runCmdStub.resolves({ error: false })
+      runCmdStub.resolves({ error: false });
 
-      const promise = systemService.addSyncthingRepository()
+      const promise = systemService.addSyncthingRepository();
 
-      await clock.tickAsync(30000)
+      await clock.tickAsync(30000);
 
       await promise;
 
       sinon.assert.calledWithExactly(statStub, '/etc/apt/sources.list.d/syncthing.list');
-      sinon.assert.calledWithExactly(axiosStub, 'https://syncthing.net/release-key.gpg', { responseType: 'arraybuffer', timeout: 10000 })
+      sinon.assert.calledWithExactly(axiosStub, 'https://syncthing.net/release-key.gpg', { responseType: 'arraybuffer', timeout: 10000 });
       expect(calls).to.equal(2);
       sinon.assert.calledWithExactly(accessStub, '/usr/share/keyrings', 6);
       sinon.assert.calledWithExactly(writeStub, expectedPath, Buffer.from(axiosRes.data, 'binary'));
@@ -644,8 +643,6 @@ describe('system Services tests', () => {
 
     it('should not add apt source if there is a problem with keyfile', async () => {
       const clock = sinon.useFakeTimers();
-
-      const expectedPath = '/usr/share/keyrings/syncthing-archive-keyring.gpg';
 
       // for aptSource - means we need to install
       statStub.resolves(false);
@@ -659,9 +656,9 @@ describe('system Services tests', () => {
       writeStub.resolves(null);
 
       // can update cache
-      runCmdStub.resolves({ error: false })
+      runCmdStub.resolves({ error: false });
 
-      const promise = systemService.addSyncthingRepository()
+      const promise = systemService.addSyncthingRepository();
 
       await clock.tickAsync(3 * 30000);
       await promise;
@@ -672,10 +669,6 @@ describe('system Services tests', () => {
     });
 
     it('should add apt source if keyfile was added', async () => {
-      const clock = sinon.useFakeTimers();
-
-      const expectedPath = '/usr/share/keyrings/syncthing-archive-keyring.gpg';
-
       // for aptSource - means we need to install
       statStub.resolves(false);
 
@@ -689,11 +682,11 @@ describe('system Services tests', () => {
       writeStub.resolves(null);
 
       // can update cache
-      runCmdStub.resolves({ error: false })
+      runCmdStub.resolves({ error: false });
 
-      await systemService.addSyncthingRepository()
+      await systemService.addSyncthingRepository();
 
-      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n')
+      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n');
     });
 
     it('should force update cache if source added, even if cache was just updated', async () => {
@@ -707,8 +700,8 @@ describe('system Services tests', () => {
       const statFake = sinon.fake(async (cmd) => {
         if (cmd === '/etc/apt/sources.list.d/syncthing.list') return false;
         // 10 minutes ago
-        return { mtimeMs: now - oneMinute * 10 }
-      })
+        return { mtimeMs: now - oneMinute * 10 };
+      });
 
       statStub.callsFake(statFake);
 
@@ -722,11 +715,11 @@ describe('system Services tests', () => {
       writeStub.resolves(null);
 
       // can update cache
-      runCmdStub.resolves({ error: false })
+      runCmdStub.resolves({ error: false });
 
-      await systemService.addSyncthingRepository()
+      await systemService.addSyncthingRepository();
 
-      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n')
+      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n');
       sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'update'] });
     });
   });
