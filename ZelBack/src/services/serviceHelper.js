@@ -393,10 +393,6 @@ function minVersionSatisfy(targetVersion, minimumVersion) {
   return true;
 }
 
-if (require.main === module) {
-  console.log(parseVersion('20230311ubuntu0.22.04.1'));
-}
-
 module.exports = {
   axiosGet,
   commandStringToArray,
