@@ -1,5 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const os = require('node:os');
 
 const config = require('config');
 const fullnode = require('fullnode');
@@ -10,6 +11,7 @@ const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
@@ -22,6 +24,16 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
+
+// for streamChain endpoint
+const zlib = require('node:zlib');
+const tar = require('tar-fs');
+const stream = require('node:stream/promises');
+
+/**
+ * Stream chain lock, so only one request at a time
+ */
+let lock = false;
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
@@ -1578,6 +1590,175 @@ async function restartFluxOS(req, res) {
   res.json(response);
 }
 
+/**
+ * Streams the blockchain via http at breakneck speeds.
+ *
+ * Designed for UPnP nodes.
+ *
+ * Leverages the fact that a lot of nodes run on the same hypervisor, where
+ * they share a brige or v-switch. In this case - the transfer is as fast as your
+ * SSD. Real life testing showed speeds of 3.2Gbps on an Evo 980+ SSD. Able to
+ * download the entire chain UNCOMPRESED in 90 seconds.
+ *
+ * Even in a traditional LAN, most consumer grade hardware is 1Gbps - this should be
+ * easily achievable in your average home network.
+ *
+ * During normal operation, the flux daemon (fluxd) must NOT be running, this is so
+ * the database is in a consistent state when it is read. However, during testing,
+ * and WITHOUT compression, as long as the chain transfer is reasonably fast, there is
+ * minimal risk of a db compaction happening, and corrupting the new data.
+ *
+ * This method can transfer data compressed (using gzip) or uncompressed. It is recommended
+ * to only stream the data uncompressed. If using compression on the fly, this uses a lot of
+ * CPU and will slow the transfers down by 10-20 times, while only saving ~30% on file size.
+ * If the daemon is still running during this time, IT WILL CORRUPT THE NEW DATA. (tested)
+ * Due to this, if compression is used, the daemon MUST not be running.
+ *
+ * There is an unsafe mode, where a user can transfer the chain while the daemon is still
+ * running, USE AT YOUR OWN RISK. Of note, the data being copied will not be corrupted,
+ * only the new chain.
+ *
+ * Only allows one stream at a time - will return 503 if stream in progress.
+ *
+ *  Able to be used by curl. Result is a tarfile.
+ *
+ * If passing in options, the `Content-Type` header must be set to `application/json`
+ *
+ * **Example:**
+ * ```bash
+ *   curl -X POST http://<Node IP>:16187/flux/streamchain -o flux_explorer_bootstrap.tar.gz
+ * ```
+ *
+ * **Post Data:**
+ *
+ * `unsafe:` <boolean> Will overide the flux daemon running check and run anyway. Only
+ *   overideable if compress is not used.
+ *
+ * `compress:` <boolean> If the file stream should use gzip compression. Very slow.
+ *
+ * @param {Request} req HTTP request
+ * @param {Response} res HTTP response
+ */
+async function streamChain(req, res) {
+  if (lock) {
+    res.statusMessage = 'Streaming of chain already in progress, server busy.';
+    res.status(503).end();
+    return;
+  }
+
+  lock = true;
+
+  /**
+   * Use the remote address here, don't need to worry about x-forwarded-for headers as
+   * we only allow the local network. Also, using the remote address is fine as FluxOS
+   * won't confirm if the upstream is natting behind a private address. I.e public
+   * connections coming in via a private address. (Flux websockets need the remote address
+   * or they think there is only one inbound connnection)
+   */
+  let ip = req.socket.remoteAddress;
+  if (!ip) {
+    res.statusMessage = 'Socket closed.';
+    res.status(400).end();
+    lock = false;
+    return;
+  }
+
+  // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
+  ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
+
+  if (!serviceHelper.isPrivateAddress(ip)) {
+    res.statusMessage = 'Request must be from an address on the same private network as the host';
+    res.status(403).end();
+    lock = false;
+    return;
+  }
+
+  log.info(`Stream chain request received from: ${ip}`);
+
+  const homeDir = os.homedir();
+  const base = path.join(homeDir, '.flux');
+
+  const folders = [
+    'blocks',
+    'chainstate',
+    'determ_zelnodes',
+  ];
+
+  const folderPromises = folders.map(async (f) => {
+    try {
+      const stats = await fs.stat(path.join(base, f));
+      return stats.isDirectory();
+    } catch {
+      return false;
+    }
+  });
+
+  const foldersExist = await Promise.all(folderPromises);
+  const chainExists = foldersExist.every((x) => x);
+
+  if (!chainExists) {
+    res.statusMessage = 'Unable to find chain at $HOME/.flux';
+    res.status(500).end();
+    lock = false;
+    return;
+  }
+
+  let fluxdRunning = null;
+  let compress = false;
+  let safe = true;
+
+  const processedBody = serviceHelper.ensureObject(req.body);
+
+  if (processedBody) {
+    // use unsafe for the client end to illistrate that they should think twice before using
+    // it, and use safe here for readability
+    safe = processedBody.unsafe !== true;
+    compress = processedBody.compress || false;
+  }
+
+  if (!safe && compress) {
+    res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
+    res.status(422).end();
+    lock = false;
+    return;
+  }
+
+  if (safe) {
+    const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
+    fluxdRunning = !(blockInfoRes.status === 'error' && blockInfoRes.data.code === 'ECONNREFUSED');
+  }
+
+  if (safe && fluxdRunning) {
+    res.statusMessage = 'Flux daemon still running, unable to clone blockchain.';
+    res.status(503).end();
+    lock = false;
+    return;
+  }
+
+  const workflow = [];
+
+  workflow.push(tar.pack(base, {
+    entries: folders,
+  }));
+
+  if (compress) {
+    log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
+    workflow.push(zlib.createGzip());
+  }
+
+  workflow.push(res);
+
+  const work = stream.pipeline.apply(null, workflow);
+
+  try {
+    await work;
+  } catch (err) {
+    log.warn(`Stream error: ${err.code}`);
+  }
+
+  lock = false;
+}
+
 module.exports = {
   adjustAPIPort,
   adjustBlockedPorts,
@@ -1625,6 +1806,7 @@ module.exports = {
   softUpdateFluxInstall,
   startBenchmark,
   startDaemon,
+  streamChain,
   tailBenchmarkDebug,
   tailDaemonDebug,
   tailFluxDebugLog,
