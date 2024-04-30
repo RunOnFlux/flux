@@ -3737,11 +3737,11 @@ export default {
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
-          clientIP,
           zelid: auth.zelid,
           signature: auth.signature,
           loginPhrase: auth.loginPhrase,
           details: {
+            clientIP,
             name,
             description,
             hash,

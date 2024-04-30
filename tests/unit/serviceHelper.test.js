@@ -78,6 +78,7 @@ describe('serviceHelper tests', () => {
 
       expect(ensureNumberOutput).to.be.NaN;
     });
+
     it('parameter {name: 1} of type object should return NaN', () => {
       const ensureNumberOutput = serviceHelper.ensureNumber({ name: 1 });
 
@@ -443,7 +444,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd', { runAsRoot: true });
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'sudo', ['testCmd'], {});
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'sudo', ['testCmd'], { timeout: 900000 });
       sinon.assert.calledOnceWithExactly(debugSpy, 'Run Cmd: sudo testCmd');
     });
 
@@ -500,7 +501,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd');
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], {});
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { timeout: 900000 });
       sinon.assert.calledOnceWithExactly(debugSpy, 'Run Cmd: testCmd ');
     });
 
@@ -519,7 +520,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd');
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], {});
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { timeout: 900000 });
       sinon.assert.calledOnceWithExactly(errorSpy, error);
     });
     it('should return error and not log it if command causes an error and logError is false', async () => {
@@ -537,7 +538,7 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd', { logError: false });
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], {});
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { timeout: 900000 });
       sinon.assert.notCalled(errorSpy);
     });
     it('should pass along any exec options to execFile', async () => {
@@ -552,13 +553,15 @@ describe('serviceHelper tests', () => {
       const response = await serviceHelper.runCommand('testCmd', { cwd: '/home/testuser' });
 
       expect(response).to.be.deep.equal(expected);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { cwd: '/home/testuser' });
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'testCmd', [], { cwd: '/home/testuser', timeout: 900000 });
       sinon.assert.notCalled(errorSpy);
     });
   });
 
   describe('minVersionSatisfy tests', () => {
     const minimalVersion = '3.4.12';
+    const majorMinorOnly = '3.4';
+    const majorOnly = '20230311';
 
     it('should return true if major version is higher than minimalVersion', async () => {
       const versionAllowed = await serviceHelper.minVersionSatisfy('4.0.0', minimalVersion);
@@ -600,6 +603,77 @@ describe('serviceHelper tests', () => {
       const versionAllowed = await serviceHelper.minVersionSatisfy('2.3.11', minimalVersion);
 
       expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return false if minor version is below to minimalVersion and no patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.3', majorMinorOnly);
+
+      expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return false if major version is below to minimalVersion and no patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('2.3', majorMinorOnly);
+
+      expect(versionAllowed).to.equal(false);
+    });
+
+    it('should return true if major version is higher than minimalVersion and no patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('4.0', majorMinorOnly);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if minor version is higher than minimalVersion and no patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('3.6', majorMinorOnly);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return true if major version is higher than minimalVersion and no minor or patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('20240507', majorOnly);
+
+      expect(versionAllowed).to.equal(true);
+    });
+
+    it('should return false if major version is lower than minimalVersion and no minor or patch', async () => {
+      const versionAllowed = await serviceHelper.minVersionSatisfy('20221023', majorOnly);
+
+      expect(versionAllowed).to.equal(false);
+    });
+  });
+
+  describe('parseVersion tests', () => {
+    it('should parse all semantic versions and also dpkg versions', () => {
+      const versions = [
+        ['20230311ubuntu0.22.04.1', '20230311'],
+        ['1.2', '1.2'],
+        ['5.7-prerelease', '5.7'],
+        ['1.218-4ubuntu1', '1.218'],
+        ['1.219~d12', '1.219'],
+        ['0.0.4', '0.0.4'],
+        ['1.2.3', '1.2.3'],
+        ['10.20.30', '10.20.30'],
+        ['1.1.2-prerelease+meta', '1.1.2'],
+        ['1.1.2+meta', '1.1.2'],
+        ['1.0.0-alpha', '1.0.0'],
+        ['1.0.0-alpha.beta', '1.0.0'],
+        ['1.0.0-alpha.1', '1.0.0'],
+        ['1.0.0-alpha.0valid', '1.0.0'],
+        ['1.0.0-rc.1+build.1', '1.0.0'],
+        ['1.2.3-beta', '1.2.3'],
+        ['10.2.3-DEV-SNAPSHOT', '10.2.3'],
+        ['1.2.3-SNAPSHOT-123', '1.2.3'],
+        ['1.0.0', '1.0.0'],
+        ['2.0.0+build.1848', '2.0.0'],
+        ['2.0.1-alpha.1227', '2.0.1'],
+        ['1.0.0-alpha+beta', '1.0.0'],
+        ['1.2.3----RC-SNAPSHOT.12.9.1--.12+788', '1.2.3'],
+      ];
+
+      for (let index = 0; index < versions.length; index += 1) {
+        const { version } = serviceHelper.parseVersion(versions[index][0]);
+        expect(version).to.equal(versions[index][1]);
+      }
     });
   });
 });

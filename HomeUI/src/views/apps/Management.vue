@@ -8173,7 +8173,7 @@ export default {
         if (blocksToExpire < 5000) {
           throw new Error('Your application will expire in less than one week, you need to extend subscription to be able to update specifications');
         } else {
-          return Math.ceil(blocksToExpire / 1000) * 1000;
+          return Math.ceil(blocksToExpire / 100) * 100;
         }
       }
       if (this.expireOptions[this.expirePosition]) {
