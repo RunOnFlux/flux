@@ -403,6 +403,9 @@ async function monitorAptCache(event) {
   // The options are what the worker was called with by the user
   const { options, error } = event;
 
+  const dpkgLock = '/var/lib/dpkg/lock';
+  const dpkgLockFrontend = '/var/lib/dpkg/lock-frontend';
+
   // we don't care about apt-get update error, most likely
   // apt-get update was already running (this uses a different lock
   // than apt-get install)
@@ -427,7 +430,7 @@ async function monitorAptCache(event) {
 
   // check the error message. This is brittle, as it is dependent on
   // apt-get not changing output etc, but error codes are just 0 or 100
-  if (error.message.includes('/var/lib/dpkg/lock-frontend')) {
+  if (error.message.includes(dpkgLockFrontend)) {
     lockError = true;
   }
 
@@ -449,7 +452,7 @@ async function monitorAptCache(event) {
       return;
     }
 
-    if (!lockCheckError.message.includes('/var/lib/dpkg/lock-frontend')) {
+    if (!lockCheckError.message.includes(dpkgLockFrontend)) {
       break;
     }
 
@@ -458,12 +461,12 @@ async function monitorAptCache(event) {
 
   if (waitForLockFailed) {
     // they've had enough time with the lock, time to move then on.
-    const termParams = ['-k', '-TERM', '/var/lib/dpkg/lock', '/var/lib/dpkg/lock-frontend'];
+    const termParams = ['-k', '-TERM', dpkgLock, dpkgLockFrontend];
     const opts = { runAsRoot: true, timeout: 10000, params: termParams };
-    const { fuserError } = await serviceHelper.runCommand('fuser', opts);
+    const { error: fuserError } = await serviceHelper.runCommand('fuser', opts);
     if (fuserError) {
       // tests do weird stuff if you mutate the call properties
-      const killParams = termParams.slice(0);
+      const killParams = termParams.slice();
       killParams[1] = '-KILL';
       await serviceHelper.runCommand('fuser', { runAsRoot: true, timeout: 10000, params: killParams });
     }
