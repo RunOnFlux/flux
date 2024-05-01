@@ -119,7 +119,7 @@ describe('FiFoQueue tests', () => {
       expect(called).to.equal(2);
       expect(error).to.equal(0);
       expect(queue.working).to.equal(false);
-      await queue.empty;
+      await queue.finished;
     });
 
     it('should emit error if task is unrecoverable', async () => {
@@ -141,7 +141,30 @@ describe('FiFoQueue tests', () => {
       await clock.tickAsync(1000);
 
       expect(error).to.equal(1);
-      await queue.empty;
+      await queue.finished;
+    });
+
+    it('should discard task if retainErrors is false on task', async () => {
+      const clock = sinon.useFakeTimers();
+
+      let error = 0;
+
+      const worker = async () => {
+        throw new Error('Simulated task error');
+      };
+
+      const queue = new fifoQueue.FifoQueue({ retries: 4, retryDelay: 500, worker });
+
+      queue.on('failed', () => { error += 1; });
+
+      queue.push({ commandOptions: ['lets work'], workerOptions: { retainErrors: false } });
+
+      // 500ms per retry
+      await clock.tickAsync(2000);
+
+      expect(error).to.equal(1);
+      await queue.finished;
+      expect(queue.workAvailable).to.equal(false);
     });
 
     it('should run tasks synchronously', async () => {
@@ -181,7 +204,7 @@ describe('FiFoQueue tests', () => {
       expect(count).to.equal(10);
       expect(results).to.deep.equal(expected);
 
-      await queue.empty;
+      await queue.finished;
     });
 
     it('should halt any further tasks if a task errors', async () => {
@@ -266,7 +289,7 @@ describe('FiFoQueue tests', () => {
       await clock.tickAsync(50 * 1000);
       expect(queue.halted).to.equal(true);
       queue.resume();
-      await queue.empty;
+      await queue.finished;
       // 7 for the first task, 1 normal attempt, 5 retries. Then another normal attempt
       // after the resume(), then 9 normal tasks = 16.
       expect(count).to.equal(16);

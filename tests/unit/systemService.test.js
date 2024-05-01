@@ -352,30 +352,6 @@ describe('system Services tests', () => {
       systemService.getQueue().worker = systemService.aptRunner;
     });
 
-    it('should bail out if the apt cache is alredy being monitored', async () => {
-      const event = { options: { command: 'install', params: ['syncthing'] }, error: new Error('Non lock error') };
-
-      const cmdRunner = sinon.fake((cmd) => {
-        // dpkg --configure -a
-        if (cmd === 'dpkg') return { error: null, stdout: '' };
-        // apt-get check
-        if (cmd === 'apt-get') return { error: new Error('Still broken') };
-        return null;
-      });
-
-      runCmdStub.callsFake(cmdRunner);
-
-      await systemService.monitorAptCache(event);
-      // calls configure and check
-      sinon.assert.calledTwice(cmdRunner);
-      sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours.');
-
-      // should return immediately as timer is running
-      await systemService.monitorAptCache(event);
-      sinon.assert.calledTwice(cmdRunner);
-      sinon.assert.calledOnce(errorSpy);
-    });
-
     it('should resume halted queue if the error was for apt-get update', async () => {
       const event = { options: { command: 'update', params: [] }, error: new Error('Lock error') };
 
@@ -411,6 +387,8 @@ describe('system Services tests', () => {
           checkCount += 1;
           return { error: lockError };
         }
+        if (cmd === 'fuser') return { error: null };
+        if (cmd === 'dpkg') return { error: null };
         return null;
       });
 
@@ -424,11 +402,53 @@ describe('system Services tests', () => {
       await clock.tickAsync(10 * 60 * 1000);
       expect(checkCount).to.equal(2);
       await clock.tickAsync(10 * 60 * 1000);
-      expect(checkCount).to.equal(3);
+      // extra call to check after reconfigure
+      expect(checkCount).to.equal(4);
 
       await promise;
-      expect(checkCount).to.equal(3);
-      sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours.');
+      expect(checkCount).to.equal(4);
+      sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to run apt-get command(s), clearing the queue and resetting state.');
+    });
+
+    it('should SIGTERM, then SIGKILL any processes holding the locks after 30 minutes', async () => {
+      const clock = sinon.useFakeTimers();
+
+      let checkCount = 0;
+
+      const lockError = new Error('No lock: /var/lib/dpkg/lock-frontend');
+      const event = { options: { command: 'install', params: ['syncthing'] }, error: lockError };
+
+      const cmdRunner = sinon.fake((cmd, opts) => {
+        // apt-get check
+        if (cmd === 'apt-get') {
+          checkCount += 1;
+          if (checkCount === 4) return { error: null };
+          return { error: lockError };
+        }
+        if (cmd === 'dpkg') return { error: null };
+        if (cmd === 'fuser' && opts.params[1] === '-TERM') return { error: new Error('Unable to kill processes') };
+        if (cmd === 'fuser' && opts.params[1] === '-KILL') return { error: null };
+        return null;
+      });
+
+      runCmdStub.callsFake(cmdRunner);
+
+      const promise = systemService.monitorAptCache(event);
+
+      expect(checkCount).to.equal(0);
+      await clock.tickAsync(10 * 60 * 1000);
+      expect(checkCount).to.equal(1);
+      await clock.tickAsync(10 * 60 * 1000);
+      expect(checkCount).to.equal(2);
+      await clock.tickAsync(10 * 60 * 1000);
+      // extra call to check after reconfigure
+      expect(checkCount).to.equal(4);
+
+      await promise;
+      expect(checkCount).to.equal(4);
+      sinon.assert.calledWith(runCmdStub, 'fuser', { runAsRoot: true, timeout: 10000, params: ['-k', '-TERM', '/var/lib/dpkg/lock', '/var/lib/dpkg/lock-frontend'] });
+      sinon.assert.calledWith(runCmdStub, 'fuser', { runAsRoot: true, timeout: 10000, params: ['-k', '-KILL', '/var/lib/dpkg/lock', '/var/lib/dpkg/lock-frontend'] });
+      sinon.assert.notCalled(errorSpy);
     });
 
     it('should resume if there is a lock error and it clears', async () => {
@@ -532,8 +552,7 @@ describe('system Services tests', () => {
       expect(workCount).to.equal(1);
     });
 
-    it('should resume queue activities in 12 hours if there is an unrecoverable error', async () => {
-      const clock = sinon.useFakeTimers();
+    it('should clear the queue and reset state if there is an unrecoverable error', async () => {
       let workCount = 0;
 
       const worker = () => { workCount += 1; };
@@ -560,15 +579,10 @@ describe('system Services tests', () => {
 
       await systemService.monitorAptCache(event);
 
-      sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours.');
+      sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to run apt-get command(s), clearing the queue and resetting state.');
       expect(workCount).to.equal(0);
-
-      // roll forward 11 hours
-      await clock.tickAsync(1000 * 3600 * 11);
-      expect(workCount).to.equal(0);
-      // another hour
-      await clock.tickAsync(1000 * 3600);
-      expect(workCount).to.equal(1);
+      expect(queue.workAvailable).to.equal(false);
+      expect(queue.halted).to.equal(false);
     });
   });
 

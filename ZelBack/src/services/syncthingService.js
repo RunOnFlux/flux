@@ -5,7 +5,6 @@ const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const os = require('os');
-const path = require('path');
 const util = require('util');
 const qs = require('qs');
 const verificationHelper = require('./verificationHelper');
