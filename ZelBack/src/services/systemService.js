@@ -508,10 +508,6 @@ async function monitorSystem() {
   }
 }
 
-if (require.main === module) {
-  serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', 'syncthing'] }).then((res) => console.log(!res.error.message.includes('/var/lib/dpkg/lock-frontend')));
-}
-
 module.exports = {
   monitorSystem,
   // testing exports
