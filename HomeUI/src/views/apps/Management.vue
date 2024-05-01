@@ -6323,6 +6323,7 @@ export default {
       checkoutLoading: false,
       isMarketplaceApp: false,
       ipAccess: false,
+      freeUpdate: false,
     };
   },
   computed: {
