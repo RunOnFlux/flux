@@ -444,5 +444,6 @@
    "ghcr.io/open-webui/open-webui",
    "voidlinux",
    "openspeedtest",
-   "quay.io/invidious/invidious"
+   "quay.io/invidious/invidious",
+   "jpelton"
 ]
