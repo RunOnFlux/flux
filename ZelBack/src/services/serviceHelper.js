@@ -258,7 +258,7 @@ function ipInSubnet(ip, subnet) {
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
-  const res = { error: null, stdout: null, stderr: null };
+  const res = { error: null, stdout: '', stderr: '' };
   const {
     runAsRoot, logError, exclusive, ...execOptions
   } = options;
