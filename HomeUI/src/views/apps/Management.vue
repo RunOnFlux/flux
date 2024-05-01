@@ -5359,6 +5359,189 @@
           </b-row>
         </div>
       </b-tab>
+      <b-tab
+        title="Cancel Subscription"
+        :disabled="!isAppOwner || appUpdateSpecification.version < 6"
+      >
+        <div
+          v-if="!fluxCommunication"
+          class="text-danger "
+        >
+          Warning: Connected Flux is not communicating properly with Flux network
+        </div>
+        <div
+          style="
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            height: 45px;
+            padding: 12px;
+            line-height: 0px;
+          "
+        >
+          <h5>
+            <b-icon
+              class="mr-1"
+              icon="ui-checks-grid"
+            /> Cancel Application subscription
+          </h5>
+        </div>
+        <br>
+        <div>
+          Currently your application is subscribed until <b>{{ new Date(appRunningTill.current).toLocaleString('en-GB', timeoptions.shortDate) }}</b>.
+          <br>
+          <b>WARNING: By cancelling your application subscription, your application will be removed from the network and all data will be lost.</b>
+        </div>
+        <br>
+        <div>
+          <b-button
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="outline-success"
+            aria-label="Compute Cancel Message"
+            class="mb-2 w-100"
+            @click="checkFluxCancelSubscriptionAndFormatMessage"
+          >
+            Compute Cancel Message
+          </b-button>
+        </div>
+        <div v-if="dataToSign">
+          <b-form-group
+            label-cols="3"
+            label-cols-lg="2"
+            label="Update Message"
+            label-for="updatemessage"
+          >
+            <div class="text-wrap">
+              <b-form-textarea
+                id="updatemessage"
+                v-model="dataToSign"
+                rows="6"
+                readonly
+              />
+              <b-icon
+                ref="copyButtonRef"
+                v-b-tooltip="tooltipText"
+                class="clipboard icon"
+                scale="1.5"
+                icon="clipboard"
+                @click="copyMessageToSign"
+              />
+            </div>
+          </b-form-group>
+          <b-form-group
+            label-cols="3"
+            label-cols-lg="2"
+            label="Signature"
+            label-for="updatesignature"
+          >
+            <b-form-input
+              id="updatesignature"
+              v-model="signature"
+            />
+          </b-form-group>
+          <b-row class="match-height">
+            <b-col
+              xs="6"
+              lg="8"
+            >
+              <b-card>
+                <br>
+                <div class="text-center">
+                  <h4>
+                    <b-icon
+                      class="mr-1"
+                      scale="1.4"
+                      icon="chat-right"
+                    />
+                    Data has to be signed by the last application owner
+                  </h4>
+                </div>
+                <br>
+                <b-button
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="outline-success"
+                  aria-label="Update Flux App"
+                  class="w-100"
+                  @click="update"
+                >
+                  Cancel Application
+                </b-button>
+              </b-card>
+            </b-col>
+            <b-col
+              xs="6"
+              lg="4"
+            >
+              <b-card class="text-center" title="Sign with">
+                <div class="loginRow">
+                  <a
+                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
+                    @click="initiateSignWSUpdate"
+                  >
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/zelID.svg"
+                      alt="Zel ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initSSP">
+                    <img
+                      class="walletIcon"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div class="loginRow">
+                  <a @click="initWalletConnect">
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/walletconnect.svg"
+                      alt="WalletConnect"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initMetamask">
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/metamask.svg"
+                      alt="Metamask"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div class="loginRow">
+                  <b-button
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="primary"
+                    aria-label="Flux Single Sign On"
+                    class="my-1"
+                    style="width: 250px"
+                    @click="initSignFluxSSO"
+                  >
+                    Flux Single Sign On (SSO)
+                  </b-button>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row
+            v-if="updateHash"
+            class="match-height"
+          >
+            <b-card>
+              <b-card-text>
+                Everything is ready, your application cancelattion should be effective automatically in less than 30 minutes and removed from the network in the next ~3hours.
+              </b-card-text>
+            </b-card>
+          </b-row>
+        </div>
+      </b-tab>
     </b-tabs>
     <div
       v-if="output"
@@ -7883,6 +8066,11 @@ export default {
           break;
         case 15:
           this.getZelidAuthority();
+          this.cleanData();
+          break;
+        case 16:
+          this.getZelidAuthority();
+          this.cleanData();
           break;
         default:
           break;
@@ -8306,6 +8494,26 @@ export default {
         if (marketPlaceApp) {
           this.isMarketplaceApp = true;
         }
+        this.timestamp = Date.now();
+        this.dataForAppUpdate = appSpecFormatted;
+        this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
+      } catch (error) {
+        console.log(error.message);
+        console.error(error);
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async checkFluxCancelSubscriptionAndFormatMessage() {
+      try {
+        const appSpecification = this.appUpdateSpecification;
+        appSpecification.geolocation = this.generateGeolocations();
+        appSpecification.expire = 100;
+        // call api for verification of app registration specifications that returns formatted specs
+        const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
+        if (responseAppSpecs.data.status === 'error') {
+          throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
+        }
+        const appSpecFormatted = responseAppSpecs.data.data;
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -10013,6 +10221,12 @@ export default {
     selectedIpChanged() {
       this.getApplicationManagementAndStatus();
       this.getInstalledApplicationSpecifics();
+    },
+    cleanData() {
+      this.dataToSign = '';
+      this.timestamp = '';
+      this.signature = '';
+      this.updateHash = '';
     },
   },
 };
