@@ -219,7 +219,7 @@ module.exports = {
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
     ram: 2000, // 2000mb
-    hdd: 40, // 40gb // this value is likely to raise
+    hdd: 60, // 60gb // this value is likely to raise
     extrahdd: 20, // extra 20gb to be left on a node // this value is likely to raise
   },
   fluxSpecifics: { // tbd during forks
