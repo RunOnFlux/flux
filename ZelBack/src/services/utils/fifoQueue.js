@@ -103,11 +103,20 @@ class FifoQueue extends EventEmitter {
   /**
    * Remove all items from queue
    */
-  clear() {
+  async clear() {
+    this.halt();
+    await this.finished;
+
+    this.#list.forEach((task) => {
+      // the promise to resolve
+      const executor = task[1];
+      executor({ error: new Error('Queue cleared') });
+    });
+
     this.#list.length = 0;
     this.working = false;
-    this.halted = false;
     this.finished = Promise.resolve();
+    this.halted = false;
   }
 
   /**

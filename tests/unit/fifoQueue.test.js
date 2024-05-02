@@ -294,5 +294,68 @@ describe('FiFoQueue tests', () => {
       // after the resume(), then 9 normal tasks = 16.
       expect(count).to.equal(16);
     });
+
+    it('should resolve any awaited tasks with Error if queue cleared', async () => {
+      const clock = sinon.useFakeTimers();
+
+      let workDone = 0;
+      let workAwaited = 0;
+      const workResults = [];
+
+      const expectedresults = [
+        { error: null, data: 0 },
+        { error: null, data: 1 },
+        { error: null, data: 2 },
+        { error: null, data: 3 },
+        { error: null, data: 4 },
+        { error: null, data: 5 },
+        { error: new Error('Queue cleared') },
+        { error: new Error('Queue cleared') },
+        { error: new Error('Queue cleared') },
+        { error: new Error('Queue cleared') },
+      ];
+
+      const worker = async (item) => {
+        await new Promise((r) => { setTimeout(r, 5_000); });
+        workDone += 1;
+        return { error: null, data: item };
+      };
+
+      const queue = new fifoQueue.FifoQueue({ worker });
+
+      const waitForQueue = async (item) => {
+        const res = await queue.push(item, true);
+        workResults.push(res);
+        workAwaited += 1;
+      };
+
+      // this will take 50 seconds for the queue to clear
+      // under normal circumstances
+      for (let i = 0; i < 10; i += 1) {
+        waitForQueue(i);
+      }
+
+      setTimeout(() => queue.clear(), 30_000);
+
+      expect(workDone).to.equal(0);
+      expect(workAwaited).to.equal(0);
+
+      await clock.tickAsync(10_000);
+      expect(workDone).to.equal(2);
+      expect(workAwaited).to.equal(2);
+
+      await clock.tickAsync(10_000);
+      expect(workDone).to.equal(4);
+      expect(workAwaited).to.equal(4);
+
+      // queue cleared here
+      await clock.tickAsync(10_000);
+
+      // the worker doesn't run for the cleared tasks
+      expect(workDone).to.equal(6);
+      expect(workAwaited).to.equal(10);
+      expect(workResults).to.deep.equal(expectedresults);
+      expect(queue.workAvailable).to.equal(false);
+    });
   });
 });
