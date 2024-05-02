@@ -1600,14 +1600,22 @@
                           aria-hidden="true"
                         >
                           <b-icon
-                            icon="calendar2-check-fill"
+                            icon="check-square-fill"
                             scale="1"
                             variant="success"
                           /></span>
                         <span class="sr-only">Selected</span>
                       </template>
                       <template v-else>
-                        <span aria-hidden="true">&nbsp;</span>
+                        <span
+                          style="color: white"
+                          aria-hidden="true"
+                        >
+                          <b-icon
+                            icon="square"
+                            scale="1"
+                            variant="secondary"
+                          /></span>
                         <span class="sr-only">Not selected</span>
                       </template>
                     </template>
@@ -1648,6 +1656,7 @@
                       </div>
                     </template>
                   </b-table>
+                  <span>Select application component(s) you would like to upload</span>
                   <b-card-text v-if="showProgressBar">
                     <div class="mt-1">
                       <!-- <b-progress
@@ -1745,7 +1754,7 @@
                             icon="cloud-arrow-up"
                             class="mr-1"
                           />
-                          Upload Selected Files To FluxDrive
+                          Upload Selected Components To FluxDrive
                         </b-button>
                       </div>
                       <b-button
@@ -2011,6 +2020,7 @@
                           bordered
                           hover
                           small
+                          class="backups-table"
                           :items="row.item.components.filter(component =>
                             Object.values(component).some(value =>
                               String(value).toLowerCase().includes(nestedTableFilter.toLowerCase()),
@@ -2018,6 +2028,17 @@
                           )"
                           :fields="componentsTable1"
                         >
+                          <template #cell(file_url)="nestedRow">
+                            <div class="ellipsis-wrapper">
+                              <b-link
+                                :href="nestedRow.item.file_url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {{ nestedRow.item.file_url }}
+                              </b-link>
+                            </div>
+                          </template>
                           <template #cell(file_size)="nestedRow">
                             {{ addAndConvertFileSizes(nestedRow.item.file_size) }}
                           </template>
@@ -6100,9 +6121,9 @@ export default {
     },
     componentsTable1() {
       return [
-        { key: 'component', label: 'Component Name' },
+        { key: 'component', label: 'Component Name', thStyle: { width: '200px' } },
         { key: 'file_url', label: 'URL' },
-        { key: 'file_size', label: 'Size' },
+        { key: 'file_size', label: 'Size', thStyle: { width: '100px' } },
         {
           key: 'actions',
           label: 'Actions',
@@ -10292,5 +10313,19 @@ a:hover img {
 }
 .table-no-padding > td {
   padding: 0 !important;
+}
+
+.backups-table td {
+  position: relative;
+}
+td .ellipsis-wrapper {
+  position: absolute;
+  max-width: calc(100% - 1rem);
+  line-height: calc(3rem - 8px);
+  top: 0;
+  left: 1rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
 }
 </style>
