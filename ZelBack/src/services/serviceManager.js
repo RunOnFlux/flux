@@ -94,7 +94,8 @@ async function startFluxFunctions() {
     log.info('Syncthing service started');
     await pgpService.generateIdentity();
     log.info('PGP service initiated');
-    await dbHelper.dropCollection(database, fluxTransactionCollection).catch((error) => {
+    const explorerDatabase = db.db(config.database.daemon.database);
+    await dbHelper.dropCollection(explorerDatabase, fluxTransactionCollection).catch((error) => {
       log.error(error);
     });
     log.info('Mongodb zelnodetransactions dropped');
