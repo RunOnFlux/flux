@@ -19,11 +19,6 @@ const fifoQueue = require('./utils/fifoQueue');
 let syncthingTimer = null;
 
 /**
- * The running timeout to see if apt-cache is okay
- */
-let aptCacheTimer = null;
-
-/**
  * A FIFO queue used to store and run apt commands
  * @type {fifoQueue.FifoQueue}
  */
@@ -74,9 +69,7 @@ async function aptRunner(options = {}) {
  */
 function resetTimers() {
   clearInterval(syncthingTimer);
-  clearInterval(aptCacheTimer);
   syncthingTimer = null;
-  aptCacheTimer = null;
 }
 
 /**
@@ -151,7 +144,7 @@ async function updateAptCache(options = {}) {
     // We can still get a race condition if another entity on the system
     // updates the cache before us. In that instance, the command throws,
     // since this is just a cache update, we assume it was fine and don't retry.
-    const { error } = await queueAptGetCommand('update', { wait: true, retries: 0 });
+    const { error } = await queueAptGetCommand('update', { wait: true, retries: 0, retainErrors: false });
     if (!error) log.info('Apt Cache updated');
     return Boolean(error);
   }
@@ -407,22 +400,24 @@ async function monitorSyncthingPackage() {
  * @returns {Promise<void>}
  */
 async function monitorAptCache(event) {
-  if (aptCacheTimer) return;
-
   // The options are what the worker was called with by the user
   const { options, error } = event;
+
+  const dpkgLock = '/var/lib/dpkg/lock';
+  const dpkgLockFrontend = '/var/lib/dpkg/lock-frontend';
 
   // we don't care about apt-get update error, most likely
   // apt-get update was already running (this uses a different lock
   // than apt-get install)
   if (options.command === 'update') {
+    // we don't need to log here, as the error gets logged automatically by runCommand
     aptQueue.resume();
     return;
   }
 
   // if we are here and it is a default install command,
-  // it took 15 minutes to fail. (unless the lock wait wasn't working
-  // on arm or apt older than 1.9.11 or something. Then it took ~50 seconds)
+  // it took 20 minutes to fail. (unless the lock wait wasn't working
+  // on arm or apt older than 1.9.11 or something. Then it took ~5 minutes)
 
   // can get multiple error messages here? Don't allways get the pid.
 
@@ -430,60 +425,64 @@ async function monitorAptCache(event) {
   // N: Be aware that removing the lock file is not a solution and may break your system.
   // E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?
 
-  let nonLockError = null;
-  let failed = false;
+  let lockError = false;
+  let waitForLockFailed = false;
 
   // check the error message. This is brittle, as it is dependent on
-  // apt-get not changing output etc.
-  if (!error.message.includes('/var/lib/dpkg/lock-frontend')) {
-    nonLockError = error;
+  // apt-get not changing output etc, but error codes are just 0 or 100
+  if (error.message.includes(dpkgLockFrontend)) {
+    lockError = true;
   }
 
   // wait a further 30 minutes for lock to release. (seems a long time?)
   let retriesRemaining = 3;
 
-  // this is for lock errors only
-  while (!nonLockError && retriesRemaining) {
+  while (lockError && retriesRemaining) {
     retriesRemaining -= 1;
     // eslint-disable-next-line no-await-in-loop
     await serviceHelper.delay(10 * 60 * 1000);
+    // we can use the syscall fcntl provided by the fs-ext package to test the lock instead of
+    // apt-get check. It would mean we don't have to run a shell command as it's just native C++.
+    // However that means another dependency and I don't have the hardware (yet) to test on ARM etc.
+
     // eslint-disable-next-line no-await-in-loop
     const { error: lockCheckError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
     if (!lockCheckError) {
-      aptCacheTimer = null;
       aptQueue.resume();
       return;
     }
 
-    if (!lockCheckError.message.includes('/var/lib/dpkg/lock-frontend')) {
-      nonLockError = error;
+    if (!lockCheckError.message.includes(dpkgLockFrontend)) {
       break;
     }
 
-    if (!retriesRemaining) failed = true;
+    if (!retriesRemaining) waitForLockFailed = true;
   }
 
-  // at this point, the cache could still be locked, or there could be a different error
-  if (nonLockError) {
-    // Try dpkg configure as a last resort.
-    await serviceHelper.runCommand('dpkg', { runAsRoot: true, params: ['--configure', '-a'] });
-  }
-
-  if (!failed) {
-    const { error: checkError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
-
-    if (!checkError) {
-      aptCacheTimer = null;
-      aptQueue.resume();
-      return;
+  if (waitForLockFailed) {
+    // they've had enough time with the lock, time to move then on.
+    const termParams = ['-k', '-TERM', dpkgLock, dpkgLockFrontend];
+    const opts = { runAsRoot: true, timeout: 10000, params: termParams };
+    const { error: fuserError } = await serviceHelper.runCommand('fuser', opts);
+    if (fuserError) {
+      // tests do weird stuff if you mutate the call properties
+      const killParams = termParams.slice();
+      killParams[1] = '-KILL';
+      await serviceHelper.runCommand('fuser', { runAsRoot: true, timeout: 10000, params: killParams });
     }
   }
 
-  log.error('Unable to run apt-get command(s), all apt activities are halted, will resume in 12 hours.');
-  aptCacheTimer = setTimeout(() => {
-    aptCacheTimer = null;
+  // try recover any partial installs
+  await serviceHelper.runCommand('dpkg', { runAsRoot: true, params: ['--configure', '-a'] });
+
+  const { error: checkError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
+  if (!checkError) {
     aptQueue.resume();
-  }, 1000 * 3600 * 12);
+    return;
+  }
+
+  log.error('Unable to run apt-get command(s), clearing the queue and resetting state.');
+  aptQueue.clear();
 }
 
 /**
@@ -507,20 +506,6 @@ async function monitorSystem() {
   } catch (error) {
     log.error(error);
   }
-}
-
-if (require.main === module) {
-  // aptQueue.addWorker(aptRunner);
-  // aptQueue.on('failed', monitorAptCache);
-  aptQueue.addWorker(aptRunner);
-  addSyncthingRepository();
-  // updateAptCache().then(res => {
-  //   console.log("Cache update error:", res)
-  // })
-  // upgradePackage('syncthing').then(res => {
-  //   console.log("Package upgrade error:", res)
-  // })
-  // monitorSystem();
 }
 
 module.exports = {

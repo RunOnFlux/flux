@@ -5,7 +5,6 @@ const axios = require('axios');
 const { XMLParser } = require('fast-xml-parser');
 const fs = require('fs');
 const os = require('os');
-const path = require('path');
 const util = require('util');
 const qs = require('qs');
 const verificationHelper = require('./verificationHelper');
@@ -30,6 +29,11 @@ const parserOptions = {
 const parser = new XMLParser(parserOptions);
 
 const goodSyncthingChars = /^[a-zA-Z0-9-_]+$/;
+
+/**
+ * If the syncthing binary is present
+ */
+let syncthingExecutable = false;
 
 /**
  * To get syncthing config xml file
@@ -2089,29 +2093,6 @@ function isRunning() {
 /**
  * Check if Synchtng is installed and if not install it
  */
-let syncthingExecutable = false;
-// eslint-disable-next-line no-unused-vars
-async function installSyncthing() { // can throw
-  // check if syncthing is installed or not
-  log.info('Checking if Syncthing is installed...');
-  const execIsInstalled = 'syncthing --version';
-  let isInstalled = true;
-  await cmdAsync(execIsInstalled).catch((error) => {
-    if (error) {
-      log.error(error);
-      log.info('Syncthing not installed....');
-      isInstalled = false;
-    }
-  });
-  if (!isInstalled) {
-    log.info('Installing Syncthing...');
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash installSyncthing.sh`;
-    await cmdAsync(exec);
-  }
-  syncthingExecutable = true;
-  log.info('Syncthing installed');
-}
 
 /**
  * Function that adjusts syncthing folders and restarts the service if needed
