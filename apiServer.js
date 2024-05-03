@@ -5,6 +5,7 @@ process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
 const config = require('config');
 const fs = require('fs');
+const http = require('node:http');
 const https = require('https');
 const path = require('path');
 const util = require('util');
@@ -22,6 +23,46 @@ const cmdAsync = util.promisify(nodecmd.get);
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+
+/**
+ * This is solely for testing. The CacheableLookup()
+ */
+let cacheable;
+
+/**
+ * Gets the cacheable variable for testing
+ */
+function getCacheable() {
+  return cacheable;
+}
+/**
+ * Adds extra servers to DNS, if they are not being used already. This is just
+ * within the NodeJS process, not systemwide.
+ *
+ * Sets these globally for both http and https (axios) It will use the OS servers
+ * by default, and if they fail, move on to our added servers, if a server fails, requests
+ * go to an active server immediately, for a period.
+ */
+async function createDnsCache() {
+  // we have to dynamic import here as cacheable-lookup only supports ESM.
+  const { default: CacheableLookup } = await import('cacheable-lookup');
+  cacheable = new CacheableLookup({ maxTtl: 360 });
+
+  cacheable.install(http.globalAgent);
+  cacheable.install(https.globalAgent);
+
+  const cloudflareDns = '1.1.1.1';
+  const googleDns = '8.8.8.8';
+  const quad9Dns = '9.9.9.9';
+
+  const backupServers = [cloudflareDns, googleDns, quad9Dns];
+
+  const existingServers = cacheable.servers;
+
+  const serverPool = [...(new Set([...existingServers, ...backupServers]))];
+
+  cacheable.servers = serverPool;
+}
 
 async function loadUpnpIfRequired() {
   let verifyUpnp = false;
@@ -79,6 +120,8 @@ async function initiate() {
     process.exit();
   }
 
+  await createDnsCache();
+
   await loadUpnpIfRequired();
 
   setInterval(async () => {
@@ -115,5 +158,6 @@ async function initiate() {
 }
 
 module.exports = {
+  getCacheable,
   initiate,
 };
