@@ -1849,7 +1849,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   // space that is further reserved for flux os and that will be later substracted from available space. Max 60 + 20.
   const fluxSystemReserve = config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace > 0 ? config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace : 0;
   const minSystemReserve = Math.max(config.lockedSystemResources.extrahdd, fluxSystemReserve);
-  const totalAvailableSpaceLeft = availableSpace * 0.95 - minSystemReserve;
+  const totalAvailableSpaceLeft = availableSpace - minSystemReserve;
   if (appSpecifications.hdd >= totalAvailableSpaceLeft) {
     // sadly user free space is not enough for this application
     throw new Error('Insufficient space on Flux Node. Space is already assigned to system files');
