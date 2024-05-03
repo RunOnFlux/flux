@@ -25,16 +25,24 @@ const apiPortHttps = +apiPort + 1;
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
 /**
- * This is solely for testing. The CacheableLookup()
+ * The Cacheable. So we only instantiate it once (and for testing)
  */
-let cacheable;
+let cacheable = null;
 
 /**
- * Gets the cacheable variable for testing
+ * Gets the cacheable CacheableLookup() for testing
  */
 function getCacheable() {
   return cacheable;
 }
+
+/**
+ * Gets the cacheable CacheableLookup() for testing
+ */
+function resetCacheable() {
+  cacheable = null;
+}
+
 /**
  * Adds extra servers to DNS, if they are not being used already. This is just
  * within the NodeJS process, not systemwide.
@@ -42,11 +50,17 @@ function getCacheable() {
  * Sets these globally for both http and https (axios) It will use the OS servers
  * by default, and if they fail, move on to our added servers, if a server fails, requests
  * go to an active server immediately, for a period.
+ * @param {Map?} userCache An optional cache, we use this as a reference for testing
+ * @returns {Promise<void>}
  */
-async function createDnsCache() {
+async function createDnsCache(userCache) {
+  if (cacheable) return;
+
+  const cache = userCache || new Map();
+
   // we have to dynamic import here as cacheable-lookup only supports ESM.
   const { default: CacheableLookup } = await import('cacheable-lookup');
-  cacheable = new CacheableLookup({ maxTtl: 360 });
+  cacheable = new CacheableLookup({ maxTtl: 360, cache });
 
   cacheable.install(http.globalAgent);
   cacheable.install(https.globalAgent);
@@ -59,9 +73,8 @@ async function createDnsCache() {
 
   const existingServers = cacheable.servers;
 
-  const serverPool = [...(new Set([...existingServers, ...backupServers]))];
-
-  cacheable.servers = serverPool;
+  // it dedupes any servers
+  cacheable.servers = [...existingServers, ...backupServers];
 }
 
 async function loadUpnpIfRequired() {
@@ -158,6 +171,8 @@ async function initiate() {
 }
 
 module.exports = {
+  createDnsCache,
   getCacheable,
+  resetCacheable,
   initiate,
 };
