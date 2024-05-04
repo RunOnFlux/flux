@@ -2,6 +2,11 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
+const { Readable, Writable } = require('node:stream');
+const zlib = require('node:zlib');
+
+const tar = require('tar-fs');
+
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
 
@@ -21,6 +26,7 @@ const appsService = require('../../ZelBack/src/services/appsService');
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
+const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
@@ -33,9 +39,12 @@ const fluxService = proxyquire(
 
 const generateResponse = () => {
   const res = { test: 'testing' };
+  res.buffer = [];
   res.status = sinon.stub().returns(res);
   res.json = sinon.fake((param) => `Response: ${param}`);
   res.download = sinon.fake(() => 'File downloaded');
+  res.write = sinon.fake((data) => res.buffer.push(data));
+  res.end = sinon.stub();
   return res;
 };
 
@@ -3078,6 +3087,168 @@ describe('fluxService tests', () => {
       await fluxService.installFluxWatchTower();
 
       sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/fluxwatchtower.sh`, { cwd: nodedpath });
+    });
+  });
+
+  describe('streamChain tests', () => {
+    let osStub;
+    let fsStub;
+    let blockchainInfoStub;
+    let tarPackStub;
+
+    beforeEach(() => {
+      osStub = sinon.stub(os, 'homedir');
+      fsStub = sinon.stub(fs, 'stat');
+      blockchainInfoStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockchainInfo');
+      tarPackStub = sinon.stub(tar, 'pack');
+    });
+
+    afterEach(() => {
+      fluxService.unlockStreamLock();
+      sinon.restore();
+    });
+
+    it('should return 503 if a stream is already in progress', async () => {
+      const res = generateResponse();
+      fluxService.lockStreamLock();
+
+      await fluxService.streamChain(null, res);
+
+      expect(res.statusMessage).to.equal('Streaming of chain already in progress, server busy.');
+      sinon.assert.calledWithExactly(res.status, 503);
+      sinon.assert.calledOnce(res.end);
+    });
+
+    it('should lock if no other streams are in progress', async () => {
+      // add this test
+    });
+
+    it('should return 400 if Fluxnode is behind a proxy', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '' } };
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.equal('Socket closed.');
+      sinon.assert.calledWithExactly(res.status, 400);
+      sinon.assert.calledOnce(res.end);
+    });
+
+    it('should return 403 if request if from a public IP address', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '1.2.3.4' } };
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.equal('Request must be from an address on the same private network as the host.');
+      sinon.assert.calledWithExactly(res.status, 403);
+      sinon.assert.calledOnce(res.end);
+    });
+
+    it('should return 500 if any chain folders are missing', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+      osStub.returns('/home/testuser');
+
+      fsStub.rejects(new Error("Test block dir doesn't exist"));
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.equal('Unable to find chain at $HOME/.flux');
+      sinon.assert.calledWithExactly(res.status, 500);
+      sinon.assert.calledOnce(res.end);
+    });
+
+    it('should return 422 if unsafe and compression requested', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '10.20.30.40' }, body: { unsafe: true, compress: true } };
+
+      osStub.returns('/home/testuser');
+      fsStub.resolves({ isDirectory: () => true });
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.equal('Unable to compress blockchain in unsafe mode, it will corrupt new db.');
+      sinon.assert.calledWithExactly(res.status, 422);
+      sinon.assert.calledOnce(res.end);
+    });
+
+    it('should return 503 when fluxd still running when in safe mode', async () => {
+      const res = generateResponse();
+      const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+      osStub.returns('/home/testuser');
+      fsStub.resolves({ isDirectory: () => true });
+      blockchainInfoStub.resolves({ status: 'success', blocks: 1635577 });
+
+      await fluxService.streamChain(req, res);
+
+      expect(res.statusMessage).to.equal('Flux daemon still running, unable to clone blockchain.');
+      sinon.assert.calledWithExactly(res.status, 503);
+      sinon.assert.calledOnce(res.end);
+    });
+
+    it('should stream chain uncompressed when no compression requested', async () => {
+      const received = [];
+
+      const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+      const res = new Writable({
+        write(chunk, encoding, done) {
+          received.push(chunk.toString());
+          done();
+        },
+      });
+
+      let count = 0;
+      const readable = new Readable({
+        read() {
+          this.push('test');
+          if (count === 3) this.push(null);
+          count += 1;
+        },
+      });
+
+      osStub.returns('/home/testuser');
+      fsStub.resolves({ isDirectory: () => true });
+      blockchainInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED' } });
+      tarPackStub.returns(readable);
+
+      await fluxService.streamChain(req, res);
+      expect(received).to.deep.equal(['test', 'test', 'test', 'test']);
+    });
+
+    it('should stream chain compressed when compression requested', async () => {
+      const received = [];
+
+      const req = { socket: { remoteAddress: '10.20.30.40' }, body: { compress: true } };
+
+      const res = zlib.createGunzip();
+
+      res.on('data', (data) => {
+        // this gets all data in buffer
+        received.push(data.toString());
+      });
+
+      res.on('end', () => { });
+
+      let count = 0;
+      const readable = new Readable({
+        read() {
+          this.push('test');
+          if (count === 3) this.push(null);
+          count += 1;
+        },
+      });
+
+      osStub.returns('/home/testuser');
+      fsStub.resolves({ isDirectory: () => true });
+      blockchainInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED' } });
+      tarPackStub.returns(readable);
+
+      await fluxService.streamChain(req, res);
+      expect(received).to.deep.equal(['testtesttesttest']);
     });
   });
 });
