@@ -297,6 +297,10 @@ describe('system Services tests', () => {
       sinon.useFakeTimers({
         now,
       });
+
+      await systemService.monitorSyncthingPackage();
+
+      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
     });
 
     it('should not call upgradeSyncthing if on correct version', async () => {
