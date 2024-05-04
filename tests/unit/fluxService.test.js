@@ -39,11 +39,9 @@ const fluxService = proxyquire(
 
 const generateResponse = () => {
   const res = { test: 'testing' };
-  res.buffer = [];
   res.status = sinon.stub().returns(res);
   res.json = sinon.fake((param) => `Response: ${param}`);
   res.download = sinon.fake(() => 'File downloaded');
-  res.write = sinon.fake((data) => res.buffer.push(data));
   res.end = sinon.stub();
   return res;
 };
