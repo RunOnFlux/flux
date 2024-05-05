@@ -96,7 +96,9 @@ async function startFluxFunctions() {
     log.info('PGP service initiated');
     const explorerDatabase = db.db(config.database.daemon.database);
     await dbHelper.dropCollection(explorerDatabase, fluxTransactionCollection).catch((error) => {
-      log.error(error);
+      if (error.message !== 'ns not found') {
+        log.error(error);
+      }
     });
     log.info('Mongodb zelnodetransactions dropped');
 
