@@ -192,10 +192,13 @@ async function fluxShareGetSharedFiles(req, res) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -224,10 +227,13 @@ async function fluxShareUnshareFile(req, res) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -256,10 +262,13 @@ async function fluxShareShareFile(req, res) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -318,10 +327,13 @@ async function fluxShareDownloadFolder(req, res, authorized = false) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -400,10 +412,13 @@ async function fluxShareDownloadFile(req, res) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -456,10 +471,13 @@ async function fluxShareRename(req, res) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -498,10 +516,13 @@ async function fluxShareRemoveFile(req, res) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -536,10 +557,13 @@ async function fluxShareRemoveFolder(req, res) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -679,10 +703,13 @@ async function fluxShareFileExists(req, res) {
     }
   } catch (error) {
     log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
     try {
-      res.write(`Error Message: ${error.message || error}`);
-      res.write(`Error Name: ${error.name}`);
-      res.write(`Error Code: ${error.code}`);
+      res.write(serviceHelper.ensureString(errorResponse));
       res.end();
     } catch (e) {
       log.error(e);
@@ -832,10 +859,13 @@ async function fluxShareUpload(req, res) {
       })
       .on('error', (error) => {
         log.error(error);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
         try {
-          res.write(`Error Message: ${error.message || error}`);
-          res.write(`Error Name: ${error.name}`);
-          res.write(`Error Code: ${error.code}`);
+          res.write(serviceHelper.ensureString(errorResponse));
         } catch (e) {
           log.error(e);
         }
