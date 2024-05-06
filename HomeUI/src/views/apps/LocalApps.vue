@@ -3198,6 +3198,8 @@ export default {
             detail: { current: 1, total: 1 },
             variant: 'success',
           });
+        } else if (output.status === 'error') {
+          string += `Error: ${JSON.stringify(output.data)}\r\n`;
         } else {
           string += `${output.status}\r\n`;
         }
