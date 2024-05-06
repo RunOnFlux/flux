@@ -1776,7 +1776,7 @@
       </b-row>
     </div>
     <div
-      v-if="output.length > 0"
+      v-if="output"
       class="actionCenter"
     >
       <br>
@@ -1791,7 +1791,7 @@
           />
         </b-col>
         <b-col
-          v-if="downloading"
+          v-if="downloadOutput.length > 0"
           cols="3"
         >
           <h3>Downloads</h3>
@@ -2406,7 +2406,7 @@ export default {
       forbiddenGeolocations: {},
       numberOfGeolocations: 1,
       numberOfNegativeGeolocations: 1,
-      output: [],
+      output: '',
       downloading: false,
       downloadOutput: {},
       nodeIP: '',
@@ -3342,6 +3342,7 @@ export default {
           this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
+      this.downloading = false;
     },
     async uploadEnvToFluxStorage(componentIndex) {
       try {

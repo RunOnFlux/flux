@@ -2357,7 +2357,7 @@
         </b-tab>
       </b-tabs>
       <div
-        v-if="output.length > 0"
+        v-if="output"
         class="actionCenter"
       >
         <br>
@@ -2372,7 +2372,7 @@
             />
           </b-col>
           <b-col
-            v-if="downloading"
+            v-if="downloadOutput.length > 0"
             cols="3"
           >
             <h3>Downloads</h3>
@@ -2478,7 +2478,7 @@ export default {
       stateAppsNames: [],
       tableKey: 0,
       timeoptions,
-      output: [],
+      output: '',
       downloading: false,
       downloadOutput: {
       },
@@ -3099,6 +3099,7 @@ export default {
         this.appsGetInstalledApps();
         this.appsGetListRunningApps();
       }
+      this.downloading = false;
     },
     getAppName(appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux

@@ -5548,13 +5548,37 @@
       class="actionCenter"
     >
       <br>
-      <b-form-textarea
-        plaintext
-        no-resize
-        :rows="output.length"
-        :value="stringOutput()"
-        class="mt-1"
-      />
+      <b-row>
+        <b-col cols="9">
+          <b-form-textarea
+            plaintext
+            no-resize
+            :rows="output.length + 1"
+            :value="stringOutput()"
+            class="mt-1"
+          />
+        </b-col>
+        <b-col
+          v-if="downloadOutput.length > 0"
+          cols="3"
+        >
+          <h3>Downloads</h3>
+          <div
+            v-for="info in downloadOutput"
+            :key="info.id"
+          >
+            <h4> {{ info.id }}</h4>
+            <b-progress
+              :value="info.detail.current / info.detail.total * 100"
+              max="100"
+              striped
+              height="1rem"
+              :variant="info.variant"
+            />
+            <br>
+          </div>
+        </b-col>
+      </b-row>
     </div>
     <div>
       <br>
@@ -6127,6 +6151,7 @@ export default {
         },
       ],
       output: '',
+      downloadOutput: {},
       fluxCommunication: false,
       commandExecuting: false,
       getAllAppsResponse: {
@@ -9323,7 +9348,43 @@ export default {
     stringOutput() {
       let string = '';
       this.output.forEach((output) => {
-        string += `${JSON.stringify(output)}\r\n`;
+        if (output.status === 'success') {
+          string += `${output.data.message || output.data}\r\n`;
+        } else if (output.status === 'Downloading') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'danger',
+          });
+        } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'warning',
+          });
+        } else if (output.status === 'Download complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'info',
+          });
+        } else if (output.status === 'Extracting') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'primary',
+          });
+        } else if (output.status === 'Pull complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'success',
+          });
+        } else if (output.status === 'error') {
+          string += `Error: ${JSON.stringify(output.data)}\r\n`;
+        } else {
+          string += `${output.status}\r\n`;
+        }
       });
       return string;
     },
