@@ -564,6 +564,25 @@
                   <template #cell(visit)="row">
                     <div class="d-flex no-wrap">
                       <b-button
+                        v-if="privilege === 'fluxteam'"
+                        :id="`manage-installed-app-${row.item.name}`"
+                        v-b-tooltip.hover.top="'Manage Installed App'"
+                        size="sm"
+                        class="mr-0"
+                        variant="outline-dark"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="gear"
+                        />
+                        Manage
+                      </b-button>
+                      <confirm-dialog
+                        :target="`manage-installed-app-${row.item.name}`"
+                        confirm-button="Manage App"
+                        @confirm="openAppManagement(row.item.name)"
+                      />
+                      <b-button
                         v-b-tooltip.hover.top="'Visit App'"
                         size="sm"
                         class="mr-0 no-wrap hover-underline"
@@ -663,19 +682,40 @@
                   empty-text="No Flux Marketplace Apps are active"
                 >
                   <template #cell(visit)="row">
-                    <b-button
-                      v-b-tooltip.hover.top="'Visit App'"
-                      size="sm"
-                      class="mr-0 no-wrap hover-underline"
-                      variant="link"
-                      @click="openGlobalApp(row.item.name)"
-                    >
-                      <b-icon
-                        scale="1"
-                        icon="front"
+                    <div class="d-flex no-wrap">
+                      <b-button
+                        v-if="privilege === 'fluxteam'"
+                        :id="`manage-installed-app-${row.item.name}`"
+                        v-b-tooltip.hover.top="'Manage Installed App'"
+                        size="sm"
+                        class="mr-0"
+                        variant="outline-dark"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="gear"
+                        />
+                        Manage
+                      </b-button>
+                      <confirm-dialog
+                        :target="`manage-installed-app-${row.item.name}`"
+                        confirm-button="Manage App"
+                        @confirm="openAppManagement(row.item.name)"
                       />
-                      Visit
-                    </b-button>
+                      <b-button
+                        v-b-tooltip.hover.top="'Visit App'"
+                        size="sm"
+                        class="mr-0 no-wrap hover-underline"
+                        variant="link"
+                        @click="openGlobalApp(row.item.name)"
+                      >
+                        <b-icon
+                          scale="1"
+                          icon="front"
+                        />
+                        Visit
+                      </b-button>
+                    </div>
                   </template>
                   <template #cell(description)="row">
                     <kbd class="text-secondary textarea text" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
@@ -1178,6 +1218,7 @@ import {
 } from 'bootstrap-vue';
 
 import Ripple from 'vue-ripple-directive';
+import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
@@ -1233,7 +1274,9 @@ export default {
             { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
             { key: 'description', label: 'Description', thStyle: { width: '75%' } },
             // eslint-disable-next-line object-curly-newline
-            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '4%' } },
+            { key: 'Management', label: '', thStyle: { width: '3%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '3%' } },
           ],
           loading: true,
           sortBy: '',
@@ -1254,7 +1297,9 @@ export default {
             { key: 'name', label: 'Name', sortable: true, thStyle: { width: '18%' } },
             { key: 'description', label: 'Description', thStyle: { width: '75%' } },
             // eslint-disable-next-line object-curly-newline
-            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '4%' } },
+            { key: 'Management', label: '', thStyle: { width: '3%' } },
+            // eslint-disable-next-line object-curly-newline
+            { key: 'visit', label: '', class: 'text-center', thStyle: { width: '3%' } },
           ],
           loading: true,
           sortBy: '',
@@ -1280,6 +1325,11 @@ export default {
     };
   },
   computed: {
+    ...mapState('flux', [
+      'config',
+      'userconfig',
+      'privilege',
+    ]),
     myGlobalApps() {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
