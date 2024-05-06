@@ -3301,7 +3301,7 @@ export default {
         return;
       }
       const self = this;
-      this.output = [];
+      this.output = '';
       this.downloadOutput = {};
       this.downloading = true;
       this.showToast('warning', `Installing ${app}`);
