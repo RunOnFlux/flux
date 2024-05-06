@@ -2357,7 +2357,7 @@
         </b-tab>
       </b-tabs>
       <div
-        v-if="output"
+        v-if="output.lenght > 0"
         class="actionCenter"
       >
         <br>
@@ -2372,7 +2372,7 @@
             />
           </b-col>
           <b-col
-            v-if="downloadOutput.length > 0"
+            v-if="downloadOutputReturned"
             cols="3"
           >
             <h3>Downloads</h3>
@@ -2478,8 +2478,9 @@ export default {
       stateAppsNames: [],
       tableKey: 0,
       timeoptions,
-      output: '',
+      output: [],
       downloading: false,
+      downloadOutputReturned: false,
       downloadOutput: {
       },
       managedApplication: '',
@@ -2925,7 +2926,7 @@ export default {
       win.focus();
     },
     async stopApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Stopping ${this.getAppName(app)}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await AppsService.stopApp(zelidauth, app);
@@ -2938,7 +2939,7 @@ export default {
       // console.log(response);
     },
     async startApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Starting ${this.getAppName(app)}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await AppsService.startApp(zelidauth, app);
@@ -2951,7 +2952,7 @@ export default {
       // console.log(response);
     },
     async restartApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Restarting ${this.getAppName(app)}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await AppsService.restartApp(zelidauth, app);
@@ -2964,7 +2965,7 @@ export default {
       // console.log(response);
     },
     async pauseApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Pausing ${this.getAppName(app)}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await AppsService.pauseApp(zelidauth, app);
@@ -2976,7 +2977,7 @@ export default {
       // console.log(response);
     },
     async unpauseApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Unpausing ${this.getAppName(app)}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const response = await AppsService.unpauseApp(zelidauth, app);
@@ -2995,7 +2996,9 @@ export default {
     },
     async redeployApp(app, force) {
       const self = this;
-      this.output = '';
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloadOutputReturned = false;
       this.showToast('warning', `Redeploying ${this.getAppName(app)}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
@@ -3024,7 +3027,7 @@ export default {
     async removeApp(app) {
       const appName = this.getAppName(app);
       const self = this;
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Removing ${appName}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
@@ -3060,6 +3063,7 @@ export default {
       const self = this;
       this.output = [];
       this.downloadOutput = {};
+      this.downloadOutputReturned = false;
       this.downloading = true;
       this.showToast('warning', `Installing ${appName}`);
       const zelidauth = localStorage.getItem('zelidauth');
@@ -3170,30 +3174,35 @@ export default {
         if (output.status === 'success') {
           string += `${output.data.message || output.data}\r\n`;
         } else if (output.status === 'Downloading') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'danger',
           });
         } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'warning',
           });
         } else if (output.status === 'Download complete') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'info',
           });
         } else if (output.status === 'Extracting') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'primary',
           });
         } else if (output.status === 'Pull complete') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },

@@ -5544,7 +5544,7 @@
       </b-tab>
     </b-tabs>
     <div
-      v-if="output"
+      v-if="output.length > 0"
       class="actionCenter"
     >
       <br>
@@ -5559,7 +5559,7 @@
           />
         </b-col>
         <b-col
-          v-if="downloadOutput.length > 0"
+          v-if="downloadOutputReturned"
           cols="3"
         >
           <h3>Downloads</h3>
@@ -6150,8 +6150,9 @@ export default {
           ],
         },
       ],
-      output: '',
+      output: [],
       downloadOutput: {},
+      downloadOutputReturned: false,
       fluxCommunication: false,
       commandExecuting: false,
       getAllAppsResponse: {
@@ -8042,7 +8043,9 @@ export default {
       // do not reset global application specifics obtained
       this.appExec.cmd = '';
       this.appExec.env = '';
-      this.output = '';
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloadOutputReturned = false;
       this.backupToUpload = [];
       if (index !== 11) {
         this.disconnectTerminal();
@@ -8791,7 +8794,7 @@ export default {
       }
     },
     async stopMonitoring(appName, deleteData = false) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Stopping Monitoring of ${appName}`);
       let response;
       if (deleteData) {
@@ -8807,7 +8810,7 @@ export default {
       console.log(response);
     },
     async startMonitoring(appName) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Starting Monitoring of ${appName}`);
       const response = await this.executeLocalCommand(`/apps/startmonitoring/${appName}`);
       if (response.data.status === 'success') {
@@ -9042,7 +9045,7 @@ export default {
     },
 
     async stopApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Stopping ${app}`);
       const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
       if (response.data.status === 'success') {
@@ -9054,7 +9057,7 @@ export default {
       console.log(response);
     },
     async startApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Starting ${app}`);
       const response = await this.executeLocalCommand(`/apps/appstart/${app}`);
       if (response.data.status === 'success') {
@@ -9066,7 +9069,7 @@ export default {
       console.log(response);
     },
     async restartApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Restarting ${app}`);
       const response = await this.executeLocalCommand(`/apps/apprestart/${app}`);
       if (response.data.status === 'success') {
@@ -9078,7 +9081,7 @@ export default {
       console.log(response);
     },
     async pauseApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Pausing ${app}`);
       const response = await this.executeLocalCommand(`/apps/apppause/${app}`);
       if (response.data.status === 'success') {
@@ -9090,7 +9093,7 @@ export default {
       console.log(response);
     },
     async unpauseApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Unpausing ${app}`);
       const response = await this.executeLocalCommand(`/apps/appunpause/${app}`);
       if (response.data.status === 'success') {
@@ -9109,7 +9112,9 @@ export default {
     },
     async redeployApp(app, force) {
       const self = this;
-      this.output = '';
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloadOutputReturned = false;
       this.showToast('warning', `Redeploying ${app}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
@@ -9137,7 +9142,7 @@ export default {
     },
     async removeApp(app) {
       const self = this;
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Removing ${app}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
@@ -9348,27 +9353,32 @@ export default {
     stringOutput() {
       let string = '';
       this.output.forEach((output) => {
+        console.log(output);
         if (output.status === 'success') {
           string += `${output.data.message || output.data}\r\n`;
         } else if (output.status === 'Downloading') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'danger',
           });
         } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'warning',
           });
         } else if (output.status === 'Download complete') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'info',
           });
         } else if (output.status === 'Extracting') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
