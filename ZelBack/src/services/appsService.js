@@ -2108,13 +2108,10 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   }
   stopAppMonitoring(monitoredName, true);
   await dockerService.appDockerStop(appId).catch((error) => {
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
     if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
     }
   });
   const stopStatus2 = {
@@ -2143,7 +2140,9 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     );
     log.error(errorResponse);
     if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
     }
   });
   const removeStatus2 = {
@@ -2169,7 +2168,9 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     );
     log.error(errorResponse);
     if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
     }
   });
   const imageStatus2 = {
@@ -2566,13 +2567,10 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
   } catch (error) {
     removalInProgress = false;
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
     if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
       if (endResponse) {
         res.end();
       }
@@ -2644,7 +2642,9 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     );
     log.error(errorResponse);
     if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
     }
   });
   const imageStatus2 = {
@@ -3553,7 +3553,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     );
     log.error(errorResponse);
     if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
     }
     const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
@@ -3923,7 +3925,9 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     );
     log.error(errorResponse);
     if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
     }
     const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
@@ -12585,13 +12589,10 @@ async function renameAppsObject(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
     try {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
       res.end();
     } catch (e) {
       log.error(e);
@@ -12637,13 +12638,10 @@ async function removeAppsObject(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
     try {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
       res.end();
     } catch (e) {
       log.error(e);
@@ -12709,13 +12707,10 @@ async function downloadAppsFolder(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
     try {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
       res.end();
     } catch (e) {
       log.error(e);
@@ -12763,13 +12758,10 @@ async function downloadAppsFile(req, res) {
     }
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
     try {
-      res.write(serviceHelper.ensureString(errorResponse));
+      res.write(`Error Message: ${error.message || error}`);
+      res.write(`Error Name: ${error.name}`);
+      res.write(`Error Code: ${error.code}`);
       res.end();
     } catch (e) {
       log.error(e);

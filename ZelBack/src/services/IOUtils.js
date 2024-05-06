@@ -6,7 +6,6 @@ const axios = require('axios');
 const path = require('path');
 const { formidable } = require('formidable');
 const serviceHelper = require('./serviceHelper');
-const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
 
@@ -453,13 +452,10 @@ async function fileUpload(req, res) {
       })
       .on('error', (error) => {
         log.error(error);
-        const errorResponse = messageHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
         try {
-          res.write(serviceHelper.ensureString(errorResponse));
+          res.write(`Error Message: ${error.message || error}`);
+          res.write(`Error Name: ${error.name}`);
+          res.write(`Error Code: ${error.code}`);
         } catch (e) {
           log.error(e);
         }
