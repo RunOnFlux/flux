@@ -1603,6 +1603,7 @@
               </h5>
             </b-card-text>
             <b-button
+              :disabled="!signature"
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
               variant="outline-success"
               aria-label="Register Flux App"
@@ -1621,6 +1622,7 @@
           <b-card
             class="text-center"
             title="Sign with"
+            ref="signContainer"
           >
             <div class="loginRow">
               <a @click="initiateSignWS">
@@ -2172,7 +2174,6 @@ export default {
   data() {
     return {
       isDragging: false,
-      composeYaml: null,
       reader: new FileReader(),
       tooltipText: 'Copy to clipboard',
       importAppSpecs: false,
@@ -2889,6 +2890,10 @@ export default {
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
+        this.$nextTick(() => {
+          this.$refs.signContainer.scrollIntoView({ behavior: 'smooth' });
+          this.bgFade(this.$refs.signContainer, 1);
+        });
       } catch (error) {
         console.log(error);
         this.showToast('danger', error.message || error);
@@ -3998,6 +4003,15 @@ export default {
     },
     uploadFile() {
       this.$refs.uploadSpecs.$el.childNodes[0].click();
+    },
+    bgFade(element, opacity) {
+      const timeout = opacity === 1 ? 1000 : 30;
+      const newOpacity = opacity - 0.02;
+      // eslint-disable-next-line no-param-reassign
+      element.style.backgroundColor = `rgba(211, 211, 211, ${newOpacity})`;
+      if (newOpacity >= 0) {
+        setTimeout(() => this.bgFade(element, newOpacity), timeout);
+      }
     },
     parseCompose() {
       let parsed;
