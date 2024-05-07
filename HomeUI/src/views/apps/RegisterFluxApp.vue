@@ -2586,7 +2586,11 @@ export default {
   },
   watch: {
     appRegistrationSpecification: {
-      handler() {
+      handler(newVal, oldVal) {
+        // stops this handler triggering and resetting the viewport if
+        // the specs are the same and the compute registration button is clicked
+        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) return;
+
         this.dataToSign = '';
         this.signature = '';
         this.timestamp = null;
@@ -2891,8 +2895,10 @@ export default {
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
         this.$nextTick(() => {
-          this.$refs.signContainer.scrollIntoView({ behavior: 'smooth' });
-          this.bgFade(this.$refs.signContainer, 1);
+          if (!this.isElementInViewport(this.$refs.signContainer)) {
+            this.$refs.signContainer.scrollIntoView({ behavior: 'smooth' });
+            this.bgFade(this.$refs.signContainer, 1);
+          }
         });
       } catch (error) {
         console.log(error);
@@ -4013,6 +4019,16 @@ export default {
         setTimeout(() => this.bgFade(element, newOpacity), timeout);
       }
     },
+    isElementInViewport(el) {
+      const rect = el.getBoundingClientRect();
+
+      return (
+        rect.top >= 0
+        && rect.left >= 0
+        && rect.bottom <= (window.innerHeight || document.documentElement.clientHeight)
+        && rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+      );
+    },
     parseCompose() {
       let parsed;
       try {
@@ -4131,7 +4147,7 @@ export default {
       console.log(fluxApp);
       this.appRegistrationSpecification.compose = fluxApp.compose;
 
-      if (this.$refs.components.length) {
+      if (this.$refs.components.length && !this.isElementInViewport(this.$refs.components[0])) {
         this.$refs.components[0].scrollIntoView({ behavior: 'smooth' });
       }
     },
