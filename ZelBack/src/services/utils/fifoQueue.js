@@ -32,9 +32,10 @@ class FifoQueue extends EventEmitter {
   halted = false;
 
   /**
-   * An awaitable for the queue to clear
+   * An awaitable for the work to finish, the queue won't necessarily be empty,
+   * as it may have been halted
    */
-  empty = Promise.resolve();
+  finished = Promise.resolve();
 
   /**
    *
@@ -81,7 +82,7 @@ class FifoQueue extends EventEmitter {
     if (this.worker) return;
 
     this.worker = worker;
-    if (this.workAvailable) this.empty = this.work();
+    if (this.workAvailable) this.finished = this.work();
   }
 
   /**
@@ -96,17 +97,26 @@ class FifoQueue extends EventEmitter {
    */
   resume() {
     this.halted = false;
-    this.empty = this.work();
+    this.finished = this.work();
   }
 
   /**
    * Remove all items from queue
    */
-  clear() {
+  async clear() {
+    this.halt();
+    await this.finished;
+
+    this.#list.forEach((task) => {
+      // the promise to resolve
+      const executor = task[1];
+      executor({ error: new Error('Queue cleared') });
+    });
+
     this.#list.length = 0;
     this.working = false;
+    this.finished = Promise.resolve();
     this.halted = false;
-    this.empty = Promise.resolve();
   }
 
   /**
@@ -122,7 +132,7 @@ class FifoQueue extends EventEmitter {
 
       this.#list.push([payload, resolve]);
 
-      if (this.worker && !this.working) this.empty = this.work();
+      if (this.worker && !this.working) this.finished = this.work();
       if (!wait) resolve({ error: null });
     });
   }
@@ -169,6 +179,8 @@ class FifoQueue extends EventEmitter {
     // nullish coalescing to allow for zero
     let retriesRemaining = workerOptions.retries ?? this.retries;
     const retryDelay = workerOptions.retryDelay ?? this.retryDelay;
+    const retainErrors = workerOptions.retainErrors ?? this.retainErrors;
+
     // we add one for the initial attempt
     retriesRemaining += 1;
 
@@ -189,7 +201,7 @@ class FifoQueue extends EventEmitter {
         // Can get halted externally too.
         // we put this task back at the start of the queue and bail.
         if (this.halted) {
-          if (this.retainErrors) this.#list.unshift(props);
+          if (retainErrors) this.#list.unshift(props);
           break;
         }
 
@@ -202,8 +214,7 @@ class FifoQueue extends EventEmitter {
 
   /**
    * Loops through any work until the queue is halted or there is
-   * no more work. Also sets an empty awaitable, so you can wait for
-   * the work to finish.
+   * no more work.
    * @returns {Promise<void>}
    */
   async work() {

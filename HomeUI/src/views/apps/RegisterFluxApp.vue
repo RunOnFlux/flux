@@ -1776,7 +1776,7 @@
       </b-row>
     </div>
     <div
-      v-if="output.length > 0"
+      v-if="output.lenght > 0"
       class="actionCenter"
     >
       <br>
@@ -1791,7 +1791,7 @@
           />
         </b-col>
         <b-col
-          v-if="downloading"
+          v-if="downloadOutputReturned"
           cols="3"
         >
           <h3>Downloads</h3>
@@ -2408,6 +2408,7 @@ export default {
       numberOfNegativeGeolocations: 1,
       output: [],
       downloading: false,
+      downloadOutputReturned: false,
       downloadOutput: {},
       nodeIP: '',
       tosAgreed: false,
@@ -3260,35 +3261,42 @@ export default {
         if (output.status === 'success') {
           string += `${output.data.message || output.data}\r\n`;
         } else if (output.status === 'Downloading') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'danger',
           });
         } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'warning',
           });
         } else if (output.status === 'Download complete') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'info',
           });
         } else if (output.status === 'Extracting') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'primary',
           });
         } else if (output.status === 'Pull complete') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'success',
           });
+        } else if (output.status === 'error') {
+          string += `Error: ${JSON.stringify(output.data)}\r\n`;
         } else {
           string += `${output.status}\r\n`;
         }
@@ -3303,6 +3311,7 @@ export default {
       const self = this;
       this.output = [];
       this.downloadOutput = {};
+      this.downloadOutputReturned = false;
       this.downloading = true;
       this.showToast('warning', `Installing ${app}`);
       const zelidauth = localStorage.getItem('zelidauth');
@@ -3340,6 +3349,7 @@ export default {
           this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
+      this.downloading = false;
     },
     async uploadEnvToFluxStorage(componentIndex) {
       try {

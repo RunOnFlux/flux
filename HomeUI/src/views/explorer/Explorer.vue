@@ -209,10 +209,6 @@
               title="No. Transactions"
               :number="addressWithTransactions[address] ? addressWithTransactions[address].transactions.length : 0"
             />
-            <list-entry
-              title="Flux Transactions"
-              :number="addressWithTransactions[address] ? addressWithTransactions[address].fluxTxs.length : 0"
-            />
           </b-card>
         </b-col>
       </b-row>
@@ -231,23 +227,6 @@
                   :transaction="tx"
                   :current-height="getInfoResponse.data.blocks"
                 />
-              </app-collapse-item>
-            </app-collapse>
-          </b-card>
-        </b-col>
-      </b-row>
-      <b-row
-        v-if="addressWithTransactions[address] && addressWithTransactions[address].fluxTxs && addressWithTransactions[address].fluxTxs.length > 0"
-      >
-        <b-col cols="12">
-          <b-card title="Flux Transactions">
-            <app-collapse>
-              <app-collapse-item
-                v-for="tx in addressWithTransactions[address].fluxTxs"
-                :key="tx.txid"
-                :title="`TXID: ${tx.txid}`"
-              >
-                <FluxTransaction :transaction="tx" />
               </app-collapse-item>
             </app-collapse>
           </b-card>
@@ -272,7 +251,6 @@ import AppCollapse from '@core/components/app-collapse/AppCollapse.vue';
 import AppCollapseItem from '@core/components/app-collapse/AppCollapseItem.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
 import Transaction from '@/views/explorer/Transaction.vue';
-import FluxTransaction from '@/views/explorer/FluxTransaction.vue';
 
 import DaemonService from '@/services/DaemonService';
 import ExplorerService from '@/services/ExplorerService';
@@ -290,7 +268,6 @@ export default {
     ToastificationContent,
     ListEntry,
     Transaction,
-    FluxTransaction,
     AppCollapse,
     AppCollapseItem,
   },
@@ -447,14 +424,7 @@ export default {
           this.addressWithTransactions[address].transactions = responseAddr.data.data;
           this.addressWithTransactions[address].address = address;
           this.addressWithTransactions[address].balance = responseBalance.data.data;
-          this.addressWithTransactions[address].fluxTxs = [];
           this.getAddressTransactions(responseAddr.data.data, address);
-          const responseFluxTxs = await ExplorerService.getFluxTransactions(address);
-          console.log(responseFluxTxs);
-          if (responseFluxTxs.data.status === 'success') {
-            this.addressWithTransactions[address].fluxTxs = responseFluxTxs.data.data;
-            this.uniqueKeyAddress += 1;
-          }
         } else {
           this.showToast('warning', 'Address not found');
           this.addressView = false;

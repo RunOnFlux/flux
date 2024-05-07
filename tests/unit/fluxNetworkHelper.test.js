@@ -252,7 +252,7 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      serviceHelper.axiosGet.restore();
+      sinon.restore();
     });
 
     it('Should return true if node is running flux, port taken from config', async () => {
@@ -292,6 +292,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
 

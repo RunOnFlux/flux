@@ -1828,7 +1828,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
 
   await getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
-  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
+  const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const resourcesLocked = await appsResources();
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux App. Aborting.');
@@ -1846,7 +1846,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     usedSpace += serviceHelper.ensureNumber(volume.used);
     availableSpace += serviceHelper.ensureNumber(volume.available);
   });
-  // space that is further reserved for flux os and that will be later substracted from available space. Max 40 + 20.
+  // space that is further reserved for flux os and that will be later substracted from available space. Max 60 + 20.
   const fluxSystemReserve = config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace > 0 ? config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace : 0;
   const minSystemReserve = Math.max(config.lockedSystemResources.extrahdd, fluxSystemReserve);
   const totalAvailableSpaceLeft = availableSpace - minSystemReserve;
@@ -2601,7 +2601,16 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
   stopAppMonitoring(monitoredName, false);
-  await dockerService.appDockerStop(appId);
+  await dockerService.appDockerStop(appId).catch((error) => {
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    }
+  });
 
   const stopStatus2 = {
     status: isComponent ? `Flux App Component ${appSpecifications.name} stopped` : `Flux App ${appName} stopped`,
@@ -3015,7 +3024,7 @@ async function checkAppHWRequirements(appSpecs) {
   if (totalSpaceOnNode === 0) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
-  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
+  const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
@@ -9534,6 +9543,7 @@ async function softRedeploy(appSpecs, res) {
       }
       return;
     }
+    log.info('Starting softRedeploy');
     try {
       await softRemoveAppLocally(appSpecs.name, res);
     } catch (error) {
@@ -9553,6 +9563,7 @@ async function softRedeploy(appSpecs, res) {
     await softRegisterAppLocally(appSpecs, undefined, res);
     log.info('Application softly redeployed');
   } catch (error) {
+    log.info('Error on softRedeploy');
     log.error(error);
     removeAppLocally(appSpecs.name, res, true, true, true);
   }
