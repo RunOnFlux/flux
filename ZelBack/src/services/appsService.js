@@ -2601,7 +2601,16 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
   stopAppMonitoring(monitoredName, false);
-  await dockerService.appDockerStop(appId);
+  await dockerService.appDockerStop(appId).catch((error) => {
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+    }
+  });
 
   const stopStatus2 = {
     status: isComponent ? `Flux App Component ${appSpecifications.name} stopped` : `Flux App ${appName} stopped`,
