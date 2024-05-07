@@ -7,9 +7,6 @@ export default {
   getAddressTransactions(address) {
     return Api().get(`/explorer/transactions/${address}`);
   },
-  getFluxTransactions(filter) {
-    return Api().get(`/explorer/fluxtxs/${filter}`);
-  },
   getScannedHeight() {
     return Api().get('/explorer/scannedheight');
   },
