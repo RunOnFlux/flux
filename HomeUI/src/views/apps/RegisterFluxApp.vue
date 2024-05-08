@@ -4130,13 +4130,29 @@ export default {
           component.ports = this.ensureString(parsedHostPorts);
           component.containerPorts = this.ensureString(parsedContainerPorts);
           component.domains = this.ensureString(parsedDomains);
+        } else {
+          component.ports = '[]';
+          component.containerPorts = '[]';
+          component.domains = '[]';
         }
-        // we add /tmp, so that component will work - if users need, they can update it
-        component.containerData = '/tmp';
-        // set these to default if not set
+        // add in defaults. I was cloning the v7 compose specs, but on secondary components,
+        // some of the options don't make sense.
         component.hdd = 40;
         if (!component.ram) component.ram = 2000;
         if (!component.cpu) component.cpu = 0.5;
+
+        component.containerData = '/tmp';
+        component.tiered = false;
+        component.secrets = '';
+        component.cpubasic = 0.5;
+        component.rambasic = 500;
+        component.hddbasic = 10;
+        component.cpusuper = 1.5;
+        component.ramsuper = 2500;
+        component.hddsuper = 60;
+        component.cpubamf = 3.5;
+        component.rambamf = 14000;
+        component.hddbamf = 285;
       });
       this.appRegistrationSpecification.compose = fluxApp.compose;
 
