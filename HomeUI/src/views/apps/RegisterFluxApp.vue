@@ -4047,7 +4047,7 @@ export default {
         const component = { name: componentName };
         fluxApp.compose.push(component);
 
-        if (config.image) component.repotag = config.image;
+        component.repotag = config.image || '';
 
         if (config.deploy?.resources?.limits) {
           const { limits } = config.deploy.resources;
@@ -4143,6 +4143,8 @@ export default {
         if (!component.ram) component.ram = 2000;
         if (!component.cpu) component.cpu = 0.5;
 
+        component.descrption = '';
+        component.repoauth = '';
         component.containerData = '/tmp';
         component.tiered = false;
         component.secrets = '';
