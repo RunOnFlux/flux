@@ -4054,8 +4054,8 @@ export default {
             let dependsOn = config.depends_on;
 
             // assume we have an object and use the keys
-            if (!(Array.isArray(config.depends_on))) {
-              dependsOn = Object.keys(config.depends_on);
+            if (!(Array.isArray(dependsOn))) {
+              dependsOn = Object.keys(dependsOn);
             }
 
             dependsOn.forEach((dependee) => {
