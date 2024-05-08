@@ -3976,13 +3976,12 @@ export default {
         g: 1024,
       };
 
-      const separated = value.match(/[0-9]+|[a-zA-Z]+/g);
+      const separated = value.match(/[0-9]+(?:\.[0-9]+)?|[a-zA-Z]+/g);
       if (separated.length !== 2) return 0;
       const unscaledValue = +separated[0];
       const multiplier = separated[1].toLowerCase();
       if (!(multiplier in multipliers)) return 0;
-
-      return Math.floor(unscaledValue * multipliers[multiplier]);
+      return Math.ceil(unscaledValue * multipliers[multiplier]);
     },
     dragover(e) {
       e.preventDefault();
