@@ -4037,131 +4037,136 @@ export default {
         return;
       }
 
-      const range = (start, stop, step) => Array.from({ length: (stop - start) / step + 1 }, (_, i) => start + i * step);
+      try {
+        const range = (start, stop, step) => Array.from({ length: (stop - start) / step + 1 }, (_, i) => start + i * step);
 
-      const fluxApp = { compose: [] };
+        const fluxApp = { compose: [] };
 
-      Object.entries(parsed.services).forEach((entry) => {
-        const [componentName, config] = entry;
+        Object.entries(parsed.services).forEach((entry) => {
+          const [componentName, config] = entry;
 
-        const component = { name: componentName };
-        fluxApp.compose.push(component);
+          const component = { name: componentName };
+          fluxApp.compose.push(component);
 
-        component.repotag = config.image || '';
+          component.repotag = config.image || '';
 
-        if (config.deploy?.resources?.limits) {
-          const { limits } = config.deploy.resources;
-          if (limits.cpus) component.cpu = limits.cpus;
-          if (limits.memory) {
-            const parsedMemory = this.byteValueAsMb(limits.memory);
-            component.ram = parsedMemory;
+          if (config.deploy?.resources?.limits) {
+            const { limits } = config.deploy.resources;
+            if (limits.cpus) component.cpu = limits.cpus;
+            if (limits.memory) {
+              const parsedMemory = this.byteValueAsMb(limits.memory);
+              component.ram = parsedMemory;
+            }
           }
-        }
 
-        let parsedCommand = '';
-        if (config.command) {
-          // p = previous
-          // c = current
-          parsedCommand = config.command.match(/\\?.|^$/g).reduce(
-            (p, c) => {
-              if (c === '"') {
-                // eslint-disable-next-line no-bitwise, no-param-reassign
-                p.quote ^= 1;
-              } else if (!p.quote && c === ' ') {
-                p.a.push('');
-              } else {
-                // eslint-disable-next-line no-param-reassign
-                p.a[p.a.length - 1] += c.replace(/\\(.)/, '$1');
+          let parsedCommand = '';
+          if (config.command) {
+            // p = previous
+            // c = current
+            parsedCommand = config.command.match(/\\?.|^$/g).reduce(
+              (p, c) => {
+                if (c === '"') {
+                  // eslint-disable-next-line no-bitwise, no-param-reassign
+                  p.quote ^= 1;
+                } else if (!p.quote && c === ' ') {
+                  p.a.push('');
+                } else {
+                  // eslint-disable-next-line no-param-reassign
+                  p.a[p.a.length - 1] += c.replace(/\\(.)/, '$1');
+                }
+                return p;
+              },
+              { a: [''] },
+            ).a;
+          } else {
+            parsedCommand = [];
+          }
+
+          component.commands = this.ensureString(parsedCommand);
+
+          if (config.environment) {
+            let env = config.environment;
+            // env is a map, convert
+            if (!(env instanceof Array)) {
+              env = Object.keys(env).map((key) => `${key}=${env[key]}`);
+            }
+            component.environmentParameters = this.ensureString(env);
+          } else {
+            component.environmentParameters = '[]';
+          }
+
+          if (config.ports && config.ports.length) {
+            let parsedHostPorts = [];
+            let parsedContainerPorts = [];
+            let parsedDomains = [];
+
+            config.ports.forEach((composePort) => {
+              // don't allow long form port mapping
+              if (typeof composePort !== 'string') return;
+              // we don't allow random host port assignment
+              // maybe we should assign out of a range though
+              if (!composePort.includes(':')) return;
+
+              let [ports, containerPorts] = composePort.split(':');
+              if (ports.includes('-')) {
+                const [portsStart, portsEnd] = ports.split('-');
+                ports = range(+portsStart, +portsEnd, 1);
               }
-              return p;
-            },
-            { a: [''] },
-          ).a;
-        } else {
-          parsedCommand = [];
-        }
 
-        component.commands = this.ensureString(parsedCommand);
+              if (containerPorts.includes('-')) {
+                const [cPortsStart, cPortsEnd] = containerPorts.split('-');
+                containerPorts = range(+cPortsStart, +cPortsEnd, 1);
+              }
 
-        if (config.environment) {
-          let env = config.environment;
-          // env is a map, convert
-          if (!(env instanceof Array)) {
-            env = Object.keys(env).map((key) => `${key}=${env[key]}`);
+              if (typeof ports === 'string') ports = [ports];
+              if (typeof containerPorts === 'string') containerPorts = [containerPorts];
+
+              if (ports.length !== containerPorts.length) return;
+
+              const domains = Array.from({ length: ports.length }, () => '');
+
+              parsedHostPorts = parsedHostPorts.concat(ports.map((p) => +p));
+              parsedContainerPorts = parsedContainerPorts.concat(containerPorts.map((p) => +p));
+              parsedDomains = parsedDomains.concat(domains);
+            });
+
+            component.ports = this.ensureString(parsedHostPorts);
+            component.containerPorts = this.ensureString(parsedContainerPorts);
+            component.domains = this.ensureString(parsedDomains);
+          } else {
+            component.ports = '[]';
+            component.containerPorts = '[]';
+            component.domains = '[]';
           }
-          component.environmentParameters = this.ensureString(env);
-        } else {
-          component.environmentParameters = '[]';
+          // add in defaults. I was cloning the v7 compose specs, but we can't do this as it gets
+          // set to the main app specs which is mutating the template. We should be using @ungap/structured-clone
+          // as a polyfill for NodeJS < 17, then cloning the template.
+          component.hdd = 40;
+          if (!component.ram) component.ram = 2000;
+          if (!component.cpu) component.cpu = 0.5;
+
+          component.description = '';
+          component.repoauth = '';
+          component.containerData = '/tmp';
+          component.tiered = false;
+          component.secrets = '';
+          component.cpubasic = 0.5;
+          component.rambasic = 500;
+          component.hddbasic = 10;
+          component.cpusuper = 1.5;
+          component.ramsuper = 2500;
+          component.hddsuper = 60;
+          component.cpubamf = 3.5;
+          component.rambamf = 14000;
+          component.hddbamf = 285;
+        });
+        this.appRegistrationSpecification.compose = fluxApp.compose;
+
+        if (this.$refs.components.length && !this.isElementInViewport(this.$refs.components[0])) {
+          this.$refs.components[0].scrollIntoView({ behavior: 'smooth' });
         }
-
-        if (config.ports && config.ports.length) {
-          let parsedHostPorts = [];
-          let parsedContainerPorts = [];
-          let parsedDomains = [];
-
-          config.ports.forEach((composePort) => {
-            // don't allow long form port mapping
-            if (typeof composePort !== 'string') return;
-            // we don't allow random host port assignment
-            // maybe we should assign out of a range though
-            if (!composePort.includes(':')) return;
-
-            let [ports, containerPorts] = composePort.split(':');
-            if (ports.includes('-')) {
-              const [portsStart, portsEnd] = ports.split('-');
-              ports = range(portsStart, portsEnd, 1);
-            }
-
-            if (containerPorts.includes('-')) {
-              const [cPortsStart, cPortsEnd] = containerPorts.split('-');
-              containerPorts = range(cPortsStart, cPortsEnd, 1);
-            }
-
-            if (typeof ports === 'string') ports = [ports];
-            if (typeof containerPorts === 'string') containerPorts = [containerPorts];
-
-            if (ports.length !== containerPorts.length) return;
-
-            const domains = Array.from({ length: ports.length }, () => '');
-
-            parsedHostPorts = parsedHostPorts.concat(ports.map((p) => +p));
-            parsedContainerPorts = parsedContainerPorts.concat(containerPorts.map((p) => +p));
-            parsedDomains = parsedDomains.concat(domains);
-          });
-
-          component.ports = this.ensureString(parsedHostPorts);
-          component.containerPorts = this.ensureString(parsedContainerPorts);
-          component.domains = this.ensureString(parsedDomains);
-        } else {
-          component.ports = '[]';
-          component.containerPorts = '[]';
-          component.domains = '[]';
-        }
-        // add in defaults. I was cloning the v7 compose specs, but on secondary components,
-        // some of the options don't make sense.
-        component.hdd = 40;
-        if (!component.ram) component.ram = 2000;
-        if (!component.cpu) component.cpu = 0.5;
-
-        component.descrption = '';
-        component.repoauth = '';
-        component.containerData = '/tmp';
-        component.tiered = false;
-        component.secrets = '';
-        component.cpubasic = 0.5;
-        component.rambasic = 500;
-        component.hddbasic = 10;
-        component.cpusuper = 1.5;
-        component.ramsuper = 2500;
-        component.hddsuper = 60;
-        component.cpubamf = 3.5;
-        component.rambamf = 14000;
-        component.hddbamf = 285;
-      });
-      this.appRegistrationSpecification.compose = fluxApp.compose;
-
-      if (this.$refs.components.length && !this.isElementInViewport(this.$refs.components[0])) {
-        this.$refs.components[0].scrollIntoView({ behavior: 'smooth' });
+      } catch {
+        this.showToast('Error', 'Unable to parse compose specifications.');
       }
     },
   },
