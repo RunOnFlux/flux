@@ -39,7 +39,9 @@
         <template #overlay>
           <div id="fileDropOverlay" class="text-center">
             <b-icon icon="folder" font-scale="8" animation="cylon" />
-            <div class="text bd-highlight" style="font-size: 20px">Drop your docker-compose.yaml here</div>
+            <div class="text bd-highlight" style="font-size: 20px">
+              Drop your docker-compose.yaml here
+            </div>
           </div>
         </template>
         <b-row class="match-height">
@@ -58,8 +60,8 @@
                 </b-col>
                 <b-col sm="auto" class="pr-0 mb-1">
                   <b-button
-                    class="mr-0"
                     v-b-tooltip.hover.top="'Upload Docker Compose File'"
+                    class="mr-0"
                     variant="outline-primary"
                     @click="uploadFile"
                   >
@@ -68,8 +70,8 @@
                 </b-col>
                 <b-col sm="auto" class="pl-1 mb-1">
                   <b-button
-                    class="ml-0"
                     v-b-tooltip.hover.top="'Import Application Specification'"
+                    class="ml-0"
                     variant="outline-primary"
                     @click="importAppSpecs = true"
                   >
@@ -1603,8 +1605,8 @@
               </h5>
             </b-card-text>
             <b-button
-              :disabled="!signature"
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              :disabled="!signature"
               variant="outline-success"
               aria-label="Register Flux App"
               class="mt-3"
@@ -1620,9 +1622,9 @@
           lg="4"
         >
           <b-card
+            ref="signContainer"
             class="text-center highlight-container"
             title="Sign with"
-            ref="signContainer"
           >
             <div class="loginRow">
               <a @click="initiateSignWS">
