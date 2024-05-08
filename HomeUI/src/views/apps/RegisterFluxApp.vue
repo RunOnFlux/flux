@@ -37,7 +37,7 @@
         rounded="sm"
       >
         <template #overlay>
-          <div id="composeOverlay" class="text-center">
+          <div id="fileDropOverlay" class="text-center">
             <b-icon icon="folder" font-scale="8" animation="cylon" />
             <div class="text bd-highlight" style="font-size: 20px">Drop your docker-compose.yaml here</div>
           </div>
@@ -1620,7 +1620,7 @@
           lg="4"
         >
           <b-card
-            class="text-center"
+            class="text-center highlight-container"
             title="Sign with"
             ref="signContainer"
           >
@@ -2583,14 +2583,18 @@ export default {
       }
       return null;
     },
+    immutableAppSpecs() {
+      return JSON.stringify(this.appRegistrationSpecification);
+    },
   },
   watch: {
-    appRegistrationSpecification: {
-      handler(newVal, oldVal) {
-        // stops this handler triggering and resetting the viewport if
-        // the specs are the same and the compute registration button is clicked
-        if (JSON.stringify(oldVal) === JSON.stringify(newVal)) return;
-
+    // changed this to watch a string. Whenever checkFluxSpecificationsAndFormatMessage was
+    // being run, it was reassigning properties which was causing this watcher to fire, even if
+    // the properties were the same (empty fields). This would cause the viewport to jump to the
+    // top of the screen if you click compute registration message twice. Should probably just disable
+    // the button once clicked, then re-enable if specs change.
+    immutableAppSpecs: {
+      handler() {
         this.dataToSign = '';
         this.signature = '';
         this.timestamp = null;
@@ -2601,7 +2605,6 @@ export default {
           this.websocket = null;
         }
       },
-      deep: true,
     },
     expirePosition: {
       handler() {
@@ -2897,7 +2900,6 @@ export default {
         this.$nextTick(() => {
           if (!this.isElementInViewport(this.$refs.signContainer)) {
             this.$refs.signContainer.scrollIntoView({ behavior: 'smooth' });
-            this.bgFade(this.$refs.signContainer, 1);
           }
         });
       } catch (error) {
@@ -3973,13 +3975,12 @@ export default {
       };
 
       const separated = value.match(/[0-9]+|[a-zA-Z]+/g);
-      console.log('SEP', separated);
-      if (separated.length !== 2) return '';
+      if (separated.length !== 2) return 0;
       const unscaledValue = separated[0];
       const multiplier = separated[1].toLowerCase();
-      if (!(multiplier in multipliers)) return '';
+      if (!(multiplier in multipliers)) return 0;
 
-      return unscaledValue * multipliers[multiplier];
+      return Math.floor(unscaledValue * multipliers[multiplier]);
     },
     dragover(e) {
       e.preventDefault();
@@ -4009,15 +4010,6 @@ export default {
     },
     uploadFile() {
       this.$refs.uploadSpecs.$el.childNodes[0].click();
-    },
-    bgFade(element, opacity) {
-      const timeout = opacity === 1 ? 1000 : 30;
-      const newOpacity = opacity - 0.02;
-      // eslint-disable-next-line no-param-reassign
-      element.style.backgroundColor = `rgba(211, 211, 211, ${newOpacity})`;
-      if (newOpacity >= 0) {
-        setTimeout(() => this.bgFade(element, newOpacity), timeout);
-      }
     },
     isElementInViewport(el) {
       const rect = el.getBoundingClientRect();
@@ -4060,12 +4052,8 @@ export default {
           if (limits.cpus) component.cpu = limits.cpus;
           if (limits.memory) {
             const parsedMemory = this.byteValueAsMb(limits.memory);
-            if (parsedMemory) component.ram = parsedMemory;
+            component.ram = parsedMemory;
           }
-        }
-
-        if (config.mem_limit) {
-          component.ram = config.mem_limit / 1024 / 1024;
         }
 
         let parsedCommand = '';
@@ -4143,8 +4131,13 @@ export default {
           component.containerPorts = this.ensureString(parsedContainerPorts);
           component.domains = this.ensureString(parsedDomains);
         }
+        // we add /tmp, so that component will work - if users need, they can update it
+        component.containerData = '/tmp';
+        // set these to default if not set
+        component.hdd = 40;
+        if (!component.ram) component.ram = 2000;
+        if (!component.cpu) component.cpu = 0.5;
       });
-      console.log(fluxApp);
       this.appRegistrationSpecification.compose = fluxApp.compose;
 
       if (this.$refs.components.length && !this.isElementInViewport(this.$refs.components[0])) {
@@ -4158,6 +4151,13 @@ export default {
 <style scoped>
 #registrationmessage {
   padding-right: 25px !important;
+}
+#fileDropOverlay {
+  position:fixed;
+  top:50%;
+  left:50%;
+  margin-top:-y;
+  margin-left:-x;
 }
 .text-wrap {
   position: relative;
@@ -4223,23 +4223,20 @@ export default {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
 a img {
   transition: all 0.05s ease-in-out;
 }
-
 a:hover img {
   filter: opacity(70%);
   transform: scale(1.1);
 }
-
-#composeOverlay {
-  border-color: rgb(7, 241, 7);
-  position:fixed;
-  top:50%;
-  left:50%;
-  margin-top:-y;
-  margin-left:-x;
+.highlight-container {
+  animation: highlight 2s ease-in 0.4s;
+}
+@keyframes highlight {
+  from {
+    background-color: rgb(225, 224, 221);
+  }
 }
 
 </style>
