@@ -3978,7 +3978,7 @@ export default {
 
       const separated = value.match(/[0-9]+|[a-zA-Z]+/g);
       if (separated.length !== 2) return 0;
-      const unscaledValue = separated[0];
+      const unscaledValue = +separated[0];
       const multiplier = separated[1].toLowerCase();
       if (!(multiplier in multipliers)) return 0;
 
@@ -4052,10 +4052,13 @@ export default {
 
           if (config.deploy?.resources?.limits) {
             const { limits } = config.deploy.resources;
-            if (limits.cpus) component.cpu = limits.cpus;
+            // round up to nearest 0.1
+            if (limits.cpus) component.cpu = Math.max((Math.ceil(+limits.cpus * 10) / 10).toFixed(1), 0.1);
             if (limits.memory) {
               const parsedMemory = this.byteValueAsMb(limits.memory);
-              component.ram = parsedMemory;
+              // round up to nearest 100 (with 100 min)
+              const roundedMemory = Math.max(Math.ceil(parsedMemory / 100) * 100, 100);
+              component.ram = roundedMemory;
             }
           }
 
