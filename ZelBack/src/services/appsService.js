@@ -10346,6 +10346,9 @@ async function deploymentInformation(req, res) {
     if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
       deployAddr = config.fluxapps.addressMultisig;
     }
+    if (daemonHeight >= config.fluxapps.multisigAddressChange) {
+      deployAddr = config.fluxapps.addressMultisigB;
+    }
     // search in chainparams db for chainmessages of p version
     const appPrices = await getChainParamsPriceUpdates();
     const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
