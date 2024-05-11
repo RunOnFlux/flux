@@ -2551,9 +2551,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.write(serviceHelper.ensureString(databaseStatus2));
       }
     }
-    const appRemovalResponseDone = {
-      status: `Removal step done. Result: Flux App ${appName} was successfuly removed`,
-    };
+    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was successfuly removed`);
     log.info(appRemovalResponseDone);
 
     if (res) {
@@ -2789,10 +2787,7 @@ async function softRemoveAppLocally(app, res) {
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus2));
     }
-
-    const appRemovalResponseDone = {
-      status: `Removal step done. Result: Flux App ${appName} was partially removed`,
-    };
+    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
     log.info(appRemovalResponseDone);
     if (res) {
       res.write(serviceHelper.ensureString(appRemovalResponseDone));
@@ -2840,7 +2835,7 @@ async function removeAppLocallyApi(req, res) {
       // find in database, stop app, remove container, close ports delete data associated on system, remove from database
       // if other container uses the same image -> then it shall result in an error so ok anyway
       res.setHeader('Content-Type', 'application/json');
-      await removeAppLocally(appname, res, force, true, true);
+      removeAppLocally(appname, res, force, true, true);
       // all done message
       const successStatus = messageHelper.createSuccessMessage(`Flux App ${appname} successfully removed`);
       log.info(successStatus);
