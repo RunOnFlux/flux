@@ -2841,6 +2841,13 @@ async function removeAppLocallyApi(req, res) {
       // if other container uses the same image -> then it shall result in an error so ok anyway
       res.setHeader('Content-Type', 'application/json');
       removeAppLocally(appname, res, force, true, true);
+      // all done message
+      const successStatus = messageHelper.createSuccessMessage(`Flux App ${appname} successfully removed`);
+      log.info(successStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(successStatus));
+        res.end();
+      }
     }
   } catch (error) {
     log.error(error);
