@@ -9345,7 +9345,10 @@ async function expireGlobalApplications() {
       throw new Error('Scanning not initiated');
     }
     const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-    const minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
+    let minExpirationHeight = explorerHeight - config.fluxapps.newMinBlocksAllowance; // do a pre search in db as every app has to live for at least newMinBlocksAllowance
+    if (explorerHeight < config.fluxapps.newMinBlocksAllowanceBlock) {
+      minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
+    }
     // get global applications specification that have up to date data
     // find applications that have specifications height lower than minExpirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
