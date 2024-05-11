@@ -307,13 +307,14 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, re
     });
   } catch (err) {
     if (retries < 3) {
+      log.error(err);
       // eslint-disable-next-line no-param-reassign
       retries += 1;
       log.error(`Error downloading file, retrying download:${retries}`);
       // eslint-disable-next-line no-return-await
       return await downloadFileFromUrl(url, localpath, component, rename, retries);
     }
-    log.error('Error downloading file:', err.message);
+    log.error('Error downloading file:', err);
     return false;
   }
 }
