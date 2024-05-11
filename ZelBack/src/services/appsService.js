@@ -2840,7 +2840,7 @@ async function removeAppLocallyApi(req, res) {
       // find in database, stop app, remove container, close ports delete data associated on system, remove from database
       // if other container uses the same image -> then it shall result in an error so ok anyway
       res.setHeader('Content-Type', 'application/json');
-      removeAppLocally(appname, res, force, true, true);
+      await removeAppLocally(appname, res, force, true, true);
       // all done message
       const successStatus = messageHelper.createSuccessMessage(`Flux App ${appname} successfully removed`);
       log.info(successStatus);
