@@ -2357,7 +2357,7 @@
         </b-tab>
       </b-tabs>
       <div
-        v-if="output.lenght > 0"
+        v-if="output.length > 0"
         class="actionCenter"
       >
         <br>
