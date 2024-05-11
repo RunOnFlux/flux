@@ -2115,6 +2115,7 @@ import { useClipboard } from '@vueuse/core';
 import { getUser } from '@/libs/firebase';
 import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
+import topologicalSort from '@/utils/topologicalSort';
 import yaml from 'js-yaml';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
@@ -4040,12 +4041,31 @@ export default {
         const range = (start, stop, step) => Array.from({ length: (stop - start) / step + 1 }, (_, i) => start + i * step);
 
         const fluxApp = { compose: [] };
+        const dependsOnDag = {};
 
         Object.entries(parsed.services).forEach((entry) => {
           const [componentName, config] = entry;
 
           const component = { name: componentName };
           fluxApp.compose.push(component);
+          if (!(componentName in dependsOnDag)) dependsOnDag[componentName] = new Set();
+
+          if (config.depends_on) {
+            let dependsOn = config.depends_on;
+
+            // assume we have an object and use the keys
+            if (!(Array.isArray(dependsOn))) {
+              dependsOn = Object.keys(dependsOn);
+            }
+
+            dependsOn.forEach((dependee) => {
+              if (!(dependee in dependsOnDag)) {
+                dependsOnDag[dependee] = new Set();
+              }
+
+              dependsOnDag[dependee].add(componentName);
+            });
+          }
 
           component.repotag = config.image || '';
 
@@ -4162,12 +4182,19 @@ export default {
           component.rambamf = 14000;
           component.hddbamf = 285;
         });
+
+        const order = topologicalSort(dependsOnDag);
+        if (order.length === fluxApp.compose.length) {
+          fluxApp.compose.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+        }
+
         this.appRegistrationSpecification.compose = fluxApp.compose;
 
         if (this.$refs.components.length && !this.isElementInViewport(this.$refs.components[0])) {
           this.$refs.components[0].scrollIntoView({ behavior: 'smooth' });
         }
-      } catch {
+      } catch (err) {
+        console.log(err);
         this.showToast('Error', 'Unable to parse compose specifications.');
       }
     },
