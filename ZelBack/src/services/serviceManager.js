@@ -22,6 +22,10 @@ const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 
+function setSyncthingApiKey(apiKey) {
+  syncthingService.setApiKey(apiKey);
+}
+
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
  */
@@ -79,7 +83,9 @@ async function startFluxFunctions() {
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
-    fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
+    // removed this as we are running as root. (just temporary)
+    // a better, more controllable option is to use authbind (apt-get install authbind) and do it via uid.
+    // fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
     log.info('Node allowed to bind privileged ports');
     fluxCommunication.keepConnectionsAlive();
     log.info('Connections polling prepared');
@@ -256,4 +262,5 @@ async function startFluxFunctions() {
 
 module.exports = {
   startFluxFunctions,
+  setSyncthingApiKey,
 };

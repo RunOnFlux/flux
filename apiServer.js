@@ -88,6 +88,19 @@ async function initiate() {
   const server = app.listen(apiPort, () => {
     log.info(`Flux listening on port ${apiPort}!`);
     serviceManager.startFluxFunctions();
+
+    if (!process.send) {
+      log.error('IPC channel not set up... unable to complete startup');
+    }
+    process.send({ type: 'READY' });
+    process.on('message', (msg) => {
+      log.info('MESSAGE RECEIVED FROM PARENT', msg)
+      switch (msg.type) {
+        case 'syncthingApiKey':
+          serviceManager.setSyncthingApiKey(msg.syncthingApiKey);
+          break;
+      }
+    })
   });
 
   socket.initIO(server);
