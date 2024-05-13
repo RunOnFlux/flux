@@ -116,6 +116,7 @@
     "socket.io": "~4.7.2",
     "splitargs": "~0.0.7",
     "store": "~2.0.12",
+    "unix-dgram": "^2.0.6",
     "ws": "~7.5.9",
     "xterm": "~5.1.0",
     "zeltrezjs": "~2.12.0"
