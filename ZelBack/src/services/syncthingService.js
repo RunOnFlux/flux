@@ -2198,7 +2198,8 @@ async function startSyncthing() {
     }
 
     while (!syncthingApiKey) {
-      log.info('Waiting for syncthing apikey, sleeping 15s.')
+      log.info('Waiting for syncthing apikey, sleeping 15s.');
+      // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(15 * 1000);
     }
 

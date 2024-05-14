@@ -1,9 +1,11 @@
+/* eslint max-classes-per-file: 0 */
+
 const path = require('node:path');
 const { fork } = require('node:child_process');
 const fs = require('node:fs/promises');
 
 const unix = require('unix-dgram');
-const xml = require("fast-xml-parser");
+const xml = require('fast-xml-parser');
 
 /**
  * systemctl stop:
@@ -21,22 +23,29 @@ const xml = require("fast-xml-parser");
  */
 
 /**
- * Behavior of notify-reload is similar to notify, with one difference: the SIGHUP UNIX process signal is sent to the service's main process when the service is asked to reload and the manager will wait for a notification about the reload being finished.
+ * Behavior of notify-reload is similar to notify, with one difference: the SIGHUP UNIX process
+ * signal is sent to the service's main process when the service is asked to reload and the manager
+ * will wait for a notification about the reload being finished.
 
-When initiating the reload process the service is expected to reply with a notification message via sd_notify(3) that contains the "RELOADING=1" field in combination with "MONOTONIC_USEC=" set to the current monotonic time (i.e. CLOCK_MONOTONIC in clock_gettime(2)) in μs, formatted as decimal string. Once reloading is complete another notification message must be sent, containing "READY=1". Using this service type and implementing this reload protocol is an efficient alternative to providing an ExecReload= command for reloading of the service's configuration.
+When initiating the reload process the service is expected to reply with a notification message via
+sd_notify(3) that contains the "RELOADING=1" field in combination with "MONOTONIC_USEC=" set to the
+current monotonic time (i.e. CLOCK_MONOTONIC in clock_gettime(2)) in μs, formatted as decimal string.
+Once reloading is complete another notification message must be sent, containing "READY=1". Using
+this service type and implementing this reload protocol is an efficient alternative to providing an
+ExecReload= command for reloading of the service's configuration.
 
 The signal to send can be tweaked via ReloadSignal=, see below.
  */
 
 const noop = () => { };
-const sleep = (ms) => new Promise((r) => { setTimeout(r, ms) });
+const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
-function sendReloadingIfSupported(target, context) {
+function sendReloadingIfSupported(target) {
   // const {name, addInitializer} = context;
 
   async function inner(...args) {
     if (this.inbandReload) {
-      console.log("INBAND RELOAD")
+      console.log('INBAND RELOAD');
       const start = Math.round(Number(process.hrtime.bigint()) / 1000);
       await this.notify(['RELOADING=1', `MONOTONIC_USEC=${start}`]);
     }
@@ -51,15 +60,17 @@ function sendReloadingIfSupported(target, context) {
   }
 
   return inner;
-};
+}
 
 class SystemdNotify {
   socketPath = process.env.NOTIFY_SOCKET;
 
   watchdogHalflifeMs = 0;
+
   watchdogTimer = null;
 
   connected = false;
+
   client = null;
 
   /**
@@ -75,7 +86,7 @@ class SystemdNotify {
     if (!this.socketPath) return;
 
     if (process.env.WATCHDOG_USEC) {
-      this.watchdogHalflifeMs = process.env.WATCHDOG_USEC / 1000 / 2
+      this.watchdogHalflifeMs = process.env.WATCHDOG_USEC / 1000 / 2;
     }
 
     // call using arrow function to maintain this
@@ -96,7 +107,7 @@ class SystemdNotify {
     return new Promise((resolve, reject) => {
       this.client = unix.createSocket('unix_dgram');
       // set timeout reject.
-      this.client.on('error', function (err) {
+      this.client.on('error', (err) => {
         console.error(err);
         reject(err);
       });
@@ -120,7 +131,7 @@ class SystemdNotify {
       });
 
       this.client.connect(this.socketPath);
-    })
+    });
   }
 
   /**
@@ -179,76 +190,7 @@ class FluxOSWatcher {
   // If you really want to delegate the shutdown from your main process, set KillMode=mixed. SIGTERM will be sent to the main process only. Then again shutdown within TimeoutStopSec. If you do not shutdown within TimeoutStopSec, systemd will send SIGKILL to all your processes.
   // Note: I suggest to use KillMode=mixed in option 2 instead of KillMode=process, as the latter would send the final SIGKILL only to your main process, which means your sub-processes would not be killed if they've locked up.
 
-  async spawnFluxMainProcess() {
-    console.log('STARTING FluxOS');
-    const cwd = '/usr/local/fluxos/current';
-    const app = path.join(cwd, 'app.js');
-
-    const syncthingApiKey = await this.syncthingApiKey();
-
-    console.log('Syncthing key:', syncthingApiKey);
-
-    if (!syncthingApiKey) return false;
-
-    return new Promise((resolve, reject) => {
-      const msgHandler = (msg) => {
-        console.log('FluxOS child received message:', msg);
-        switch (msg.type) {
-          case 'READY':
-            resolve();
-            break;
-        }
-      }
-
-      // spawn as root until we can remove all sudo etc, otherwise set uid, gid;
-      const fluxOs = fork(app, [], { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'], });
-
-      fluxOs.on('close', (code) => {
-        console.log(`child process close all stdio with code ${code}`);
-      });
-
-      fluxOs.on('disconnect', (event) => {
-        console.log("FluxOS Disconnected");
-      });
-
-      fluxOs.on('error', (err) => {
-        console.log("FluxOS childprocess error:", err);
-        reject();
-      });
-
-      fluxOs.on('exit', (code) => {
-        console.log(`child process exited with code ${code}`);
-        reject();
-      });
-
-      fluxOs.on('message', msgHandler);
-
-      fluxOs.on('spawn', () => {
-        console.log('FluxOS child spawned');
-      });
-
-      fluxOs.send({ type: 'syncthingApiKey', syncthingApiKey });
-
-      this.fluxOs = fluxOs;
-    });
-  }
-
-  async startFunction() {
-    while (true) {
-      const err = await this.spawnFluxMainProcess().catch(() => true);
-      if (!err) break;
-      await sleep(5_000);
-      // spawn other flux subprocesses here
-    }
-  }
-
-  async reloadFunction() {
-    console.log('MOCK RELOAD MAIN FUNCTION (SLEEP 3 SECONDS');
-    await sleep(3_000);
-    console.log('MOCK MAIN FUNCTION RELOADED');
-  }
-
-  async syncthingApiKey() {
+  static async syncthingApiKey() {
     const configPath = process.env.SYNCTHING_CONFIG_PATH;
     if (!configPath) return '';
 
@@ -270,9 +212,85 @@ class FluxOSWatcher {
     }
     return apiKey;
   }
+
+  async spawnFluxMainProcess() {
+    console.log('STARTING FluxOS');
+    const cwd = '/usr/local/fluxos/current';
+    const app = path.join(cwd, 'app.js');
+
+    const syncthingApiKey = await FluxOSWatcher.syncthingApiKey();
+
+    console.log('Syncthing key:', syncthingApiKey);
+
+    if (!syncthingApiKey) return false;
+
+    return new Promise((resolve, reject) => {
+      const msgHandler = (msg) => {
+        console.log('FluxOS child received message:', msg);
+        switch (msg.type) {
+          case 'READY':
+            resolve();
+            break;
+          default:
+            console.log('unkown message received');
+        }
+      };
+
+      // spawn as root until we can remove all sudo etc, otherwise set uid, gid;
+      const fluxOs = fork(app, [], { cwd, stdio: ['pipe', 'pipe', 'pipe', 'ipc'] });
+
+      fluxOs.on('close', (code) => {
+        console.log(`child process close all stdio with code ${code}`);
+      });
+
+      fluxOs.on('disconnect', () => {
+        console.log('FluxOS Disconnected');
+      });
+
+      fluxOs.on('error', (err) => {
+        console.log('FluxOS childprocess error:', err);
+        reject();
+      });
+
+      fluxOs.on('exit', (code) => {
+        console.log(`child process exited with code ${code}`);
+        reject();
+      });
+
+      fluxOs.on('message', msgHandler);
+
+      fluxOs.on('spawn', () => {
+        console.log('FluxOS child spawned');
+      });
+
+      fluxOs.send({ type: 'syncthingApiKey', syncthingApiKey });
+
+      this.fluxOs = fluxOs;
+    });
+  }
+
+  async startFunction() {
+    let spawned = false;
+
+    while (!spawned) {
+      // eslint-disable-next-line no-await-in-loop
+      const err = await this.spawnFluxMainProcess().catch(() => true);
+      // eslint-disable-next-line no-await-in-loop
+      spawned = !err || await sleep(5_000);
+      // spawn other flux subprocesses here
+    }
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async reloadFunction() {
+    console.log('MOCK RELOAD MAIN FUNCTION (SLEEP 3 SECONDS');
+    await sleep(3_000);
+    console.log('MOCK MAIN FUNCTION RELOADED');
+  }
 }
 
 async function init() {
+  // eslint-disable-next-line no-unused-vars
   const watcher = new FluxOSWatcher();
 }
 

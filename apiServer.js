@@ -94,13 +94,15 @@ async function initiate() {
     }
     process.send({ type: 'READY' });
     process.on('message', (msg) => {
-      log.info('MESSAGE RECEIVED FROM PARENT', msg)
+      log.info('MESSAGE RECEIVED FROM PARENT', msg);
       switch (msg.type) {
         case 'syncthingApiKey':
           serviceManager.setSyncthingApiKey(msg.syncthingApiKey);
           break;
+        default:
+          log.info('Unknown message received from Parent');
       }
-    })
+    });
   });
 
   socket.initIO(server);
