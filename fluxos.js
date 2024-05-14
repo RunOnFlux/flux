@@ -3,9 +3,7 @@ const { fork } = require('node:child_process');
 const fs = require('node:fs/promises');
 
 const unix = require('unix-dgram');
-const userid = require('userid');
 const xml = require("fast-xml-parser");
-
 
 /**
  * systemctl stop:
