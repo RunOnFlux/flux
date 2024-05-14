@@ -2357,7 +2357,7 @@
         </b-tab>
       </b-tabs>
       <div
-        v-if="output.lenght > 0"
+        v-if="output.length > 0"
         class="actionCenter"
       >
         <br>
@@ -3016,11 +3016,11 @@ export default {
       } else {
         this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
         if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].status);
+          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else if (this.output[this.output.length - 1].status === 'warning') {
-          this.showToast('warning', this.output[this.output.length - 1].status);
+          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
-          this.showToast('success', this.output[this.output.length - 1].status);
+          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         }
       }
     },

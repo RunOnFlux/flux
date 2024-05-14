@@ -76,11 +76,11 @@ module.exports = {
     rpcporttestnet: 26124,
   },
   minimumFluxBenchAllowedVersion: '4.0.0',
-  minimumFluxOSAllowedVersion: '5.0.0',
+  minimumFluxOSAllowedVersion: '5.4.0',
   minimumSyncthingAllowedVersion: '1.27.6',
+  minimumDockerAllowedVersion: '26.1.2',
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   deterministicNodesStart: 558000,
-  syncthingVersionCheckStart: 1630040, // block where we will start looking at a min. syncthing version installed. block expected on 26th of April 2024
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [
@@ -147,7 +147,7 @@ module.exports = {
         staticip: 0.4, // additional price per application for targetting nodes that have static ip address
       },
     ],
-    fluxUSDRate: 1.14,
+    fluxUSDRate: 0.91,
     usdprice: {
       height: -1, // height from which price spec is valid
       cpu: 0.15, // per 0.1 cpu core,
@@ -172,7 +172,9 @@ module.exports = {
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
+    addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
     addressDevelopment: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
+    multisigAddressChange: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications

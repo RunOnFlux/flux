@@ -2551,9 +2551,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.write(serviceHelper.ensureString(databaseStatus2));
       }
     }
-    const appRemovalResponseDone = {
-      status: `Removal step done. Result: Flux App ${appName} was successfuly removed`,
-    };
+    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was successfuly removed`);
     log.info(appRemovalResponseDone);
 
     if (res) {
@@ -2789,10 +2787,7 @@ async function softRemoveAppLocally(app, res) {
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus2));
     }
-
-    const appRemovalResponseDone = {
-      status: `Removal step done. Result: Flux App ${appName} was partially removed`,
-    };
+    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
     log.info(appRemovalResponseDone);
     if (res) {
       res.write(serviceHelper.ensureString(appRemovalResponseDone));
@@ -9345,7 +9340,10 @@ async function expireGlobalApplications() {
       throw new Error('Scanning not initiated');
     }
     const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-    const minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
+    let minExpirationHeight = explorerHeight - config.fluxapps.newMinBlocksAllowance; // do a pre search in db as every app has to live for at least newMinBlocksAllowance
+    if (explorerHeight < config.fluxapps.newMinBlocksAllowanceBlock) {
+      minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
+    }
     // get global applications specification that have up to date data
     // find applications that have specifications height lower than minExpirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
@@ -10345,6 +10343,9 @@ async function deploymentInformation(req, res) {
     let deployAddr = config.fluxapps.address;
     if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
       deployAddr = config.fluxapps.addressMultisig;
+    }
+    if (daemonHeight >= config.fluxapps.multisigAddressChange) {
+      deployAddr = config.fluxapps.addressMultisigB;
     }
     // search in chainparams db for chainmessages of p version
     const appPrices = await getChainParamsPriceUpdates();

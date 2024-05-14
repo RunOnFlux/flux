@@ -4257,7 +4257,7 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App FoldingAtHomeB container removed' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up FoldingAtHomeB data...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App FoldingAtHomeB was successfuly removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App FoldingAtHomeB was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App FoldingAtHomeB was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
 
@@ -4300,7 +4300,7 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up testapp data...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });
@@ -4499,10 +4499,10 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was partially removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was partially removed' } }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was partially removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was partially removed' } }));
     });
   });
 
@@ -4656,7 +4656,7 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });

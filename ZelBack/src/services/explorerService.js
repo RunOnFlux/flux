@@ -272,19 +272,21 @@ async function processInsight(blockDataVerbose, database) {
       let isReceiverFounation = false;
 
       tx.vin.forEach((sender) => {
-        if (sender.address === config.fluxapps.addressMultisig) { // coinbase vin.addr is undefined
+        if (sender.address === config.fluxapps.addressMultisig || sender.address === config.fluxapps.addressMultisigB) { // coinbase vin.addr is undefined
           isSenderFoundation = true;
         }
       });
 
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB && blockDataVerbose.height >= config.fluxapps.multisigAddressChange)
             || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressDevelopment && config.development)) { // DEVELOPMENT MODE
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
           }
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig || receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB) {
             isReceiverFounation = true;
           }
         }
@@ -367,18 +369,20 @@ async function processStandard(blockDataVerbose, database) {
       const addresses = [];
       tx.senders.forEach((sender) => {
         addresses.push(sender.address);
-        if (sender.address === config.fluxapps.addressMultisig) {
+        if (sender.address === config.fluxapps.addressMultisig || sender.address === config.fluxapps.addressMultisigB) {
           isSenderFoundation = true;
         }
       });
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
           addresses.push(receiver.scriptPubKey.addresses[0]);
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB && blockDataVerbose.height >= config.fluxapps.multisigAddressChange)) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
           }
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig || receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB) {
             isReceiverFounation = true;
           }
         }
