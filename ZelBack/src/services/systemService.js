@@ -380,10 +380,10 @@ async function monitorSyncthingPackage() {
       // we don't need to check that status here, if there is an error 'syncthing' won't
       // have a value
       const syncthingVersion = data.syncthing || config.minimumSyncthingAllowedVersion;
-      const dockerVersion = data.docker || config.minimumDockerAllowedVersion;
+      // const dockerVersion = data.docker || config.minimumDockerAllowedVersion;
 
       await ensurePackageVersion('syncthing', syncthingVersion);
-      await ensurePackageVersion('docker', dockerVersion);
+      // await ensurePackageVersion('docker', dockerVersion); commented as it needs extra love to work
     };
 
     await versionChecker();
