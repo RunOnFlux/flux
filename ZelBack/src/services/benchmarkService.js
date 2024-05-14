@@ -14,8 +14,9 @@ const isTestnet = userconfig.initial.testnet;
 
 const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
 
+// just use process.cwd() or os.homedir();
 const homeDirPath = path.join(__dirname, '../../../../');
-const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+const newBenchmarkPath = process.env.FLUXBENCH_PATH || path.join(homeDirPath, '.fluxbenchmark');
 
 let response = messageHelper.createErrorMessage();
 
