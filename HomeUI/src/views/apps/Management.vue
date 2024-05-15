@@ -1656,7 +1656,7 @@
                       </div>
                     </template>
                   </b-table>
-                  <span>Select application component(s) you would like to upload</span>
+                  <span style="font-size: 0.9rem;">Select application component(s) you would like to upload</span>
                   <b-card-text v-if="showProgressBar">
                     <div class="mt-1">
                       <!-- <b-progress
@@ -1712,7 +1712,7 @@
                     </div>
                   </b-card-text>
                   <div
-                    v-if="backupToUpload.length > 0"
+                    v-if="backupList?.length > 0"
                     class="mt-2"
                   >
                     <div
@@ -1742,8 +1742,12 @@
                         v-if="sigInPrivilage === true"
                         class="mb-2"
                       >
+                        <ul class="mt-2" style="font-size: 0.9rem;">
+                          <li>Free FluxDrive backups! Up to 10GB per app</li>
+                          <li>FluxDrive backups can be downloaded on Restore page</li>
+                        </ul>
                         <b-button
-                          :disabled="uploadProgress === true"
+                          :disabled="uploadProgress === true || backupToUpload.length === 0"
                           class="mt-2"
                           block
                           variant="outline-primary"
@@ -2075,7 +2079,7 @@
                       show-empty
                       bordered
                       small
-                      class="mt-1"
+                      class="mt-1 backups-table"
                     >
                       <template #thead-top>
                         <b-tr>
@@ -2094,6 +2098,17 @@
                       </template>
                       <template #cell(timestamp)="row">
                         {{ formatDateTime(row.item.timestamp) }}
+                      </template>
+                      <template #cell(file_url)="row">
+                        <div class="ellipsis-wrapper">
+                          <b-link
+                            :href="row.item.file_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {{ row.item.file_url }}
+                          </b-link>
+                        </div>
                       </template>
                       <template #cell(file_size)="row">
                         {{ addAndConvertFileSizes(row.item.file_size) }}
@@ -5770,10 +5785,16 @@ export default {
         { key: 'file_size', label: 'Size', thStyle: { width: '8%' } },
       ],
       newComponentsTableFields: [
-        { key: 'component', label: 'Component Name', thStyle: { width: '25%' } },
-        { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
-        { key: 'timestamp', label: 'Timestamp', thStyle: { width: '6%' } },
-        { key: 'file_size', label: 'Size', thStyle: { width: '9%' } },
+        { key: 'component', label: 'Component Name', thStyle: { width: '200px' } },
+        { key: 'file_url', label: 'URL' },
+        { key: 'timestamp', label: 'Timestamp', thStyle: { width: '200px' } },
+        { key: 'file_size', label: 'Size', thStyle: { width: '100px' } },
+        {
+          key: 'actions',
+          label: 'Actions',
+          thStyle: { width: '117px' },
+          class: 'text-center',
+        },
       ],
       componentsTable() {
         return [
