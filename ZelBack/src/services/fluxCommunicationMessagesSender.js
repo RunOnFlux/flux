@@ -194,7 +194,7 @@ async function sendMessageToWS(message, ws) {
  * To respond with app message.
  * @param {object} message Message.
  * @param {object} ws Web socket.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {void} Throws an error if invalid.
  */
 async function respondWithAppMessage(message, ws) {
   try {
@@ -206,40 +206,58 @@ async function respondWithAppMessage(message, ws) {
       sendMessageToWS(tempMesResponse, ws);
       return;
     }
-    const appMessage = await appsService.checkAppMessageExistence(message.data.hash) || await appsService.checkAppTemporaryMessageExistence(message.data.hash);
-    if (appMessage) {
-      // const permanentAppMessage = {
-      //   type: messageType,
-      //   version: typeVersion,
-      //   appSpecifications: appSpecFormatted,
-      //   hash: messageHASH,
-      //   timestamp,
-      //   signature,
-      //   txid,
-      //   height,
-      //   valueSat,
-      // };
-      // a temporary appmessage looks like this:
-      // const newMessage = {
-      //   appSpecifications: message.appSpecifications || message.zelAppSpecifications,
-      //   type: message.type,
-      //   version: message.version,
-      //   hash: message.hash,
-      //   timestamp: message.timestamp,
-      //   signature: message.signature,
-      //   createdAt: new Date(message.timestamp),
-      //   expireAt: new Date(validTill),
-      // };
-      const temporaryAppMessage = { // specification of temp message
-        type: appMessage.type,
-        version: appMessage.version,
-        appSpecifications: appMessage.appSpecifications || appMessage.zelAppSpecifications,
-        hash: appMessage.hash,
-        timestamp: appMessage.timestamp,
-        signature: appMessage.signature,
-      };
-      myMessageCache.set(serviceHelper.ensureString(message), temporaryAppMessage);
-      sendMessageToWS(temporaryAppMessage, ws);
+
+    const appsMessages = [];
+    if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || !message.data) {
+      throw new Error('Invalid Flux App Request message');
+    }
+
+    if (message.version !== 1 && message.version !== 2) {
+      throw new Error(`Invalid Flux App Request message, version ${message.version} not supported`);
+    }
+
+    if (message.version === 1) {
+      if (typeof message.data.hash !== 'string') {
+        throw new Error('Invalid Flux App Request message, hash propery is mandatory on version 1');
+      }
+      appsMessages.push(message.data.hash);
+    }
+
+    if (message.version === 2) {
+      if (!message.data.hashes || !Array.isArray(message.data.hashes) || message.data.hashes.length > 500) {
+        throw new Error('Invalid Flux App Request v2 message');
+      }
+      for (let i = 0; i < message.data.hashes.length; i += 1) {
+        appsMessages.push(message.data.hashes[i]);
+        if (typeof hash !== 'string') {
+          throw new Error('Invalid Flux App Request v2 message');
+        }
+      }
+    }
+
+    const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+    if (validTill < Date.now()) {
+    // reject old message
+      return;
+    }
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const hash of appsMessages) {
+      // eslint-disable-next-line no-await-in-loop
+      const appMessage = await appsService.checkAppMessageExistence(hash) || await appsService.checkAppTemporaryMessageExistence(hash);
+      if (appMessage) {
+        const temporaryAppMessage = { // specification of temp message
+          type: appMessage.type,
+          version: appMessage.version,
+          appSpecifications: appMessage.appSpecifications || appMessage.zelAppSpecifications,
+          hash: appMessage.hash,
+          timestamp: appMessage.timestamp,
+          signature: appMessage.signature,
+        };
+        myMessageCache.set(serviceHelper.ensureString(message), temporaryAppMessage);
+        sendMessageToWS(temporaryAppMessage, ws);
+      }
     }
     // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   } catch (error) {
