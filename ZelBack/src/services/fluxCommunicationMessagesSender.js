@@ -80,6 +80,61 @@ async function sendToAllPeers(data, wsList) {
 }
 
 /**
+ * To send random peers.
+ * @param {object} data Data.
+ */
+async function sendToRandomPeer(data) {
+  try {
+    const removals = [];
+    const client = outgoingConnections[Math.floor(Math.random() * outgoingConnections.length)];
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(25);
+      if (client.readyState === WebSocket.OPEN) {
+        if (!data) {
+          const pingTime = Date.now();
+          client.ping(); // do ping instead
+          const foundPeer = outgoingPeers.find((peer) => peer.ip === client.ip && peer.port === client.port);
+          if (foundPeer) {
+            foundPeer.lastPingTime = pingTime;
+          }
+        } else {
+          client.send(data);
+        }
+      } else {
+        throw new Error(`Connection to ${client.ip} is not open`);
+      }
+    } catch (e) {
+      log.error(e);
+      removals.push(client);
+      try {
+        const { ip } = client;
+        const { port } = client;
+        // eslint-disable-next-line no-use-before-define
+        fluxNetworkHelper.closeConnection(ip, port);
+      } catch (err) {
+        log.error(err);
+      }
+    }
+
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = outgoingConnections.findIndex((ws) => removals[i].ip === ws.ip && removals[i].port === ws.port);
+      if (ocIndex > -1) {
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingConnections`);
+        outgoingConnections.splice(ocIndex, 1);
+      }
+      const peerIndex = outgoingPeers.findIndex((peer) => peer.ip === removals[i].ip && peer.port === removals[i].port);
+      if (peerIndex > -1) {
+        outgoingPeers.splice(peerIndex, 1);
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingPeers`);
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To send to all incoming connections.
  * @param {object} data Data.
  * @param {object[]} wsList Web socket list.
@@ -112,6 +167,54 @@ async function sendToAllIncomingConnections(data, wsList) {
         } catch (err) {
           log.error(err);
         }
+      }
+    }
+
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = incomingConnections.findIndex((incomingCon) => removals[i].ip === incomingCon.ip && removals[i].port === incomingCon.port);
+      if (ocIndex > -1) {
+        log.info(`Connection to ${removals[i].ip}:${removals[i].port} removed from incomingConnections`);
+        incomingConnections.splice(ocIndex, 1);
+      }
+      const peerIndex = incomingPeers.findIndex((mypeer) => mypeer.ip === removals[i].ip && mypeer.port === removals[i].port);
+      if (peerIndex > -1) {
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from incomingPeers`);
+        incomingPeers.splice(peerIndex, 1);
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To send to random incoming connection.
+ * @param {object} data Data.
+ */
+async function sendToRandomIncomingConnections(data) {
+  try {
+    const removals = [];
+    const client = incomingConnections[Math.floor(Math.random() * incomingConnections.length)];
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(25);
+      if (client.readyState === WebSocket.OPEN) {
+        if (!data) {
+          client.ping(); // do ping instead
+        } else {
+          client.send(data);
+        }
+      } else {
+        throw new Error(`Connection to ${client.ip} is not open`);
+      }
+    } catch (e) {
+      removals.push(client);
+      try {
+        const { ip } = client;
+        const { port } = client;
+        fluxNetworkHelper.closeIncomingConnection(ip, port);
+      } catch (err) {
+        log.error(err);
       }
     }
 
@@ -281,6 +384,24 @@ async function broadcastMessageToOutgoing(dataToBroadcast) {
 async function broadcastMessageToIncoming(dataToBroadcast) {
   const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
   await sendToAllIncomingConnections(serialisedData);
+}
+
+/**
+ * To broadcast message to outgoing peers. Data is serialised and sent to outgoing peers.
+ * @param {object} dataToBroadcast Data to broadcast.
+ */
+async function broadcastMessageToRandomOutgoing(dataToBroadcast) {
+  const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
+  await sendToRandomPeer(serialisedData);
+}
+
+/**
+ * To broadcast message to incoming peers. Data is serialised and sent to incoming peers.
+ * @param {object} dataToBroadcast Data to broadcast.
+ */
+async function broadcastMessageToRandomIncoming(dataToBroadcast) {
+  const serialisedData = await serialiseAndSignFluxBroadcast(dataToBroadcast);
+  await sendToRandomIncomingConnections(serialisedData);
 }
 
 /**
@@ -534,4 +655,6 @@ module.exports = {
   broadcastMessageFromUserPost,
   broadcastTemporaryAppMessage,
   broadcastMessageToOutgoing,
+  broadcastMessageToRandomOutgoing,
+  broadcastMessageToRandomIncoming,
 };

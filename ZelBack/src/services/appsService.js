@@ -6771,8 +6771,9 @@ async function requestAppMessage(hash) {
 /**
  * To request app message.
  * @param {string} apps list of apps, apps[i].hash have the message hash of each app.
+ * @param {boolean} incoming If true the message will be asked to a incoming peer, if false to an outgoing peer.
  */
-async function requestAppsMessage(apps) {
+async function requestAppsMessage(apps, incoming) {
   // some message type request app message, message hash
   // peer responds with data from permanent database or temporary database. If does not have it requests further
   const message = {
@@ -6780,9 +6781,11 @@ async function requestAppsMessage(apps) {
     version: 2,
     hahes: apps.map((a) => a.hash),
   };
-  await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
-  await serviceHelper.delay(500);
-  await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
+  if (incoming) {
+    await fluxCommunicationMessagesSender.broadcastMessageToRandomIncoming(message);
+  } else {
+    await fluxCommunicationMessagesSender.broadcastMessageToRandomOutgoing(message);
+  }
 }
 
 /**
@@ -7873,7 +7876,7 @@ async function appHashHasMessageNotFound(hash) {
  * @param {number} height Block height.
  * @param {number} valueSat Satoshi denomination (100 millionth of 1 Flux).
  * @param {number} i Defaults to value of 0.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {boolean} Return true if app message is already present otherwise nothing is returned.
  */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
@@ -8033,6 +8036,8 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
     } else {
       // update apphashes that we already have it stored
       await appHashHasMessage(hash);
+      // eslint-disable-next-line consistent-return
+      return true;
     }
   } catch (error) {
     log.error(error);
@@ -8042,21 +8047,27 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
 /**
  * To check and request an app. Handles fluxappregister type and fluxappupdate type.
  * Verification of specification was already done except the price which is done here
- * @param {object} hash Hash object containing app information.
- * @param {string} txid Transaction ID.
- * @param {number} height Block height.
- * @param {number} valueSat Satoshi denomination (100 millionth of 1 Flux).
- * @param {number} i Defaults to value of 0.
+ * @param {object} apps array list with list of apps that are missing.
+ * @param {boolean} incoming If true the message will be asked to a incoming peer, if false to an outgoing peer.
+ * @param {number} i Defaults to value of 1.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function checkAndRequestMultipleApps(apps) {
+async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   try {
-    await requestAppsMessage(apps);
-    await serviceHelper.delay(60 * 1000);
+    await requestAppsMessage(apps, incoming);
+    await serviceHelper.delay(30 * 1000);
+    const appsToRemove = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       // eslint-disable-next-line no-await-in-loop
-      await checkAndRequestApp(app.hash, app.txid, app.height, app.valueSat, 2);
+      const messageReceived = await checkAndRequestApp(app.hash, app.txid, app.height, app.valueSat, 2);
+      if (messageReceived) {
+        appsToRemove.push(app);
+      }
+    }
+    apps.filter((item) => !appsToRemove.includes(item));
+    if (apps.length > 0 && i < 5) {
+      await checkAndRequestMultipleApps(apps, i % 2 === 0, i + 1);
     }
   } catch (error) {
     log.error(error);
@@ -8423,7 +8434,7 @@ async function continuousFluxAppHashesCheck(force = false) {
         log.info('Requesting missing Flux App message:');
         log.info(`${result.hash}, ${result.txid}, ${result.height}`);
         if (numberOfSearches <= 20) { // up to 10 searches
-          if (daemonHeight >= config.fluxapps.fluxAppRequestV2) {
+          if (daemonHeight >= config.fluxapps.fluxAppRequestV2 && numberOfSearches + 2 <= 20) {
             const appMessageInformation = {
               hash: result.hash,
               txid: result.txid,
@@ -8433,6 +8444,8 @@ async function continuousFluxAppHashesCheck(force = false) {
             appsMessagesMissing.push(appMessageInformation);
             if (appsMessagesMissing.length === 500) {
               checkAndRequestMultipleApps(appsMessagesMissing);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
               appsMessagesMissing = [];
             }
           } else {
