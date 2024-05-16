@@ -13,6 +13,8 @@ const {
 // default cache
 const LRUoptions = {
   max: 1000,
+  ttl: 1000 * 60 * 20, // 20 minutes
+  maxAge: 1000 * 60 * 20, // 20 minutes
 };
 
 const myMessageCache = new LRUCache(LRUoptions);
@@ -304,11 +306,6 @@ async function respondWithAppMessage(message, ws) {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
-    const tempMesResponse = myMessageCache.get(serviceHelper.ensureString(message));
-    if (tempMesResponse) {
-      sendMessageToWS(tempMesResponse, ws);
-      return;
-    }
 
     const appsMessages = [];
     if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
@@ -347,10 +344,18 @@ async function respondWithAppMessage(message, ws) {
 
     // eslint-disable-next-line no-restricted-syntax
     for (const hash of appsMessages) {
+      if (myMessageCache.has(hash)) {
+        const tempMesResponse = myMessageCache.get(hash);
+        if (tempMesResponse) {
+          sendMessageToWS(tempMesResponse, ws);
+        }
+        return;
+      }
+      let temporaryAppMessage = null;
       // eslint-disable-next-line no-await-in-loop
       const appMessage = await appsService.checkAppMessageExistence(hash) || await appsService.checkAppTemporaryMessageExistence(hash);
       if (appMessage) {
-        const temporaryAppMessage = { // specification of temp message
+        temporaryAppMessage = { // specification of temp message
           type: appMessage.type,
           version: appMessage.version,
           appSpecifications: appMessage.appSpecifications || appMessage.zelAppSpecifications,
@@ -358,9 +363,9 @@ async function respondWithAppMessage(message, ws) {
           timestamp: appMessage.timestamp,
           signature: appMessage.signature,
         };
-        myMessageCache.set(serviceHelper.ensureString(message), temporaryAppMessage);
         sendMessageToWS(temporaryAppMessage, ws);
       }
+      myMessageCache.set(hash, temporaryAppMessage);
     }
     // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   } catch (error) {
