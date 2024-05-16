@@ -5153,7 +5153,7 @@
             >
               <b-card class="text-center" title="Pay with Stripe/PayPal">
                 <div class="loginRow">
-                  <a @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                  <a v-if="stripeEnabled" @click="initStripePay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
                       class="stripePay"
                       src="@/assets/images/Stripe.svg"
@@ -5162,7 +5162,7 @@
                       width="100%"
                     >
                   </a>
-                  <a @click="initPaypalPay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
+                  <a v-if="paypalEnabled" @click="initPaypalPay(updateHash, appUpdateSpecification.name, appPricePerSpecsUSD, appUpdateSpecification.description)">
                     <img
                       class="paypalPay"
                       src="@/assets/images/PayPal.png"
@@ -5171,6 +5171,7 @@
                       width="100%"
                     >
                   </a>
+                  <span v-if="!paypalEnabled && !stripeEnabled">Fiat Gateways Unavailable.</span>
                 </div>
                 <div v-if="checkoutLoading" className="loginRow">
                   <b-spinner variant="primary" />
@@ -5249,19 +5250,226 @@
           </b-row>
         </div>
       </b-tab>
+      <b-tab
+        title="Cancel Subscription"
+        :disabled="!isAppOwner || appUpdateSpecification.version < 6"
+      >
+        <div
+          v-if="!fluxCommunication"
+          class="text-danger "
+        >
+          Warning: Connected Flux is not communicating properly with Flux network
+        </div>
+        <div
+          style="
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            height: 45px;
+            padding: 12px;
+            line-height: 0px;
+          "
+        >
+          <h5>
+            <b-icon
+              class="mr-1"
+              icon="ui-checks-grid"
+            /> Cancel Application subscription
+          </h5>
+        </div>
+        <br>
+        <div>
+          Currently your application is subscribed until <b>{{ new Date(appRunningTill.current).toLocaleString('en-GB', timeoptions.shortDate) }}</b>.
+          <br>
+          <b>WARNING: By cancelling your application subscription, your application will be removed from the network and all data will be lost.</b>
+        </div>
+        <br>
+        <div>
+          <b-button
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="outline-success"
+            aria-label="Compute Cancel Message"
+            class="mb-2 w-100"
+            @click="checkFluxCancelSubscriptionAndFormatMessage"
+          >
+            Compute Cancel Message
+          </b-button>
+        </div>
+        <div v-if="dataToSign">
+          <b-form-group
+            label-cols="3"
+            label-cols-lg="2"
+            label="Update Message"
+            label-for="updatemessage"
+          >
+            <div class="text-wrap">
+              <b-form-textarea
+                id="updatemessage"
+                v-model="dataToSign"
+                rows="6"
+                readonly
+              />
+              <b-icon
+                ref="copyButtonRef"
+                v-b-tooltip="tooltipText"
+                class="clipboard icon"
+                scale="1.5"
+                icon="clipboard"
+                @click="copyMessageToSign"
+              />
+            </div>
+          </b-form-group>
+          <b-form-group
+            label-cols="3"
+            label-cols-lg="2"
+            label="Signature"
+            label-for="updatesignature"
+          >
+            <b-form-input
+              id="updatesignature"
+              v-model="signature"
+            />
+          </b-form-group>
+          <b-row class="match-height">
+            <b-col
+              xs="6"
+              lg="8"
+            >
+              <b-card>
+                <br>
+                <div class="text-center">
+                  <h4>
+                    <b-icon
+                      class="mr-1"
+                      scale="1.4"
+                      icon="chat-right"
+                    />
+                    Data has to be signed by the last application owner
+                  </h4>
+                </div>
+                <br>
+                <b-button
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="outline-success"
+                  aria-label="Update Flux App"
+                  class="w-100"
+                  @click="update"
+                >
+                  Cancel Application
+                </b-button>
+              </b-card>
+            </b-col>
+            <b-col
+              xs="6"
+              lg="4"
+            >
+              <b-card class="text-center" title="Sign with">
+                <div class="loginRow">
+                  <a
+                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
+                    @click="initiateSignWSUpdate"
+                  >
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/zelID.svg"
+                      alt="Zel ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initSSP">
+                    <img
+                      class="walletIcon"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div class="loginRow">
+                  <a @click="initWalletConnect">
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/walletconnect.svg"
+                      alt="WalletConnect"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a @click="initMetamask">
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/metamask.svg"
+                      alt="Metamask"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div class="loginRow">
+                  <b-button
+                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                    variant="primary"
+                    aria-label="Flux Single Sign On"
+                    class="my-1"
+                    style="width: 250px"
+                    @click="initSignFluxSSO"
+                  >
+                    Flux Single Sign On (SSO)
+                  </b-button>
+                </div>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row
+            v-if="updateHash"
+            class="match-height"
+          >
+            <b-card>
+              <b-card-text>
+                Everything is ready, your application cancelattion should be effective automatically in less than 30 minutes and removed from the network in the next ~3hours.
+              </b-card-text>
+            </b-card>
+          </b-row>
+        </div>
+      </b-tab>
     </b-tabs>
     <div
-      v-if="output"
+      v-if="output.length > 0"
       class="actionCenter"
     >
       <br>
-      <b-form-textarea
-        plaintext
-        no-resize
-        :rows="output.length"
-        :value="stringOutput()"
-        class="mt-1"
-      />
+      <b-row>
+        <b-col cols="9">
+          <b-form-textarea
+            plaintext
+            no-resize
+            :rows="output.length + 1"
+            :value="stringOutput()"
+            class="mt-1"
+          />
+        </b-col>
+        <b-col
+          v-if="downloadOutputReturned"
+          cols="3"
+        >
+          <h3>Downloads</h3>
+          <div
+            v-for="info in downloadOutput"
+            :key="info.id"
+          >
+            <h4> {{ info.id }}</h4>
+            <b-progress
+              :value="info.detail.current / info.detail.total * 100"
+              max="100"
+              striped
+              height="1rem"
+              :variant="info.variant"
+            />
+            <br>
+          </div>
+        </b-col>
+      </b-row>
     </div>
     <div>
       <br>
@@ -5521,6 +5729,7 @@ import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
 import { getUser } from '@/libs/firebase';
+import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -5537,7 +5746,6 @@ import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
-const paymentBridge = 'https://fiatpaymentsbridge.runonflux.io';
 
 const walletConnectOptions = {
   projectId,
@@ -5834,7 +6042,9 @@ export default {
           ],
         },
       ],
-      output: '',
+      output: [],
+      downloadOutput: {},
+      downloadOutputReturned: false,
       fluxCommunication: false,
       commandExecuting: false,
       getAllAppsResponse: {
@@ -6026,9 +6236,12 @@ export default {
       masterSlaveApp: false,
       applicationManagementAndStatus: '',
       fiatCheckoutURL: '',
+      stripeEnabled: true,
+      paypalEnabled: true,
       checkoutLoading: false,
       isMarketplaceApp: false,
       ipAccess: false,
+      freeUpdate: false,
     };
   },
   computed: {
@@ -7997,7 +8210,9 @@ export default {
       // do not reset global application specifics obtained
       this.appExec.cmd = '';
       this.appExec.env = '';
-      this.output = '';
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloadOutputReturned = false;
       this.backupToUpload = [];
       if (index !== 11) {
         this.disconnectTerminal();
@@ -8047,6 +8262,11 @@ export default {
           break;
         case 15:
           this.getZelidAuthority();
+          this.cleanData();
+          break;
+        case 16:
+          this.getZelidAuthority();
+          this.cleanData();
           break;
         default:
           break;
@@ -8316,6 +8536,11 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
+      const fiatGateways = await getPaymentGateways();
+      if (fiatGateways) {
+        this.stripeEnabled = fiatGateways.stripe;
+        this.paypalEnabled = fiatGateways.paypal;
+      }
     },
     async checkFluxCommunication() {
       const response = await AppsService.checkCommunication();
@@ -8332,7 +8557,7 @@ export default {
         if (blocksToExpire < 5000) {
           throw new Error('Your application will expire in less than one week, you need to extend subscription to be able to update specifications');
         } else {
-          return Math.ceil(blocksToExpire / 1000) * 1000;
+          return Math.ceil(blocksToExpire / 100) * 100;
         }
       }
       if (this.expireOptions[this.expirePosition]) {
@@ -8342,6 +8567,9 @@ export default {
     },
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
+        if (this.appRunningTill.new < this.appRunningTill.current) {
+          throw new Error('New subscription period cannot be lower than the current one.');
+        }
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
@@ -8462,6 +8690,26 @@ export default {
         if (marketPlaceApp) {
           this.isMarketplaceApp = true;
         }
+        this.timestamp = Date.now();
+        this.dataForAppUpdate = appSpecFormatted;
+        this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
+      } catch (error) {
+        console.log(error.message);
+        console.error(error);
+        this.showToast('danger', error.message || error);
+      }
+    },
+    async checkFluxCancelSubscriptionAndFormatMessage() {
+      try {
+        const appSpecification = this.appUpdateSpecification;
+        appSpecification.geolocation = this.generateGeolocations();
+        appSpecification.expire = 100;
+        // call api for verification of app registration specifications that returns formatted specs
+        const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
+        if (responseAppSpecs.data.status === 'error') {
+          throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
+        }
+        const appSpecFormatted = responseAppSpecs.data.data;
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -8713,7 +8961,7 @@ export default {
       }
     },
     async stopMonitoring(appName, deleteData = false) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Stopping Monitoring of ${appName}`);
       let response;
       if (deleteData) {
@@ -8729,7 +8977,7 @@ export default {
       console.log(response);
     },
     async startMonitoring(appName) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Starting Monitoring of ${appName}`);
       const response = await this.executeLocalCommand(`/apps/startmonitoring/${appName}`);
       if (response.data.status === 'success') {
@@ -8964,7 +9212,7 @@ export default {
     },
 
     async stopApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Stopping ${app}`);
       const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
       if (response.data.status === 'success') {
@@ -8976,7 +9224,7 @@ export default {
       console.log(response);
     },
     async startApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Starting ${app}`);
       const response = await this.executeLocalCommand(`/apps/appstart/${app}`);
       if (response.data.status === 'success') {
@@ -8988,7 +9236,7 @@ export default {
       console.log(response);
     },
     async restartApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Restarting ${app}`);
       const response = await this.executeLocalCommand(`/apps/apprestart/${app}`);
       if (response.data.status === 'success') {
@@ -9000,7 +9248,7 @@ export default {
       console.log(response);
     },
     async pauseApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Pausing ${app}`);
       const response = await this.executeLocalCommand(`/apps/apppause/${app}`);
       if (response.data.status === 'success') {
@@ -9012,7 +9260,7 @@ export default {
       console.log(response);
     },
     async unpauseApp(app) {
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Unpausing ${app}`);
       const response = await this.executeLocalCommand(`/apps/appunpause/${app}`);
       if (response.data.status === 'success') {
@@ -9031,7 +9279,9 @@ export default {
     },
     async redeployApp(app, force) {
       const self = this;
-      this.output = '';
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloadOutputReturned = false;
       this.showToast('warning', `Redeploying ${app}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
@@ -9059,7 +9309,7 @@ export default {
     },
     async removeApp(app) {
       const self = this;
-      this.output = '';
+      this.output = [];
       this.showToast('warning', `Removing ${app}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
@@ -9270,7 +9520,48 @@ export default {
     stringOutput() {
       let string = '';
       this.output.forEach((output) => {
-        string += `${JSON.stringify(output)}\r\n`;
+        console.log(output);
+        if (output.status === 'success') {
+          string += `${output.data.message || output.data}\r\n`;
+        } else if (output.status === 'Downloading') {
+          this.downloadOutputReturned = true;
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'danger',
+          });
+        } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutputReturned = true;
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'warning',
+          });
+        } else if (output.status === 'Download complete') {
+          this.downloadOutputReturned = true;
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'info',
+          });
+        } else if (output.status === 'Extracting') {
+          this.downloadOutputReturned = true;
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: output.progressDetail,
+            variant: 'primary',
+          });
+        } else if (output.status === 'Pull complete') {
+          this.downloadOutput[output.id] = ({
+            id: output.id,
+            detail: { current: 1, total: 1 },
+            variant: 'success',
+          });
+        } else if (output.status === 'error') {
+          string += `Error: ${JSON.stringify(output.data)}\r\n`;
+        } else {
+          string += `${output.status}\r\n`;
+        }
       });
       return string;
     },
@@ -10078,6 +10369,20 @@ export default {
       try {
         this.fiatCheckoutURL = '';
         this.checkoutLoading = true;
+        let clientIP = null;
+        let clientIPResponse = await axios.get('https://api.ipify.org?format=json').catch(() => {
+          console.log('Error geting clientIp from api.ipify.org from');
+        });
+        if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+          clientIP = clientIPResponse.data.ip;
+        } else {
+          clientIPResponse = await axios.get('https://ipinfo.io').catch(() => {
+            console.log('Error geting clientIp from ipinfo.io from');
+          });
+          if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+            clientIP = clientIPResponse.data.ip;
+          }
+        }
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         const data = {
@@ -10085,6 +10390,7 @@ export default {
           signature: auth.signature,
           loginPhrase: auth.loginPhrase,
           details: {
+            clientIP,
             name,
             description,
             hash,
@@ -10154,6 +10460,12 @@ export default {
     selectedIpChanged() {
       this.getApplicationManagementAndStatus();
       this.getInstalledApplicationSpecifics();
+    },
+    cleanData() {
+      this.dataToSign = '';
+      this.timestamp = '';
+      this.signature = '';
+      this.updateHash = '';
     },
   },
 };

@@ -269,6 +269,10 @@ describe('idService tests', () => {
     let collateralStub;
     let getDOSStateStub;
 
+    before(async () => {
+      await dbHelper.initiateDB();
+    });
+
     beforeEach(() => {
       osTotalmemStub = sinon.stub(os, 'totalmem');
       osCpusStub = sinon.stub(os, 'cpus');

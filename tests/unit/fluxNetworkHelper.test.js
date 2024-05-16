@@ -41,7 +41,7 @@ describe('fluxNetworkHelper tests', () => {
     const fluxAvailabilitySuccessResponse = {
       data: {
         status: 'success',
-        data: '4.20.0',
+        data: '5.4.0',
       },
     };
     Object.setPrototypeOf(fluxAvailabilitySuccessResponse.data, { // axios on home expects string
@@ -52,7 +52,7 @@ describe('fluxNetworkHelper tests', () => {
     const fluxAvailabilityErrorResponse = {
       data: {
         status: 'error',
-        data: '4.20.0',
+        data: '5.4.0',
       },
     };
     const generateResponse = () => {
@@ -243,52 +243,6 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('minVersionSatisfy tests', () => {
-    const minimalVersion = '3.4.12';
-
-    it('should return true if major version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('4.0.0', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if minor version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.6.0', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if patch version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.13', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if patch version is equal to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.12', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return false if patch version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if minor version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.3.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if major version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('2.3.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-  });
-
   describe('isFluxAvailable tests', () => {
     let stub;
     const ip = '127.0.0.1';
@@ -298,14 +252,14 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      serviceHelper.axiosGet.restore();
+      sinon.restore();
     });
 
     it('Should return true if node is running flux, port taken from config', async () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '4.20.0',
+          data: '5.4.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
@@ -329,7 +283,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '4.20.2',
+          data: '5.4.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
@@ -338,6 +292,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
 
@@ -1009,7 +964,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = '3.9.0';
+    // minimumFluxBenchAllowedVersion = '4.0.0';
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {
@@ -1030,7 +985,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is equal to minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('3.9.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -1064,7 +1019,7 @@ describe('fluxNetworkHelper tests', () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '3.9.0',
+          version: '4.0.0',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -1072,7 +1027,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.9.0');
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('4.0.0');
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {

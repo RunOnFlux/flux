@@ -80,40 +80,6 @@ class TokenBucket {
 }
 
 /**
- * Check if semantic version is bigger or equal to minimum version
- * @param {string} version Version to check
- * @param {string} minimumVersion minimum version that version must meet
- * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
- */
-function minVersionSatisfy(version, minimumVersion) {
-  const splittedVersion = version.split('.');
-  const major = Number(splittedVersion[0]);
-  const minor = Number(splittedVersion[1]);
-  const patch = Number(splittedVersion[2]);
-
-  const splittedVersionMinimum = minimumVersion.split('.');
-  const majorMinimum = Number(splittedVersionMinimum[0]);
-  const minorMinimum = Number(splittedVersionMinimum[1]);
-  const patchMinimum = Number(splittedVersionMinimum[2]);
-  if (major < majorMinimum) {
-    return false;
-  }
-  if (major > majorMinimum) {
-    return true;
-  }
-  if (minor < minorMinimum) {
-    return false;
-  }
-  if (minor > minorMinimum) {
-    return true;
-  }
-  if (patch < patchMinimum) {
-    return false;
-  }
-  return true;
-}
-
-/**
  * To get if port belongs to enterprise range
  * @returns {boolean} Returns true if enterprise
  */
@@ -234,7 +200,7 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (fluxResponse.data.status !== 'success') return false;
 
     const fluxVersion = fluxResponse.data.data;
-    const versionMinOK = minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
+    const versionMinOK = serviceHelper.minVersionSatisfy(fluxVersion, config.minimumFluxOSAllowedVersion);
     if (!versionMinOK) return false;
 
     const homePort = +port - 1;
@@ -599,7 +565,7 @@ function getStoredFluxBenchAllowed() {
  */
 async function checkFluxbenchVersionAllowed() {
   if (storedFluxBenchAllowed) {
-    const versionOK = minVersionSatisfy(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
+    const versionOK = serviceHelper.minVersionSatisfy(storedFluxBenchAllowed, config.minimumFluxBenchAllowedVersion);
     return versionOK;
   }
   try {
@@ -608,7 +574,7 @@ async function checkFluxbenchVersionAllowed() {
       log.info(benchmarkInfoResponse);
       const benchmarkVersion = benchmarkInfoResponse.data.version;
       setStoredFluxBenchAllowed(benchmarkVersion);
-      const versionOK = minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
+      const versionOK = serviceHelper.minVersionSatisfy(benchmarkVersion, config.minimumFluxBenchAllowedVersion);
       if (versionOK) {
         return true;
       }
@@ -1584,22 +1550,7 @@ async function allowNodeToBindPrivilegedPorts() {
   }
 }
 
-/**
- * Install Netcat from apt
- * Despite nc tool is by default present on both Debian and Ubuntu we install netcat for precaution
- */
-async function installNetcat() {
-  try {
-    const cmdAsync = util.promisify(nodecmd.get);
-    const exec = 'sudo apt install netcat-openbsd -y';
-    await cmdAsync(exec);
-  } catch (error) {
-    log.error(error);
-  }
-}
-
 module.exports = {
-  minVersionSatisfy,
   isFluxAvailable,
   checkFluxAvailability,
   getMyFluxIPandPort,
@@ -1644,6 +1595,5 @@ module.exports = {
   isPortUPNPBanned,
   isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
-  installNetcat,
   removeDockerContainerAccessToNonRoutable,
 };

@@ -75,8 +75,10 @@ module.exports = {
     porttestnet: 26125,
     rpcporttestnet: 26124,
   },
-  minimumFluxBenchAllowedVersion: '3.9.0',
-  minimumFluxOSAllowedVersion: '4.20.0',
+  minimumFluxBenchAllowedVersion: '4.0.0',
+  minimumFluxOSAllowedVersion: '5.4.0',
+  minimumSyncthingAllowedVersion: '1.27.6',
+  minimumDockerAllowedVersion: '26.1.2',
   fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   deterministicNodesStart: 558000,
   fluxapps: {
@@ -145,7 +147,7 @@ module.exports = {
         staticip: 0.4, // additional price per application for targetting nodes that have static ip address
       },
     ],
-    fluxUSDRate: 1.14,
+    fluxUSDRate: 0.91,
     usdprice: {
       height: -1, // height from which price spec is valid
       cpu: 0.15, // per 0.1 cpu core,
@@ -170,7 +172,9 @@ module.exports = {
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
+    addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
     addressDevelopment: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
+    multisigAddressChange: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
@@ -204,6 +208,8 @@ module.exports = {
     },
     blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
+    newMinBlocksAllowance: 100, // app can be registered for a minimum of this blocks ~ 3 hours - to allow users to cancel application subscription
+    newMinBlocksAllowanceBlock: 1630040, // block where we will start looking at new min blocks allowance. block expected on 26th of April 2024
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
@@ -220,7 +226,7 @@ module.exports = {
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
     ram: 2000, // 2000mb
-    hdd: 40, // 40gb // this value is likely to raise
+    hdd: 60, // 60gb // this value is likely to raise
     extrahdd: 20, // extra 20gb to be left on a node // this value is likely to raise
   },
   fluxSpecifics: { // tbd during forks

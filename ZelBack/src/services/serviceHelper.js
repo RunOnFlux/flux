@@ -11,6 +11,11 @@ const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
 /**
+ * The max time a child process can run for (15 minutes)
+ */
+const MAX_CHILD_PROCESS_TIME = 15 * 60 * 1000;
+
+/**
  * Allows for exclusive locks when running child processes
  */
 const locks = new Map();
@@ -253,13 +258,18 @@ function ipInSubnet(ip, subnet) {
    @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
  */
 async function runCommand(userCmd, options = {}) {
-  const res = { error: null, stdout: null, stderr: null };
+  const res = { error: null, stdout: '', stderr: '' };
   const {
     runAsRoot, logError, exclusive, ...execOptions
   } = options;
 
   const params = options.params || [];
   delete execOptions.params;
+
+  // Default max of 15 minutes
+  if (!Object.prototype.hasOwnProperty.call(execOptions, 'timeout')) {
+    execOptions.timeout = MAX_CHILD_PROCESS_TIME;
+  }
 
   if (!userCmd) {
     res.error = new Error('Command must be present');
@@ -317,19 +327,87 @@ async function runCommand(userCmd, options = {}) {
   return res;
 }
 
+/**
+ * Parses a raw version string from dpkg-query into an object
+ * @param {string} rawVersion version string from dpkg-query. Eg:
+ * 0.36.1-4ubuntu0.1 (ufw)
+ * @returns {{version, major, minor, patch} | null} The parsed version
+ */
+function parseVersion(rawVersion) {
+  // modified this to allow for just major and minor or just major. (and also ~ instead of - after version)
+  // I.e:
+  //    dpkg-query --showformat='${Version}' --show netcat-openbsd    1.218-4ubuntu1
+  //    dpkg-query --showformat='${Version}' --show ca-certificates   20230311ubuntu0.22.04.1
+
+  const versionRegex = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)(?:\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)?)([-~]?(0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
+
+  const match = versionRegex.exec(rawVersion);
+
+  if (match) {
+    const {
+      groups: {
+        version, major, minor, patch,
+      },
+    } = match;
+    return {
+      version, major, minor, patch,
+    };
+  }
+  return null;
+}
+
+/**
+ * Check if semantic version is bigger or equal to minimum version
+ * @param {string} targetVersion Version to check
+ * @param {string} minimumVersion minimum version that version must meet
+ * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
+ */
+function minVersionSatisfy(targetVersion, minimumVersion) {
+  // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
+  const version = targetVersion.replace(/[^\d.]/g, '');
+
+  const splittedVersion = version.split('.');
+  const major = Number(splittedVersion[0]);
+  const minor = Number(splittedVersion[1]);
+  const patch = Number(splittedVersion[2]);
+
+  const splittedVersionMinimum = minimumVersion.split('.');
+  const majorMinimum = Number(splittedVersionMinimum[0]);
+  const minorMinimum = Number(splittedVersionMinimum[1]);
+  const patchMinimum = Number(splittedVersionMinimum[2]);
+  if (major < majorMinimum) {
+    return false;
+  }
+  if (major > majorMinimum) {
+    return true;
+  }
+  if (minor < minorMinimum) {
+    return false;
+  }
+  if (minor > minorMinimum) {
+    return true;
+  }
+  if (patch < patchMinimum) {
+    return false;
+  }
+  return true;
+}
+
 module.exports = {
+  axiosGet,
+  commandStringToArray,
+  delay,
+  deleteLoginPhrase,
+  dockerBufferToString,
   ensureBoolean,
   ensureNumber,
   ensureObject,
   ensureString,
-  axiosGet,
-  delay,
   getApplicationOwner,
-  deleteLoginPhrase,
-  isDecimalLimit,
-  dockerBufferToString,
-  commandStringToArray,
-  validIpv4Address,
   ipInSubnet,
+  isDecimalLimit,
+  minVersionSatisfy,
+  parseVersion,
   runCommand,
+  validIpv4Address,
 };

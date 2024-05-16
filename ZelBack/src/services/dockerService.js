@@ -8,8 +8,6 @@ const pgpService = require('./pgpService');
 const generalService = require('./generalService');
 const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
-const util = require('util');
-const nodecmd = require('node-cmd');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -601,16 +599,11 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const backingFs = driverStatus.find((status) => status[0] === 'Backing Filesystem'); // d_type must be true for overlay, docker would not work if not
   if (backingFs && backingFs[1] === 'xfs') {
     // check that we have quota
-    const getDevice = await deviceHelper.getDfDevice('/var/lib/docker').catch((error) => {
-      log.error(error);
-    });
-    if (getDevice && getDevice !== false) {
-      const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForDevice(getDevice).catch((error) => {
-        log.error(error);
-      });
-      if (hasQuotaPossibility === true) {
-        options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
-      }
+
+    const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForMountTarget('/var/lib/docker');
+
+    if (hasQuotaPossibility) {
+      options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
     }
   }
 
@@ -987,60 +980,66 @@ async function dockerGetUsage() {
 
 /**
  * Fix docker logs.
+ * @returns {Promise<void>}
  */
 async function dockerLogsFix() {
   try {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash dockerLogsFix.sh`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const cmdres = await cmdAsync(exec);
-    log.info(cmdres);
+    const cwd = path.join(__dirname, '../../../helpers');
+    const scriptPath = path.join(cwd, 'dockerLogsFix.sh');
+    const { stdout } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+    // we do this so we don't log empty lines if there is no output
+    const lines = stdout.split('\n');
+    // this always has length
+    if (lines.slice(-1)[0] === '') lines.pop();
+
+    lines.forEach((line) => log.info(line));
   } catch (error) {
     log.error(error);
   }
 }
 
 module.exports = {
-  getDockerContainer,
-  getAppIdentifier,
-  getAppDockerNameIdentifier,
-  dockerCreateNetwork,
-  dockerRemoveNetwork,
-  dockerNetworkInspect,
-  dockerListContainers,
-  dockerListImages,
-  dockerContainerInspect,
-  dockerContainerStats,
-  dockerContainerStatsStream,
-  dockerContainerChanges,
-  dockerPullStream,
-  dockerContainerExec,
-  dockerContainerLogsStream,
-  dockerContainerLogs,
   appDockerCreate,
+  appDockerImageRemove,
+  appDockerKill,
+  appDockerPause,
+  appDockerRemove,
+  appDockerRestart,
   appDockerStart,
   appDockerStop,
-  appDockerRestart,
-  appDockerKill,
-  appDockerRemove,
-  appDockerImageRemove,
-  appDockerPause,
-  appDockerUnpause,
   appDockerTop,
-  createFluxDockerNetwork,
-  getDockerContainerOnly,
-  getDockerContainerByIdOrName,
-  getFluxDockerNetworkPhysicalInterfaceNames,
-  getFluxDockerNetworkSubnets,
+  appDockerUnpause,
   createFluxAppDockerNetwork,
-  removeFluxAppDockerNetwork,
-  pruneNetworks,
-  pruneVolumes,
-  pruneImages,
-  pruneContainers,
-  dockerInfo,
-  dockerVersion,
+  createFluxDockerNetwork,
+  dockerContainerChanges,
+  dockerContainerExec,
+  dockerContainerInspect,
+  dockerContainerLogs,
+  dockerContainerLogsStream,
+  dockerContainerStats,
+  dockerContainerStatsStream,
+  dockerCreateNetwork,
   dockerGetEvents,
   dockerGetUsage,
+  dockerInfo,
+  dockerListContainers,
+  dockerListImages,
   dockerLogsFix,
+  dockerNetworkInspect,
+  dockerPullStream,
+  dockerRemoveNetwork,
+  dockerVersion,
+  getAppDockerNameIdentifier,
+  getAppIdentifier,
+  getDockerContainer,
+  getDockerContainerByIdOrName,
+  getDockerContainerOnly,
+  getFluxDockerNetworkPhysicalInterfaceNames,
+  getFluxDockerNetworkSubnets,
+  pruneContainers,
+  pruneImages,
+  pruneNetworks,
+  pruneVolumes,
+  removeFluxAppDockerNetwork,
 };
