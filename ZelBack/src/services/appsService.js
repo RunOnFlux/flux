@@ -6779,7 +6779,7 @@ async function requestAppsMessage(apps, incoming) {
   const message = {
     type: 'fluxapprequest',
     version: 2,
-    hahes: apps.map((a) => a.hash),
+    hashes: apps.map((a) => a.hash),
   };
   if (incoming) {
     await fluxCommunicationMessagesSender.broadcastMessageToRandomIncoming(message);
