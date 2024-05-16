@@ -1,5 +1,6 @@
 const df = require('node-df');
 const fs = require('fs').promises;
+const fs2 = require('fs');
 const util = require('util');
 const log = require('../lib/log');
 const axios = require('axios');
@@ -276,20 +277,44 @@ async function checkFileExists(filePath) {
  * @param {boolean} rename - Flag indicating whether to rename the downloaded file.
  * @returns {boolean} - True if the file is downloaded and saved successfully, false on failure.
  */
-async function downloadFileFromUrl(url, localpath, component, rename = false) {
+async function downloadFileFromUrl(url, localpath, component, rename = false, retries = 0) {
   try {
-    const response = await axios.get(url, { responseType: 'arraybuffer' });
-    const fileData = Buffer.from(response.data, 'binary');
-    if (rename === true) {
-      await fs.writeFile(`${localpath}/backup_${component}.tar.gz`, fileData);
-    } else {
+    let filepath = `${localpath}/backup_${component.toLowerCase()}.tar.gz`;
+    if (!rename) {
       const fileNameArray = url.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
-      await fs.writeFile(`${localpath}/${fileName}`, fileData);
+      filepath = `${localpath}/${fileName}`;
     }
-    return true;
+    const response = await axios.get(url, {
+      responseType: 'stream',
+      maxRedirects: 5,
+      timeout: 15000,
+    });
+    const dirPath = path.dirname(filepath);
+    // Create directory if it doesn't exist
+    await fs.mkdir(dirPath, { recursive: true });
+    const writer = fs2.createWriteStream(filepath);
+    response.data.pipe(writer);
+
+    return new Promise((resolve, reject) => {
+      writer.on('finish', () => {
+        resolve(true);
+      });
+      writer.on('error', (err) => {
+        log.error(`Error writing file: ${err.message}`);
+        reject();
+      });
+    });
   } catch (err) {
-    log.error(err);
+    if (retries < 3) {
+      log.error(err);
+      // eslint-disable-next-line no-param-reassign
+      retries += 1;
+      log.error(`Error downloading file, retrying download:${retries}`);
+      // eslint-disable-next-line no-return-await
+      return await downloadFileFromUrl(url, localpath, component, rename, retries);
+    }
+    log.error('Error downloading file:', err);
     return false;
   }
 }
