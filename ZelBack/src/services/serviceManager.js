@@ -126,12 +126,42 @@ async function startFluxFunctions() {
     }, 90 * 1000);
     setTimeout(async () => { // wait as of restarts due to ui building
       try {
+        // todo code shall be removed after some time
         const databaseApps = db.db(config.database.appsglobal.database);
         const databaseDaemon = db.db(config.database.daemon.database);
         const resultApps = await dbHelper.collectionStats(databaseApps, config.database.appsglobal.collections.appsMessages);
+        log.info(`Apps messages count: ${resultApps.count}`);
         const resultHashes = await dbHelper.collectionStats(databaseDaemon, config.database.daemon.collections.appsHashes);
+        log.info(`Apps hashes count: ${resultHashes.count}`);
         const query = {};
         const projection = { projection: { _id: 0 } };
+        const resultAppsA = await dbHelper.findInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, query, projection);
+        // for every hash of app check if it is in the database of hashes
+        const processedHashes = [];
+        const duplicateHashes = [];
+        log.info('Running database consistency check');
+        for (let i = 0; i < resultAppsA.length; i += 1) {
+          const queryHash = { hash: resultAppsA[i].hash };
+          // eslint-disable-next-line no-await-in-loop
+          const resultHash = await dbHelper.findOneInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, queryHash, projection);
+          if (!resultHash) {
+            log.info(`Hash not found in hashes: ${resultAppsA[i].hash}`);
+            // remove from app messages
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.deleteOneInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash);
+          }
+          if (processedHashes.includes(resultAppsA[i].hash)) {
+            log.info(`Duplicate hash in apps: ${resultAppsA[i].hash}`);
+            // remove from app messages
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.deleteOneInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash);
+            duplicateHashes.push(resultAppsA[i].hash);
+          } else {
+            processedHashes.push(resultAppsA[i].hash);
+          }
+        }
+        // log all duplicated hashes
+        log.info(JSON.stringify(duplicateHashes));
         const result = await dbHelper.findInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, query, projection);
         if (result && result.length) {
           log.info('Last knwon application hash');
@@ -140,6 +170,7 @@ async function startFluxFunctions() {
           log.info('No known application hash');
         }
         // rescan before last known height of hashes
+        // it is important to have count values before consistency check
         if (resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100) {
           // run fixExplorer at least from height 1637000
           explorerService.fixExplorer(result[result.length - 1].height - 50 > 1637000 ? 1637000 : result[result.length - 1].height - 50, true);
