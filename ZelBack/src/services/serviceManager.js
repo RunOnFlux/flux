@@ -141,6 +141,9 @@ async function startFluxFunctions() {
         }
       } catch (error) {
         log.error(error);
+        // just initiate
+        explorerService.initiateBlockProcessor(true, true);
+        log.info('Flux Block Processing Service started with exception.');
       }
     }, 2 * 60 * 1000);
     setTimeout(() => {
