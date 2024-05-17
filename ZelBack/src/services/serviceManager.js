@@ -133,8 +133,12 @@ async function startFluxFunctions() {
         const query = {};
         const projection = { projection: { _id: 0 } };
         const result = await dbHelper.findInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, query, projection);
-        log.info('Last knwon application hash');
-        log.info(result[result.length - 1]);
+        if (result && result.length) {
+          log.info('Last knwon application hash');
+          log.info(result[result.length - 1]);
+        } else {
+          log.info('No known application hash');
+        }
         // rescan before last known height of hashes
         if (resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100) {
           // run fixExplorer
