@@ -161,6 +161,7 @@ async function startFluxFunctions() {
           }
         }
         // log all duplicated hashes
+        log.info('Duplicate hashes:');
         log.info(JSON.stringify(duplicateHashes));
         const result = await dbHelper.findInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, query, projection);
         if (result && result.length) {
@@ -171,7 +172,9 @@ async function startFluxFunctions() {
         }
         // rescan before last known height of hashes
         // it is important to have count values before consistency check
-        if (resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100) {
+        if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100)
+          || (development && result && result.length && result[result.length - 1].height >= 100)
+        ) {
           // run fixExplorer at least from height 1633000
           explorerService.fixExplorer(result[result.length - 1].height - 50 > 1633000 ? 1633000 : result[result.length - 1].height - 50, true);
           log.info('Flux Block Processing Service started in fix mode');
