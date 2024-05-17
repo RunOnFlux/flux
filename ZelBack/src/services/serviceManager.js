@@ -148,7 +148,7 @@ async function startFluxFunctions() {
             log.info(`Hash not found in hashes: ${resultAppsA[i].hash}`);
             // remove from app messages
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.findOneAndDeleteInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash, projection);
+            // await dbHelper.findOneAndDeleteInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash, projection);
           }
           if (processedHashes.includes(resultAppsA[i].hash)) {
             log.info(`Duplicate hash in apps: ${resultAppsA[i].hash}`);
@@ -176,7 +176,7 @@ async function startFluxFunctions() {
           || (development && result && result.length && result[result.length - 1].height >= 100)
         ) {
           // run fixExplorer at least from height 1633000
-          explorerService.fixExplorer(result[result.length - 1].height - 50 > 1633000 ? 1633000 : result[result.length - 1].height - 50, true);
+          explorerService.fixExplorer(result[result.length - 1].height - 50 > 1633000 ? 1633000 : result[result.length - 1].height - 50, false);
           log.info('Flux Block Processing Service started in fix mode');
         } else if (resultApps.count > resultHashes.count) {
           explorerService.fixExplorer(0, true);
