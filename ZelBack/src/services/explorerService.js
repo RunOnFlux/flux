@@ -266,6 +266,7 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
+  const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
@@ -327,9 +328,7 @@ async function processInsight(blockDataVerbose, database) {
             // eslint-disable-next-line no-await-in-loop
             const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
             if (!result) {
-              // eslint-disable-next-line no-await-in-loop
-              await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord); // before requesting app
-              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+              appsTransactions.push(appTxRecord);
             } else {
               throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
             }
@@ -347,6 +346,20 @@ async function processInsight(blockDataVerbose, database) {
       }
     }
   }
+  if (appsTransactions.length > 0) {
+    const options = {
+      ordered: false, // If false, continue with remaining inserts when one fails.
+    };
+    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
+    while (appsTransactions.length > 500) {
+      appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
+    }
+    if (appsTransactions.length > 0) {
+      appsService.checkAndRequestMultipleApps(appsTransactions);
+    }
+  }
 }
 
 /**
@@ -357,6 +370,7 @@ async function processInsight(blockDataVerbose, database) {
 async function processStandard(blockDataVerbose, database) {
   // get Block transactions information
   const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
+  const appsTransactions = [];
   // now we have verbose transactions of the block extended for senders - object of
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
@@ -432,8 +446,7 @@ async function processStandard(blockDataVerbose, database) {
             };
             const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
             if (!result) {
-              await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
-              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+              appsTransactions.push(appTxRecord);
             } else {
               throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
             }
@@ -450,6 +463,20 @@ async function processStandard(blockDataVerbose, database) {
       }
     }
   }));
+  if (appsTransactions.length > 0) {
+    const options = {
+      ordered: false, // If false, continue with remaining inserts when one fails.
+    };
+    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
+    while (appsTransactions.length > 500) {
+      appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
+    }
+    if (appsTransactions.length > 0) {
+      appsService.checkAndRequestMultipleApps(appsTransactions);
+    }
+  }
 }
 
 /**
