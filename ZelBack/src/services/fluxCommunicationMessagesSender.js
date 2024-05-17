@@ -366,6 +366,8 @@ async function respondWithAppMessage(message, ws) {
         sendMessageToWS(temporaryAppMessage, ws);
       }
       myMessageCache.set(hash, temporaryAppMessage);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(250);
     }
     // else do nothing. We do not have this message. And this Flux would be requesting it from other peers soon too.
   } catch (error) {
