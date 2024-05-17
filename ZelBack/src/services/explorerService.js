@@ -235,6 +235,11 @@ async function processSoftFork(txid, height, message) {
   // let it throw to stop block processing
   const splittedMess = message.split('_');
   const version = splittedMess[0];
+  if (!version || splittedMess.length < 2) {
+    log.info('Ignoring non valid Soft Fork message.');
+    log.info(`${txid}_${height}_${message}`);
+    return;
+  }
   const data = {
     txid,
     height,
@@ -335,7 +340,7 @@ async function processInsight(blockDataVerbose, database) {
         }
       }
       // check for softForks
-      const isSoftFork = isSenderFoundation && isReceiverFounation;
+      const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
         // eslint-disable-next-line no-await-in-loop
         await processSoftFork(tx.txid, blockDataVerbose.height, message);
@@ -439,7 +444,7 @@ async function processStandard(blockDataVerbose, database) {
         }
       }
       // check for softForks
-      const isSoftFork = isSenderFoundation && isReceiverFounation;
+      const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
         await processSoftFork(tx.txid, blockDataVerbose.height, message);
       }
