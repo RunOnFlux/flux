@@ -148,13 +148,13 @@ async function startFluxFunctions() {
             log.info(`Hash not found in hashes: ${resultAppsA[i].hash}`);
             // remove from app messages
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.deleteOneInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash);
+            await dbHelper.findOneAndDeleteInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash, projection);
           }
           if (processedHashes.includes(resultAppsA[i].hash)) {
             log.info(`Duplicate hash in apps: ${resultAppsA[i].hash}`);
             // remove from app messages
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.deleteOneInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash);
+            await dbHelper.findOneAndDeleteInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash, projection);
             duplicateHashes.push(resultAppsA[i].hash);
           } else {
             processedHashes.push(resultAppsA[i].hash);
