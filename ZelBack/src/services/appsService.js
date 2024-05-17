@@ -12439,7 +12439,7 @@ async function appendRestoreTask(req, res) {
             await sendChunk(res, `Downloading ${restoreItem.url}...\n`);
             // eslint-disable-next-line no-await-in-loop
             const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
-            if (downloadStatus === 'false') {
+            if (downloadStatus !== true) {
               throw new Error(`Error: Failed to download ${restoreItem.url}...`);
             }
           }

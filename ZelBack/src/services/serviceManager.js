@@ -73,7 +73,7 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
-    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).dropIndex({ broadcastedAt: 1 }).catch(() => { console.log('Welcome to FluxOS'); }); // drop old index or display message for new installations
+    await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).dropIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' }).catch(() => { console.log('Welcome to FluxOS'); }); // drop old index or display message for new installations
     // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     log.info('Flux Apps locations prepared');
@@ -124,9 +124,74 @@ async function startFluxFunctions() {
       log.info('Starting setting Node Geolocation');
       geolocationService.setNodeGeolocation();
     }, 90 * 1000);
-    setTimeout(() => { // wait as of restarts due to ui building
-      explorerService.initiateBlockProcessor(true, true);
-      log.info('Flux Block Processing Service started');
+    setTimeout(async () => { // wait as of restarts due to ui building
+      try {
+        // todo code shall be removed after some time
+        const databaseApps = db.db(config.database.appsglobal.database);
+        const databaseDaemon = db.db(config.database.daemon.database);
+        const resultApps = await dbHelper.collectionStats(databaseApps, config.database.appsglobal.collections.appsMessages);
+        log.info(`Apps messages count: ${resultApps.count}`);
+        const resultHashes = await dbHelper.collectionStats(databaseDaemon, config.database.daemon.collections.appsHashes);
+        log.info(`Apps hashes count: ${resultHashes.count}`);
+        const query = {};
+        const projection = { projection: { _id: 0 } };
+        const resultAppsA = await dbHelper.findInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, query, projection);
+        // for every hash of app check if it is in the database of hashes
+        const processedHashes = [];
+        const duplicateHashes = [];
+        log.info('Running database consistency check');
+        for (let i = 0; i < resultAppsA.length; i += 1) {
+          const queryHash = { hash: resultAppsA[i].hash };
+          // eslint-disable-next-line no-await-in-loop
+          const resultHash = await dbHelper.findOneInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, queryHash, projection);
+          if (!resultHash) {
+            log.info(`Hash not found in hashes: ${resultAppsA[i].hash}`);
+            // remove from app messages
+            // eslint-disable-next-line no-await-in-loop
+            // await dbHelper.findOneAndDeleteInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash, projection);
+          }
+          if (processedHashes.includes(resultAppsA[i].hash)) {
+            log.info(`Duplicate hash in apps: ${resultAppsA[i].hash}`);
+            // remove from app messages
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.findOneAndDeleteInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash, projection);
+            duplicateHashes.push(resultAppsA[i].hash);
+          } else {
+            processedHashes.push(resultAppsA[i].hash);
+          }
+        }
+        // log all duplicated hashes
+        log.info('Duplicate hashes:');
+        log.info(JSON.stringify(duplicateHashes));
+        const result = await dbHelper.findInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, query, projection);
+        if (result && result.length) {
+          log.info('Last knwon application hash');
+          log.info(result[result.length - 1]);
+        } else {
+          log.info('No known application hash');
+        }
+        // rescan before last known height of hashes
+        // it is important to have count values before consistency check
+        if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100)
+          || (development && result && result.length && result[result.length - 1].height >= 100)
+        ) {
+          // run fixExplorer at least from height 1633000
+          explorerService.fixExplorer(result[result.length - 1].height - 50 > 1633000 ? 1633000 : result[result.length - 1].height - 50, false);
+          log.info('Flux Block Processing Service started in fix mode');
+        } else if (resultApps.count > resultHashes.count) {
+          explorerService.fixExplorer(0, true);
+          log.info('Flux Block Processing Service started in fix mode from scratch');
+        } else {
+          // just initiate
+          explorerService.initiateBlockProcessor(true, true);
+          log.info('Flux Block Processing Service started');
+        }
+      } catch (error) {
+        log.error(error);
+        // just initiate
+        explorerService.initiateBlockProcessor(true, true);
+        log.info('Flux Block Processing Service started with exception.');
+      }
     }, 2 * 60 * 1000);
     setTimeout(() => {
       // appsService.checkForNonAllowedAppsOnLocalNetwork();
