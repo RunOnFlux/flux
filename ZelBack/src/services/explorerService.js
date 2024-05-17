@@ -1281,6 +1281,45 @@ async function reindexExplorer(req, res) {
   }
 }
 
+async function fixExplorer(height = 1637000, rescanApps = true) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const blockheight = serviceHelper.ensureNumber(height);
+    const database = dbopen.db(config.database.daemon.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (!currentHeight) {
+      throw new Error('No scanned height found');
+    }
+    if (currentHeight.generalScannedHeight <= blockheight) {
+      throw new Error('Block height shall be lower than currently scanned');
+    }
+    if (blockheight < 0) {
+      throw new Error('BlockHeight lower than 0');
+    }
+    const rescanapps = serviceHelper.ensureBoolean(rescanApps);
+    // stop block processing
+    const update = { $set: { generalScannedHeight: blockheight } };
+    const options = {
+      upsert: true,
+    };
+    // update scanned Height in scannedBlockHeightCollection
+    await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
+    const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
+    log.info(message);
+  } catch (error) {
+    log.warn(error);
+    initiateBlockProcessor(true, true);
+  }
+}
+
 /**
  * To rescan Flux explorer database from a specific block height. Only accessible by admins and Flux team members.
  * @param {object} req Request.
@@ -1448,4 +1487,7 @@ module.exports = {
   setBlockProccessingCanContinue,
   setIsInInitiationOfBP,
   restoreDatabaseToBlockheightState,
+
+  // temporary function
+  fixExplorer,
 };

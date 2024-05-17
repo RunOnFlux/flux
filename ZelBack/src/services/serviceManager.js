@@ -124,9 +124,24 @@ async function startFluxFunctions() {
       log.info('Starting setting Node Geolocation');
       geolocationService.setNodeGeolocation();
     }, 90 * 1000);
-    setTimeout(() => { // wait as of restarts due to ui building
-      explorerService.initiateBlockProcessor(true, true);
-      log.info('Flux Block Processing Service started');
+    setTimeout(async () => { // wait as of restarts due to ui building
+      try {
+        const dbopen = dbHelper.databaseConnection();
+        const databaseApps = dbopen.db(config.database.appsglobal.database);
+        const resultApps = await dbHelper.collectionStats(databaseApps, config.database.appsglobal.collections.appsMessages);
+        const resultHashes = await dbHelper.collectionStats(databaseApps, config.database.daemon.collections.appsHashes);
+        if (resultApps.count > resultHashes.count && resultApps.count > 30000 && resultHashes.count > 30000) {
+          // run fixExplorer
+          explorerService.fixExplorer(1637000, true);
+          log.info('Flux Block Processing Service started in fix mode');
+        } else {
+          // just initiate
+          explorerService.initiateBlockProcessor(true, true);
+          log.info('Flux Block Processing Service started');
+        }
+      } catch (error) {
+        log.error(error);
+      }
     }, 2 * 60 * 1000);
     setTimeout(() => {
       // appsService.checkForNonAllowedAppsOnLocalNetwork();
