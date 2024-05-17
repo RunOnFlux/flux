@@ -261,7 +261,6 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
-  const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
@@ -301,6 +300,9 @@ async function processInsight(blockDataVerbose, database) {
         const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         // MAY contain App transaction. Store it.
         if (isFluxAppMessageValue >= (priceSpecifications.minPrice * 1e8) && message.length === 64 && blockDataVerbose.height >= config.fluxapps.epochstart) { // min of X flux had to be paid for us bothering checking
+          const appTxRecord = {
+            txid: tx.txid, height: blockDataVerbose.height, hash: message, value: isFluxAppMessageValue, message: false, // message is boolean saying if we already have it stored as permanent message
+          };
           // Unique hash - If we already have a hash of this app in our database, do not insert it!
           try {
             // 5501c7dd6516c3fc2e68dee8d4fdd20d92f57f8cfcdc7b4fcbad46499e43ed6f
@@ -320,6 +322,8 @@ async function processInsight(blockDataVerbose, database) {
             // eslint-disable-next-line no-await-in-loop
             const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
             if (!result) {
+              // eslint-disable-next-line no-await-in-loop
+              await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord); // before requesting app
               appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
             } else {
               throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
@@ -337,12 +341,6 @@ async function processInsight(blockDataVerbose, database) {
         await processSoftFork(tx.txid, blockDataVerbose.height, message);
       }
     }
-  }
-  const options = {
-    ordered: false, // If false, continue with remaining inserts when one fails.
-  };
-  if (appsTransactions.length > 0) {
-    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
   }
 }
 
@@ -1283,6 +1281,45 @@ async function reindexExplorer(req, res) {
   }
 }
 
+async function fixExplorer(height = 1637000, rescanApps = true) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const blockheight = serviceHelper.ensureNumber(height);
+    const database = dbopen.db(config.database.daemon.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (!currentHeight) {
+      throw new Error('No scanned height found');
+    }
+    if (currentHeight.generalScannedHeight <= blockheight) {
+      throw new Error('Block height shall be lower than currently scanned');
+    }
+    if (blockheight < 0) {
+      throw new Error('BlockHeight lower than 0');
+    }
+    const rescanapps = serviceHelper.ensureBoolean(rescanApps);
+    // stop block processing
+    const update = { $set: { generalScannedHeight: blockheight } };
+    const options = {
+      upsert: true,
+    };
+    // update scanned Height in scannedBlockHeightCollection
+    await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
+    const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
+    log.info(message);
+  } catch (error) {
+    log.warn(error);
+    initiateBlockProcessor(true, true);
+  }
+}
+
 /**
  * To rescan Flux explorer database from a specific block height. Only accessible by admins and Flux team members.
  * @param {object} req Request.
@@ -1450,4 +1487,7 @@ module.exports = {
   setBlockProccessingCanContinue,
   setIsInInitiationOfBP,
   restoreDatabaseToBlockheightState,
+
+  // temporary function
+  fixExplorer,
 };
