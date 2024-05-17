@@ -1304,13 +1304,21 @@ async function fixExplorer(height = 1637000, rescanApps = true) {
       throw new Error('BlockHeight lower than 0');
     }
     const rescanapps = serviceHelper.ensureBoolean(rescanApps);
-    // stop block processing
-    const update = { $set: { generalScannedHeight: blockheight } };
-    const options = {
-      upsert: true,
-    };
-    // update scanned Height in scannedBlockHeightCollection
-    await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    if (blockheight === 0) {
+      await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+        if (error.message !== 'ns not found') {
+          log.error(error);
+        }
+      });
+    } else {
+      // stop block processing
+      const update = { $set: { generalScannedHeight: blockheight } };
+      const options = {
+        upsert: true,
+      };
+      // update scanned Height in scannedBlockHeightCollection
+      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    }
     initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
     const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
     log.info(message);

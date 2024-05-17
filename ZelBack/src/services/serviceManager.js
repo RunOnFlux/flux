@@ -126,14 +126,23 @@ async function startFluxFunctions() {
     }, 90 * 1000);
     setTimeout(async () => { // wait as of restarts due to ui building
       try {
-        const dbopen = dbHelper.databaseConnection();
-        const databaseApps = dbopen.db(config.database.appsglobal.database);
+        const databaseApps = db.db(config.database.appsglobal.database);
+        const databaseDaemon = db.db(config.database.daemon.database);
         const resultApps = await dbHelper.collectionStats(databaseApps, config.database.appsglobal.collections.appsMessages);
-        const resultHashes = await dbHelper.collectionStats(databaseApps, config.database.daemon.collections.appsHashes);
-        if (resultApps.count > resultHashes.count && resultApps.count > 30000 && resultHashes.count > 30000) {
+        const resultHashes = await dbHelper.collectionStats(databaseDaemon, config.database.daemon.collections.appsHashes);
+        const query = {};
+        const projection = { projection: { _id: 0 } };
+        const result = await dbHelper.findInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, query, projection);
+        log.info('Last knwon application hash');
+        log.info(result[result.length - 1]);
+        // rescan before last known height of hashes
+        if (resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100) {
           // run fixExplorer
-          explorerService.fixExplorer(1637000, true);
+          explorerService.fixExplorer(result[result.length - 1].height - 50, true);
           log.info('Flux Block Processing Service started in fix mode');
+        } else if (resultApps.count > resultHashes.count) {
+          explorerService.fixExplorer(0, true);
+          log.info('Flux Block Processing Service started in fix mode from scratch');
         } else {
           // just initiate
           explorerService.initiateBlockProcessor(true, true);
