@@ -669,6 +669,7 @@ describe('serviceHelper tests', () => {
         ['2.0.1-alpha.1227', '2.0.1'],
         ['1.0.0-alpha+beta', '1.0.0'],
         ['1.2.3----RC-SNAPSHOT.12.9.1--.12+788', '1.2.3'],
+        ['5:26.1.3-1~ubuntu.22.04~jammy', '26.1.3'],
       ];
 
       for (let index = 0; index < versions.length; index += 1) {

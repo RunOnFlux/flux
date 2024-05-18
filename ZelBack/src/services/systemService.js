@@ -161,7 +161,7 @@ async function getPackageVersion(systemPackage) {
   const { stdout, error } = await serviceHelper.runCommand('dpkg-query', {
     logError: false,
     // eslint-disable-next-line no-template-curly-in-string
-    params: ["--showformat='${Version}:${Status}'", '--show', systemPackage],
+    params: ["--showformat='${Version}|${Status}'", '--show', systemPackage],
   });
 
   if (error) return '';
@@ -174,11 +174,13 @@ async function getPackageVersion(systemPackage) {
   // Uninstalled but still with config files (without purge) show status of:
   //  deinstall ok config-files
 
-  if (!stdout || !stdout.includes(':')) return '';
+  if (!stdout || !stdout.includes('|')) return '';
 
-  const [version, status] = stdout.replace(/'/g, '').split(':');
+  const [version, status] = stdout.replace(/'/g, '').split('|');
 
   if (status !== 'install ok installed') return '';
+
+  // The version format is: [epoch:]upstream_version[-debian_revision]
 
   const parsedVersion = serviceHelper.parseVersion(version);
 
@@ -476,6 +478,9 @@ async function monitorAptCache(event) {
 
   // try recover any partial installs
   await serviceHelper.runCommand('dpkg', { runAsRoot: true, params: ['--configure', '-a'] });
+
+  // at this point, either dns is unable to resolve the sources (or sources are corrupt), or apt-get is broken. Lets try and fix broken
+  await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', '--fix-broken'] });
 
   const { error: checkError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
   if (!checkError) {
