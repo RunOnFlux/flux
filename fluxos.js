@@ -175,10 +175,14 @@ class FluxOSWatcher {
   fluxOs = null;
 
   constructor() {
+    // Could use a class field with arrow function here, then we don't have to
+    // bind the Class.prototype method to the property, and it would have a slightly smaller
+    // memory footprint. We're only instantiating once, and it's less clutter this way.
     this.startFunction = this.startFunction.bind(this);
     this.reloadFunction = this.reloadFunction.bind(this);
 
     this.notifier = new SystemdNotify(this.startFunction, this.reloadFunction);
+    // this should probably get moved out of here, onto it's own start method.
     this.notifier.start();
   }
 
@@ -187,8 +191,11 @@ class FluxOSWatcher {
   // You have two options:
 
   // Handle SIGTERM in each of your processes and shutdown within TimeoutStopSec (which defaults to 90 seconds)
-  // If you really want to delegate the shutdown from your main process, set KillMode=mixed. SIGTERM will be sent to the main process only. Then again shutdown within TimeoutStopSec. If you do not shutdown within TimeoutStopSec, systemd will send SIGKILL to all your processes.
-  // Note: I suggest to use KillMode=mixed in option 2 instead of KillMode=process, as the latter would send the final SIGKILL only to your main process, which means your sub-processes would not be killed if they've locked up.
+  // If you really want to delegate the shutdown from your main process, set KillMode=mixed. SIGTERM will be sent
+  // to the main process only. Then again shutdown within TimeoutStopSec. If you do not shutdown within TimeoutStopSec,
+  // systemd will send SIGKILL to all your processes.
+  // Note: I suggest to use KillMode=mixed in option 2 instead of KillMode=process, as the latter would send the final
+  // SIGKILL only to your main process, which means your sub-processes would not be killed if they've locked up.
 
   static async syncthingApiKey() {
     const configPath = process.env.SYNCTHING_CONFIG_PATH;

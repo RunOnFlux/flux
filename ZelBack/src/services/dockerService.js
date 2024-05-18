@@ -10,7 +10,7 @@ const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
-const appsFolder = `${fluxDirPath}ZelApps/`;
+const appsFolder = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 
 const docker = new Docker();
 

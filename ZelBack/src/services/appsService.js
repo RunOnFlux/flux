@@ -45,7 +45,7 @@ const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 
 const fluxDirPath = path.join(__dirname, '../../../');
-const appsFolder = `${fluxDirPath}ZelApps/`;
+const appsFolder = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 
 const cmdAsync = util.promisify(nodecmd.get);
 const crontabLoad = util.promisify(systemcrontab.load);
@@ -1080,7 +1080,7 @@ async function appMonitorStream(req, res) {
 async function getAppFolderSize(appName) {
   try {
     const dirpath = path.join(__dirname, '../../../');
-    const directoryPath = `${dirpath}ZelApps/${appName}`;
+    const directoryPath = path.join(appsFolder, appName);
     const exec = `sudo du -s --block-size=1 ${directoryPath}`;
     const cmdres = await cmdAsync(exec);
     const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
