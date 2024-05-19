@@ -351,13 +351,22 @@ async function processInsight(blockDataVerbose, database) {
       ordered: false, // If false, continue with remaining inserts when one fails.
     };
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    while (appsTransactions.length > 500) {
-      appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
-    }
-    if (appsTransactions.length > 0) {
-      appsService.checkAndRequestMultipleApps(appsTransactions);
+    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
+      while (appsTransactions.length > 500) {
+        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
+      }
+      if (appsTransactions.length > 0) {
+        appsService.checkAndRequestMultipleApps(appsTransactions);
+      }
+    } else {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const tx of appsTransactions) {
+        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay((Math.random() + 1) * 1000); // delay between 1 and 2 seconds max
+      }
     }
   }
 }
@@ -468,13 +477,22 @@ async function processStandard(blockDataVerbose, database) {
       ordered: false, // If false, continue with remaining inserts when one fails.
     };
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    while (appsTransactions.length > 500) {
-      appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
-    }
-    if (appsTransactions.length > 0) {
-      appsService.checkAndRequestMultipleApps(appsTransactions);
+    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
+      while (appsTransactions.length > 500) {
+        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
+      }
+      if (appsTransactions.length > 0) {
+        appsService.checkAndRequestMultipleApps(appsTransactions);
+      }
+    } else {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const tx of appsTransactions) {
+        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay((Math.random() + 1) * 1000); // delay between 1 and 2 seconds max
+      }
     }
   }
 }
