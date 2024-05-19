@@ -8022,7 +8022,10 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
           }
         }
-      } else if (i < 2) {
+        // eslint-disable-next-line consistent-return
+        return true;
+      }
+      if (i < 2) {
         // request the message and broadcast the message further to our connected peers.
         // rerun this after 1 min delay
         // We ask to the connected nodes 2 times in 1 minute interval for the app message, if connected nodes don't
