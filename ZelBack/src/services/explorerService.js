@@ -266,6 +266,7 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
+  const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
@@ -327,9 +328,7 @@ async function processInsight(blockDataVerbose, database) {
             // eslint-disable-next-line no-await-in-loop
             const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
             if (!result) {
-              // eslint-disable-next-line no-await-in-loop
-              await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord); // before requesting app
-              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+              appsTransactions.push(appTxRecord);
             } else {
               throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
             }
@@ -344,6 +343,27 @@ async function processInsight(blockDataVerbose, database) {
       if (isSoftFork) {
         // eslint-disable-next-line no-await-in-loop
         await processSoftFork(tx.txid, blockDataVerbose.height, message);
+      }
+    }
+  }
+  if (appsTransactions.length > 0) {
+    const options = {
+      ordered: false, // If false, continue with remaining inserts when one fails.
+    };
+    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
+    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
+      while (appsTransactions.length > 500) {
+        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
+      }
+      if (appsTransactions.length > 0) {
+        appsService.checkAndRequestMultipleApps(appsTransactions);
+      }
+    } else {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const tx of appsTransactions) {
+        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
       }
     }
   }
