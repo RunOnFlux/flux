@@ -502,7 +502,12 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should respond with app message that exists in permanent storage but is not located in cache', async () => {
       const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
+          type: 'fluxapprequest',
           hash: 'test1',
         },
       };
@@ -520,7 +525,12 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should respond with app message that exists in temp storage but is not located in cache or perm storage', async () => {
       const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
+          type: 'fluxapprequest',
           hash: 'test1',
         },
       };
@@ -540,7 +550,12 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should do nothing if the message does not exist', async () => {
       const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
+          type: 'fluxapprequest',
           hash: 'test1',
         },
       };
@@ -560,7 +575,12 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
     it('should respond with app message that is located in cache', async () => {
       const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
+          type: 'fluxapprequest',
           hash: 'test1',
         },
       };
