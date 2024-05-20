@@ -8449,7 +8449,7 @@ async function continuousFluxAppHashesCheck(force = false) {
             if (appsMessagesMissing.length === 500) {
               checkAndRequestMultipleApps(appsMessagesMissing);
               // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
+              await serviceHelper.delay((60 + (Math.random() * 15)) * 1000); // delay 60 and 75 seconds
               appsMessagesMissing = [];
             }
           } else {
