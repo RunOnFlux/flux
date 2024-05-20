@@ -7876,12 +7876,12 @@ async function appHashHasMessageNotFound(hash) {
  * @param {number} height Block height.
  * @param {number} valueSat Satoshi denomination (100 millionth of 1 Flux).
  * @param {number} i Defaults to value of 0.
- * @returns {boolean} Return true if app message is already present otherwise nothing is returned.
+ * @returns {boolean} Return true if app message is already present otherwise else.
  */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
-      return;
+      return false;
     }
     const appMessageExists = await checkAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
@@ -7982,7 +7982,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const messageInfo = latestPermanentRegistrationMessage;
           if (!messageInfo) {
             log.error(`Last permanent message for ${specifications.name} not found`);
-            return;
+            return false;
           }
           const previousSpecs = messageInfo.appSpecifications || messageInfo.zelAppSpecifications;
           // here comparison of height differences and specifications
@@ -8033,17 +8033,18 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // in total we ask to the connected nodes 10 (30m interval) x 2 (1m interval) = 20 times before apphash is marked as not found
         await requestAppMessage(hash);
         await serviceHelper.delay(60 * 1000);
-        checkAndRequestApp(hash, txid, height, valueSat, i + 1);
+        return checkAndRequestApp(hash, txid, height, valueSat, i + 1);
         // additional requesting of missing app messages is done on rescans
       }
-    } else {
-      // update apphashes that we already have it stored
-      await appHashHasMessage(hash);
-      // eslint-disable-next-line consistent-return
-      return true;
+      return false;
     }
+    // update apphashes that we already have it stored
+    await appHashHasMessage(hash);
+    // eslint-disable-next-line consistent-return
+    return true;
   } catch (error) {
     log.error(error);
+    return false;
   }
 }
 
