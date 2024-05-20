@@ -301,15 +301,15 @@ async function sendMessageToWS(message, ws) {
  * @param {object} ws Web socket.
  * @returns {void} Throws an error if invalid.
  */
-async function respondWithAppMessage(message, ws) {
+async function respondWithAppMessage(msgObj, ws) {
   try {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
-
+    const message = msgObj.data;
     const appsMessages = [];
     if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || !message.data) {
+    || typeof message.broadcastedAt !== 'number') {
       throw new Error('Invalid Flux App Request message');
     }
 
@@ -318,18 +318,18 @@ async function respondWithAppMessage(message, ws) {
     }
 
     if (message.version === 1) {
-      if (typeof message.data.hash !== 'string') {
+      if (typeof message.hash !== 'string') {
         throw new Error('Invalid Flux App Request message, hash propery is mandatory on version 1');
       }
-      appsMessages.push(message.data.hash);
+      appsMessages.push(message.hash);
     }
 
     if (message.version === 2) {
-      if (!message.data.hashes || !Array.isArray(message.data.hashes) || message.data.hashes.length > 500) {
+      if (!message.hashes || !Array.isArray(message.hashes) || message.hashes.length > 500) {
         throw new Error('Invalid Flux App Request v2 message');
       }
-      for (let i = 0; i < message.data.hashes.length; i += 1) {
-        appsMessages.push(message.data.hashes[i]);
+      for (let i = 0; i < message.hashes.length; i += 1) {
+        appsMessages.push(message.hashes[i]);
         if (typeof hash !== 'string') {
           throw new Error('Invalid Flux App Request v2 message');
         }

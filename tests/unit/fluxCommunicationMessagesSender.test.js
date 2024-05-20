@@ -509,6 +509,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 1,
         },
       };
       const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(message);
@@ -532,6 +534,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 1,
         },
       };
       const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(undefined);
@@ -557,6 +561,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 1,
         },
       };
       const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(undefined);
@@ -582,6 +588,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 1,
         },
       };
       const checkAppMessageExistenceSpy = sinon.spy(appsService, 'checkAppMessageExistence');
@@ -593,7 +601,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
 
       sinon.assert.notCalled(myMessageCacheSetStub);
       sinon.assert.notCalled(checkAppMessageExistenceSpy);
-      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
+      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage.data));
     });
   });
 
