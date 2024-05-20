@@ -459,7 +459,7 @@ async function processStandard(blockDataVerbose, database) {
       while (appsTransactions.length > 500) {
         appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(60 + (Math.random() * 14) * 1000); // delay 60 and 75 seconds
+        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
       }
       if (appsTransactions.length > 0) {
         appsService.checkAndRequestMultipleApps(appsTransactions);
@@ -468,8 +468,6 @@ async function processStandard(blockDataVerbose, database) {
       // eslint-disable-next-line no-restricted-syntax
       for (const tx of appsTransactions) {
         appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay((Math.random() + 1) * 1000); // delay between 1 and 2 seconds max
       }
     }
   }
