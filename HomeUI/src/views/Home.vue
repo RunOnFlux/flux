@@ -387,6 +387,12 @@ export default {
               this.resetLoginUI();
             });
         } else {
+          if (user.displayName) {
+            const urlPattern = /\b((http|https|ftp):\/\/[-A-Z0-9+&@#%?=~_|!:,.;]*[-A-Z0-9+&@#%=~_|]|www\.[-A-Z0-9+&@#%?=~_|!:,.;]*[-A-Z0-9+&@#%=~_|]|[-A-Z0-9]+\.[A-Z]{2,}[-A-Z0-9+&@#%?=~_|]*[-A-Z0-9+&@#%=~_|])/i;
+            if (urlPattern.test(user.displayName)) {
+              throw new Error('Login Failed, please try again.');
+            }
+          }
           user.sendEmailVerification()
             .then(() => {
               this.showToast('info', 'please verify email');
