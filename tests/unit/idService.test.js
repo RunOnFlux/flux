@@ -271,7 +271,7 @@ describe('idService tests', () => {
 
     before(async () => {
       await dbHelper.initiateDB();
-    })
+    });
 
     beforeEach(() => {
       osTotalmemStub = sinon.stub(os, 'totalmem');

@@ -1,3 +1,6 @@
+<!-- eslint-disable no-restricted-syntax -->
+<!-- eslint-disable no-restricted-syntax -->
+<!-- eslint-disable guard-for-in -->
 <!-- eslint-disable vue/no-use-computed-property-like-method -->
 <template>
   <div>
@@ -1597,14 +1600,22 @@
                           aria-hidden="true"
                         >
                           <b-icon
-                            icon="calendar2-check-fill"
+                            icon="check-square-fill"
                             scale="1"
                             variant="success"
                           /></span>
                         <span class="sr-only">Selected</span>
                       </template>
                       <template v-else>
-                        <span aria-hidden="true">&nbsp;</span>
+                        <span
+                          style="color: white"
+                          aria-hidden="true"
+                        >
+                          <b-icon
+                            icon="square"
+                            scale="1"
+                            variant="secondary"
+                          /></span>
                         <span class="sr-only">Not selected</span>
                       </template>
                     </template>
@@ -1614,11 +1625,10 @@
                     <template #cell(actions)="row">
                       <div class="d-flex justify-content-center align-items-center">
                         <b-button
+                          :id="`delete-local-backup-${row.item.component}_${backupList[row.index].create}`"
                           v-b-tooltip.hover.top="'Remove file'"
                           variant="outline-danger"
                           class="d-flex justify-content-center align-items-center mr-1 custom-button"
-                          @click="
-                            deleteLocalBackup(row.item.component, backupList, backupList[row.index].file)"
                         >
                           <b-icon
                             class="d-flex justify-content-center align-items-center"
@@ -1626,6 +1636,11 @@
                             icon="trash"
                           />
                         </b-button>
+                        <confirm-dialog
+                          :target="`delete-local-backup-${row.item.component}_${backupList[row.index].create}`"
+                          confirm-button="Remove File"
+                          @confirm="deleteLocalBackup(row.item.component, backupList, backupList[row.index].file)"
+                        />
                         <b-button
                           v-b-tooltip.hover.top="'Download file'"
                           variant="outline-primary"
@@ -1641,6 +1656,7 @@
                       </div>
                     </template>
                   </b-table>
+                  <span style="font-size: 0.9rem;">Select application component(s) you would like to upload</span>
                   <b-card-text v-if="showProgressBar">
                     <div class="mt-1">
                       <!-- <b-progress
@@ -1696,7 +1712,7 @@
                     </div>
                   </b-card-text>
                   <div
-                    v-if="backupToUpload.length > 0"
+                    v-if="backupList?.length > 0"
                     class="mt-2"
                   >
                     <div
@@ -1709,7 +1725,7 @@
                         line-height: 0px;
                       "
                     >
-                      <h5><b-icon icon="gear-fill" /> Choose your storage method (coming soon)</h5>
+                      <h5><b-icon icon="gear-fill" /> Choose your storage method</h5>
                     </div>
 
                     <b-form-radio-group
@@ -1722,156 +1738,29 @@
                       buttons
                     />
                     <div v-if="selectedStorageMethod === 'flux'">
-                      <b-card
+                      <div
                         v-if="sigInPrivilage === true"
-                        class="mb-2 justify-content-center align-items-center"
+                        class="mb-2"
                       >
-                        <b-card-text>
-                          <div
-                            class="mb-2 mt-1"
-                            style="
-                              max-width: 500px;
-                              margin: 0 auto;
-                              padding: 12px;
-                              border: 1px solid #eaeaea;
-                              border-radius: 8px;
-                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                              text-align: center;
-
-                            "
-                          >
-                            <h5 style="font-size: 16px; margin-bottom: 5px;">
-                              Sign in to enable FluxDrive functionality
-                            </h5>
-                          </div>
-                        </b-card-text>
-
-                        <dl class="row">
-                          <dd class="col-sm-4">
-                            <b-card-text class="text-center">
-                              Please log in using
-                            </b-card-text>
-                            <div
-                              style="
-                                display: flex;
-                                flex-direction: row;
-                                justify-content: space-around;
-                                align-items: center;
-                                margin-bottom: 10px;
-                              "
-                            >
-                              <a
-                                href=""
-                                @click="removeAllBackup"
-                              >
-                                <img
-                                  style="margin-left: 5px; height: 90px; padding: 10px"
-                                  src="https://home.runonflux.io/img/zelID.svg"
-                                  alt="Zel ID"
-                                  height="100%"
-                                  width="100%"
-                                />
-                              </a>
-                              <a @click="removeAllBackup">
-                                <img
-                                  style="height: 100px; padding: 10px"
-                                  src="https://home.runonflux.io/img/ssp-logo-white.svg"
-                                  alt="SSP"
-                                  height="100%"
-                                  width="100%"
-                                />
-                              </a>
-                            </div>
-                            <div
-                              style="
-                                display: flex;
-                                flex-direction: row;
-                                justify-content: space-around;
-                                align-items: center;
-                                margin-bottom: 10px;
-                              "
-                            >
-                              <a @click="removeAllBackup">
-                                <img
-                                  style="height: 100px; padding: 10px"
-                                  src="https://home.runonflux.io/img/walletconnect.svg"
-                                  alt="WalletConnect"
-                                  height="100%"
-                                  width="100%"
-                                />
-                              </a>
-                              <a @click="removeAllBackup">
-                                <img
-                                  style="height: 80px; padding: 10px"
-                                  src="https://home.runonflux.io/img/metamask.svg"
-                                  alt="Metamask"
-                                  height="100%"
-                                  width="100%"
-                                />
-                              </a>
-                            </div>
-                          </dd>
-                          <dd class="col-sm-8">
-                            <b-card-text class="text-center">
-                              or sign the following message with any ZelID / SSP Wallet ID
-                              / Bitcoin address / Ethereum address
-                            </b-card-text>
-                            <br /><br />
-                            <b-form class="mx-5">
-                              <b-row>
-                                <b-col cols="12">
-                                  <b-form-group
-                                    label="Message"
-                                    label-for="h-message"
-                                    label-cols-md="3"
-                                  >
-                                    <b-form-input
-                                      id="h-message"
-                                      placeholder="Insert Login Phrase"
-                                    />
-                                  </b-form-group>
-                                </b-col>
-                                <b-col cols="12">
-                                  <b-form-group
-                                    label="Address"
-                                    label-for="h-address"
-                                    label-cols-md="3"
-                                  >
-                                    <b-form-input
-                                      id="h-address"
-                                      placeholder="Insert ZelID / SSP Wallet ID / Bitcoin address / Ethereum address"
-                                    />
-                                  </b-form-group>
-                                </b-col>
-                                <b-col cols="12">
-                                  <b-form-group
-                                    label="Signature"
-                                    label-for="h-signature"
-                                    label-cols-md="3"
-                                  >
-                                    <b-form-input
-                                      id="h-signature"
-                                      placeholder="Insert Signature"
-                                    />
-                                  </b-form-group>
-                                </b-col>
-
-                                <b-col cols="12">
-                                  <b-form-group label-cols-md="3">
-                                    <b-button
-                                      type="submit"
-                                      variant="primary"
-                                      class="w-100"
-                                    >
-                                      Login
-                                    </b-button>
-                                  </b-form-group>
-                                </b-col>
-                              </b-row>
-                            </b-form>
-                          </dd>
-                        </dl>
-                      </b-card>
+                        <ul class="mt-2" style="font-size: 0.9rem;">
+                          <li>Free FluxDrive backups! Up to 10GB total to use per user</li>
+                          <li>FluxDrive backups can be downloaded on Restore page</li>
+                        </ul>
+                        <b-button
+                          :disabled="uploadProgress === true || backupToUpload.length === 0"
+                          class="mt-2"
+                          block
+                          variant="outline-primary"
+                          @click="uploadToFluxDrive()"
+                        >
+                          <b-icon
+                            scale="1.2"
+                            icon="cloud-arrow-up"
+                            class="mr-1"
+                          />
+                          Upload Selected Components To FluxDrive
+                        </b-button>
+                      </div>
                       <b-button
                         v-if="sigInPrivilage === false"
                         variant="outline-primary"
@@ -1901,12 +1790,88 @@
                         Export
                       </b-button>
                     </div>
+                    <b-card-text v-if="showUploadProgressBar">
+                      <div class="mt-1">
+                        <div
+                          v-if="fileProgress.length > 0"
+                          class="mb-2 mt-2 w-100"
+                          style="
+                                margin: 0 auto;
+                                padding: 12px;
+                                border: 1px solid #eaeaea;
+                                border-radius: 8px;
+                                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                                text-align: center;
+
+                              "
+                        >
+                          <h5 style="font-size: 16px; margin-bottom: 5px;">
+                            <span>
+                              <b-spinner small /> {{ uploadStatus }}
+                            </span>
+                          </h5>
+                          <b-progress
+                            v-for="(item, index) in computedFileProgress"
+                            v-if="item.progress > 0"
+                            :key="index"
+                            class="mt-1"
+                            style="height: 16px;"
+                            :max="100"
+                          >
+                            <b-progress-bar
+                              :value="item.progress"
+                              :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
+                              style="font-size: 14px;"
+                            />
+                          </b-progress>
+                        </div>
+                      </div>
+                    </b-card-text>
+
+                    <b-card-text v-if="showFluxDriveProgressBar">
+                      <div class="mt-1">
+                        <div
+                          v-if="fileProgressFD.length > 0"
+                          class="mb-2 mt-2 w-100"
+                          style="
+                                margin: 0 auto;
+                                padding: 12px;
+                                border: 1px solid #eaeaea;
+                                border-radius: 8px;
+                                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                                text-align: center;
+
+                              "
+                        >
+                          <h5 style="font-size: 16px; margin-bottom: 5px;">
+                            <span>
+                              <b-spinner small /> {{ fluxDriveUploadStatus }}
+                            </span>
+                          </h5>
+                          <b-progress
+                            v-for="(item, index) in computedFileProgressFD"
+                            v-if="item.progress > 0"
+                            :key="index"
+                            class="mt-1"
+                            style="height: 16px;"
+                            :max="100"
+                          >
+                            <b-progress-bar
+                              :value="item.progress"
+                              :label="`${item.fileName} - ${item.progress.toFixed(2)}%`"
+                              style="font-size: 14px;"
+                            />
+                          </b-progress>
+                        </div>
+                      </div>
+                    </b-card-text>
                   </div>
                 </div>
               </b-tab>
               <b-tab
                 title="Restore"
                 style="margin: 0; padding-top: 0px;"
+                @click="handleRadioClick"
               >
                 <div
                   class="mb-2"
@@ -1953,6 +1918,7 @@
                         v-if="selectedRestoreOption === 'FluxDrive'"
                         variant="outline-success"
                         style="max-height: 38px; min-width: 100px; white-space: nowrap;"
+                        @click="getFluxDriveBackupList"
                       >
                         <b-icon
                           class="mr-1"
@@ -1965,156 +1931,6 @@
                 </b-form-group>
 
                 <div v-if="selectedRestoreOption === 'FluxDrive'">
-                  <b-card
-                    v-if="sigInPrivilage === false"
-                    class="mb-2 justify-content-center align-items-center"
-                  >
-                    <b-card-text>
-                      <div
-                        style="
-                          max-width: 500px;
-                          margin: 0 auto;
-                          padding: 10px;
-                          border: 1px solid #eaeaea;
-                          border-radius: 8px;
-                          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                          text-align: center;
-                        "
-                      >
-                        <h5 style="color: #333; font-size: 16px; margin-bottom: 5px">
-                          Sig in to enable FluxDrive functionality
-                        </h5>
-                        <!-- Your sign-in form and activation components go here -->
-                      </div>
-                    </b-card-text>
-
-                    <dl class="row">
-                      <dd class="col-sm-4">
-                        <b-card-text class="text-center">
-                          Please log in using
-                        </b-card-text>
-                        <div
-                          style="
-                            display: flex;
-                            flex-direction: row;
-                            justify-content: space-around;
-                            align-items: center;
-                            margin-bottom: 10px;
-                          "
-                        >
-                          <a
-                            href=""
-                            @click="removeAllBackup"
-                          >
-                            <img
-                              style="margin-left: 5px; height: 90px; padding: 10px"
-                              src="https://home.runonflux.io/img/zelID.svg"
-                              alt="Zel ID"
-                              height="100%"
-                              width="100%"
-                            />
-                          </a>
-                          <a @click="removeAllBackup">
-                            <img
-                              style="height: 100px; padding: 10px"
-                              src="https://home.runonflux.io/img/ssp-logo-white.svg"
-                              alt="SSP"
-                              height="100%"
-                              width="100%"
-                            />
-                          </a>
-                        </div>
-                        <div
-                          style="
-                      display: flex;
-                      flex-direction: row;
-                      justify-content: space-around;
-                      align-items: center;
-                      margin-bottom: 10px;
-                    "
-                        >
-                          <a @click="removeAllBackup">
-                            <img
-                              style="height: 100px; padding: 10px"
-                              src="https://home.runonflux.io/img/walletconnect.svg"
-                              alt="WalletConnect"
-                              height="100%"
-                              width="100%"
-                            />
-                          </a>
-                          <a @click="removeAllBackup">
-                            <img
-                              style="height: 80px; padding: 10px"
-                              src="https://home.runonflux.io/img/metamask.svg"
-                              alt="Metamask"
-                              height="100%"
-                              width="100%"
-                            />
-                          </a>
-                        </div>
-                      </dd>
-                      <dd class="col-sm-8">
-                        <b-card-text class="text-center">
-                          or sign the following message with any ZelID / SSP Wallet ID
-                          / Bitcoin address / Ethereum address
-                        </b-card-text>
-                        <br /><br />
-                        <b-form class="mx-5">
-                          <b-row>
-                            <b-col cols="12">
-                              <b-form-group
-                                label="Message"
-                                label-for="h-message"
-                                label-cols-md="3"
-                              >
-                                <b-form-input
-                                  id="h-message"
-                                  placeholder="Insert Login Phrase"
-                                />
-                              </b-form-group>
-                            </b-col>
-                            <b-col cols="12">
-                              <b-form-group
-                                label="Address"
-                                label-for="h-address"
-                                label-cols-md="3"
-                              >
-                                <b-form-input
-                                  id="h-address"
-                                  placeholder="Insert ZelID / SSP Wallet ID / Bitcoin address / Ethereum address"
-                                />
-                              </b-form-group>
-                            </b-col>
-                            <b-col cols="12">
-                              <b-form-group
-                                label="Signature"
-                                label-for="h-signature"
-                                label-cols-md="3"
-                              >
-                                <b-form-input
-                                  id="h-signature"
-                                  placeholder="Insert Signature"
-                                />
-                              </b-form-group>
-                            </b-col>
-
-                            <b-col cols="12">
-                              <b-form-group label-cols-md="3">
-                                <b-button
-                                  type="submit"
-                                  variant="primary"
-                                  block
-                                >
-                                  Login
-                                </b-button>
-                              </b-form-group>
-                            </b-col>
-                          </b-row>
-                        </b-form>
-                      </dd>
-                    </dl>
-                  </b-card>
-
                   <div v-if="sigInPrivilage === true">
                     <div>
                       <b-input-group class="mb-2">
@@ -2128,8 +1944,8 @@
                         />
                       </b-input-group>
                     </div>
-
                     <b-table
+                      :key="tableBackup"
                       :items="checkpoints"
                       :fields="backupTableFields"
                       stacked="md"
@@ -2139,6 +1955,7 @@
                       empty-text="No records available. Please export your backup to FluxDrive."
                       :sort-by.sync="sortbackupTableKey"
                       :sort-desc.sync="sortbackupTableDesc"
+                      :tbody-tr-class="rowClassFluxDriveBackups"
                       @filtered="onFilteredBackup"
                     >
                       <template #thead-top>
@@ -2160,10 +1977,11 @@
                       <template #cell(actions)="row">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
+                            :id="`remove-checkpoint-${row.item.timestamp}`"
+                            v-b-tooltip.hover.top="'Remove Backup(s)'"
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center mr-1"
                             style="width: 15px; height: 25px"
-                            @click="deleteRestoreBackup(row.item.component, checkpoints, row.item.timestamp)"
                           >
                             <b-icon
                               class="d-flex justify-content-center align-items-center"
@@ -2171,7 +1989,13 @@
                               icon="trash"
                             />
                           </b-button>
+                          <confirm-dialog
+                            :target="`remove-checkpoint-${row.item.timestamp}`"
+                            confirm-button="Remove Backup(s)"
+                            @confirm="deleteRestoreBackup(row.item.component, checkpoints, row.item.timestamp)"
+                          />
                           <b-button
+                            v-b-tooltip.hover.top="'Add all to Restore List'"
                             variant="outline-primary"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 15px; height: 25px"
@@ -2186,7 +2010,7 @@
                         </div>
                       </template>
                       <template #cell(timestamp)="row">
-                        <kbd>backup_{{ row.item.timestamp }}</kbd>
+                        <kbd class="alert-info no-wrap"><b-icon scale="1.2" icon="hdd" />&nbsp;&nbsp;backup_{{ row.item.timestamp }}</kbd>
                       </template>
                       <template #cell(time)="row">
                         {{ formatDateTime(row.item.timestamp) }}
@@ -2194,11 +2018,13 @@
 
                       <template #row-details="row">
                         <b-table
+                          :key="tableBackup"
                           stacked="md"
                           show-empty
                           bordered
                           hover
                           small
+                          class="backups-table"
                           :items="row.item.components.filter(component =>
                             Object.values(component).some(value =>
                               String(value).toLowerCase().includes(nestedTableFilter.toLowerCase()),
@@ -2206,8 +2032,23 @@
                           )"
                           :fields="componentsTable1"
                         >
+                          <template #cell(file_url)="nestedRow">
+                            <div class="ellipsis-wrapper">
+                              <b-link
+                                :href="nestedRow.item.file_url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {{ nestedRow.item.file_url }}
+                              </b-link>
+                            </div>
+                          </template>
+                          <template #cell(file_size)="nestedRow">
+                            {{ addAndConvertFileSizes(nestedRow.item.file_size) }}
+                          </template>
                           <template #cell(actions)="nestedRow">
                             <b-button
+                              v-b-tooltip.hover.top="'Add to Restore List'"
                               class="d-flex justify-content-center align-items-center"
                               style="
                           margin: auto;
@@ -2237,8 +2078,8 @@
                       stacked="md"
                       show-empty
                       bordered
-                      hover
                       small
+                      class="mt-1 backups-table"
                     >
                       <template #thead-top>
                         <b-tr>
@@ -2255,9 +2096,27 @@
                           </b-td>
                         </b-tr>
                       </template>
+                      <template #cell(timestamp)="row">
+                        {{ formatDateTime(row.item.timestamp) }}
+                      </template>
+                      <template #cell(file_url)="row">
+                        <div class="ellipsis-wrapper">
+                          <b-link
+                            :href="row.item.file_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            {{ row.item.file_url }}
+                          </b-link>
+                        </div>
+                      </template>
+                      <template #cell(file_size)="row">
+                        {{ addAndConvertFileSizes(row.item.file_size) }}
+                      </template>
                       <template #cell(actions)="row">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
+                            v-b-tooltip.hover.top="'Remove restore job'"
                             variant="outline-danger"
                             class="d-flex justify-content-center align-items-center"
                             style="width: 95px; height: 25px"
@@ -2287,16 +2146,29 @@
                               class="mr-2"
                               icon="hdd"
                               scale="1.4"
-                            /> {{ totalArchiveFileSize(newComponents).toFixed(2) }} MB
+                            /> {{ addAndConvertFileSizes(totalArchiveFileSize(newComponents)) }}
                           </b-td>
                         </b-tr>
                       </template>
                     </b-table>
+                    <b-alert
+                      v-model="showTopFluxDrive"
+                      class="mt-1 rounded-0 d-flex align-items-center justify-content-center"
+                      style="z-index: 1000;"
+                      :variant="alertVariant"
+                      solid="true"
+                      dismissible
+                    >
+                      <h5 class="mt-1 mb-1">
+                        {{ alertMessage }}
+                      </h5>
+                    </b-alert>
                     <b-button
-                      v-if="newComponents?.length > 0"
+                      v-if="newComponents?.length > 0 && !restoringFromFluxDrive"
                       class="mt-2"
                       block
                       variant="outline-primary"
+                      @click="restoreFromFluxDrive(newComponents)"
                     >
                       <b-icon
                         icon="arrow-clockwise"
@@ -2304,6 +2176,25 @@
                         class="mr-1"
                       />Restore
                     </b-button>
+                    <div
+                      v-if="restoringFromFluxDrive === true"
+                      class="mb-2 mt-2 w-100"
+                      style="
+                        margin: 0 auto;
+                        padding: 12px;
+                        border: 1px solid #eaeaea;
+                        border-radius: 8px;
+                        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                        text-align: center;
+                      "
+                    >
+                      <h5 style="font-size: 16px; margin-bottom: 5px;">
+                        <span v-if="restoringFromFluxDrive === true">
+                          <b-spinner small /> {{ restoreFromFluxDriveStatus }}
+                          <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
+                        </span>
+                      </h5>
+                    </div>
                   </div>
                 </div>
 
@@ -5948,6 +5839,7 @@ export default {
     return {
       appInfoObject: [],
       tooltipText: 'Copy to clipboard',
+      tableBackup: 0,
       tableKey: 0,
       isBusy: false,
       inputPathValue: '',
@@ -6004,22 +5896,31 @@ export default {
       windowWidth: window.innerWidth,
       showTopUpload: false,
       showTopRemote: false,
+      showTopFluxDrive: false,
       alertMessage: '',
       alertVariant: '',
       restoreFromUpload: false,
       restoreFromUploadStatus: '',
       restoreFromRemoteURLStatus: '',
+      restoreFromFluxDriveStatus: '',
       downloadingFromUrl: false,
+      restoringFromFluxDrive: false,
       files: [],
       backupProgress: false,
+      uploadProgress: false,
       tarProgress: '',
       fileProgress: [],
+      fileProgressFD: [],
+      fluxDriveUploadStatus: '',
+      showFluxDriveProgressBar: false,
       showProgressBar: false,
+      showUploadProgressBar: false,
+      uploadStatus: '',
       restoreOptions: [
         {
           value: 'FluxDrive',
           text: 'FluxDrive',
-          disabled: true,
+          disabled: false,
         },
         {
           value: 'Remote URL',
@@ -6035,7 +5936,7 @@ export default {
       storageMethod: [
         {
           value: 'flux',
-          disabled: true,
+          disabled: false,
           text: 'FluxDrive',
         },
         {
@@ -6055,22 +5956,7 @@ export default {
       selectedBackupComponents: [],
       items: [],
       items1: [],
-      checkpoints: [
-        {
-          timestamp: 1705483856,
-          components: [
-            { component: 'lime', file_url: 'http//...', file_size: '133' },
-            { component: 'orange', file_url: 'http//...', file_size: '123' },
-          ],
-        },
-        {
-          timestamp: 1705485856,
-          components: [
-            { component: 'lime', file_url: 'http//...', file_size: '143' },
-            { component: 'orange', file_url: 'http//...', file_size: '123' },
-          ],
-        },
-      ],
+      checkpoints: [],
       sigInPrivilage: true,
       backupList: [],
       backupToUpload: [],
@@ -6087,9 +5973,9 @@ export default {
       nestedTableFilter: '',
       backupTableFields: [
         { key: 'timestamp', label: 'Name', thStyle: { width: '65%' } },
-        { key: 'time', label: 'Time', thStyle: { width: '25%' } },
+        { key: 'time', label: 'Time' },
         {
-          key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
+          key: 'actions', label: 'Actions', thStyle: { width: '118px' }, class: 'text-center',
         },
       ],
       restoreComponents: [
@@ -6107,16 +5993,22 @@ export default {
         { key: 'file_size', label: 'Size', thStyle: { width: '8%' } },
       ],
       newComponentsTableFields: [
-        { key: 'component', label: 'Component Name', thStyle: { width: '25%' } },
-        { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
-        { key: 'timestamp', label: 'Timestamp', thStyle: { width: '6%' } },
-        { key: 'file_size', label: 'Size', thStyle: { width: '9%' } },
+        { key: 'component', label: 'Component Name', thStyle: { width: '200px' } },
+        { key: 'file_url', label: 'URL' },
+        { key: 'timestamp', label: 'Timestamp', thStyle: { width: '200px' } },
+        { key: 'file_size', label: 'Size', thStyle: { width: '100px' } },
+        {
+          key: 'actions',
+          label: 'Actions',
+          thStyle: { width: '117px' },
+          class: 'text-center',
+        },
       ],
       componentsTable() {
         return [
-          { key: 'component', label: 'Component Name', thStyle: { width: '30%' } },
+          { key: 'component', label: 'Component Name', thStyle: { width: '20%' } },
           { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
-          { key: 'file_size', label: 'Size', thStyle: { width: '10%' } },
+          { key: 'file_size', label: 'Size', thStyle: { width: '20%' } },
           {
             key: 'actions', label: 'Actions', thStyle: { width: '5%' }, class: 'text-center',
           },
@@ -6410,6 +6302,9 @@ export default {
     computedFileProgress() {
       return this.fileProgress;
     },
+    computedFileProgressFD() {
+      return this.fileProgressFD;
+    },
     computedFileProgressVolume() {
       return this.fileProgressVolume;
     },
@@ -6460,13 +6355,13 @@ export default {
     },
     componentsTable1() {
       return [
-        { key: 'component', label: 'Component Name', thStyle: { width: '30%' } },
-        { key: 'file_url', label: 'URL', thStyle: { width: '55%' } },
-        { key: 'file_size', label: 'Size', thStyle: { width: '10%' } },
+        { key: 'component', label: 'Component Name', thStyle: { width: '200px' } },
+        { key: 'file_url', label: 'URL' },
+        { key: 'file_size', label: 'Size', thStyle: { width: '100px' } },
         {
           key: 'actions',
           label: 'Actions',
-          thStyle: { width: '5%' },
+          thStyle: { width: '117px' },
           class: 'text-center',
         },
       ];
@@ -6765,6 +6660,10 @@ export default {
         this.websocket = null;
       }
     },
+  },
+  created() {
+    this.fluxDriveUploadTask = [];
+    this.fluxDriveEndPoint = 'https://mws.fluxdrive.runonflux.io';
   },
   mounted() {
     const { hostname } = window.location;
@@ -7086,6 +6985,9 @@ export default {
       if (this.selectedRestoreOption === 'Upload File') {
         this.loadBackupList(this.appName, 'upload', 'files');
       }
+      if (this.selectedRestoreOption === 'FluxDrive') {
+        this.getFluxDriveBackupList();
+      }
       console.log('Radio button clicked. Selected option:', this.selectedOption);
     },
     // eslint-disable-next-line consistent-return
@@ -7229,6 +7131,7 @@ export default {
         restore_upload: 'restoreFromUploadStatus',
         restore_remote: 'restoreFromRemoteURLStatus',
         backup: 'tarProgress',
+        restore_fluxdrive: 'restoreFromFluxDriveStatus',
       };
       // eslint-disable-next-line no-restricted-syntax
       for (const chunk of chunks) {
@@ -7248,6 +7151,13 @@ export default {
             } else if (type === 'restore_remote' && chunk.includes('Finalizing')) {
               setTimeout(() => {
                 this.changeAlert('success', 'Restore completed successfully', 'showTopRemote', true);
+                this.restoreRemoteUrlItems = [];
+              }, 5000);
+            } else if (type === 'restore_fluxdrive' && chunk.includes('Error:')) {
+              this.changeAlert('danger', chunk, 'showTopFluxDrive', true);
+            } else if (type === 'restore_fluxdrive' && chunk.includes('Finalizing')) {
+              setTimeout(() => {
+                this.changeAlert('success', 'Restore completed successfully', 'showTopFluxDrive', true);
                 this.restoreRemoteUrlItems = [];
               }, 5000);
             }
@@ -7528,6 +7438,9 @@ export default {
         return {
           component: selectedComponentName,
           file: selectedFile ? selectedFile.file : null,
+          file_size: selectedFile ? selectedFile.file_size : null,
+          file_name: selectedFile ? selectedFile.file_name : null,
+          create: selectedFile ? selectedFile.create : null,
         };
       }).filter((item) => item.file !== null);
     },
@@ -7643,8 +7556,8 @@ export default {
       this.downloadingFromUrl = false;
       this.restoreFromRemoteURLStatus = '';
     },
-    async addRemoteUrlItem(appname, component) {
-      if (!this.isValidUrl) {
+    async addRemoteUrlItem(appname, component, fludDrive = false) {
+      if (!fludDrive && !this.isValidUrl) {
         return;
       }
       if (this.restoreRemoteUrl.trim() !== '' && this.restoreRemoteUrlComponent !== null) {
@@ -7742,6 +7655,16 @@ export default {
         }
       });
     },
+    updateFileProgressFD(currentFileName, currentFileProgress, loaded, total, name) {
+      this.$nextTick(() => {
+        const currentIndex = this.fileProgressFD.findIndex((entry) => entry.fileName === name);
+        if (currentIndex !== -1) {
+          this.$set(this.fileProgressFD, currentIndex, { fileName: name, progress: currentFileProgress });
+        } else {
+          this.fileProgressFD.push({ fileName: name, progress: currentFileProgress });
+        }
+      });
+    },
     updateFileProgressVolume(currentFileName, currentFileProgress) {
       this.$nextTick(() => {
         const currentIndex = this.fileProgressVolume.findIndex((entry) => entry.fileName === currentFileName);
@@ -7752,12 +7675,40 @@ export default {
         }
       });
     },
-    deleteRestoreBackup(name, restoreItem, timestamp = 0) {
-      const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
-      restoreItem.splice(backupIndex, 1);
+    rowClassFluxDriveBackups(item, type) {
+      if (!item || type !== 'row') return 'table-no-padding';
+      return '';
+    },
+    async deleteRestoreBackup(name, restoreItem, timestamp = 0) {
       if (timestamp !== 0) {
         this.newComponents = this.newComponents.filter((item) => item.timestamp !== timestamp);
+        try {
+          const zelidauth = localStorage.getItem('zelidauth');
+          const axiosConfig = {
+            headers: {
+              zelidauth,
+            },
+          };
+          const data = {
+            appname: this.appName,
+            timestamp,
+          };
+          const response = await axios.post(`${this.fluxDriveEndPoint}/removeCheckpoint`, data, axiosConfig);
+          console.error(response.data);
+          if (response && response.data && response.data.status === 'success') {
+            const backupIndex = restoreItem.findIndex((item) => item.timestamp === timestamp);
+            restoreItem.splice(backupIndex, 1);
+            this.showToast('success', 'Checkpoint backup removed successfully.');
+            return true;
+          }
+          this.showToast('danger', response.data.data.message);
+          return false;
+        } catch (error) {
+          console.error('Error removing checkpoint', error);
+          this.showToast('Error removing checkpoint');
+        }
       }
+      return false;
     },
     async deleteLocalBackup(name, restoreItem, filepath = 0) {
       if (filepath === 0) {
@@ -7835,6 +7786,222 @@ export default {
           this.showProgressBar = false;
           this.fileProgress = [];
         }, 5000);
+      }
+    },
+    async checkFluxDriveUploadProgress() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+      };
+      const fluxDriveUploadTaskTmp = [];
+      let errorInStatusCheck = false;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const task of this.fluxDriveUploadTask) {
+        try {
+          // eslint-disable-next-line no-restricted-syntax, no-await-in-loop
+          const response = await axios.get(`${this.fluxDriveEndPoint}/gettaskstatus?taskId=${task.taskId}`, axiosConfig);
+          if (response && response.data && response.data.status === 'success') {
+            task.status = response.data.data.status.state;
+            if (task.status === 'downloading') {
+              task.progress = response.data.data.status.progress / 2;
+            } else if (task.status === 'uploading') {
+              task.progress = 50 + response.data.data.status.progress / 2;
+            } else {
+              task.progress = response.data.data.status.progress;
+            }
+            task.message = response.data.data.status.message;
+            this.updateFileProgressFD(task.filename, task.progress, 0, 0, task.component);
+            this.fluxDriveUploadStatus = response.data.data.status.message;
+            if (task.status === 'finished') {
+              this.showToast('success', `${task.component} backup uploaded to FluxDrive successfully.`);
+            } else if (task.status === 'failed') {
+              this.showToast('danger', `failed to upload ${task.component} backup to FluxDrive.${this.fluxDriveUploadStatus}`);
+            } else {
+              fluxDriveUploadTaskTmp.push(task);
+            }
+          } else {
+            errorInStatusCheck = true;
+          }
+        } catch (error) {
+          errorInStatusCheck = true;
+          console.log('error fetching upload status');
+        }
+      }
+      if (!errorInStatusCheck) this.fluxDriveUploadTask = fluxDriveUploadTaskTmp;
+      if (this.fluxDriveUploadTask.length > 0) {
+        setTimeout(() => {
+          this.checkFluxDriveUploadProgress();
+        }, 2000);
+      } else {
+        this.uploadProgress = false;
+        this.showFluxDriveProgressBar = false;
+        this.fluxDriveUploadStatus = '';
+        this.fileProgressFD = [];
+      }
+    },
+    async uploadToFluxDrive() {
+      try {
+        this.uploadProgress = true;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const self = this;
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+        };
+        let prevoiusTimestamp = 0;
+        const uploadPromises = this.backupToUpload.map(async (backup) => {
+          try {
+            const { file } = backup;
+            const { component } = backup;
+            const { file_size } = backup;
+            const { file_name } = backup;
+            const { create } = backup;
+            let timestamp = create;
+            if (Math.abs(timestamp - prevoiusTimestamp) > 1000 * 60 * 60) {
+              prevoiusTimestamp = timestamp;
+            } else {
+              timestamp = prevoiusTimestamp;
+            }
+            const url = this.selectedIp.split(':')[0];
+            const urlPort = this.selectedIp.split(':')[1] || 16127;
+            const hostUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/backup/downloadlocalfile/${encodeURIComponent(file)}/${self.appName}`;
+            const data = {
+              appname: self.appName,
+              component,
+              // eslint-disable-next-line camelcase
+              filename: file_name,
+              timestamp,
+              host: hostUrl,
+              // eslint-disable-next-line camelcase
+              filesize: file_size,
+            };
+            const response = await axios.post(`${this.fluxDriveEndPoint}/registerbackupfile`, data, axiosConfig);
+            if (response && response.data && response.data.status === 'success') {
+              this.fluxDriveUploadTask.push({
+                // eslint-disable-next-line camelcase
+                taskId: response.data.data.taskId, filename: file_name, component, status: 'in queue', progress: 0,
+              });
+            } else {
+              console.error(response.data);
+              this.showToast('danger', response.data.data.message);
+              return false;
+            }
+
+            return true;
+          } catch (error) {
+            console.error('Error registering file:', error);
+            this.showToast('danger', 'Error registering file(s) for upload.');
+            return false;
+          }
+        });
+
+        const uploadResults = await Promise.all(uploadPromises);
+        // Check if all downloads were successful
+        if (uploadResults.every((result) => result)) {
+          console.log('All uploads registered successfully');
+          this.showFluxDriveProgressBar = true;
+        } else {
+          console.error('Some uploads failed. Check the console for details.');
+        }
+      } catch (error) {
+        console.error('Error registering files:', error);
+        this.showToast('danger', 'Error registering file(s) for upload.');
+      } finally {
+        setTimeout(() => {
+          this.checkFluxDriveUploadProgress();
+        }, 2000);
+      }
+    },
+    async restoreFromFluxDrive(newComponents) {
+      const restoreItems = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const item of newComponents) {
+        // eslint-disable-next-line no-await-in-loop
+        restoreItems.push({ component: item.component, file_size: item.file_size, url: item.file_url });
+      }
+      const zelidauth = localStorage.getItem('zelidauth');
+      this.showTopFluxDrive = false;
+      this.restoringFromFluxDrive = true;
+      this.restoreFromFluxDriveStatus = 'Initializing restore jobs...';
+      // eslint-disable-next-line no-unused-vars
+      const headers = {
+        zelidauth,
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        Connection: 'keep-alive',
+      };
+      const postLayout = this.buildPostBody(this.appSpecification, 'restore', 'remote');
+      let postBackupData;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const componentName of restoreItems) {
+        postBackupData = this.updateJobStatus(postLayout, componentName.component, 'restore', restoreItems);
+      }
+      const url = this.selectedIp.split(':')[0];
+      const urlPort = this.selectedIp.split(':')[1] || 16127;
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/apps/appendrestoretask`;
+      if (this.ipAccess) {
+        queryUrl = `http://${url}:${urlPort}/apps/appendrestoretask`;
+      }
+      const response = await fetch(queryUrl, {
+        method: 'POST',
+        body: JSON.stringify(postBackupData),
+        headers,
+      });
+      const self = this;
+      const reader = response.body.getReader();
+      // eslint-disable-next-line no-unused-vars
+      await new Promise((streamResolve, streamReject) => {
+        function push() {
+          reader.read().then(async ({ done, value }) => {
+            if (done) {
+              streamResolve(); // Resolve the stream promise when the response stream is complete
+              return;
+            }
+            // Process each chunk of data separately
+            const chunkText = new TextDecoder('utf-8').decode(value);
+            const chunks = chunkText.split('\n');
+            // eslint-disable-next-line no-restricted-globals
+            await self.processChunks(chunks, 'restore_fluxdrive');
+            // Check for new data immediately after processing each chunk
+            push();
+          });
+        }
+        push();
+      });
+      this.restoringFromFluxDrive = false;
+      this.restoreFromFluxDriveStatus = '';
+    },
+    async getFluxDriveBackupList() {
+      try {
+        const zelidauth = localStorage.getItem('zelidauth');
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+        };
+        const response = await axios.get(`${this.fluxDriveEndPoint}/getbackuplist?appname=${this.appName}`, axiosConfig);
+        if (response.data && response.data.status === 'success') {
+          console.log(JSON.stringify(response.data.checkpoints));
+          this.tableBackup += 1;
+          const uniqueComponents = response.data.checkpoints.reduce((acc, { components }) => {
+            components.forEach((component) => acc.add(component.component));
+            return acc;
+          }, new Set());
+          const restoreComponentsTmp = [{ value: '', text: 'all' }];
+          // eslint-disable-next-line no-restricted-syntax
+          for (const item of uniqueComponents) {
+            restoreComponentsTmp.push({ value: item, text: item });
+          }
+          this.restoreComponents = restoreComponentsTmp;
+          this.applyFilter();
+          this.checkpoints = response.data.checkpoints;
+        } else if (response.data && response.data.status === 'error') this.showToast('danger', response.data.data.message);
+      } catch (error) {
+        console.error('Error receiving FluxDrive backup list', error);
+        this.showToast('danger', 'Error receiving FluxDrive backup list');
       }
     },
     async initMMSDK() {
@@ -10476,5 +10643,22 @@ a:hover img {
 }
 .card-body {
   padding: 1rem;
+}
+.table-no-padding > td {
+  padding: 0 !important;
+}
+
+.backups-table td {
+  position: relative;
+}
+td .ellipsis-wrapper {
+  position: absolute;
+  max-width: calc(100% - 1rem);
+  line-height: calc(3rem - 8px);
+  top: 0;
+  left: 1rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
 }
 </style>
