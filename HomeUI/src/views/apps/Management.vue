@@ -1743,7 +1743,7 @@
                         class="mb-2"
                       >
                         <ul class="mt-2" style="font-size: 0.9rem;">
-                          <li>Free FluxDrive backups! Up to 10GB per app</li>
+                          <li>Free FluxDrive backups! Up to 10GB total to use per user</li>
                           <li>FluxDrive backups can be downloaded on Restore page</li>
                         </ul>
                         <b-button
