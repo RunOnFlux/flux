@@ -500,6 +500,63 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.restore();
     });
 
+    it('should return error if message version is not supported', async () => {
+      const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+          hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 3,
+        },
+      };
+      const lruHas = sinon.stub(LRUCache.prototype, 'has').returns(false);
+      const websocket = generateWebsocket();
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+      sinon.assert.notCalled(lruHas);
+    });
+
+    it('should return error if message version is 1 and hash is not a string', async () => {
+      const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+          hash: 312313,
+          broadcastedAt: Date.now(),
+          version: 1,
+        },
+      };
+      const lruHas = sinon.stub(LRUCache.prototype, 'has').returns(false);
+      const websocket = generateWebsocket();
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+      sinon.assert.notCalled(lruHas);
+    });
+
+    it('should return error if message version is 2 and hashes is not an array', async () => {
+      const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+          hashes: 312313,
+          broadcastedAt: Date.now(),
+          version: 2,
+        },
+      };
+      const lruHas = sinon.stub(LRUCache.prototype, 'has').returns(false);
+      const websocket = generateWebsocket();
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+      sinon.assert.notCalled(lruHas);
+    });
+
     it('should respond with app message that exists in permanent storage but is not located in cache', async () => {
       const callMessage = {
         timestamp: Date.now(),
