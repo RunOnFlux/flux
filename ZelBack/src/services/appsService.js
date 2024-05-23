@@ -8375,7 +8375,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     log.info('Requesting missing Flux App messages');
     continuousFluxAppHashesCheckRunning = true;
     const numberOfPeers = fluxCommunication.getNumberOfPeers();
-    if (numberOfPeers < 20) {
+    if (numberOfPeers < 12) {
       log.info('Not enough connected peers to request missing Flux App messages');
       continuousFluxAppHashesCheckRunning = false;
       return;
