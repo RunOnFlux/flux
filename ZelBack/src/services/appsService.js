@@ -7982,7 +7982,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const messageInfo = latestPermanentRegistrationMessage;
           if (!messageInfo) {
             log.error(`Last permanent message for ${specifications.name} not found`);
-            return false;
+            return true;
           }
           const previousSpecs = messageInfo.appSpecifications || messageInfo.zelAppSpecifications;
           // here comparison of height differences and specifications
@@ -8022,7 +8022,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
           }
         }
-        // eslint-disable-next-line consistent-return
         return true;
       }
       if (i < 2) {
@@ -8040,7 +8039,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
     }
     // update apphashes that we already have it stored
     await appHashHasMessage(hash);
-    // eslint-disable-next-line consistent-return
     return true;
   } catch (error) {
     log.error(error);
