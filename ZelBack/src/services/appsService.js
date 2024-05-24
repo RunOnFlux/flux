@@ -1893,7 +1893,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /flu/appvolumes
     }
 
-    await cmdAsync(execDD);
+    await execShell(execDD);
     const allocateSpace2 = {
       status: 'Space allocated',
     };
