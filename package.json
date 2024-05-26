@@ -107,6 +107,7 @@
     "mongodb": "~4.17.2",
     "morgan": "~1.10.0",
     "nano-ethereum-signer": "~0.1.2",
+    "node-abort-controller": "^3.1.1",
     "node-cmd": "~3.0.0",
     "node-df": "~0.1.4",
     "nodemon": "~2.0.22",
