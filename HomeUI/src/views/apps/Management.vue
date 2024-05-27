@@ -8731,11 +8731,14 @@ export default {
     },
     async checkFluxCancelSubscriptionAndFormatMessage() {
       try {
+        this.progressVisable = true;
+        this.operationTitle = `Cancelling subscription...`;
         const appSpecification = this.appUpdateSpecification;
         appSpecification.geolocation = this.generateGeolocations();
         appSpecification.expire = 100;
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
+        this.progressVisable = false;
         if (responseAppSpecs.data.status === 'error') {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
@@ -8744,6 +8747,7 @@ export default {
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
+        this.progressVisable = false;
         console.log(error.message);
         console.error(error);
         this.showToast('danger', error.message || error);
