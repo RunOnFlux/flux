@@ -9249,7 +9249,7 @@ export default {
       this.output = [];
       // this.showToast('warning', `Stopping ${app}`);
       this.progressVisable = true;
-      this.operationTitle = `Stopping ${app}`;
+      this.operationTitle = `Stopping ${app}...`;
       const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
