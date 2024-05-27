@@ -8599,7 +8599,7 @@ export default {
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
-        this.operationTitle = " Compute Update Message...";
+        this.operationTitle = " Compute update message...";
         this.progressVisable = true;
         const appSpecification = this.appUpdateSpecification;
         let secretsPresent = false;
@@ -9289,27 +9289,35 @@ export default {
     },
     async pauseApp(app) {
       this.output = [];
-      this.showToast('warning', `Pausing ${app}`);
-      const response = await this.executeLocalCommand(`/apps/apppause/${app}`);
-      if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data);
-      } else {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      }
-      this.appsGetListAllApps();
-      console.log(response);
+      this.progressVisable = true;
+      this.operationTitle = `Pausing ${app}...`;
+      setTimeout(async () => {
+        const response = await this.executeLocalCommand(`/apps/apppause/${app}`);
+        if (response.data.status === 'success') {
+          this.showToast('success', response.data.data.message || response.data.data);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+        this.appsGetListAllApps();
+        console.log(response);
+        this.progressVisable = false;
+      }, 2000);
     },
     async unpauseApp(app) {
       this.output = [];
-      this.showToast('warning', `Unpausing ${app}`);
-      const response = await this.executeLocalCommand(`/apps/appunpause/${app}`);
-      if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data);
-      } else {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      }
-      this.appsGetListAllApps();
-      console.log(response);
+      this.progressVisable = true;
+      this.operationTitle = `Unpausing ${app}...`;
+      setTimeout(async () => {
+        const response = await this.executeLocalCommand(`/apps/appunpause/${app}`);
+        if (response.data.status === 'success') {
+          this.showToast('success', response.data.data.message || response.data.data);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+        this.appsGetListAllApps();
+        console.log(response);
+        this.progressVisable = false;
+      }, 2000);
     },
     redeployAppSoft(app) {
       this.redeployApp(app, false);
@@ -9350,7 +9358,8 @@ export default {
     async removeApp(app) {
       const self = this;
       this.output = [];
-      this.showToast('warning', `Removing ${app}`);
+      this.progressVisable = true;
+      this.operationTitle = `Removing ${app}...`;
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -9362,6 +9371,7 @@ export default {
         },
       };
       const response = await this.executeLocalCommand(`/apps/appremove/${app}`, null, axiosConfig);
+      this.progressVisable = false;
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
