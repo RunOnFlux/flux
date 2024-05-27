@@ -23,6 +23,11 @@ const cmdAsync = util.promisify(nodecmd.get);
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
+/**
+ * If the binary is executable
+ */
+let syncthingBinaryPresent = false;
+
 let syncthingStatusOk = false;
 let getDeviceIDRunning = false;
 
@@ -120,9 +125,10 @@ const axiosCache = {
   async instance() {
     return this.axiosInstance && this.lastUpdate + (15 * 60 * 1000) > Date.now() ? this.axiosInstance : this.createInstance();
   },
+
   /**
    *
-   * @returns {Promise<void>}
+   * @returns {Promise<function | null>}
    */
   async createInstance() {
     this.syncthingApiKey = await getSyncthingApiKey();
@@ -2562,6 +2568,16 @@ async function runSyncthingSentinel() {
  * @returns {<void>}
  */
 async function startSyncthingSentinel() {
+  while (!syncthingBinaryPresent) {
+    // eslint-disable-next-line no-await-in-loop
+    const { error } = await serviceHelper.runCommand('syncthing', { logError: false, params: ['--version'] });
+
+    if (error) log.warn('Unable to find syncthing excutable... trying again in 15s.');
+
+    // eslint-disable-next-line no-await-in-loop
+    syncthingBinaryPresent = !error || await serviceHelper.delay(15 * 1000);
+  }
+
   // idempotent
   stc.startLoop(runSyncthingSentinel);
 }
@@ -2574,8 +2590,7 @@ function setSyncthingRunningState(value) {
   syncthingStatusOk = value;
 }
 
-// similar to python's if __name__ == "__main__", allows module
-// to be run as standalone, useful for testing
+// handy for testing
 if (require.main === module) {
   startSyncthingSentinel();
 
