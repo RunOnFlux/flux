@@ -4,6 +4,27 @@
 <!-- eslint-disable vue/no-use-computed-property-like-method -->
 <template>
   <div>
+    <b-modal
+      v-model="progressVisable"
+      hide-footer
+      centered
+      hide-header-close
+      no-close-on-backdrop
+      no-close-on-esc
+      size="lg"
+      header-bg-variant="primary"
+      :title="operationTitle"
+      title-tag="h5"
+    >
+      <div class="d-flex flex-column justify-content-center align-items-center" style="height: 100%;">
+        <div class="d-flex align-items-center mb-2">
+          <b-spinner label="Loading..." />
+          <div class="ml-1">
+            Waiting for the operation to be completed...
+          </div>
+        </div>
+      </div>
+    </b-modal>
     <div>
       <b-button
         v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -5837,6 +5858,8 @@ export default {
   },
   data() {
     return {
+      progressVisable: false,
+      operationTitle: '',
       appInfoObject: [],
       tooltipText: 'Copy to clipboard',
       tableBackup: 0,
@@ -8524,7 +8547,9 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      this.showToast('info', 'Propagating message accross Flux network...');
+      // this.showToast('info', 'Propagating message accross Flux network...');
+      this.progressVisable = true;
+      this.operationTitle = "Propagating message accross Flux network...";
       const response = await AppsService.updateApp(zelidauth, data).catch((error) => {
         this.showToast('danger', error.message || error);
       });
@@ -8541,6 +8566,7 @@ export default {
         this.stripeEnabled = fiatGateways.stripe;
         this.paypalEnabled = fiatGateways.paypal;
       }
+      this.progressVisable = false;
     },
     async checkFluxCommunication() {
       const response = await AppsService.checkCommunication();
@@ -8573,6 +8599,8 @@ export default {
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
+        this.operationTitle = " Compute Update Message...";
+        this.progressVisable = true;
         const appSpecification = this.appUpdateSpecification;
         let secretsPresent = false;
         if (appSpecification.version >= 7) {
@@ -8693,7 +8721,9 @@ export default {
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
+        this.progressVisable = false;
       } catch (error) {
+        this.progressVisable = false;
         console.log(error.message);
         console.error(error);
         this.showToast('danger', error.message || error);
@@ -9213,7 +9243,9 @@ export default {
 
     async stopApp(app) {
       this.output = [];
-      this.showToast('warning', `Stopping ${app}`);
+      // this.showToast('warning', `Stopping ${app}`);
+      this.progressVisable = true;
+      this.operationTitle = `Stopping ${app}`;
       const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
@@ -9222,22 +9254,29 @@ export default {
       }
       this.appsGetListAllApps();
       console.log(response);
+      this.progressVisable = false;
     },
     async startApp(app) {
       this.output = [];
-      this.showToast('warning', `Starting ${app}`);
-      const response = await this.executeLocalCommand(`/apps/appstart/${app}`);
-      if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data);
-      } else {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      }
-      this.appsGetListAllApps();
-      console.log(response);
+      this.progressVisable = true;
+      this.operationTitle = `Starting ${app}...`;
+      setTimeout(async () => {
+        const response = await this.executeLocalCommand(`/apps/appstart/${app}`);
+        if (response.data.status === 'success') {
+          this.showToast('success', response.data.data.message || response.data.data);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+        this.appsGetListAllApps();
+        console.log(response);
+        this.progressVisable = false;
+      }, 3000);
     },
     async restartApp(app) {
       this.output = [];
-      this.showToast('warning', `Restarting ${app}`);
+      this.progressVisable = true;
+      this.operationTitle = `Restarting ${app}...`;
+      //  this.showToast('warning', `Restarting ${app}`);
       const response = await this.executeLocalCommand(`/apps/apprestart/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
@@ -9246,6 +9285,7 @@ export default {
       }
       this.appsGetListAllApps();
       console.log(response);
+      this.progressVisable = false;
     },
     async pauseApp(app) {
       this.output = [];
