@@ -535,17 +535,27 @@
             <b-card-text>
               <b-icon class="mr-1" scale="1.4" icon="cash-coin" />Price:&nbsp;&nbsp;<b>{{ appPricePerDeploymentUSD }} USD + VAT</b>
             </b-card-text>
-            <b-button
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="outline-success"
-              aria-label="Register"
-              class="my-1"
-              style="width: 250px"
-              :disabled="registrationHash && registrationHash.length > 0"
-              @click="register"
-            >
-              Register
-            </b-button>
+            <div>
+              <b-button
+                :variant="loading ? 'outline-success' : 'success'"
+                aria-label="Register"
+                class="my-1"
+                style="width: 250px"
+                :disabled="loading || completed"
+                @click="register"
+              >
+                <template v-if="loading">
+                  <b-spinner small />
+                  Processing...
+                </template>
+                <template v-else-if="completed">
+                  Done!
+                </template>
+                <template v-else>
+                  Register
+                </template>
+              </b-button>
+            </div>
             <b-card-text
               v-if="registrationHash"
               v-b-tooltip
@@ -832,7 +842,8 @@ export default {
     tier.value = props.tier;
     const userZelid = ref('');
     userZelid.value = props.zelid;
-
+    const loading = ref(false);
+    const completed = ref(false);
     // Variables to control showing dialogs
     const launchModalShowing = ref(false);
     const componentParamsModalShowing = ref(false);
@@ -1439,6 +1450,8 @@ export default {
 
     const checkFluxSpecificationsAndFormatMessage = async () => {
       try {
+        loading.value = false;
+        completed.value = false;
         // construct a valid v4 app spec from the marketplace app spec,
         // filtering out unnecessary fields like 'price' and 'category'
         const appName = constructUniqueAppName(props.appData.name);
@@ -2007,11 +2020,15 @@ export default {
         signature: signature.value,
       };
       showToast('info', 'Propagating message accross Flux network...');
+      loading.value = true;
       const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
+        loading.value = false;
         showToast('danger', error.message || error);
       });
+      loading.value = false;
       console.log(response);
       if (response.data.status === 'success') {
+        completed.value = true;
         registrationHash.value = response.data.data;
         showToast('success', response.data.data.message || response.data.data);
       } else {
@@ -2041,6 +2058,8 @@ export default {
 
     return {
       // UI
+      loading,
+      completed,
       perfectScrollbarSettings,
       resolveTagVariant,
 

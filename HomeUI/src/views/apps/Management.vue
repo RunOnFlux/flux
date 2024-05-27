@@ -9330,7 +9330,8 @@ export default {
       this.output = [];
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
-      this.showToast('warning', `Redeploying ${app}`);
+      this.progressVisable = true;
+      this.operationTitle = `Redeploying ${app}...`;
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -9342,6 +9343,7 @@ export default {
         },
       };
       const response = await this.executeLocalCommand(`/apps/redeploy/${app}/${force}`, null, axiosConfig);
+      this.progressVisable = false;
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
