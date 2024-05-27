@@ -1,5 +1,12 @@
 global.userconfig = require('./config/userconfig');
 
+if (typeof AbortController === 'undefined') {
+  // polyfill for nodeJS 14.18.1 - without having to use experimental features
+  // eslint-disable-next-line global-require
+  const abortControler = require('node-abort-controller');
+  globalThis.AbortController = abortControler.AbortController;
+}
+
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
 const config = require('config');
@@ -130,13 +137,6 @@ async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
     process.exit();
-  }
-
-  if (typeof AbortController === 'undefined') {
-    // polyfill for nodeJS 14.18.1 - without having to use experimental features
-    // eslint-disable-next-line global-require
-    const abortControler = require('node-abort-controller');
-    globalThis.AbortController = abortControler.AbortController;
   }
 
   await createDnsCache();
