@@ -537,7 +537,7 @@
             </b-card-text>
             <div>
               <b-button
-                :variant="loading ? 'outline-success' : 'success'"
+                :variant="loading || completed ? 'outline-success' : 'success'"
                 aria-label="Register"
                 class="my-1"
                 style="width: 250px"
