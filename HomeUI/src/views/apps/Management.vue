@@ -5078,6 +5078,7 @@
                 <br>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  :disabled="signature.length === 0"
                   variant="outline-success"
                   aria-label="Update Flux App"
                   class="w-100"
