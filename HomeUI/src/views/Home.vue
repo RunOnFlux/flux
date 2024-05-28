@@ -76,8 +76,8 @@
             >
               <img
                 class="walletIcon"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
+                src="@/assets/images/FluxID.svg"
+                alt="Flux ID"
                 height="100%"
                 width="100%"
               >
@@ -130,7 +130,7 @@
       <dl class="row">
         <dd class="col-sm-12">
           <b-card-text class="text-center">
-            Sign the following message with any ZelID / SSP Wallet ID / Bitcoin / Ethereum address
+            Sign the following message with any Flux ID / SSP Wallet ID / Bitcoin / Ethereum address
           </b-card-text>
           <br><br>
           <b-form
@@ -160,7 +160,7 @@
                   <b-form-input
                     id="h-address"
                     v-model="loginForm.zelid"
-                    placeholder="Insert ZelID or Bitcoin address"
+                    placeholder="Insert Flux ID or Bitcoin address"
                   />
                 </b-form-group>
               </b-col>

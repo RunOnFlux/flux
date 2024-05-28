@@ -570,7 +570,7 @@ async function getFluxIP(req, res) {
 }
 
 /**
- * To show the current user's ZelID that is being used to access FluxOS.
+ * To show the current user's Flux ID that is being used to access FluxOS.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.

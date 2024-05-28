@@ -3,7 +3,7 @@
     v-if="getInfoResponse.data !== ''"
   >
     <list-entry
-      title="Flux owner ZelID"
+      title="Flux owner Flux ID"
       :data="userconfig.zelid"
     />
     <list-entry

@@ -540,7 +540,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No ZelID is specified',
+          message: 'No Flux ID is specified',
         },
       };
 
@@ -565,7 +565,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -590,7 +590,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -615,7 +615,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -897,7 +897,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No ZelID is specified',
+          message: 'No Flux ID is specified',
         },
       };
 
@@ -922,7 +922,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -947,7 +947,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -972,7 +972,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -1454,7 +1454,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user ZelID specificed',
+          message: 'No user Flux ID specificed',
         },
       });
     });
@@ -1500,7 +1500,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user ZelID signature specificed',
+          message: 'No user Flux ID signature specificed',
         },
       });
     });

@@ -3544,7 +3544,7 @@
                     <b-form-input
                       id="owner"
                       v-model="appUpdateSpecification.owner"
-                      placeholder="ZelID of Application Owner"
+                      placeholder="Flux ID of Application Owner"
                     />
                   </b-form-group>
                   <div v-if="appUpdateSpecification.version >= 5 && !isPrivateApp">
@@ -4565,7 +4565,7 @@
                     <b-form-input
                       id="owner"
                       v-model="appUpdateSpecification.owner"
-                      placeholder="ZelID of Application Owner"
+                      placeholder="Flux ID of Application Owner"
                     />
                   </b-form-group>
                   <br>
@@ -5100,8 +5100,8 @@
                   >
                     <img
                       class="walletIcon"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >
@@ -5241,8 +5241,8 @@
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
                       class="walletIcon"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >
@@ -5392,8 +5392,8 @@
                   >
                     <img
                       class="walletIcon"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >

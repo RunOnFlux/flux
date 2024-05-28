@@ -220,14 +220,14 @@
               <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
               <div>
                 <p>
-                  To vote you need to first sign a message with Zelcore with your ZelID corresponding to your Flux Nodes.
+                  To vote you need to first sign a message with Zelcore with your Flux ID corresponding to your Flux Nodes.
                 </p>
                 <div>
                   <a @click="initiateSignWS">
                     <img
                       class="zelidLogin"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >
@@ -271,7 +271,7 @@
                     <b-form-input
                       id="h-address"
                       v-model="userZelid"
-                      placeholder="Insert ZelID"
+                      placeholder="Insert Flux ID"
                     />
                   </b-form-group>
                 </b-col>

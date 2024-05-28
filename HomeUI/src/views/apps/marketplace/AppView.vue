@@ -192,7 +192,7 @@
                 Start Launching Marketplace Application
               </b-button>
               <h4 v-else>
-                Please login using your ZelID to deploy Marketplace Apps
+                Please login using your Flux ID to deploy Marketplace Apps
               </h4>
             </div>
           </b-card>
@@ -469,8 +469,8 @@
               <a @click="initiateSignWS">
                 <img
                   class="walletIcon"
-                  src="@/assets/images/zelID.svg"
-                  alt="Zel ID"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
                   height="100%"
                   width="100%"
                 >
@@ -661,8 +661,8 @@
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
                       class="walletIcon"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >
@@ -1428,7 +1428,7 @@ export default {
 
     const constructAutomaticDomains = (appName) => {
       if (!userZelid.value) {
-        return ['No ZelID'];
+        return ['No Flux ID'];
       }
       const appNameWithTimestamp = constructUniqueAppName(appName);
       const lowerCaseName = appNameWithTimestamp.toLowerCase();
