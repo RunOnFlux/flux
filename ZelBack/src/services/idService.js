@@ -503,10 +503,10 @@ async function loggedSessions(req, res) {
       const db = dbHelper.databaseConnection();
 
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-      const queryFlux ID = auth.zelid;
+      const queryZelID = auth.zelid;
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
-      const query = { zelid: queryFlux ID };
+      const query = { zelid: queryZelID };
       const projection = {
         projection: {
           _id: 0, zelid: 1, loginPhrase: 1, createdAt: 1, expireAt: 1,
