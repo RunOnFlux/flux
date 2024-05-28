@@ -54,47 +54,55 @@ function resetCacheable() {
  * @returns {Promise<void>}
  */
 async function createDnsCache(userCache) {
-  if (cacheable) return;
+  try {
+    if (cacheable) return;
 
-  const cache = userCache || new Map();
+    const cache = userCache || new Map();
 
-  // we have to dynamic import here as cacheable-lookup only supports ESM.
-  const { default: CacheableLookup } = await import('cacheable-lookup');
-  cacheable = new CacheableLookup({ maxTtl: 360, cache });
+    // we have to dynamic import here as cacheable-lookup only supports ESM.
+    const { default: CacheableLookup } = await import('cacheable-lookup');
+    cacheable = new CacheableLookup({ maxTtl: 360, cache });
 
-  cacheable.install(http.globalAgent);
-  cacheable.install(https.globalAgent);
+    cacheable.install(http.globalAgent);
+    cacheable.install(https.globalAgent);
 
-  const cloudflareDns = '1.1.1.1';
-  const googleDns = '8.8.8.8';
-  const quad9Dns = '9.9.9.9';
+    const cloudflareDns = '1.1.1.1';
+    const googleDns = '8.8.8.8';
+    const quad9Dns = '9.9.9.9';
 
-  const backupServers = [cloudflareDns, googleDns, quad9Dns];
+    const backupServers = [cloudflareDns, googleDns, quad9Dns];
 
-  const existingServers = cacheable.servers;
+    const existingServers = cacheable.servers;
 
-  // it dedupes any servers
-  cacheable.servers = [...existingServers, ...backupServers];
+    // it dedupes any servers
+    cacheable.servers = [...existingServers, ...backupServers];
+  } catch (error) {
+    log.error(error);
+  }
 }
 
 async function loadUpnpIfRequired() {
-  let verifyUpnp = false;
-  let setupUpnp = false;
-  if (userconfig.initial.apiport) {
-    verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-    if (verifyUpnp) {
-      setupUpnp = await upnpService.setupUPNP(apiPort);
+  try {
+    let verifyUpnp = false;
+    let setupUpnp = false;
+    if (userconfig.initial.apiport) {
+      verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+      if (verifyUpnp) {
+        setupUpnp = await upnpService.setupUPNP(apiPort);
+      }
     }
-  }
-  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
-    if (verifyUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
-      process.exit();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
+      if (verifyUpnp !== true) {
+        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
+        process.exit();
+      }
+      if (setupUpnp !== true) {
+        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+        process.exit();
+      }
     }
-    if (setupUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
-      process.exit();
-    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
