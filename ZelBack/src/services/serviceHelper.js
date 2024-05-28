@@ -339,18 +339,18 @@ function parseVersion(rawVersion) {
   //    dpkg-query --showformat='${Version}' --show netcat-openbsd    1.218-4ubuntu1
   //    dpkg-query --showformat='${Version}' --show ca-certificates   20230311ubuntu0.22.04.1
 
-  const versionRegex = /^[^\d]?(?<version>(?<major>0|[1-9][0-9]*)(?:\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)?)([-~]?(0|[1-9A-Za-z-][0-9A-Za-z-]*)(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
+  const versionRegex = /^[^\d]?(?:(?<epoch>[0-9]+):)?(?<version>(?<major>0|[1-9][0-9]*)(?:\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)?)/;
 
   const match = versionRegex.exec(rawVersion);
 
   if (match) {
     const {
       groups: {
-        version, major, minor, patch,
+        epoch, version, major, minor, patch,
       },
     } = match;
     return {
-      version, major, minor, patch,
+      epoch, version, major, minor, patch,
     };
   }
   return null;

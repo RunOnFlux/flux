@@ -4,6 +4,27 @@
 <!-- eslint-disable vue/no-use-computed-property-like-method -->
 <template>
   <div>
+    <b-modal
+      v-model="progressVisable"
+      hide-footer
+      centered
+      hide-header-close
+      no-close-on-backdrop
+      no-close-on-esc
+      size="lg"
+      header-bg-variant="primary"
+      :title="operationTitle"
+      title-tag="h5"
+    >
+      <div class="d-flex flex-column justify-content-center align-items-center" style="height: 100%;">
+        <div class="d-flex align-items-center mb-2">
+          <b-spinner label="Loading..." />
+          <div class="ml-1">
+            Waiting for the operation to be completed...
+          </div>
+        </div>
+      </div>
+    </b-modal>
     <div>
       <b-button
         v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -3523,7 +3544,7 @@
                     <b-form-input
                       id="owner"
                       v-model="appUpdateSpecification.owner"
-                      placeholder="ZelID of Application Owner"
+                      placeholder="Flux ID of Application Owner"
                     />
                   </b-form-group>
                   <div v-if="appUpdateSpecification.version >= 5 && !isPrivateApp">
@@ -4544,7 +4565,7 @@
                     <b-form-input
                       id="owner"
                       v-model="appUpdateSpecification.owner"
-                      placeholder="ZelID of Application Owner"
+                      placeholder="Flux ID of Application Owner"
                     />
                   </b-form-group>
                   <br>
@@ -5057,6 +5078,7 @@
                 <br>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  :disabled="signature.length === 0"
                   variant="outline-success"
                   aria-label="Update Flux App"
                   class="w-100"
@@ -5078,8 +5100,8 @@
                   >
                     <img
                       class="walletIcon"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >
@@ -5219,8 +5241,8 @@
                   <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                     <img
                       class="walletIcon"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >
@@ -5370,8 +5392,8 @@
                   >
                     <img
                       class="walletIcon"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >
@@ -5837,6 +5859,8 @@ export default {
   },
   data() {
     return {
+      progressVisable: false,
+      operationTitle: '',
       appInfoObject: [],
       tooltipText: 'Copy to clipboard',
       tableBackup: 0,
@@ -8524,7 +8548,9 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      this.showToast('info', 'Propagating message accross Flux network...');
+      // this.showToast('info', 'Propagating message accross Flux network...');
+      this.progressVisable = true;
+      this.operationTitle = "Propagating message accross Flux network...";
       const response = await AppsService.updateApp(zelidauth, data).catch((error) => {
         this.showToast('danger', error.message || error);
       });
@@ -8541,6 +8567,7 @@ export default {
         this.stripeEnabled = fiatGateways.stripe;
         this.paypalEnabled = fiatGateways.paypal;
       }
+      this.progressVisable = false;
     },
     async checkFluxCommunication() {
       const response = await AppsService.checkCommunication();
@@ -8573,6 +8600,8 @@ export default {
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
+        this.operationTitle = " Compute update message...";
+        this.progressVisable = true;
         const appSpecification = this.appUpdateSpecification;
         let secretsPresent = false;
         if (appSpecification.version >= 7) {
@@ -8693,7 +8722,9 @@ export default {
         this.timestamp = Date.now();
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
+        this.progressVisable = false;
       } catch (error) {
+        this.progressVisable = false;
         console.log(error.message);
         console.error(error);
         this.showToast('danger', error.message || error);
@@ -8701,11 +8732,14 @@ export default {
     },
     async checkFluxCancelSubscriptionAndFormatMessage() {
       try {
+        this.progressVisable = true;
+        this.operationTitle = `Cancelling subscription...`;
         const appSpecification = this.appUpdateSpecification;
         appSpecification.geolocation = this.generateGeolocations();
         appSpecification.expire = 100;
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
+        this.progressVisable = false;
         if (responseAppSpecs.data.status === 'error') {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
@@ -8714,6 +8748,7 @@ export default {
         this.dataForAppUpdate = appSpecFormatted;
         this.dataToSign = this.updatetype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
       } catch (error) {
+        this.progressVisable = false;
         console.log(error.message);
         console.error(error);
         this.showToast('danger', error.message || error);
@@ -9213,7 +9248,9 @@ export default {
 
     async stopApp(app) {
       this.output = [];
-      this.showToast('warning', `Stopping ${app}`);
+      // this.showToast('warning', `Stopping ${app}`);
+      this.progressVisable = true;
+      this.operationTitle = `Stopping ${app}...`;
       const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
@@ -9222,22 +9259,29 @@ export default {
       }
       this.appsGetListAllApps();
       console.log(response);
+      this.progressVisable = false;
     },
     async startApp(app) {
       this.output = [];
-      this.showToast('warning', `Starting ${app}`);
-      const response = await this.executeLocalCommand(`/apps/appstart/${app}`);
-      if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data);
-      } else {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      }
-      this.appsGetListAllApps();
-      console.log(response);
+      this.progressVisable = true;
+      this.operationTitle = `Starting ${app}...`;
+      setTimeout(async () => {
+        const response = await this.executeLocalCommand(`/apps/appstart/${app}`);
+        if (response.data.status === 'success') {
+          this.showToast('success', response.data.data.message || response.data.data);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+        this.appsGetListAllApps();
+        console.log(response);
+        this.progressVisable = false;
+      }, 3000);
     },
     async restartApp(app) {
       this.output = [];
-      this.showToast('warning', `Restarting ${app}`);
+      this.progressVisable = true;
+      this.operationTitle = `Restarting ${app}...`;
+      //  this.showToast('warning', `Restarting ${app}`);
       const response = await this.executeLocalCommand(`/apps/apprestart/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
@@ -9246,30 +9290,39 @@ export default {
       }
       this.appsGetListAllApps();
       console.log(response);
+      this.progressVisable = false;
     },
     async pauseApp(app) {
       this.output = [];
-      this.showToast('warning', `Pausing ${app}`);
-      const response = await this.executeLocalCommand(`/apps/apppause/${app}`);
-      if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data);
-      } else {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      }
-      this.appsGetListAllApps();
-      console.log(response);
+      this.progressVisable = true;
+      this.operationTitle = `Pausing ${app}...`;
+      setTimeout(async () => {
+        const response = await this.executeLocalCommand(`/apps/apppause/${app}`);
+        if (response.data.status === 'success') {
+          this.showToast('success', response.data.data.message || response.data.data);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+        this.appsGetListAllApps();
+        console.log(response);
+        this.progressVisable = false;
+      }, 2000);
     },
     async unpauseApp(app) {
       this.output = [];
-      this.showToast('warning', `Unpausing ${app}`);
-      const response = await this.executeLocalCommand(`/apps/appunpause/${app}`);
-      if (response.data.status === 'success') {
-        this.showToast('success', response.data.data.message || response.data.data);
-      } else {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      }
-      this.appsGetListAllApps();
-      console.log(response);
+      this.progressVisable = true;
+      this.operationTitle = `Unpausing ${app}...`;
+      setTimeout(async () => {
+        const response = await this.executeLocalCommand(`/apps/appunpause/${app}`);
+        if (response.data.status === 'success') {
+          this.showToast('success', response.data.data.message || response.data.data);
+        } else {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        }
+        this.appsGetListAllApps();
+        console.log(response);
+        this.progressVisable = false;
+      }, 2000);
     },
     redeployAppSoft(app) {
       this.redeployApp(app, false);
@@ -9282,7 +9335,8 @@ export default {
       this.output = [];
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
-      this.showToast('warning', `Redeploying ${app}`);
+      this.progressVisable = true;
+      this.operationTitle = `Redeploying ${app}...`;
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -9294,6 +9348,7 @@ export default {
         },
       };
       const response = await this.executeLocalCommand(`/apps/redeploy/${app}/${force}`, null, axiosConfig);
+      this.progressVisable = false;
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
@@ -9310,7 +9365,8 @@ export default {
     async removeApp(app) {
       const self = this;
       this.output = [];
-      this.showToast('warning', `Removing ${app}`);
+      this.progressVisable = true;
+      this.operationTitle = `Removing ${app}...`;
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -9322,6 +9378,7 @@ export default {
         },
       };
       const response = await this.executeLocalCommand(`/apps/appremove/${app}`, null, axiosConfig);
+      this.progressVisable = false;
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {

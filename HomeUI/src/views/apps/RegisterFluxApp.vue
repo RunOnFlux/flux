@@ -126,7 +126,7 @@
                 <b-form-input
                   id="owner"
                   v-model="appRegistrationSpecification.owner"
-                  placeholder="ZelID of Application Owner"
+                  placeholder="Flux ID of Application Owner"
                 />
               </b-form-group>
               <div v-if="specificationVersion >= 5">
@@ -1177,7 +1177,7 @@
               <b-form-input
                 id="owner"
                 v-model="appRegistrationSpecification.owner"
-                placeholder="ZelID of Application Owner"
+                placeholder="Flux ID of Application Owner"
               />
             </b-form-group>
           </b-card>
@@ -1630,8 +1630,8 @@
               <a @click="initiateSignWS">
                 <img
                   class="walletIcon"
-                  src="@/assets/images/zelID.svg"
-                  alt="Zel ID"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
                   height="100%"
                   width="100%"
                 >
@@ -1784,8 +1784,8 @@
               <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
                 <img
                   class="walletIcon"
-                  src="@/assets/images/zelID.svg"
-                  alt="Zel ID"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
                   height="100%"
                   width="100%"
                 >

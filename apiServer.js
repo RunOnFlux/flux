@@ -5,6 +5,7 @@ process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
 const config = require('config');
 const fs = require('fs');
+const http = require('node:http');
 const https = require('https');
 const path = require('path');
 const util = require('util');
@@ -23,24 +24,85 @@ const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
-async function loadUpnpIfRequired() {
-  let verifyUpnp = false;
-  let setupUpnp = false;
-  if (userconfig.initial.apiport) {
-    verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
-    if (verifyUpnp) {
-      setupUpnp = await upnpService.setupUPNP(apiPort);
-    }
+/**
+ * The Cacheable. So we only instantiate it once (and for testing)
+ */
+let cacheable = null;
+
+/**
+ * Gets the cacheable CacheableLookup() for testing
+ */
+function getCacheable() {
+  return cacheable;
+}
+
+/**
+ * Gets the cacheable CacheableLookup() for testing
+ */
+function resetCacheable() {
+  cacheable = null;
+}
+
+/**
+ * Adds extra servers to DNS, if they are not being used already. This is just
+ * within the NodeJS process, not systemwide.
+ *
+ * Sets these globally for both http and https (axios) It will use the OS servers
+ * by default, and if they fail, move on to our added servers, if a server fails, requests
+ * go to an active server immediately, for a period.
+ * @param {Map?} userCache An optional cache, we use this as a reference for testing
+ * @returns {Promise<void>}
+ */
+async function createDnsCache(userCache) {
+  try {
+    if (cacheable) return;
+
+    const cache = userCache || new Map();
+
+    // we have to dynamic import here as cacheable-lookup only supports ESM.
+    const { default: CacheableLookup } = await import('cacheable-lookup');
+    cacheable = new CacheableLookup({ maxTtl: 360, cache });
+
+    cacheable.install(http.globalAgent);
+    cacheable.install(https.globalAgent);
+
+    const cloudflareDns = '1.1.1.1';
+    const googleDns = '8.8.8.8';
+    const quad9Dns = '9.9.9.9';
+
+    const backupServers = [cloudflareDns, googleDns, quad9Dns];
+
+    const existingServers = cacheable.servers;
+
+    // it dedupes any servers
+    cacheable.servers = [...existingServers, ...backupServers];
+  } catch (error) {
+    log.error(error);
   }
-  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
-    if (verifyUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
-      process.exit();
+}
+
+async function loadUpnpIfRequired() {
+  try {
+    let verifyUpnp = false;
+    let setupUpnp = false;
+    if (userconfig.initial.apiport) {
+      verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
+      if (verifyUpnp) {
+        setupUpnp = await upnpService.setupUPNP(apiPort);
+      }
     }
-    if (setupUpnp !== true) {
-      log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
-      process.exit();
+    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
+      if (verifyUpnp !== true) {
+        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
+        process.exit();
+      }
+      if (setupUpnp !== true) {
+        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+        process.exit();
+      }
     }
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -79,6 +141,8 @@ async function initiate() {
     process.exit();
   }
 
+  await createDnsCache();
+
   await loadUpnpIfRequired();
 
   setInterval(async () => {
@@ -115,5 +179,8 @@ async function initiate() {
 }
 
 module.exports = {
+  createDnsCache,
+  getCacheable,
+  resetCacheable,
   initiate,
 };

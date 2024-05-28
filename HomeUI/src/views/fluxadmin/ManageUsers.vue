@@ -184,7 +184,7 @@ export default {
       filter: '',
       filterOn: [],
       fields: [
-        { key: 'zelid', label: 'ZelID', sortable: true },
+        { key: 'zelid', label: 'Flux ID', sortable: true },
         { key: 'loginPhrase', label: 'Login Phrase', sortable: true },
         { key: 'logout', label: '' },
       ],

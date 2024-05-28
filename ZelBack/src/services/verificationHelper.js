@@ -48,7 +48,7 @@ async function verifyPrivilege(privilege, req, appName) {
 }
 
 /**
- * Verifies ZelID, returns true if it's valid.
+ * Verifies Flux ID, returns true if it's valid.
  *
  * @param {string} address
  * @returns {bool} isVaild

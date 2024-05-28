@@ -306,14 +306,15 @@ describe('system Services tests', () => {
     it('should not call upgradeSyncthing if on correct version', async () => {
       const now = 1713858779721;
 
-      const statsVersion = '2.2.2:install ok installed';
+      const statsVersion = '2.2.2';
+      const dpgkVersion = '2.2.2|install ok installed';
 
       const axiosRes = { data: { status: 'success', data: { syncthing: statsVersion } } };
 
       sinon.stub(axios, 'get').resolves(axiosRes);
 
       const cmdRunner = sinon.fake((cmd) => {
-        if (cmd === 'dpkg-query') return { error: null, stdout: statsVersion };
+        if (cmd === 'dpkg-query') return { error: null, stdout: dpgkVersion };
         if (cmd === 'apt-get') return { error: null };
         return null;
       });
@@ -381,14 +382,15 @@ describe('system Services tests', () => {
       const lockError = new Error('No lock: /var/lib/dpkg/lock-frontend');
       const event = { options: { command: 'install', params: ['syncthing'] }, error: lockError };
 
-      const cmdRunner = sinon.fake((cmd) => {
+      const cmdRunner = sinon.fake((cmd, opts) => {
         // apt-get check
-        if (cmd === 'apt-get') {
+        if (cmd === 'apt-get' && opts.params.includes('check')) {
           checkCount += 1;
           return { error: lockError };
         }
         if (cmd === 'fuser') return { error: null };
         if (cmd === 'dpkg') return { error: null };
+        if (cmd === 'apt-get') return { error: null } // install --fix-broken
         return null;
       });
 
@@ -420,7 +422,7 @@ describe('system Services tests', () => {
 
       const cmdRunner = sinon.fake((cmd, opts) => {
         // apt-get check
-        if (cmd === 'apt-get') {
+        if (cmd === 'apt-get' && opts.params.includes('check')) {
           checkCount += 1;
           if (checkCount === 4) return { error: null };
           return { error: lockError };
@@ -428,6 +430,7 @@ describe('system Services tests', () => {
         if (cmd === 'dpkg') return { error: null };
         if (cmd === 'fuser' && opts.params[1] === '-TERM') return { error: new Error('Unable to kill processes') };
         if (cmd === 'fuser' && opts.params[1] === '-KILL') return { error: null };
+        if (cmd === 'apt-get' && opts.params.includes('install')) return { error: null };
         return null;
       });
 

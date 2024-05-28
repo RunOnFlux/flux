@@ -169,8 +169,8 @@
                     >
                       <img
                         class="zelidLogin"
-                        src="@/assets/images/zelID.svg"
-                        alt="Zel ID"
+                        src="@/assets/images/FluxID.svg"
+                        alt="Flux ID"
                         height="100%"
                         width="100%"
                       >

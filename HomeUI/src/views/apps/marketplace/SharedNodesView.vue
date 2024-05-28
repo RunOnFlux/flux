@@ -361,7 +361,7 @@
           title="My Active Flux"
         >
           <h5>
-            Please login using your ZelID to view your active Flux
+            Please login using your Flux ID to view your active Flux
           </h5>
         </b-card>
         <b-row
@@ -908,8 +908,8 @@
             >
               <img
                 class="zelidLogin mb-2"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
+                src="@/assets/images/FluxID.svg"
+                alt="Flux ID"
                 height="100%"
                 width="100%"
               >
@@ -1003,8 +1003,8 @@
             >
               <img
                 class="zelidLogin"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
+                src="@/assets/images/FluxID.svg"
+                alt="Flux ID"
                 height="100%"
                 width="100%"
               >
@@ -1149,8 +1149,8 @@
             >
               <img
                 class="zelidLogin mb-2"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
+                src="@/assets/images/FluxID.svg"
+                alt="Flux ID"
                 height="100%"
                 width="100%"
               >
@@ -1284,8 +1284,8 @@
             >
               <img
                 class="zelidLogin mb-2"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
+                src="@/assets/images/FluxID.svg"
+                alt="Flux ID"
                 height="100%"
                 width="100%"
               >
@@ -1474,8 +1474,8 @@
             >
               <img
                 class="zelidLogin mb-2"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
+                src="@/assets/images/FluxID.svg"
+                alt="Flux ID"
                 height="100%"
                 width="100%"
               >
@@ -1569,8 +1569,8 @@
                 >
                   <img
                     class="zelidLogin"
-                    src="@/assets/images/zelID.svg"
-                    alt="Zel ID"
+                    src="@/assets/images/FluxID.svg"
+                    alt="Flux ID"
                     height="100%"
                     width="100%"
                   >
