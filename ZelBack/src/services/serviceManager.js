@@ -42,6 +42,7 @@ async function startFluxFunctions() {
     await dockerService.dockerLogsFix();
     systemService.monitorSystem();
     log.info('System service initiated');
+    await systemService.mongoDBConfig();
     log.info('Initiating MongoDB connection');
     await dbHelper.initiateDB(); // either true or throws error
     log.info('DB connected');
