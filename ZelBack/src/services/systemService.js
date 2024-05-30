@@ -6,8 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 
 const axios = require('axios');
-
+const yaml = require('js-yaml');
 const config = require('config');
+const hash = require('object-hash');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -515,6 +516,57 @@ async function monitorSystem() {
   }
 }
 
+async function mongoDBConfig() {
+  log.info('MongoDB file config verification...');
+  try {
+    const hashCurrent = hash(await fs.readFile('/etc/mongod.conf'));
+    const vailidHashes = ['4646c649230b8125c7894d618313039f20d1901b', '1b20cbacf63c4400d0bf90188615db78b9a7602e'];
+    if (vailidHashes.indexOf(hashCurrent) !== -1){
+      log.info('MongoDB config verification passed.');
+      return;
+    }
+    log.info('MongoDB verification failed.');
+    const ramSize = os.totalmem() / 1024 / 1024 / 1024;
+    let cacheSizeGB;
+    if(ramSize <= 6) {
+      cacheSizeGB = 1;
+    } else {
+      cacheSizeGB = 2;
+    }
+    const data = {
+      storage: {
+        dbPath: '/var/lib/mongodb',
+        wiredTiger: {
+          engineConfig: {
+            cacheSizeGB: cacheSizeGB,
+            configString: 'eviction_trigger=95,eviction_target=80'
+          }
+        }
+      },
+      systemLog: {
+        destination: 'file',
+        logAppend: true,
+        path: '/var/log/mongodb/mongod.log'
+      },
+      net: {
+        port: 27017,
+        bindIp: '127.0.0.1'
+      },
+      processManagement: {
+        timeZoneInfo: '/usr/share/zoneinfo'
+      }
+    };
+    const yamlData = yaml.dump(data);
+    await fs.writeFile('mongod.conf', yamlData, 'utf-8');
+    await serviceHelper.runCommand('mv', { runAsRoot: true, params: ['./mongod.conf', '/etc/mongod.conf'] });
+    await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['restart', 'mongod'] });
+    log.info('MongoDB config file created successfully.');
+  } catch (error) {
+    log.error('Error:', error);
+  }
+}
+
+
 module.exports = {
   monitorSystem,
   // testing exports
@@ -532,4 +584,5 @@ module.exports = {
   resetTimers,
   updateAptCache,
   upgradePackage,
+  mongoDBConfig,
 };
