@@ -12916,6 +12916,7 @@ module.exports = {
   checkAppMessageExistence,
   requestAppMessageAPI,
   checkAndRequestApp,
+  checkAndRequestMultipleApps,
   checkDockerAccessibility,
   registrationInformation,
   appPricePerMonth,
