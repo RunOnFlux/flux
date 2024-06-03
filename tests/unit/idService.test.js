@@ -16,7 +16,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 
 const adminConfig = {
-  fluxTeamZelId: '1zasdfg',
+  fluxTeamFluxID: '1zasdfg',
   initial: {
     ipaddress: '83.51.212.243',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
@@ -1311,9 +1311,9 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(ws.send, 'status=error&data%5Bname%5D=myerrromessage&data%5Bmessage%5D=Unknown%20error');
     });
 
-    it('should return proper message if user is fluxTeamZelId', async () => {
+    it('should return proper message if user is fluxTeamFluxID', async () => {
       dbStub.resolves({
-        zelid: adminConfig.fluxTeamZelId,
+        zelid: adminConfig.fluxTeamFluxID,
         loginPhrase: '12333345656',
         signature: 'signature1',
         createdAt: '168450311',
@@ -1409,7 +1409,7 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(ws.send, 'status=error&data%5Bname%5D=myerrromessage&data%5Bmessage%5D=Unknown%20error');
     });
 
-    it('should return proper message if user is fluxTeamZelId', async () => {
+    it('should return proper message if user is fluxTeamFluxID', async () => {
       dbStub.resolves('found');
       const ws = generateWebsocket();
       const req = {

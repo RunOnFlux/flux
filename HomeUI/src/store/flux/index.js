@@ -9,7 +9,7 @@ export default {
     },
     config: {
       apiPort: config.server.apiport,
-      fluxTeamZelId: config.fluxTeamZelId,
+      fluxTeamFluxID: config.fluxTeamFluxID,
     },
     privilege: 'none', // user, admin, fluxteam
     zelid: '', // logged user zelid

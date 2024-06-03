@@ -1207,7 +1207,7 @@ async function adjustCruxID(req, res) {
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
@@ -1263,7 +1263,7 @@ async function adjustKadenaAccount(req, res) {
       const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
     kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
@@ -1306,7 +1306,7 @@ async function adjustRouterIP(req, res) {
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
@@ -1361,7 +1361,7 @@ async function adjustBlockedPorts(req, res) {
     const dataToWrite = `module.exports = {
             initial: {
               ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+              zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
               kadena: '${userconfig.initial.kadena || ''}',
               testnet: ${userconfig.initial.testnet || false},
               development: ${userconfig.initial.development || false},
@@ -1410,7 +1410,7 @@ async function adjustAPIPort(req, res) {
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
@@ -1473,7 +1473,7 @@ async function adjustBlockedRepositories(req, res) {
     const dataToWrite = `module.exports = {
             initial: {
               ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+              zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
               kadena: '${userconfig.initial.kadena || ''}',
               testnet: ${userconfig.initial.testnet || false},
               development: ${userconfig.initial.development || false},

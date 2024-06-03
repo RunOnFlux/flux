@@ -142,10 +142,10 @@ export default {
   mounted() {
     this.daemonGetInfo();
     this.daemonGetNodeStatus();
-    this.getOwnerZelid();
+    this.getownerFluxid();
   },
   methods: {
-    async getOwnerZelid() {
+    async getownerFluxid() {
       const response = await FluxService.getZelid();
       const obtainedZelid = response.data.data;
       if (response.data.status === 'success' && typeof obtainedZelid === 'string') {
