@@ -252,10 +252,10 @@ async function dockerContainerChanges(idOrName) {
  * @param {function} callback Callback.
  */
 function dockerPullStream(pullConfig, res, callback) {
-  const { repoTag, authToken } = pullConfig;
+  const { repoTag, provider, authToken } = pullConfig;
   let pullOptions;
-  const { provider } = generalService.parseDockerTag(repoTag);
 
+  // fix this auth token stuff upstream
   if (authToken) {
     if (authToken.includes(':')) { // specified by username:token
       pullOptions = {
