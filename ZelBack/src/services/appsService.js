@@ -36,6 +36,7 @@ const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
+const imageVerifier = require('./utils/imageVerifier');
 // eslint-disable-next-line no-unused-vars
 const backupRestoreService = require('./backupRestoreService');
 const IOUtils = require('./IOUtils');
@@ -59,6 +60,8 @@ const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
 const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
 const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+
+const supportedArchitectures = ['amd64', 'arm64'];
 
 const testingAppExpress = express();
 let testingAppserver = http.createServer(testingAppExpress);
@@ -3066,6 +3069,83 @@ async function checkAppRequirements(appSpecs) {
 }
 
 /**
+ * To get system architecture type (ARM64 or AMD64).
+ * @returns {Promise<string>} Architecture type (ARM64 or AMD64).
+ */
+async function systemArchitecture() {
+  // get benchmark architecture - valid are arm64, amd64
+  const benchmarkBenchRes = await benchmarkService.getBenchmarks();
+  if (benchmarkBenchRes.status === 'error') {
+    throw benchmarkBenchRes.data;
+  }
+  return benchmarkBenchRes.data.architecture;
+}
+
+/**
+ * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
+ * @param {object} appSpecs App specifications.
+ * @returns {Promise<boolean>} True if no errors are thrown.
+ */
+async function checkApplicationImagesComplience(appSpecs) {
+  const repos = await getBlockedRepositores();
+  const userBlockedRepos = await getUserBlockedRepositores();
+  if (!repos) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const pureImagesOrOrganisationsRepos = [];
+  repos.forEach((repo) => {
+    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
+  });
+
+  // blacklist works also for zelid and app hash
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
+    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
+  }
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
+    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
+  }
+
+  const images = [];
+  const organisations = [];
+  if (appSpecs.version <= 3) {
+    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
+    images.push(repository);
+    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+    organisations.push(pureNamespace);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
+      images.push(repository);
+      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+      organisations.push(pureNamespace);
+    });
+  }
+
+  images.forEach((image) => {
+    if (pureImagesOrOrganisationsRepos.includes(image)) {
+      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+  organisations.forEach((org) => {
+    if (pureImagesOrOrganisationsRepos.includes(org)) {
+      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+
+  if (userBlockedRepos) {
+    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    images.forEach((image) => {
+      if (userBlockedRepos.includes(image.toLowerCase())) {
+        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+      }
+    });
+  }
+
+  return true;
+}
+
+/**
  * To hard install an app. Pulls image/s, creates data volumes, creates components/app, assigns ports to components/app and starts all containers.
  * @param {object} appSpecifications App specifications.
  * @param {string} appName App name.
@@ -3074,39 +3154,58 @@ async function checkAppRequirements(appSpecs) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs) {
-  // check image and its architecture
-  // eslint-disable-next-line no-use-before-define
   const architecture = await systemArchitecture();
-  if (architecture !== 'arm64' && architecture !== 'amd64') {
+  if (!supportedArchitectures.includes(architecture)) {
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
-  // eslint-disable-next-line no-use-before-define
-  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag, appSpecifications.repoauth);
-  if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
-    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
-  }
 
-  // check repotag if available for download
-  // eslint-disable-next-line no-use-before-define
-  await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth);
+  // check whitelisted
+  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+
   // check blacklist
-  // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
-  // pull image
+
   const pullConfig = { repoTag: appSpecifications.repotag };
-  // decode repoauth if exists
+
+  let authToken = null;
+
   if (appSpecifications.repoauth) {
-    const authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+
     if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
+
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
+    }
+
     pullConfig.authToken = authToken;
   }
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    appSpecifications.repotag,
+    { credentials: authToken, maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures }
+  );
+
+  await imgVerifier.verifyImage();
+
+  imgVerifier.throwIfError();
+
+  if (!imgVerifier.supported) {
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
+
+  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
+  pullConfig.provider = imgVerifier.provider;
+
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(pullConfig, res);
+
   const pullStatus = {
     status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,
   };
+
   if (res) {
     res.write(serviceHelper.ensureString(pullStatus));
   }
@@ -3576,36 +3675,53 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
-  // check image and its architecture
-  // eslint-disable-next-line no-use-before-define
   const architecture = await systemArchitecture();
-  if (architecture !== 'arm64' && architecture !== 'amd64') {
+  if (!supportedArchitectures.includes(architecture)) {
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
-  // eslint-disable-next-line no-use-before-define
-  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag, appSpecifications.repoauth);
-  if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
-    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
-  }
 
-  // check repotag if available for download
-  // eslint-disable-next-line no-use-before-define
-  await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth);
+  // check whitelisted
+  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+
   // check blacklist
-  // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
-  // pull image
+
   const pullConfig = { repoTag: appSpecifications.repotag };
-  // decode repoauth if exists
+
+  let authToken = null;
+
   if (appSpecifications.repoauth) {
-    const authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+
     if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
+
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
+    }
+
     pullConfig.authToken = authToken;
   }
-  // eslint-disable-next-line no-unused-vars
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    appSpecifications.repotag,
+    { credentials: authToken, maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures }
+  );
+
+  await imgVerifier.verifyImage();
+
+  imgVerifier.throwIfError();
+
+  if (!imgVerifier.supported) {
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
+
+  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
+  pullConfig.provider = imgVerifier.provider;
+
   await dockerPullStreamPromise(pullConfig, res);
+
   const pullStatus = {
     status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
   };
@@ -4477,192 +4593,42 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   return true;
 }
 
-/**
- * To fetch an auth token from registry auth provider.
- * @param {object} authDetails Parsed www-authenticate header.
- * @param {object} AxiosConfig axios Auth object.
- */
-async function getAuthToken(authDetails, axiosConfig) {
-  const { realm, service, scope } = authDetails;
-  const authTokenRes = await serviceHelper.axiosGet(`${realm}?service=${service}&scope=${scope}`, axiosConfig).catch((error) => {
-    log.warn(error);
-    throw new Error(`Authentication token from ${realm} for ${scope} not available`);
-  });
-  if (!authTokenRes) {
-    throw new Error(`Unable to communicate with authentication token provider ${realm}! Try again later.`);
-  }
-  return authTokenRes.data.token;
-}
+async function verifyRepository(repotag, options = {}) {
+  const repoauth = options.repoauth || null;
+  const skipVerification = options.skipVerification || false;
+  const architecture = options.architecture || null;
 
-async function verifyRepository(repotag, repoauth, skipVerification = false) {
-  const {
-    provider, namespace, repository, tag,
-  } = generalService.parseDockerTag(repotag);
-
-  const image = repository;
+  // ToDo: fix this upstream
   if (repoauth && skipVerification) {
-    return true;
+    return;
   }
-  let decryptedRepoAuth;
+
+  let authToken = null;
+
   if (repoauth) {
-    decryptedRepoAuth = await pgpService.decryptMessage(repoauth);
-    if (!decryptedRepoAuth) {
+    authToken = await pgpService.decryptMessage(repoauth);
+
+    if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
-  }
-  if (provider === 'hub.docker.com') { // favor docker hub api
-    // if we are using private image, we need to authenticate first
-    const axiosConfig = {};
-    if (decryptedRepoAuth) {
-      let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:token
-        loginData = {
-          username: decryptedRepoAuth.split(':')[0],
-          password: decryptedRepoAuth.split(':')[1],
-        };
-      } else {
-        throw new Error('Invalid login credentials for docker provided');
-      }
-      const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
-        log.warn(error);
-      });
-      const { token } = loginResp.data;
-      axiosConfig.headers = {
-        Authorization: `Bearer ${token}`,
-      };
-    }
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
-      log.warn(error);
-      throw new Error(`Repository ${repotag} is not found on ${provider} in expected format`);
-    });
-    if (!resDocker) {
-      throw new Error(`Unable to communicate with ${provider}! Try again later.`);
-    }
-    if (resDocker.data.errinfo) {
-      throw new Error('Docker image not found');
-    }
-    if (!resDocker.data.images) {
-      throw new Error('Docker image not found2');
-    }
-    if (!resDocker.data.images[0]) {
-      throw new Error('Docker image not found3');
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const img of resDocker.data.images) {
-      if (img.size > config.fluxapps.maxImageSize) {
-        throw new Error(`Docker image ${repotag} of architecture ${img.architecture} size is over Flux limit`);
-      }
-    }
-    if (resDocker.data.full_size > config.fluxapps.maxImageSize) {
-      throw new Error(`Docker image ${repotag} size is over Flux limit`);
-    }
-  } else { // use docker v2 api, general for any public docker repositories
-    // if we are using private image, we need to authenticate first
-    const axiosAuthConfig = {};
-    if (decryptedRepoAuth) {
-      let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:token
-        loginData = {
-          username: decryptedRepoAuth.split(':')[0],
-          password: decryptedRepoAuth.split(':')[1],
-        };
-      } else {
-        throw new Error('Invalid login credentials for docker provided');
-      }
-      axiosAuthConfig.auth = loginData;
-    }
 
-    const axiosOptionsManifest = {
-      timeout: 20000,
-      headers: {
-        // eslint-disable-next-line max-len
-        // need to accept both media types here, some registries (google artifact registry)
-        // will respond with error if only the manifest exists and not the manifest list (instead
-        // of just returning the manifest list)
-        Accept: 'application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json',
-      },
-    };
-
-    let manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch(async (error) => {
-      let authToken;
-      // unauthorized
-      if (error.response && error.response.status === 401) {
-        const authDetails = generalService.parseAuthHeader(error.response.headers['www-authenticate']);
-        if (!authDetails) {
-          log.warn(error);
-          throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-        }
-        authToken = await getAuthToken(authDetails, axiosAuthConfig);
-      }
-
-      if (!authToken) {
-        log.warn(error);
-        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-      }
-      axiosOptionsManifest.headers.Authorization = `Bearer ${authToken}`;
-    });
-
-    // we got challenged on the first try, and now have auth details
-    if (!manifestsListResp && axiosOptionsManifest.headers.Authorization) {
-      manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch((error) => {
-        log.warn(error);
-        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-      });
-    }
-
-    if (!manifestsListResp) {
-      throw new Error(`Unable to communicate with manifest list provider ${provider}! Try again later.`);
-    }
-    if (manifestsListResp.data.schemaVersion !== 2) {
-      throw new Error(`Unsupported manifest list version from ${provider} for ${namespace}/${image}:${tag}.`);
-    }
-    const manifests = manifestsListResp.data.manifests || [];
-
-    if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') {
-      // returned not a list like we wanted
-      // treat as single platform amd64
-      let size = 0;
-      manifestsListResp.data.layers.forEach((layer) => {
-        size += layer.size;
-      });
-      if (size > config.fluxapps.maxImageSize) {
-        throw new Error(`Docker image ${repotag} size is over Flux limit`);
-      }
-    } else if (manifestsListResp.data.mediaType !== 'application/vnd.docker.distribution.manifest.list.v2+json') { // we only want v2 or list
-      throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifestsListResp.data.mediaType}`);
-    }
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const mnfst of manifests) {
-      // rate limit precaution
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1000); // catch for potential rate limit
-      const { digest } = mnfst;
-      // eslint-disable-next-line no-await-in-loop
-      const manifestResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${digest}`, axiosOptionsManifest).catch((error) => {
-        log.warn(error);
-        throw new Error(`Manifest from ${provider} for ${namespace}/${image}:${digest} not available`);
-      });
-      if (!manifestResp) {
-        throw new Error(`Unable to communicate with manifest provider ${provider}! Try again later.`);
-      }
-      const manifest = manifestResp.data;
-      if (manifest.schemaVersion !== 2) {
-        throw new Error(`Unsupported manifest version from ${provider} for ${namespace}/${image}:${digest}.`);
-      }
-      if (manifest.mediaType !== 'application/vnd.docker.distribution.manifest.v2+json') {
-        throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifest.mediaType}`);
-      }
-      let size = 0;
-      manifest.layers.forEach((layer) => {
-        size += layer.size;
-      });
-      if (size > config.fluxapps.maxImageSize) {
-        throw new Error(`Docker image ${repotag} size is over Flux limit`);
-      }
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
     }
   }
-  return true;
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    repotag,
+    { credentials: authToken, maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures }
+  );
+
+  await imgVerifier.verifyImage();
+
+  imgVerifier.throwIfError();
+
+  if (architecture && !imgVerifier.supported) {
+    throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
+  }
 }
 
 async function getBlockedRepositores() {
@@ -4722,70 +4688,6 @@ async function getUserBlockedRepositores() {
     log.error(error);
     return [];
   }
-}
-
-/**
- * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
- * @param {object} appSpecs App specifications.
- * @returns {boolean} True if no errors are thrown.
- */
-async function checkApplicationImagesComplience(appSpecs) {
-  const repos = await getBlockedRepositores();
-  const userBlockedRepos = await getUserBlockedRepositores();
-  if (!repos) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const pureImagesOrOrganisationsRepos = [];
-  repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-  });
-
-  // blacklist works also for zelid and app hash
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
-  }
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
-  }
-
-  const images = [];
-  const organisations = [];
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-
-  images.forEach((image) => {
-    if (pureImagesOrOrganisationsRepos.includes(image)) {
-      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-  organisations.forEach((org) => {
-    if (pureImagesOrOrganisationsRepos.includes(org)) {
-      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-
-  if (userBlockedRepos) {
-    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
-    images.forEach((image) => {
-      if (userBlockedRepos.includes(image.toLowerCase())) {
-        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
-      }
-    });
-  }
-
-  return true;
 }
 
 /**
@@ -5809,13 +5711,13 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   if (checkDockerAndWhitelist) {
     if (appSpecifications.version <= 3) {
       // check repotag if available for download
-      await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth, true);
+      await verifyRepository(appSpecifications.repotag, { repoauth: appSpecifications.repoauth, skipVerification: true });
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
         // check repotag if available for download
         // eslint-disable-next-line no-await-in-loop
-        await verifyRepository(appComponent.repotag, appComponent.repoauth, true);
+        await verifyRepository(appComponent.repotag, { repoauth: appComponent.repoauth, skipVerification: true });
       }
     }
     // check blacklist
@@ -6047,186 +5949,6 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
     }
   }
   return true;
-}
-
-/**
- * To get Docker image architectures.
- * @param {string} repotag Docker Hub repository tag.
- * @returns {string[]} List of Docker image architectures.
- */
-async function repositoryArchitectures(repotag, repoauth) {
-  const {
-    provider, namespace, repository, tag,
-  } = generalService.parseDockerTag(repotag);
-
-  const image = repository;
-  const architectures = [];
-  let decryptedRepoAuth;
-  if (repoauth) {
-    decryptedRepoAuth = await pgpService.decryptMessage(repoauth);
-    if (!decryptedRepoAuth) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
-  }
-  if (provider === 'hub.docker.com') { // favor docker hub api
-    // if we are using private image, we need to authenticate first
-    const axiosConfig = {};
-    if (decryptedRepoAuth) {
-      let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:token
-        loginData = {
-          username: decryptedRepoAuth.split(':')[0],
-          password: decryptedRepoAuth.split(':')[1],
-        };
-      } else {
-        throw new Error('Invalid login credentials for docker provided');
-      }
-      const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
-        log.warn(error);
-      });
-      const { token } = loginResp.data;
-      axiosConfig.headers = {
-        Authorization: `Bearer ${token}`,
-      };
-    }
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
-      log.warn(error);
-      throw new Error(`Repository ${repotag} is not found on ${provider} in expected format`);
-    });
-    if (!resDocker) {
-      throw new Error(`Unable to communicate with ${provider}! Try again later.`);
-    }
-    if (resDocker.data.errinfo) {
-      throw new Error('Docker image not found');
-    }
-    if (!resDocker.data.images) {
-      throw new Error('Docker image not found2');
-    }
-    if (!resDocker.data.images[0]) {
-      throw new Error('Docker image not found3');
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const img of resDocker.data.images) {
-      architectures.push(img.architecture);
-    }
-  } else { // use docker v2 api, general for any public docker repositories
-    // if we are using private image, we need to authenticate first
-    const axiosAuthConfig = {};
-    if (decryptedRepoAuth) {
-      let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:token
-        loginData = {
-          username: decryptedRepoAuth.split(':')[0],
-          password: decryptedRepoAuth.split(':')[1],
-        };
-      } else {
-        throw new Error('Invalid login credentials for docker provided');
-      }
-      axiosAuthConfig.auth = loginData;
-    }
-
-    const axiosOptionsManifest = {
-      timeout: 20000,
-      headers: {
-        // eslint-disable-next-line max-len
-        // need to accept both media types here, some registries (google artifact registry)
-        // will respond with error if only the manifest exists and not the manifest list (instead
-        // of just returning the manifest list)
-        Accept: 'application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json',
-      },
-    };
-
-    let manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch(async (error) => {
-      let authToken;
-      // unauthorized
-      if (error.response && error.response.status === 401) {
-        const authDetails = generalService.parseAuthHeader(error.response.headers['www-authenticate']);
-        if (!authDetails) {
-          log.warn(error);
-          throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-        }
-        authToken = await getAuthToken(authDetails, axiosAuthConfig);
-      }
-
-      if (!authToken) {
-        log.warn(error);
-        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-      }
-      axiosOptionsManifest.headers.Authorization = `Bearer ${authToken}`;
-    });
-
-    // we got challenged on the first try, and now have auth details
-    if (!manifestsListResp && axiosOptionsManifest.headers.Authorization) {
-      manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch((error) => {
-        log.warn(error);
-        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-      });
-    }
-
-    if (!manifestsListResp) {
-      throw new Error(`Unable to communicate with manifest list provider ${provider}! Try again later.`);
-    }
-    if (manifestsListResp.data.schemaVersion !== 2) {
-      throw new Error(`Unsupported manifest list version from ${provider} for ${namespace}/${image}:${tag}.`);
-    }
-    const manifests = manifestsListResp.data.manifests || [];
-
-    if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') {
-      // handle as single platform amd64.
-      architectures.push('amd64');
-    } else if (manifestsListResp.data.mediaType !== 'application/vnd.docker.distribution.manifest.list.v2+json') { // we only want v2 or list
-      throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifestsListResp.data.mediaType}`);
-    }
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const mnfst of manifests) {
-      architectures.push(mnfst.platform.architecture);
-    }
-  }
-  return architectures;
-}
-
-/**
- * To get system architecture type (ARM64 or AMD64).
- * @returns {string} Architecture type (ARM64 or AMD64).
- */
-async function systemArchitecture() {
-  // get benchmark architecture - valid are arm64, amd64
-  const benchmarkBenchRes = await benchmarkService.getBenchmarks();
-  if (benchmarkBenchRes.status === 'error') {
-    throw benchmarkBenchRes.data;
-  }
-  return benchmarkBenchRes.data.architecture;
-}
-
-/**
- * To ensure that all app images are of a consistent architecture type. Architecture must be either ARM64 or AMD64.
- * @param {object} appSpecFormatted App specifications.
- * @returns {boolean} True if all apps have the same system architecture.
- */
-async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
-  const architecture = await systemArchitecture();
-  if (architecture !== 'arm64' && architecture !== 'amd64') {
-    throw new Error(`Invalid architecture ${architecture} detected.`);
-  }
-  if (appSpecFormatted.version <= 3) {
-    const repoArchitectures = await repositoryArchitectures(appSpecFormatted.repotag, appSpecFormatted.repoauth); // repoauth is undefined
-    if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
-      return false;
-    }
-  } else {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appComponent of appSpecFormatted.compose) {
-      // eslint-disable-next-line no-await-in-loop
-      const repoArchitectures = await repositoryArchitectures(appComponent.repotag, appComponent.repoauth);
-      if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
-        return false;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500); // catch for potential rate limit
-    }
-  }
-  return true; // all images have my system architecture
 }
 
 /**
@@ -8072,6 +7794,12 @@ async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
 
 /**
  * To check Docker accessibility. Only accessible by users.
+ *
+ * This function no longer makes sense since it's possible to use auth.
+ * It's also not used anywhere (it's referenced in appsService HomeUI but not used)
+ *
+ * Schedule to remove
+ *
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -8095,8 +7823,9 @@ async function checkDockerAccessibility(req, res) {
         throw new Error('No repotag specifiec');
       }
 
-      await verifyRepository(processedBody.repotag);
-      const message = messageHelper.createSuccessMessage('Repotag is accessible');
+      const message = messageHelper.createSuccessMessage('deprecated');
+      // await verifyRepository(processedBody.repotag);
+      // const message = messageHelper.createSuccessMessage('Repotag is accessible');
       return res.json(message);
     } catch (error) {
       log.warn(error);
@@ -9048,6 +8777,10 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+
+    // ToDo: Move this to global
+    const architecture = systemArchitecture();
+
     // TODO evaluate later to move to more broad check as image can be shared among multiple apps
     const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
     // eslint-disable-next-line no-restricted-syntax
@@ -9068,7 +8801,7 @@ async function trySpawningGlobalApplication() {
       }
       // check repotag if available for download
       // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(componentToInstall.repotag, componentToInstall.repoauth);
+      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture });
     }
 
     // verify app compliance
@@ -9084,17 +8817,8 @@ async function trySpawningGlobalApplication() {
     runningAppsIp.forEach((app) => {
       runningAppsNames.push(app.name);
     });
+
     await ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
-
-    // ensure images exists for platform
-    const imagesArchitectureMatches = await ensureApplicationImagesExistsForPlatform(appSpecifications);
-
-    if (imagesArchitectureMatches !== true) {
-      log.info(`Application ${appToRun} does not support our node architecture, installation aborted.`);
-      await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalApplication();
-      return;
-    }
 
     const appPorts = getAppPorts(appSpecifications);
     // check port is not user blocked
@@ -13019,7 +12743,6 @@ module.exports = {
   setInstallationInProgressTrue,
   checkForNonAllowedAppsOnLocalNetwork,
   triggerAppHashesCheckAPI,
-  getAuthToken,
   masterSlaveApps,
   getAppSpecsUSDPrice,
 };
