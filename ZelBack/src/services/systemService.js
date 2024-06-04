@@ -567,6 +567,61 @@ async function mongoDBConfig() {
   }
 }
 
+// eslint-disable-next-line consistent-return
+async function mongodGpgKeyVeryfity() {
+  log.info('MongoDB GPG verification...');
+  try {
+    const { stdout, stderr, error } = await serviceHelper.runCommand('gpg', { runAsRoot: true, params: ['--show-keys', '/usr/share/keyrings/mongodb-archive-keyring.gpg'] });
+    if (error) {
+      log.error(`Error executing gpg: ${error}`);
+      return false;
+    }
+    if (stderr) {
+      log.error(`gpg stderr: ${stderr}`);
+      return false;
+    }
+    const expiredMatch = stdout.match(/\[expired: (\d{4}-\d{2}-\d{2})\]/);
+    const versionMatch = stdout.match(/MongoDB (\d+\.\d+) Release Signing Key/);
+    if (expiredMatch) {
+      if (versionMatch) {
+        const keyUrl = `https://pgp.mongodb.com/server-${versionMatch[1]}.asc`;
+        const filePath = '/usr/share/keyrings/mongodb-archive-keyring.gpg';
+        log.info(`MongoDB version: ${versionMatch[1]}`);
+        log.info(`PGP URL: https://pgp.mongodb.com/server-${versionMatch[1]}.asc`);
+        log.info(`The key has expired on ${expiredMatch[1]}`);
+        const command = `curl -fsSL ${keyUrl} | sudo gpg -o ${filePath} --dearmor`;
+        // eslint-disable-next-line no-shadow
+        const { error, stderr } = await serviceHelper.runCommand(command, {
+          shell: true,
+          logError: true,
+        });
+
+        if (error) {
+          log.error(`Error: ${error}`);
+          // eslint-disable-next-line consistent-return
+          return false;
+        }
+        if (stderr) {
+          log.error(`Error: ${stderr}`);
+          // eslint-disable-next-line consistent-return
+          return false;
+        }
+        return true;
+      // eslint-disable-next-line no-else-return
+      } else {
+        log.error('MongoDB version not found.');
+        return false;
+      }
+    // eslint-disable-next-line no-else-return
+    } else {
+      log.info('MongoDB PGP key is still valid.');
+      return true;
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   monitorSystem,
   // testing exports
@@ -585,4 +640,5 @@ module.exports = {
   updateAptCache,
   upgradePackage,
   mongoDBConfig,
+  mongodGpgKeyVeryfity,
 };
