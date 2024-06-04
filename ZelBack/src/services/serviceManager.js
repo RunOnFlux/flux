@@ -40,6 +40,7 @@ async function startFluxFunctions() {
     }
     log.info('Checking docker log for corruption...');
     await dockerService.dockerLogsFix();
+    await systemService.mongoDBConfig();
     systemService.monitorSystem();
     log.info('System service initiated');
     log.info('Initiating MongoDB connection');
@@ -172,9 +173,7 @@ async function startFluxFunctions() {
         }
         // rescan before last known height of hashes
         // it is important to have count values before consistency check
-        if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100)
-          || (development && result && result.length && result[result.length - 1].height >= 100)
-        ) {
+        if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100)) {
           // run fixExplorer at least from height 1633000
           explorerService.fixExplorer(result[result.length - 1].height - 50 > 1633000 ? 1633000 : result[result.length - 1].height - 50, false);
           log.info('Flux Block Processing Service started in fix mode');

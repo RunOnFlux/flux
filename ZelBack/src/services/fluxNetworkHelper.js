@@ -816,7 +816,7 @@ async function adjustExternalIP(ip) {
     const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${ip}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},

@@ -14,7 +14,7 @@ const questions = [
   {
     type: 'input',
     name: 'zelid',
-    message: 'Flux uses ZelID system for authentication and verification purposes. What is your ZelID?',
+    message: 'Flux uses FluxID system for authentication and verification purposes. What is your FluxID?',
   },
 ];
 
@@ -27,13 +27,13 @@ function showQuestions() {
 
   inquirer.prompt(questions).then((answers) => {
     console.log(`IP address: ${answers.ipaddr}`);
-    console.log(`ZelID: ${answers.zelid}`);
+    console.log(`FluxID: ${answers.zelid}`);
     if (answers.ipaddr.length < 5 || (answers.ipaddr.indexOf('.') === -1 && answers.ipaddr.indexOf(':') === -1)) {
       console.log('IP address is NOT valid!');
       return showQuestions();
     }
     if (!goodchars.test(answers.zelid) || answers.zelid[0] !== '1' || answers.zelid.length > 34 || answers.zelid.length < 25) {
-      console.log('ZelID is NOT valid!');
+      console.log('FluxID is NOT valid!');
       return showQuestions();
     }
 

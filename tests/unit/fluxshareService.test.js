@@ -11,7 +11,7 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 const generalService = require('../../ZelBack/src/services/generalService');
 
 const adminConfig = {
-  fluxTeamZelId: '1zasdfg',
+  fluxTeamFluxID: '1zasdfg',
   initial: {
     ipaddress: '83.51.212.243',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',

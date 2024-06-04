@@ -500,80 +500,165 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.restore();
     });
 
+    it('should return error if message version is not supported', async () => {
+      const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+          hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 3,
+        },
+      };
+      const lruHas = sinon.stub(LRUCache.prototype, 'has').returns(false);
+      const websocket = generateWebsocket();
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+      sinon.assert.notCalled(lruHas);
+    });
+
+    it('should return error if message version is 1 and hash is not a string', async () => {
+      const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+          hash: 312313,
+          broadcastedAt: Date.now(),
+          version: 1,
+        },
+      };
+      const lruHas = sinon.stub(LRUCache.prototype, 'has').returns(false);
+      const websocket = generateWebsocket();
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+      sinon.assert.notCalled(lruHas);
+    });
+
+    it('should return error if message version is 2 and hashes is not an array', async () => {
+      const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+          hashes: 312313,
+          broadcastedAt: Date.now(),
+          version: 2,
+        },
+      };
+      const lruHas = sinon.stub(LRUCache.prototype, 'has').returns(false);
+      const websocket = generateWebsocket();
+      await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
+      sinon.assert.notCalled(lruHas);
+    });
+
     it('should respond with app message that exists in permanent storage but is not located in cache', async () => {
       const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
+          type: 'fluxapprequest',
           hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 1,
         },
       };
       const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(message);
-      const myMessageCacheGetStub = sinon.stub(LRUCache.prototype, 'get').returns(undefined);
+      sinon.stub(LRUCache.prototype, 'has').returns(false);
       const myMessageCacheSetStub = sinon.stub(LRUCache.prototype, 'set').returns(undefined);
       const websocket = generateWebsocket();
 
       await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
 
-      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, JSON.stringify(callMessage), message);
+      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, message);
       sinon.assert.calledOnceWithExactly(checkAppMessageExistenceStub, callMessage.data.hash);
-      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
     });
 
     it('should respond with app message that exists in temp storage but is not located in cache or perm storage', async () => {
       const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
+          type: 'fluxapprequest',
           hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 1,
         },
       };
       const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(undefined);
       const checkAppTemporaryMessageExistenceStub = sinon.stub(appsService, 'checkAppTemporaryMessageExistence').returns(message);
-      const myMessageCacheGetStub = sinon.stub(LRUCache.prototype, 'get').returns(undefined);
+      sinon.stub(LRUCache.prototype, 'has').returns(false);
       const myMessageCacheSetStub = sinon.stub(LRUCache.prototype, 'set').returns(undefined);
       const websocket = generateWebsocket();
 
       await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
 
-      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, JSON.stringify(callMessage), message);
+      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, message);
       sinon.assert.calledOnceWithExactly(checkAppMessageExistenceStub, callMessage.data.hash);
       sinon.assert.calledOnceWithExactly(checkAppTemporaryMessageExistenceStub, callMessage.data.hash);
-      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
     });
 
     it('should do nothing if the message does not exist', async () => {
       const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
+          type: 'fluxapprequest',
           hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 1,
         },
       };
+      const sendMessageToWSStub = sinon.stub(fluxCommunicationMessagesSender, 'sendMessageToWS').returns(undefined);
       const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(undefined);
       const checkAppTemporaryMessageExistenceStub = sinon.stub(appsService, 'checkAppTemporaryMessageExistence').returns(undefined);
-      const myMessageCacheGetStub = sinon.stub(LRUCache.prototype, 'get').returns(undefined);
+      sinon.stub(LRUCache.prototype, 'has').returns(false);
       const myMessageCacheSetStub = sinon.stub(LRUCache.prototype, 'set').returns(undefined);
       const websocket = generateWebsocket();
 
       await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
 
-      sinon.assert.notCalled(myMessageCacheSetStub);
+      sinon.assert.notCalled(sendMessageToWSStub);
       sinon.assert.calledOnceWithExactly(checkAppMessageExistenceStub, callMessage.data.hash);
       sinon.assert.calledOnceWithExactly(checkAppTemporaryMessageExistenceStub, callMessage.data.hash);
-      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
+      sinon.assert.calledOnceWithExactly(myMessageCacheSetStub, callMessage.data.hash, null);
     });
 
     it('should respond with app message that is located in cache', async () => {
       const callMessage = {
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
         data: {
+          type: 'fluxapprequest',
           hash: 'test1',
+          broadcastedAt: Date.now(),
+          version: 1,
         },
       };
       const checkAppMessageExistenceSpy = sinon.spy(appsService, 'checkAppMessageExistence');
       const myMessageCacheGetStub = sinon.stub(LRUCache.prototype, 'get').returns(message);
       const myMessageCacheSetStub = sinon.stub(LRUCache.prototype, 'set').returns(undefined);
+      sinon.stub(LRUCache.prototype, 'has').returns(true);
       const websocket = generateWebsocket();
 
       await fluxCommunicationMessagesSender.respondWithAppMessage(callMessage, websocket);
 
       sinon.assert.notCalled(myMessageCacheSetStub);
       sinon.assert.notCalled(checkAppMessageExistenceSpy);
-      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, JSON.stringify(callMessage));
+      sinon.assert.calledOnceWithExactly(myMessageCacheGetStub, callMessage.data.hash);
     });
   });
 

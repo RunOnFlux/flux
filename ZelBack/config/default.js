@@ -79,7 +79,7 @@ module.exports = {
   minimumFluxOSAllowedVersion: '5.4.0',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '26.1.2',
-  fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+  fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   deterministicNodesStart: 558000,
   fluxapps: {
     // in flux main chain per month (blocksLasting)
@@ -175,6 +175,7 @@ module.exports = {
     addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
     addressDevelopment: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
     multisigAddressChange: 1670000,
+    fluxAppRequestV2: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications

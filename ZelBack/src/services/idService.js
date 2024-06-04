@@ -305,7 +305,7 @@ async function verifyLogin(req, res) {
               expireAt,
             };
             let privilage = 'user';
-            if (address === config.fluxTeamZelId) {
+            if (address === config.fluxTeamFluxID) {
               privilage = 'fluxteam';
             } else if (address === userconfig.initial.zelid) {
               privilage = 'admin';
@@ -503,10 +503,10 @@ async function loggedSessions(req, res) {
       const db = dbHelper.databaseConnection();
 
       const auth = serviceHelper.ensureObject(req.headers.zelidauth);
-      const queryZelID = auth.zelid;
+      const queryFluxID = auth.zelid;
       const database = db.db(config.database.local.database);
       const collection = config.database.local.collections.loggedUsers;
-      const query = { zelid: queryZelID };
+      const query = { zelid: queryFluxID };
       const projection = {
         projection: {
           _id: 0, zelid: 1, loginPhrase: 1, createdAt: 1, expireAt: 1,
@@ -690,7 +690,7 @@ async function wsRespondLoginPhrase(ws, req) {
       if (result) {
         // user is logged, all ok
         let privilage = 'user';
-        if (result.zelid === config.fluxTeamZelId) {
+        if (result.zelid === config.fluxTeamFluxID) {
           privilage = 'fluxteam';
         } else if (result.zelid === userconfig.initial.zelid) {
           privilage = 'admin';

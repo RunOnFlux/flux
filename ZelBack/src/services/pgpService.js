@@ -22,7 +22,7 @@ async function adjustPGPidentity(privateKey, publicKey) {
     const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
     kadena: '${userconfig.initial.kadena || ''}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
