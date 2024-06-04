@@ -227,7 +227,7 @@ async function addGpgKey(url, keyringName) {
   }
 
   if (!keyring) {
-    log.error('Unable to fetch syncthing gpg keyring');
+    log.error('Unable to fetch gpg keyring');
     return false;
   }
 
@@ -248,7 +248,7 @@ async function addGpgKey(url, keyringName) {
 
   let success = true;
   // as long as the directory exists, this shouldn't error
-  await fs.writeFile(filePath, keyring).catch((error) => {
+  await fs.writeFile(filePath, keyring, { flag: 'w' }).catch((error) => {
     log.error(error);
     success = false;
   });
