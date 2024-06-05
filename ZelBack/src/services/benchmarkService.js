@@ -1,4 +1,3 @@
-/* global userconfig */
 const benchmarkrpc = require('daemonrpc');
 const config = require('config');
 const path = require('path');

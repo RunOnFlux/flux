@@ -1,5 +1,11 @@
-/* global userconfig */
 global.userconfig = require('./config/userconfig');
+
+if (typeof AbortController === 'undefined') {
+  // polyfill for nodeJS 14.18.1 - without having to use experimental features
+  // eslint-disable-next-line global-require
+  const abortControler = require('node-abort-controller');
+  globalThis.AbortController = abortControler.AbortController;
+}
 
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
 // Flux configuration
