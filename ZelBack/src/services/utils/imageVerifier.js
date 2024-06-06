@@ -1,5 +1,6 @@
 // use default for typing
 const axios = require('axios').default;
+const { AsyncLock } = require('./asyncLock');
 
 /**
  * Docker Architecture
@@ -9,19 +10,27 @@ const axios = require('axios').default;
 class ImageVerifier {
   static defaultDockerRegistry = 'registry-1.docker.io';
 
-  static imagePattern =
-    /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-_.]+\/{0,1}[a-z0-9-_.]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
+  static imagePattern = /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-_.]+\/{0,1}[a-z0-9-_.]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
 
-  static wwwAuthHeaderPattern =
-    /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:\-./]*?))")?(?:,scope="(?<scope>[0-9a-z:\-./]*?)")?/;
+  static wwwAuthHeaderPattern = /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:\-./]*?))")?(?:,scope="(?<scope>[0-9a-z:\-./]*?)")?/;
 
   static supportedMediaTypes = [
     'application/vnd.oci.image.index.v1+json',
     'application/vnd.docker.distribution.manifest.v2+json',
     'application/vnd.oci.image.manifest.v1+json',
     'application/vnd.docker.distribution.manifest.list.v2+json',
-    ,
   ];
+
+  static whitelistedImages = [];
+
+  static lastWhitelistFetchTime = 0;
+
+  static resetWhitelist() {
+    ImageVerifier.whitelistedImages = [];
+    ImageVerifier.lastWhitelistFetchTime = 0;
+  }
+
+  static fetchLock = new AsyncLock();
 
   #abortController = new AbortController();
 
@@ -39,19 +48,35 @@ class ImageVerifier {
 
   evaluated = false;
 
+  ambiguous = false;
+
+  credentials = null;
+
+  provider = null;
+
+  namespace = null;
+
+  repository = null;
+
+  tag = null;
+
   /**
    * @param {string} imageTag
    * @param {{credentials?: string, architecture?: Architecture, architectureSet?: Array<Architecture>}} options
    */
   constructor(imageTag, options = {}) {
+    if (typeof imageTag !== 'string') {
+      this.#parseErrorDetail = 'Invalid Docker Image Tag';
+      return;
+    }
+
     this.rawImageTag = imageTag;
 
     this.architecture = options.architecture || 'amd64';
     this.architectureSet = options.architectureSet || ['amd64', 'arm64'];
     this.maxImageSize = options.maxImageSize || 2_000_000_000; // 2Gb
 
-    const [username, password] = options.credentials ? options.credentials.split(':') : [null, null];
-    this.credentials = username && password ? { username, password } : null;
+    if (options.credentials) this.addCredentials(options.credentials);
 
     this.#parseDockerTag();
 
@@ -59,12 +84,14 @@ class ImageVerifier {
   }
 
   /**
- * Parse www-authenticate header
- * @param {string} authHeader # www-auth header
- * @returns {object} Object of parsed header - {realm, service, scope}
- */
+   * Parse www-authenticate header
+   * @param {string} authHeader # www-auth header
+   * @returns {object} Object of parsed header - {realm, service, scope}
+   */
   static parseAuthHeader(header) {
     const match = ImageVerifier.wwwAuthHeaderPattern.exec(header);
+
+    if (!match) return null;
 
     return { ...match.groups };
   }
@@ -82,14 +109,23 @@ class ImageVerifier {
   }
 
   get error() {
-    return this.parseError || this.lookupError || this.evaluationError
+    return this.parseError || this.lookupError || this.evaluationError;
+  }
+
+  get parts() {
+    const parts = [this.provider, this.namespace, this.repository, this.tag];
+    return parts.filter((x) => x);
+  }
+
+  get useable() {
+    return this.parts.length === 4;
   }
 
   /**
    * If this image can run on the Flux network.
    */
   get verified() {
-    return this.evaluated && !this.error;
+    return this.evaluated && !this.error && this.useable;
   }
 
   /**
@@ -108,21 +144,62 @@ class ImageVerifier {
     });
   }
 
+  async #fetchWhitelist() {
+    // ToDo: use etag
+    if (
+      this.error
+      && !this.#lookupErrorDetail.match('Unable to fetch whitelisted repositories')
+    ) {
+      return;
+    }
+
+    const now = Number(process.hrtime.bigint() / BigInt(1_000_000_000));
+
+    await ImageVerifier.fetchLock.enable();
+
+    try {
+      if (
+        ImageVerifier.whitelistedImages.length
+        && ImageVerifier.lastWhitelistFetchTime + 600 > now
+      ) return;
+
+      const { data } = await axios
+        .get(
+          'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json',
+          { timeout: 20_000 },
+        )
+        .catch(() => {
+          this.#lookupErrorDetail = 'Unable to fetch whitelisted repositories. Try again later.';
+          return { data: [] };
+        });
+
+      ImageVerifier.lastWhitelistFetchTime = now;
+
+      // this could throw if data not array
+      if (data.length) ImageVerifier.whitelistedImages = data;
+    } finally {
+      ImageVerifier.fetchLock.disable();
+    }
+  }
+
   #parseDockerTag() {
+    if (this.error) return;
+
     if (/\s/.test(this.rawImageTag)) {
-      this.#parseErrorDetail = `Image tag: "${this.rawImageTag}" should not contain space characters.`
+      this.#parseErrorDetail = `Image tag: "${this.rawImageTag}" should not contain space characters.`;
       return;
     }
 
     const match = ImageVerifier.imagePattern.exec(this.rawImageTag);
 
-    if (match === null || !(match.groups.repository && match.groups.tag)) {
-      this.#parseErrorDetail = `Image tag: ${this.rawImageTag} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY:TAG`
-      return;
+    if (match === null) {
+      this.#parseErrorDetail = `Image tag: ${this.rawImageTag} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY[:TAG]`;
     }
 
     const {
-      groups: { provider, namespace, repository, tag },
+      groups: {
+        provider, namespace, repository, tag,
+      },
     } = match;
 
     this.provider = provider || ImageVerifier.defaultDockerRegistry;
@@ -131,18 +208,18 @@ class ImageVerifier {
     // an image or a namespace
     if (tag === undefined) {
       if (this.provider === ImageVerifier.defaultDockerRegistry) {
-        // we can't tell, so we set namespace/repository to repository
+        // we can't tell, so we set namespace to repository if no namespace
         this.namespace = namespace || repository;
-        this.repository = repository;
+        this.repository = namespace ? repository : '';
         this.tag = tag;
-        this.ambiguous = this.namespace === this.repository;
+        this.ambiguous = this.repository === '';
       } else {
         // registry
         this.namespace = namespace;
         this.repository = repository;
-        this.tag = tag;
+        this.tag = '';
         // a registry is ambiguous as you can have multiple / in both namespace and repository,
-        // and we don't know how it is split
+        // and we don't know how it is split, until we get a tag
         this.ambiguous = true;
       }
     } else {
@@ -167,27 +244,29 @@ class ImageVerifier {
   async #handleAuth(authDetails) {
     const { realm, service, scope } = authDetails;
 
-    const { data: { token } } = await axios.get(
-      `${realm}?service=${service}&scope=${scope}`,
-    ).catch(() => {
-      this.#lookupErrorDetail = `Authentication token from ${realm} for ${scope} not available`
-      return { data: { token: null } };
-    });
-
-    if (token) {
-      this.authed = true;
-      this.#axiosInstance.interceptors.request.use(function (config) {
-        config.headers.Authorization = `Bearer ${token}`;
-        return config;
+    const {
+      data,
+    } = await axios
+      .get(`${realm}?service=${service}&scope=${scope}`)
+      .catch(() => {
+        this.#lookupErrorDetail = `Authentication token from ${realm} for ${scope} not available`;
+        return { data: { token: null } };
       });
+
+    if (!data?.token) {
+      this.#lookupErrorDetail = `Authentication for: ${this.rawImageTag} failed`;
+      return;
     }
+
+    this.authed = true;
+    this.#axiosInstance.interceptors.request.use((config) => {
+      // eslint-disable-next-line no-param-reassign
+      config.headers.Authorization = `Bearer ${data.token}`;
+      return config;
+    });
   }
 
-  async #handleAxiosError(
-    endpointUrl,
-    error,
-  ) {
-
+  async #handleAxiosError(endpointUrl, error) {
     const connectionErrors = [
       'ECONNREFUSED',
       'ECONNABORTED',
@@ -208,27 +287,26 @@ class ImageVerifier {
     }
 
     if (this.authed) {
-      this.#lookupErrorDetail = `Authentication failed: ${this.rawImageTag} not available`;
+      this.#lookupErrorDetail = `Authentication failed: ${this.rawImageTag} not available or doesn't exist`;
       return { data: null };
     }
 
     const authDetails = ImageVerifier.parseAuthHeader(
-      error.response.headers['www-authenticate']
+      error.response.headers['www-authenticate'],
     );
 
     if (!authDetails) {
       this.#lookupErrorDetail = `Malformed Auth Header: ${this.rawImageTag} not available`;
+      return { data: null };
     }
 
     await this.#handleAuth(authDetails);
 
     if (!this.authed) return { data: null };
 
-    return this.#axiosInstance.get(
-      endpointUrl
-    ).catch((error) =>
-      this.#handleAxiosError(endpointUrl, error)
-    );
+    return this.#axiosInstance
+      .get(endpointUrl)
+      .catch((err) => this.#handleAxiosError(endpointUrl, err));
   }
 
   async #evaluateImageManifest(manifestIndex) {
@@ -256,14 +334,17 @@ class ImageVerifier {
       }
 
       // Can't remember 100% but think it's AWS that rate limits to 1/s if not authed.
+      // eslint-disable-next-line no-restricted-syntax
       for (const image of images) {
         // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => { setTimeout(r, 1_000) });
+        await new Promise((r) => {
+          setTimeout(r, 1_000);
+        });
         // eslint-disable-next-line no-await-in-loop
         const singleManifest = await this.#fetchManifest(image.digest);
         if (!this.error) evaluateSingleImage(singleManifest, image.platform.architecture);
       }
-    }
+    };
 
     const { mediaType } = manifestIndex;
 
@@ -288,23 +369,47 @@ class ImageVerifier {
   async #fetchManifest(id) {
     const manifestEndpoint = `${this.namespace}/${this.repository}/manifests/${id}`;
 
-    const { data: imageManifest } = await this.#axiosInstance.get(
-      manifestEndpoint,
-    ).catch((error) =>
-      this.#handleAxiosError(manifestEndpoint, error)
-    );
+    const { data: imageManifest } = await this.#axiosInstance
+      .get(manifestEndpoint)
+      .catch((error) => this.#handleAxiosError(manifestEndpoint, error));
 
     return imageManifest;
   }
 
   /**
- * Allows for descriptive errors to be throw if there are any errors present.
- * @returns {void}
- */
+   * Adds credentials to the verifier. The user is responsible for ensuring the
+   * credentials are formatted correclty.
+   * @param {string} credentials
+   */
+  addCredentials(credentials) {
+    const [username, password] = credentials
+      ? credentials.split(':')
+      : [null, null];
+    this.credentials = username && password ? { username, password } : null;
+  }
+
+  resetErrors() {
+    this.#parseErrorDetail = null;
+    this.#lookupErrorDetail = null;
+    this.#evaluationErrorDetail = null;
+  }
+
+  /**
+   * Allows for descriptive errors to be throw if there are any errors present.
+   * @returns {void}
+   */
   throwIfError() {
     if (!this.error) return;
 
-    throw new Error(this.#parseErrorDetail || this.#lookupErrorDetail || this.#evaluationErrorDetail)
+    try {
+      throw new Error(
+        this.#parseErrorDetail
+        || this.#lookupErrorDetail
+        || this.#evaluationErrorDetail,
+      );
+    } finally {
+      this.resetErrors();
+    }
   }
 
   /**
@@ -314,21 +419,54 @@ class ImageVerifier {
     this.#abortController.abort();
   }
 
+  async isWhitelisted() {
+    await this.#fetchWhitelist();
+
+    if (this.error) return false;
+
+    if (!this.useable) {
+      this.#evaluationErrorDetail = `Image Tag: ${this.rawImageTag} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY:TAG`;
+      return false;
+    }
+
+    const separators = ['/', ':'];
+
+    const whitelisted = ImageVerifier.whitelistedImages.find(
+      // doesn't matter if rawImageTag is shorter than img
+      (otherTag) => {
+        const len = otherTag.length;
+        const thisTag = this.rawImageTag;
+
+        return (
+          thisTag === otherTag
+          || (thisTag.slice(0, len) === otherTag
+            && separators.includes(thisTag.slice(len, len + 1)))
+        );
+      },
+    );
+
+    if (!whitelisted) {
+      this.#evaluationErrorDetail = 'Repository is not whitelisted. Please contact Flux Team.';
+    }
+
+    return Boolean(whitelisted);
+  }
+
   /**
-   * Checks that the image is available for this system's architecture, and that the image's size
-   * is less that the configured maximum image size.
+   * Checks that the image is available for the provided architecture set, and that the image's size
+   * is less that the configured maximum image size, for the provided architecture set.
    * @returns {Promise<boolean>}
    */
   async verifyImage() {
-    if (this.parseError) return;
+    if (this.error) return false;
 
     const imageManifest = await this.#fetchManifest(this.tag);
 
-    if (!imageManifest) return;
+    if (!imageManifest) return false;
 
     if (imageManifest.schemaVersion !== 2) {
-      this.#lookupErrorDetail = `Unsupported schemaVersion: ${imageManifest.schemaVersion} for: ${this.rawImageTag}`
-      return;
+      this.#lookupErrorDetail = `Unsupported schemaVersion: ${imageManifest.schemaVersion} for: ${this.rawImageTag}`;
+      return false;
     }
 
     await this.#evaluateImageManifest(imageManifest);
@@ -337,4 +475,14 @@ class ImageVerifier {
   }
 }
 
-module.exports = { ImageVerifier }
+async function main() {
+  const ver = new ImageVerifier('weintime/gravy:latest');
+  await ver.verifyImage();
+  ver.throwIfError();
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = { ImageVerifier };
