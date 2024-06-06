@@ -245,23 +245,26 @@ class ImageVerifier {
     const { realm, service, scope } = authDetails;
 
     const {
-      data,
+      data: { token },
     } = await axios
-      .get(`${realm}?service=${service}&scope=${scope}`)
-      .catch(() => {
-        this.#lookupErrorDetail = `Authentication token from ${realm} for ${scope} not available`;
+      .get(`${realm}?service=${service}&scope=${scope}`, { auth: this.credentials })
+      .catch((err) => {
+        const status = err?.response.status;
+
+        if (status === 401) {
+          this.#lookupErrorDetail = `Authentication rejected for: ${this.rawImageTag}`;
+        } else {
+          this.#lookupErrorDetail = `Authentication token from ${realm} for ${scope} not available`;
+        }
         return { data: { token: null } };
       });
 
-    if (!data?.token) {
-      this.#lookupErrorDetail = `Authentication for: ${this.rawImageTag} failed`;
-      return;
-    }
+    if (!token) return;
 
     this.authed = true;
     this.#axiosInstance.interceptors.request.use((config) => {
       // eslint-disable-next-line no-param-reassign
-      config.headers.Authorization = `Bearer ${data.token}`;
+      config.headers.Authorization = `Bearer ${token}`;
       return config;
     });
   }
@@ -473,16 +476,6 @@ class ImageVerifier {
 
     return this.verified;
   }
-}
-
-async function main() {
-  const ver = new ImageVerifier('weintime/gravy:latest');
-  await ver.verifyImage();
-  ver.throwIfError();
-}
-
-if (require.main === module) {
-  main();
 }
 
 module.exports = { ImageVerifier };
