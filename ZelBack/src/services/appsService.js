@@ -4535,7 +4535,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
  * Checks that the supplied Docker Image Tag is in the Flux Whitelist, if auth is provided,
  * that it is in the correct format, and verifies that the image can run on the Flux network,
  * and that it can run on this specific node (architecture match). Throws if requirements not met.
- * @param {*} repotag The Docker Image Tag
+ * @param {string} repotag The Docker Image Tag
  * @param {{repoauth?:string, skipVerification?:boolean, architecture:string}} options
  * @returns {Promise<void>}
  */
@@ -5725,12 +5725,12 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     await checkApplicationImagesComplience(appSpecifications);
 
     if (appSpecifications.version <= 3) {
-      // check repository whitelistend and repotag is available for download
+      // check repository whitelisted and repotag is available for download
       await verifyRepository(appSpecifications.repotag, { repoauth: appSpecifications.repoauth, skipVerification: true });
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
-        // check repository whitelistend and repotag is available for download
+        // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
         await verifyRepository(appComponent.repotag, { repoauth: appComponent.repoauth, skipVerification: true });
       }

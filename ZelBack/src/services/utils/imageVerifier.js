@@ -30,6 +30,19 @@ class ImageVerifier {
     ImageVerifier.lastWhitelistFetchTime = 0;
   }
 
+  /**
+   * Parse www-authenticate header
+   * @param {string} authHeader # www-auth header
+   * @returns {object} Object of parsed header - {realm, service, scope}
+   */
+  static parseAuthHeader(header) {
+    const match = ImageVerifier.wwwAuthHeaderPattern.exec(header);
+
+    if (!match) return null;
+
+    return { ...match.groups };
+  }
+
   static fetchLock = new AsyncLock();
 
   #abortController = new AbortController();
@@ -81,19 +94,6 @@ class ImageVerifier {
     this.#parseDockerTag();
 
     if (!this.parseError) this.#createAxiosInstance();
-  }
-
-  /**
-   * Parse www-authenticate header
-   * @param {string} authHeader # www-auth header
-   * @returns {object} Object of parsed header - {realm, service, scope}
-   */
-  static parseAuthHeader(header) {
-    const match = ImageVerifier.wwwAuthHeaderPattern.exec(header);
-
-    if (!match) return null;
-
-    return { ...match.groups };
   }
 
   get parseError() {
