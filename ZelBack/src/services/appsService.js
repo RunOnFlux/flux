@@ -3082,70 +3082,6 @@ async function systemArchitecture() {
 }
 
 /**
- * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
- * @param {object} appSpecs App specifications.
- * @returns {Promise<boolean>} True if no errors are thrown.
- */
-async function checkApplicationImagesComplience(appSpecs) {
-  const repos = await getBlockedRepositores();
-  const userBlockedRepos = await getUserBlockedRepositores();
-  if (!repos) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const pureImagesOrOrganisationsRepos = [];
-  repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-  });
-
-  // blacklist works also for zelid and app hash
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
-  }
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
-  }
-
-  const images = [];
-  const organisations = [];
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-
-  images.forEach((image) => {
-    if (pureImagesOrOrganisationsRepos.includes(image)) {
-      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-  organisations.forEach((org) => {
-    if (pureImagesOrOrganisationsRepos.includes(org)) {
-      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-
-  if (userBlockedRepos) {
-    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
-    images.forEach((image) => {
-      if (userBlockedRepos.includes(image.toLowerCase())) {
-        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
-      }
-    });
-  }
-
-  return true;
-}
-
-/**
  * To hard install an app. Pulls image/s, creates data volumes, creates components/app, assigns ports to components/app and starts all containers.
  * @param {object} appSpecifications App specifications.
  * @param {string} appName App name.
@@ -3159,11 +3095,17 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
 
-  // check whitelisted
-  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
-
   // check blacklist
+  // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    appSpecifications.repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
+
+  await imgVerifier.isWhitelisted();
+  imgVerifier.throwIfError();
 
   const pullConfig = { repoTag: appSpecifications.repotag };
 
@@ -3180,16 +3122,11 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       throw new Error('Provided credentials not in the correct username:token format');
     }
 
+    imgVerifier.addCredentials(authToken);
     pullConfig.authToken = authToken;
   }
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    appSpecifications.repotag,
-    { credentials: authToken, maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures }
-  );
-
   await imgVerifier.verifyImage();
-
   imgVerifier.throwIfError();
 
   if (!imgVerifier.supported) {
@@ -3680,11 +3617,17 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
 
-  // check whitelisted
-  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
-
   // check blacklist
+  // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    appSpecifications.repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
+
+  await imgVerifier.isWhitelisted();
+  imgVerifier.throwIfError();
 
   const pullConfig = { repoTag: appSpecifications.repotag };
 
@@ -3701,16 +3644,11 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
       throw new Error('Provided credentials not in the correct username:token format');
     }
 
+    imgVerifier.addCredentials(authToken);
     pullConfig.authToken = authToken;
   }
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    appSpecifications.repotag,
-    { credentials: authToken, maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures }
-  );
-
   await imgVerifier.verifyImage();
-
   imgVerifier.throwIfError();
 
   if (!imgVerifier.supported) {
@@ -4598,15 +4536,21 @@ async function verifyRepository(repotag, options = {}) {
   const skipVerification = options.skipVerification || false;
   const architecture = options.architecture || null;
 
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
+
+  await imgVerifier.isWhitelisted();
+  imgVerifier.throwIfError();
+
   // ToDo: fix this upstream
   if (repoauth && skipVerification) {
     return;
   }
 
-  let authToken = null;
-
   if (repoauth) {
-    authToken = await pgpService.decryptMessage(repoauth);
+    const authToken = await pgpService.decryptMessage(repoauth);
 
     if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
@@ -4615,15 +4559,11 @@ async function verifyRepository(repotag, options = {}) {
     if (!authToken.includes(':')) {
       throw new Error('Provided credentials not in the correct username:token format');
     }
+
+    imgVerifier.addCredentials(authToken);
   }
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    repotag,
-    { credentials: authToken, maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures }
-  );
-
   await imgVerifier.verifyImage();
-
   imgVerifier.throwIfError();
 
   if (architecture && !imgVerifier.supported) {
@@ -4688,6 +4628,70 @@ async function getUserBlockedRepositores() {
     log.error(error);
     return [];
   }
+}
+
+/**
+ * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
+ * @param {object} appSpecs App specifications.
+ * @returns {Promise<boolean>} True if no errors are thrown.
+ */
+async function checkApplicationImagesComplience(appSpecs) {
+  const repos = await getBlockedRepositores();
+  const userBlockedRepos = await getUserBlockedRepositores();
+  if (!repos) {
+    throw new Error('Unable to communicate with Flux Services! Try again later.');
+  }
+
+  const pureImagesOrOrganisationsRepos = [];
+  repos.forEach((repo) => {
+    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
+  });
+
+  // blacklist works also for zelid and app hash
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
+    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
+  }
+  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
+    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
+  }
+
+  const images = [];
+  const organisations = [];
+  if (appSpecs.version <= 3) {
+    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
+    images.push(repository);
+    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+    organisations.push(pureNamespace);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
+      images.push(repository);
+      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+      organisations.push(pureNamespace);
+    });
+  }
+
+  images.forEach((image) => {
+    if (pureImagesOrOrganisationsRepos.includes(image)) {
+      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+  organisations.forEach((org) => {
+    if (pureImagesOrOrganisationsRepos.includes(org)) {
+      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+
+  if (userBlockedRepos) {
+    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    images.forEach((image) => {
+      if (userBlockedRepos.includes(image.toLowerCase())) {
+        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+      }
+    });
+  }
+
+  return true;
 }
 
 /**
@@ -5709,19 +5713,20 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
 
   // Whitelist, repository checks
   if (checkDockerAndWhitelist) {
+    // check blacklist
+    await checkApplicationImagesComplience(appSpecifications);
+
     if (appSpecifications.version <= 3) {
-      // check repotag if available for download
+      // check repository whitelistend and repotag is available for download
       await verifyRepository(appSpecifications.repotag, { repoauth: appSpecifications.repoauth, skipVerification: true });
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
-        // check repotag if available for download
+        // check repository whitelistend and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
         await verifyRepository(appComponent.repotag, { repoauth: appComponent.repoauth, skipVerification: true });
       }
     }
-    // check blacklist
-    await checkApplicationImagesComplience(appSpecifications);
   }
 }
 
@@ -8799,7 +8804,8 @@ async function trySpawningGlobalApplication() {
           }
         }
       }
-      // check repotag if available for download
+
+      // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture });
     }

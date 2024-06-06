@@ -5,7 +5,6 @@ const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
-const generalService = require('./generalService');
 const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
 
