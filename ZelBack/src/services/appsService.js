@@ -4531,6 +4531,14 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   return true;
 }
 
+/**
+ * Checks that the supplied Docker Image Tag is in the Flux Whitelist, if auth is provided,
+ * that it is in the correct format, and verifies that the image can run on the Flux network,
+ * and that it can run on this specific node (architecture match). Throws if requirements not met.
+ * @param {*} repotag The Docker Image Tag
+ * @param {{repoauth?:string, skipVerification?:boolean, architecture:string}} options
+ * @returns {Promise<void>}
+ */
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
   const skipVerification = options.skipVerification || false;
