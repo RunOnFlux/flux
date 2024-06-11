@@ -6617,6 +6617,7 @@ async function storeAppRunningMessage(message) {
     const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
       // found a message that was already stored/bad message
+      log.warn(`Old Fluxapprunning message, more recent available, appName:${newAppRunningMessage.name} ip: ${newAppRunningMessage.ip}`);
       messageNotOk = true;
       break;
     }
