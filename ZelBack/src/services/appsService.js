@@ -6588,6 +6588,7 @@ async function storeAppRunningMessage(message) {
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
   if (validTill < Date.now()) {
+    log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
     // reject old message
     return false;
   }
