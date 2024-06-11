@@ -1,4 +1,3 @@
-/* global userconfig */
 const config = require('config');
 const https = require('https');
 const axios = require('axios');
@@ -3086,8 +3085,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
     throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
   }
-  // check repository whitelisted
-  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
   // check repotag if available for download
   // eslint-disable-next-line no-use-before-define
@@ -3590,8 +3587,6 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
     throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
   }
-  // check repository whitelisted
-  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
   // check repotag if available for download
   // eslint-disable-next-line no-use-before-define
@@ -5807,18 +5802,11 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   // Whitelist, repository checks
   if (checkDockerAndWhitelist) {
     if (appSpecifications.version <= 3) {
-      // check repository whitelisted
-      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
-
       // check repotag if available for download
       await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth, true);
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
-        // check repository whitelisted
-        // eslint-disable-next-line no-await-in-loop
-        await generalService.checkWhitelistedRepository(appComponent.repotag);
-
         // check repotag if available for download
         // eslint-disable-next-line no-await-in-loop
         await verifyRepository(appComponent.repotag, appComponent.repoauth, true);
@@ -6629,6 +6617,7 @@ async function storeAppRunningMessage(message) {
     const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
       // found a message that was already stored/bad message
+      log.warn(`Old Fluxapprunning message, more recent available, appName:${newAppRunningMessage.name} ip: ${newAppRunningMessage.ip}`);
       messageNotOk = true;
       break;
     }
@@ -9072,10 +9061,6 @@ async function trySpawningGlobalApplication() {
           }
         }
       }
-      // check repository whitelisted
-      // eslint-disable-next-line no-await-in-loop
-      await generalService.checkWhitelistedRepository(componentToInstall.repotag);
-
       // check repotag if available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, componentToInstall.repoauth);
@@ -10814,10 +10799,10 @@ async function syncthingApps() {
     const folderIds = [];
     const foldersConfiguration = [];
     const newFoldersConfiguration = [];
-    const myDeviceID = await syncthingService.getDeviceID();
-    if (myDeviceID.status !== 'success') {
-      return;
-    }
+    const myDeviceId = await syncthingService.getDeviceId();
+
+    if (!myDeviceId) return;
+
     const allFoldersResp = await syncthingService.getConfigFolders();
     const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
@@ -10842,7 +10827,7 @@ async function syncthingApps() {
             const folder = `${appsFolder + appId + containerFolder}`;
             const id = appId;
             const label = appId;
-            const devices = [{ deviceID: myDeviceID.data }];
+            const devices = [{ deviceID: myDeviceId }];
             const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execDIRst);
@@ -10874,7 +10859,7 @@ async function syncthingApps() {
                 }
               }
               if (deviceID) {
-                if (deviceID !== myDeviceID.data) { // skip my id, already present
+                if (deviceID !== myDeviceId) { // skip my id, already present
                   const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                   if (!folderDeviceExists) { // double check if not multiple the same ids
                     devices.push({ deviceID });
@@ -10889,7 +10874,7 @@ async function syncthingApps() {
                     autoAcceptFolders: true,
                   };
                   devicesIds.push(deviceID);
-                  if (deviceID !== myDeviceID.data) {
+                  if (deviceID !== myDeviceId) {
                     const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
                     if (!syncthingDeviceExists) {
                       devicesConfiguration.push(newDevice);
@@ -11037,7 +11022,7 @@ async function syncthingApps() {
               const folder = `${appsFolder + appId + containerFolder}`;
               const id = appId;
               const label = appId;
-              const devices = [{ deviceID: myDeviceID.data }];
+              const devices = [{ deviceID: myDeviceId }];
               const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
               // eslint-disable-next-line no-await-in-loop
               await cmdAsync(execDIRst);
@@ -11069,7 +11054,7 @@ async function syncthingApps() {
                   }
                 }
                 if (deviceID) {
-                  if (deviceID !== myDeviceID.data) { // skip my id, already present
+                  if (deviceID !== myDeviceId) { // skip my id, already present
                     const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                     if (!folderDeviceExists) { // double check if not multiple the same ids
                       devices.push({ deviceID });
@@ -11084,7 +11069,7 @@ async function syncthingApps() {
                       autoAcceptFolders: true,
                     };
                     devicesIds.push(deviceID);
-                    if (deviceID !== myDeviceID.data) {
+                    if (deviceID !== myDeviceId) {
                       const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
                       if (!syncthingDeviceExists) {
                         devicesConfiguration.push(newDevice);
@@ -11237,7 +11222,7 @@ async function syncthingApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
       // exclude our deviceID
-      if (nonUsedDevice.deviceID !== myDeviceID.data) {
+      if (nonUsedDevice.deviceID !== myDeviceId) {
         log.info(`Removing unused Syncthing device ${nonUsedDevice.deviceID}`);
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);

@@ -2,7 +2,16 @@
   <div>
     <b-card>
       <b-card-sub-title>
-        Note: Only verified images can currently run on Flux. To whitelist your image, please contact the Flux Team via
+        Note: Mining of any sort including bandwidth mining is prohibited as well as any illegal activites. Please read through
+        <b-link
+          href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+          target="_blank"
+          active-class="primary"
+          rel="noopener noreferrer"
+        >
+          Terms of Service
+        </b-link>
+        before deploying your application. In case of any question please contact the Flux Community via
         <b-link
           href="https://discord.gg/runonflux"
           target="_blank"
@@ -11,14 +20,14 @@
         >
           Discord
         </b-link>
-        or submit a Pull Request directly to
+        or submit an issue directly to
         <b-link
           href="https://github.com/RunOnFlux/flux"
           target="_blank"
           active-class="primary"
           rel="noopener noreferrer"
         >
-          Flux repository
+          Flux repository.
         </b-link>.
       </b-card-sub-title>
     </b-card>

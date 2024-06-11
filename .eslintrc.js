@@ -7,6 +7,9 @@ module.exports = {
     node: true,
     mocha: true,
   },
+  globals: {
+    userconfig: true,
+  },
   extends: [
     'plugin:vue/recommended',
     '@vue/eslint-config-airbnb',
