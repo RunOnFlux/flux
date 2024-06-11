@@ -3085,8 +3085,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
     throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
   }
-  // check repository whitelisted
-  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
   // check repotag if available for download
   // eslint-disable-next-line no-use-before-define
@@ -3589,8 +3587,6 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
     throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
   }
-  // check repository whitelisted
-  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
   // check repotag if available for download
   // eslint-disable-next-line no-use-before-define
@@ -5806,18 +5802,11 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   // Whitelist, repository checks
   if (checkDockerAndWhitelist) {
     if (appSpecifications.version <= 3) {
-      // check repository whitelisted
-      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
-
       // check repotag if available for download
       await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth, true);
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
-        // check repository whitelisted
-        // eslint-disable-next-line no-await-in-loop
-        await generalService.checkWhitelistedRepository(appComponent.repotag);
-
         // check repotag if available for download
         // eslint-disable-next-line no-await-in-loop
         await verifyRepository(appComponent.repotag, appComponent.repoauth, true);
@@ -9071,10 +9060,6 @@ async function trySpawningGlobalApplication() {
           }
         }
       }
-      // check repository whitelisted
-      // eslint-disable-next-line no-await-in-loop
-      await generalService.checkWhitelistedRepository(componentToInstall.repotag);
-
       // check repotag if available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, componentToInstall.repoauth);
