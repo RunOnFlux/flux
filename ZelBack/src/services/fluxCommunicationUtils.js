@@ -138,9 +138,13 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
     const zl = await deterministicFluxList(pubKey);
     if (dataObj.data && dataObj.data.type === 'fluxapprunning') {
       node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
+      log.warn(`Test 1 - Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey} nodelistSize: ${zl.length}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
       if (!node) {
-        log.warn(`Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey} nodelistSize: ${zl.length}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
-        return false;
+        node = zl.find((key) => key.pubkey.trim().toLowerCase() === pubKey.trim().toLowerCase() && dataObj.data.ip && dataObj.data.ip.trim() === key.ip.trim()); // check ip is on the network and belongs to broadcasted public key
+        if (!node) {
+          log.warn(`Test 2 - Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey} nodelistSize: ${zl.length}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
+          return false;
+        }
       }
     } else if (dataObj.data && dataObj.data.type === 'fluxipchanged') {
       node = zl.find((key) => key.pubkey === pubKey && dataObj.data.oldIP && dataObj.data.oldIP === key.ip); // check ip is on the network and belongs to broadcasted public key
