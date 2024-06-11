@@ -334,6 +334,7 @@ class ImageVerifier {
 
       if (!images.length) {
         this.#evaluationErrorDetail = `Docker image: ${this.rawImageTag} does not have a valid architecture`;
+        return;
       }
 
       // Can't remember 100% but think it's AWS that rate limits to 1/s if not authed.
