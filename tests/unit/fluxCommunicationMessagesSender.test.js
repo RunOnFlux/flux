@@ -509,7 +509,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
-          broadcastedAt: Date.now(),
           version: 3,
         },
       };
@@ -528,7 +527,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 312313,
-          broadcastedAt: Date.now(),
           version: 1,
         },
       };
@@ -547,7 +545,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hashes: 312313,
-          broadcastedAt: Date.now(),
           version: 2,
         },
       };
@@ -566,7 +563,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
-          broadcastedAt: Date.now(),
           version: 1,
         },
       };
@@ -590,7 +586,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
-          broadcastedAt: Date.now(),
           version: 1,
         },
       };
@@ -616,7 +611,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
-          broadcastedAt: Date.now(),
           version: 1,
         },
       };
@@ -644,7 +638,6 @@ describe('fluxCommunicationMessagesSender tests', () => {
         data: {
           type: 'fluxapprequest',
           hash: 'test1',
-          broadcastedAt: Date.now(),
           version: 1,
         },
       };
