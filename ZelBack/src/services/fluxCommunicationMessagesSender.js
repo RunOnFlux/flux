@@ -306,12 +306,13 @@ async function respondWithAppMessage(msgObj, ws) {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
-    const message = msgObj.data;
     const appsMessages = [];
-    if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number') {
+    if (!msgObj || typeof msgObj !== 'object' || !msgObj.data || typeof msgObj.type !== 'string' || typeof msgObj.version !== 'number'
+    || typeof msgObj.timestamp !== 'number') {
       throw new Error('Invalid Flux App Request message');
     }
+
+    const message = msgObj.data;
 
     if (message.version !== 1 && message.version !== 2) {
       throw new Error(`Invalid Flux App Request message, version ${message.version} not supported`);
@@ -334,12 +335,6 @@ async function respondWithAppMessage(msgObj, ws) {
           throw new Error('Invalid Flux App Request v2 message');
         }
       }
-    }
-
-    const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-    if (validTill < Date.now()) {
-    // reject old message
-      return;
     }
 
     // eslint-disable-next-line no-restricted-syntax
