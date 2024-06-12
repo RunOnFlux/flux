@@ -368,12 +368,21 @@ function handleIncomingConnection(websocket, req) {
         // and add him to blocklist
         try {
           // check if message comes from IP belonging to the public Key
-          const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
-          const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-          const nodeFound = possibleNodes.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || 16127) === peer.port);
+          let zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+          let nodeFound = zl.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || 16127) === peer.port);
           if (!nodeFound) {
-            log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
-            ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
+            // check if message comes from IP belonging to the public Key
+            zl = await fluxCommunicationUtils.deterministicFluxList(); // this itself is sufficient.
+            const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+            nodeFound = possibleNodes.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || 16127) === peer.port);
+            if (!nodeFound) {
+              log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
+              ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
+            } else {
+              blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+              log.warn(`closing incoming connection, adding peers ${pubKey}:${peer.port} to the blockedList. Originated from ${peer.ip}.`);
+              ws.close(4005, 'invalid message, blocked'); // close as of policy violation?
+            }
           } else {
             blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
             log.warn(`closing incoming connection, adding peers ${pubKey}:${peer.port} to the blockedList. Originated from ${peer.ip}.`);
