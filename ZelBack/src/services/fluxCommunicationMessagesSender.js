@@ -307,8 +307,7 @@ async function respondWithAppMessage(msgObj, ws) {
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const appsMessages = [];
-    if (!msgObj || typeof msgObj !== 'object' || !msgObj.data || typeof msgObj.type !== 'string' || typeof msgObj.version !== 'number'
-    || typeof msgObj.timestamp !== 'number') {
+    if (!msgObj.data) {
       throw new Error('Invalid Flux App Request message');
     }
 
