@@ -6593,9 +6593,6 @@ async function storeAppRunningMessage(message) {
     return false;
   }
 
-  const randomDelay = Math.floor((Math.random() * 1280)) + 240;
-  await serviceHelper.delay(randomDelay);
-
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
