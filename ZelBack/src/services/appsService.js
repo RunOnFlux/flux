@@ -6617,8 +6617,7 @@ async function storeAppRunningMessage(message) {
     // eslint-disable-next-line no-await-in-loop
     const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
-      // found a message that was already stored/bad message
-      log.warn(`Old Fluxapprunning message, more recent available, appName:${newAppRunningMessage.name} ip: ${newAppRunningMessage.ip} broadcastedAt: ${newAppRunningMessage.broadcastedAt} dbBroadcastedAt: ${result.broadcastedAt}`);
+      // found a message that was already stored/probably from duplicated message processsed
       messageNotOk = true;
       break;
     }
