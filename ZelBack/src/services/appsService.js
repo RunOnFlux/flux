@@ -9321,11 +9321,12 @@ async function checkAndNotifyPeersOfRunningApps() {
       }
     });
     installedAndRunning.push(...masterSlaveAppsInstalled);
+    const applicationsToBroadcast = [...new Set(installedAndRunning)];
     const apps = [];
     try {
       // eslint-disable-next-line no-restricted-syntax
-      for (const application of installedAndRunning) {
-        log.info(`${application.name} is running properly. Broadcasting status.`);
+      for (const application of applicationsToBroadcast) {
+        log.info(`${application.name} is running/installed properly. Broadcasting status.`);
         // eslint-disable-next-line no-await-in-loop
         // we can distinguish pure local apps from global with hash and height
         const newAppRunningMessage = {
