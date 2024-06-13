@@ -203,7 +203,7 @@ export default {
     connectSocket() {
       const { protocol, hostname, port } = window.location;
       // fix this
-      const apiPort = port + 1;
+      const apiPort = +port + 1;
       const url = `${protocol}//${hostname}:${apiPort}/debug`;
 
       console.log('URL', url);
