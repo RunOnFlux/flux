@@ -207,10 +207,13 @@ export default {
       const url = `${protocol}//${hostname}:${apiPort}/debug`;
 
       console.log('URL', url);
+      const zelidauth = localStorage.getItem('zelidauth');
+      console.log('ME AUTH', zelidauth);
 
       this.socket = io(url, {
         query: {
           roomName: 'outboundHttp',
+          authDetails: { zelidauth },
         },
         autoConnect: false,
       });
