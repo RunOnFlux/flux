@@ -41,7 +41,6 @@
 <script>
 import {} from 'bootstrap-vue';
 import io from 'socket.io-client';
-import querystring from 'node:querystring';
 
 export default {
   components: {},
@@ -207,8 +206,16 @@ export default {
       const apiPort = +port + 1;
       const url = `${protocol}//${hostname}:${apiPort}/debug`;
 
+      const fluxAuthString = localStorage.getItem('zelidauth');
+
+      if (!fluxAuthString) return;
+
+      const parsedAuthString = new URLSearchParams(fluxAuthString);
+
+      const zelidauth = Object.fromEntries(parsedAuthString.entries());
+
       console.log('URL', url);
-      const zelidauth = querystring.decode(localStorage.getItem('zelidauth'));
+
       console.log('ME AUTH', zelidauth);
 
       this.socket = io(url, {
