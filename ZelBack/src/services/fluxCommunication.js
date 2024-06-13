@@ -136,7 +136,9 @@ async function handleAppRunningMessage(message, fromIP, port) {
       });
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
-    log.info(`App Running Message from ${fromIP}:${port} rebroadcastToPeers: ${rebroadcastToPeers} timestampOK: ${timestampOK}`);
+    if (message.data.version === 2 && message.data.apps.includes((app) => app.name === 'Cyberfly1716846603130')) {
+      log.info(`App Running Message from ${fromIP}:${port} rebroadcastToPeers: ${rebroadcastToPeers} timestampOK: ${timestampOK} message: ${message.data}`);
+    }
   } catch (error) {
     log.error(error);
   }
