@@ -136,7 +136,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
       });
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
-    log.info(`App Running Message from ${fromIP}:${port.port} rebroadcastToPeers: ${rebroadcastToPeers} timestampOK: ${timestampOK}`);
+    log.info(`App Running Message from ${fromIP}:${port} rebroadcastToPeers: ${rebroadcastToPeers} timestampOK: ${timestampOK}`);
   } catch (error) {
     log.error(error);
   }
