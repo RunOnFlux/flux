@@ -8082,9 +8082,9 @@ export default {
       const url = this.selectedIp.split(':')[0];
       const urlPort = this.selectedIp.split(':')[1] || 16127;
       const zelidauth = localStorage.getItem('zelidauth');
-      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io`;
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/terminal`;
       if (this.ipAccess) {
-        queryUrl = `http://${url}:${urlPort}`;
+        queryUrl = `http://${url}:${urlPort}/terminal`;
       }
       this.socket = io.connect(queryUrl);
 

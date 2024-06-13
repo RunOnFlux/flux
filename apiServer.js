@@ -8,32 +8,41 @@ if (typeof AbortController === 'undefined') {
 }
 
 process.env.NODE_CONFIG_DIR = `${__dirname}/ZelBack/config/`;
-// Flux configuration
-const config = require('config');
-const fs = require('fs');
+
+const fs = require('node:fs');
 const http = require('node:http');
-const https = require('https');
-const path = require('path');
-const util = require('util');
-const nodecmd = require('node-cmd');
-const app = require('./ZelBack/src/lib/server');
-const log = require('./ZelBack/src/lib/log');
-const socket = require('./ZelBack/src/lib/socket');
-const serviceManager = require('./ZelBack/src/services/serviceManager');
-const upnpService = require('./ZelBack/src/services/upnpService');
+const https = require('node:https');
+const path = require('node:path');
+const { watch } = require('node:fs/promises');
+
+const axios = require('axios').default;
+const config = require('config');
 const hash = require('object-hash');
-const { watch } = require('fs/promises');
 const eWS = require('express-ws');
 
-const cmdAsync = util.promisify(nodecmd.get);
+const app = require('./ZelBack/src/lib/server');
+const log = require('./ZelBack/src/lib/log');
+const { SocketIoServer } = require('./ZelBack/src/lib/socketIoServer');
+const serviceManager = require('./ZelBack/src/services/serviceManager');
+const serviceHelper = require('./ZelBack/src/services/serviceHelper');
+const upnpService = require('./ZelBack/src/services/upnpService');
+const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
+
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
 let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
+
+let requestHistory = null;
+let axiosDefaultsSet = false;
 
 /**
  * The Cacheable. So we only instantiate it once (and for testing)
  */
 let cacheable = null;
+
+function getrequestHistory() {
+  return requestHistory;
+}
 
 /**
  * Gets the cacheable CacheableLookup() for testing
@@ -87,6 +96,42 @@ async function createDnsCache(userCache) {
   }
 }
 
+function setAxiosDefaults(options = {}) {
+  if (axiosDefaultsSet) return;
+
+  axiosDefaultsSet = true;
+
+  const rooms = options.rooms || [];
+
+  log.info('setting axios defaults');
+  axios.defaults.timeout = 20_000;
+
+  if (!globalThis.userconfig.initial.debug) return;
+
+  requestHistory = new requestHistoryStore.RequestHistory({ maxAge: 30_000 });
+
+  requestHistory.on('requestAdded', (request) => {
+    rooms.forEach((room) => room.emit('addRequest', request));
+  });
+
+  requestHistory.on('requestRemoved', (request) => {
+    rooms.forEach((room) => room.emit('removeRequest', request));
+  });
+
+  axios.interceptors.request.use(
+    (conf) => {
+      const { url, method, timeout } = conf;
+      const requestData = {
+        url, method, timeout, timestamp: new Date(),
+      };
+      requestHistory.storeRequest(requestData);
+
+      return conf;
+    },
+    (error) => Promise.reject(error),
+  );
+}
+
 async function loadUpnpIfRequired() {
   try {
     let verifyUpnp = false;
@@ -137,6 +182,19 @@ async function configReload() {
   }
 }
 
+function startServer(target, port) {
+  return new Promise((resolve, reject) => {
+    const server = target.listen(port);
+    server.once('error', (err) => {
+      server.listeners('listening').forEach((l) => server.removeListener('listening', l));
+      reject(err);
+    }).once('listening', () => {
+      server.listeners('error').forEach((l) => server.removeListener('error', l));
+      resolve(server);
+    });
+  });
+}
+
 /**
  *
  * @returns {Promise<String>}
@@ -147,6 +205,17 @@ async function initiate() {
     process.exit();
   }
 
+  process.on('uncaughtException', (err) => {
+    // the express server port in use is uncatchable for some reason
+    // remove this in future
+    if (err.code === 'EADDRINUSE') {
+      console.log('Flux api server port in use, shutting down.');
+    } else {
+      console.log(err);
+    }
+    process.exit();
+  });
+
   await createDnsCache();
 
   await loadUpnpIfRequired();
@@ -155,38 +224,61 @@ async function initiate() {
     configReload();
   }, 2 * 1000);
 
-  const server = app.listen(apiPort, () => {
-    log.info(`Flux listening on port ${apiPort}!`);
-    serviceManager.startFluxFunctions();
+  const appRoot = process.cwd();
+  // ToDo: move this to async
+  const certExists = fs.existsSync(path.join(appRoot, 'certs/v1.key'));
+
+  if (!certExists) {
+    const cwd = path.join(appRoot, 'helpers');
+    await serviceHelper.runCommand('createSSLcert.sh', { cwd });
+  }
+
+  // ToDo: move these to async
+  const key = fs.readFileSync(path.join(appRoot, 'certs/v1.key'), 'utf8');
+  const cert = fs.readFileSync(path.join(appRoot, 'certs/v1.crt'), 'utf8');
+
+  const credentials = { key, cert };
+
+  const appHttps = https.createServer(credentials, app);
+
+  eWS(app, appHttps);
+
+  const serverHttp = await startServer(app, apiPort).catch((err) => {
+    log.error(err);
+    process.exit();
   });
 
-  socket.initIO(server);
+  log.info(`Flux listening on port ${apiPort}!`);
 
-  try {
-    const certExists = fs.existsSync(path.join(__dirname, './certs/v1.key'));
-    if (!certExists) {
-      const nodedpath = path.join(__dirname, './helpers');
-      const exec = `cd ${nodedpath} && bash createSSLcert.sh`;
-      await cmdAsync(exec);
-    }
-    const key = fs.readFileSync(path.join(__dirname, './certs/v1.key'), 'utf8');
-    const cert = fs.readFileSync(path.join(__dirname, './certs/v1.crt'), 'utf8');
-    const credentials = { key, cert };
-    const httpsServer = https.createServer(credentials, app);
-    eWS(app, httpsServer);
-    const serverHttps = httpsServer.listen(apiPortHttps, () => {
-      log.info(`Flux https listening on port ${apiPortHttps}!`);
-    });
-    socket.initIO(serverHttps);
-  } catch (error) {
-    log.error(error);
-  }
+  const serverHttps = await startServer(appHttps, apiPortHttps).catch((err) => {
+    log.error(err);
+    process.exit();
+  });
+
+  log.info(`Flux https listening on port ${apiPortHttps}!`);
+
+  const socketIoHttp = new SocketIoServer(serverHttp);
+  const socketIoHttps = new SocketIoServer(serverHttps);
+
+  socketIoHttp.listen();
+  socketIoHttps.listen();
+
+  const debugRoomHttp = socketIoHttp.getRoom('httpOutbound', { namespace: 'debug' });
+  const debugRoomHttps = socketIoHttps.getRoom('httpOutbound', { namespace: 'debug' });
+
+  setAxiosDefaults({ rooms: [debugRoomHttp, debugRoomHttps] });
+
+  serviceManager.startFluxFunctions();
+
   return apiPort;
 }
+
+initiate();
 
 module.exports = {
   createDnsCache,
   getCacheable,
-  resetCacheable,
+  getrequestHistory,
   initiate,
+  resetCacheable,
 };

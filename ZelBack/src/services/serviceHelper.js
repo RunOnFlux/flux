@@ -1,7 +1,7 @@
 const util = require('node:util');
 const execFile = util.promisify(require('node:child_process').execFile);
 
-const axios = require('axios');
+const axios = require('axios').default;
 const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
@@ -9,6 +9,13 @@ const qs = require('qs');
 const asyncLock = require('./utils/asyncLock');
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
+
+const fluxController = require('./utils/fluxController');
+
+/**
+ * The Service Helper controller
+ */
+const shc = new fluxController.FluxController();
 
 /**
  * The max time a child process can run for (15 minutes)
@@ -156,29 +163,56 @@ function isDecimalLimit(value, decimals = 8) {
 }
 
 /**
- * To handle timeouts on axios connection.
- * @param {string} url URL.
- * @param {object} options Options object.
- * @returns {object} Response.
+ * A central place for axios get requests. The defaults are set in apiServer.js
+ * @param {string} url The request URL
+ * @param {*} userOptions Standard axios options
+ * @returns
  */
-// helper function for timeout on axios connection
-const axiosGet = (url, options = {}) => {
-  if (!options.timeout) {
-    // eslint-disable-next-line no-param-reassign
-    options.timeout = 20000;
-  }
-  const abort = axios.CancelToken.source();
-  const id = setTimeout(
-    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
-    options.timeout,
-  );
-  return axios
-    .get(url, { cancelToken: abort.token, ...options })
-    .then((res) => {
-      clearTimeout(id);
-      return res;
-    });
-};
+async function axiosGet(url, userOptions = {}) {
+  const options = { ...userOptions };
+
+  if (!options.signal) options.signal = shc.signal;
+
+  console.log(url, options);
+  return axios.get(url, options);
+}
+
+/**
+ * A central place for axios post requests. The defaults are set in apiServer.js
+ * @param {string} url The request URL
+ * @param {object} userOptions Standard axios options
+ * @param {any} data The data to post
+ * @returns {Proimse<AxiosResponse>}
+ */
+async function axiosPost(url, data, userOptions = {}) {
+  const options = { ...userOptions };
+
+  if (!options.signal) options.signal = shc.signal;
+
+  return axios.post(url, data, options);
+}
+
+/**
+ * A generic axios instance. This allows for a central place to manage
+ * all axios instance creations. All instances have the global interceptors
+ * merged (if debug enabled this logs outbound requests). If no abort signal
+ * is passed in, the global service helper controller signal is used.
+ *
+ * @param {object} options Standard axios options
+ * @returns {object} AxiosInstance
+ */
+function createAxiosinstance(userOptions = {}) {
+  const options = { ...userOptions };
+
+  if (!options.signal) options.signal = shc.signal;
+
+  const instance = axios.create({
+    ...axios.defaults,
+    ...options,
+  });
+
+  return instance;
+}
 
 /**
  * To convert a docker steam buffer to a string
@@ -395,7 +429,9 @@ function minVersionSatisfy(targetVersion, minimumVersion) {
 
 module.exports = {
   axiosGet,
+  axiosPost,
   commandStringToArray,
+  createAxiosinstance,
   delay,
   deleteLoginPhrase,
   dockerBufferToString,

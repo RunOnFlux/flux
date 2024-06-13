@@ -446,7 +446,15 @@ export default {
       this.ssoVerification = false;
     },
     async daemonWelcomeGetFluxNodeStatus() {
-      const response = await DaemonService.getFluxNodeStatus();
+      const response = await DaemonService.getFluxNodeStatus().catch(() => null);
+
+      if (!response) {
+        this.getNodeStatusResponse.status = 'UNKNOWN';
+        this.getNodeStatusResponse.nodeStatus = 'Unable to connect to Flux Blockchain Daemon.';
+        this.getNodeStatusResponse.class = 'danger';
+        return;
+      }
+
       this.getNodeStatusResponse.status = response.data.status;
       this.getNodeStatusResponse.data = response.data.data;
       if (this.getNodeStatusResponse.data) {
