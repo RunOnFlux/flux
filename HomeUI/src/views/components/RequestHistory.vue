@@ -202,9 +202,11 @@ export default {
     },
     connectSocket() {
       const { protocol, hostname, port } = window.location;
-      console.log('WINDOW LOCATION:', protocol, hostname, port);
       // fix this
-      const url = `${protocol}://${hostname}:${port}/debug`;
+      const apiPort = port + 1;
+      const url = `${protocol}//${hostname}:${apiPort}/debug`;
+
+      console.log('URL', url);
 
       this.socket = io(url, {
         query: {
