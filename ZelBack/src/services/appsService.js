@@ -6616,7 +6616,7 @@ async function storeAppRunningMessage(message) {
     if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
       // found a message that was already stored/probably from duplicated message processsed
       if (message.ip === '94.16.104.218') {
-        log.info(`App Running Message from IP 94.16.104.218 - found a message that was already stored result.broadcastedAt: ${result.broadcastedAt} newAppRunningMessage.broadcastedAt: ${newAppRunningMessage.broadcastedAt} message: ${newAppRunningMessage}`);
+        log.info(`App Running Message from IP 94.16.104.218 - found a message that was already stored result.broadcastedAt: ${result.broadcastedAt} newAppRunningMessage.broadcastedAt: ${newAppRunningMessage.broadcastedAt} message: ${JSON.stringify(newAppRunningMessage)}`);
       }
       messageNotOk = true;
       break;
@@ -6632,7 +6632,7 @@ async function storeAppRunningMessage(message) {
       upsert: true,
     };
     if (message.ip === '94.16.104.218') {
-      log.info(`Message from IP 94.16.104.218 is going to be stored message: ${newAppRunningMessage}`);
+      log.info(`Message from IP 94.16.104.218 is going to be stored message: ${JSON.stringify(newAppRunningMessage)}`);
     }
     // eslint-disable-next-line no-await-in-loop
     await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
