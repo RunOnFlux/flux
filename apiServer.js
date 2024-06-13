@@ -273,8 +273,6 @@ async function initiate() {
   return apiPort;
 }
 
-initiate();
-
 module.exports = {
   createDnsCache,
   getCacheable,

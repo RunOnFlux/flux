@@ -201,7 +201,12 @@ export default {
       if (!this.requests[origin].length) delete this.requests[origin];
     },
     connectSocket() {
-      this.socket = io('http://localhost:3333/debug', {
+      const { protocol, hostname, port } = window.location;
+      console.log('WINDOW LOCATION:', protocol, hostname, port);
+      // fix this
+      const url = `${protocol}://${hostname}:${port}/debug`;
+
+      this.socket = io(url, {
         query: {
           roomName: 'outboundHttp',
         },
