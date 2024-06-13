@@ -96,19 +96,33 @@ async function createDnsCache(userCache) {
   }
 }
 
-function setAxiosDefaults(options = {}) {
+function setAxiosDefaults(socketIoServers) {
   if (axiosDefaultsSet) return;
 
   axiosDefaultsSet = true;
-
-  const rooms = options.rooms || [];
 
   log.info('setting axios defaults');
   axios.defaults.timeout = 20_000;
 
   if (!globalThis.userconfig.initial.debug) return;
 
+  log.info('Userconfig debug set, setting up socket.io for debug');
   requestHistory = new requestHistoryStore.RequestHistory({ maxAge: 30_000 });
+
+  const rooms = [];
+
+  socketIoServers.forEach((server) => {
+    const debugRoom = server.getRoom('httpOutbound', { namespace: 'debug' });
+    rooms.push(debugRoom);
+
+    const debugAdapter = server.getAdapter('debug');
+    debugAdapter.on('join-room', (room, id) => {
+      if (room !== 'httpOutbound') return;
+
+      const socket = server.getSocketById('debug', id);
+      socket.emit(requestHistory.allHistory);
+    });
+  });
 
   requestHistory.on('requestAdded', (request) => {
     rooms.forEach((room) => room.emit('addRequest', request));
@@ -263,10 +277,7 @@ async function initiate() {
   socketIoHttp.listen();
   socketIoHttps.listen();
 
-  const debugRoomHttp = socketIoHttp.getRoom('httpOutbound', { namespace: 'debug' });
-  const debugRoomHttps = socketIoHttps.getRoom('httpOutbound', { namespace: 'debug' });
-
-  setAxiosDefaults({ rooms: [debugRoomHttp, debugRoomHttps] });
+  setAxiosDefaults([socketIoHttp, socketIoHttps]);
 
   serviceManager.startFluxFunctions();
 
