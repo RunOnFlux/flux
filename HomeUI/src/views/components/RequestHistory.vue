@@ -41,6 +41,7 @@
 <script>
 import {} from 'bootstrap-vue';
 import io from 'socket.io-client';
+import querystring from 'node:querystring';
 
 export default {
   components: {},
@@ -207,7 +208,7 @@ export default {
       const url = `${protocol}//${hostname}:${apiPort}/debug`;
 
       console.log('URL', url);
-      const zelidauth = localStorage.getItem('zelidauth');
+      const zelidauth = querystring.decode(localStorage.getItem('zelidauth'));
       console.log('ME AUTH', zelidauth);
 
       this.socket = io(url, {
