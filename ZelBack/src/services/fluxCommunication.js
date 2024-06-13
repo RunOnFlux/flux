@@ -136,9 +136,6 @@ async function handleAppRunningMessage(message, fromIP, port) {
       });
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
-    if (message.data.ip === '94.16.104.218') {
-      log.info(`App Running Message from ${fromIP}:${port} rebroadcastToPeers: ${rebroadcastToPeers} timestampOK: ${timestampOK} message: ${JSON.stringify(message.data)}`);
-    }
   } catch (error) {
     log.error(error);
   }
@@ -319,30 +316,17 @@ function handleIncomingConnection(websocket, req) {
         }
         return;
       }
-      let importanteMessage = false;
-      if (msgObj.data.type === 'fluxapprunning' && msgObj.data.ip === '94.16.104.218') {
-        importanteMessage = true;
-        log.info(`App Running Message Received from original ip 94.16.104.218 received from ip: ${ipv4Peer} port: ${port}`);
-      }
 
       // check if we have the message in cache. If yes, return false. If not, store it and continue
       await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should jelp on processing duplicated messages received at same timestamp
       const messageHash = hash(msgObj.data);
       if (myCacheTemp.has(messageHash)) {
-        if (importanteMessage) {
-          log.info('App Running Message Received from original ip 94.16.104.218 rejected duplciated in cache');
-        }
         return;
       }
       myCacheTemp.set(messageHash, messageHash);
       // check rate limit
       const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
       if (!rateOK) {
-        if (importanteMessage) {
-          log.info('App Running Message Received from original ip 94.16.104.218 rejected rate limit');
-        } else {
-          log.info(`Message rejected rate limit ${ipv4Peer}:${port}`);
-        }
         return; // do not react to the message
       }
 
@@ -643,18 +627,10 @@ async function initiateAndHandleConnection(connection) {
         }
         return;
       }
-      let importanteMessage = false;
-      if (msgObj.data.type === 'fluxapprunning' && msgObj.data.ip === '94.16.104.218') {
-        importanteMessage = true;
-        log.info(`App Running Message Received from original ip 94.16.104.218 received from ip: ${ip} port: ${port}`);
-      }
       // check if we have the message in cache. If yes, return false. If not, store it and continue
       await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should help processing duplicated messages received at same timestamp
       const messageHash = hash(msgObj.data);
       if (myCacheTemp.has(messageHash)) {
-        if (importanteMessage) {
-          log.info('App Running Message Received from original ip 94.16.104.218 rejected duplciated in cache');
-        }
         return;
       }
       myCacheTemp.set(messageHash, messageHash);
@@ -663,11 +639,6 @@ async function initiateAndHandleConnection(connection) {
       // check rate limit
       const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
       if (!rateOK) {
-        if (importanteMessage) {
-          log.info('App Running Message Received from original ip 94.16.104.218 rejected rate limit');
-        } else {
-          log.info(`Message rejected rate limit ${ip}:${port}`);
-        }
         return; // do not react to the message
       }
       // check blocked list
