@@ -221,7 +221,7 @@ export default {
       this.socket = io(url, {
         query: {
           roomName: 'outboundHttp',
-          authDetails: { zelidauth },
+          authDetails: { headers: { zelidauth } },
         },
         autoConnect: false,
       });

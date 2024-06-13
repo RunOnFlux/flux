@@ -126,6 +126,7 @@ async function verifyFluxTeamSession(headers) {
  * @returns {Promise<boolean>}
  */
 async function verifyAdminAndFluxTeamSession(headers) {
+  console.log('ME HEADERS', headers);
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
@@ -138,7 +139,7 @@ async function verifyAdminAndFluxTeamSession(headers) {
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
-
+  console.log('LOGGED USER', loggedUser);
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
