@@ -197,7 +197,7 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300000)
   if (currentTimeStamp < (timestamp + maxOld)) { // not older than 5 mins
     return true;
   }
-  log.warn(`Timestamp ${timestamp} of message is too old ${currentTimeStamp}. Message: ${JSON.stringify(dataObj.data)}`);
+  log.warn(`Timestamp ${timestamp} of message is too old ${currentTimeStamp}}`);
   return false;
 }
 
