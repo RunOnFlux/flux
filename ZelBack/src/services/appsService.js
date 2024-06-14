@@ -6620,6 +6620,8 @@ async function storeAppRunningMessage(message) {
     }
     if (message.runningSince) {
       newAppRunningMessage.runningSince = new Date(message.runningSince);
+    } else if (app.runningSince) {
+      newAppRunningMessage.runningSince = new Date(app.runningSince);
     } else if (result && result.runningSince) {
       newAppRunningMessage.runningSince = result.runningSince;
     }
@@ -9317,9 +9319,20 @@ async function checkAndNotifyPeersOfRunningApps() {
     installedAndRunning.push(...masterSlaveAppsInstalled);
     const applicationsToBroadcast = [...new Set(installedAndRunning)];
     const apps = [];
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
     try {
       // eslint-disable-next-line no-restricted-syntax
       for (const application of applicationsToBroadcast) {
+        const queryFind = { name: application.name, ip: myIP };
+        const projection = { _id: 0, runningSince: 1 };
+        let runningOnMyNodeSince = Date.now();
+        // we already have the exact same data
+        // eslint-disable-next-line no-await-in-loop
+        const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+        if (result && result.runningSince) {
+          runningOnMyNodeSince = result.runningSince;
+        }
         log.info(`${application.name} is running/installed properly. Broadcasting status.`);
         // eslint-disable-next-line no-await-in-loop
         // we can distinguish pure local apps from global with hash and height
@@ -9330,10 +9343,12 @@ async function checkAndNotifyPeersOfRunningApps() {
           hash: application.hash, // hash of application specifics that are running
           ip: myIP,
           broadcastedAt: Date.now(),
+          runningSince: runningOnMyNodeSince,
         };
         const app = {
           name: application.name,
           hash: application.hash,
+          runningSince: runningOnMyNodeSince,
         };
         apps.push(app);
         // store it in local database first
