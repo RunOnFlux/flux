@@ -127,9 +127,7 @@ export default {
     },
     timestampToLastSeen(timestamp) {
       const lastSeenSeconds = (Date.now() - timestamp) / 1000;
-      console.log('LAST SEEN SECONDS', lastSeenSeconds);
-      // const lastSeen = new Date(lastSeenSeconds * 1000).toISOString().substring(11, 19);
-      const lastSeen = new Date(Date.now()).toISOString().substring(11, 19);
+      const lastSeen = new Date(lastSeenSeconds * 1000).toISOString().substring(11, 19);
 
       return lastSeen;
     },
@@ -232,19 +230,11 @@ export default {
       this.socket.on('addRequest', (request) => this.requestAddedHandler(request));
       this.socket.on('removeRequest', (request) => this.requestRemovedHandler(request));
 
-      // this.socket.onAny((event, ...args) => {
-      //   console.log(`got ${event}`, ...args);
-      // });
+      this.socket.onAny((event, ...args) => {
+        console.log(`got ${event}`, ...args);
+      });
 
       this.socket.connect();
-    },
-    requestsByTarget(target) {
-      return this.requests[target].map((t) => {
-        const { timestamp: unix, method: verb, ...rest } = t;
-        const fullDate = new Date(unix);
-        const timestamp = fullDate.toUTCString();
-        return { timestamp, ...rest };
-      });
     },
     latestRequest(target) {
       const max = this.requests[target].reduce(

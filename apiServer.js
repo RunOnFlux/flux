@@ -138,7 +138,7 @@ function setAxiosDefaults(socketIoServers) {
     (conf) => {
       const { url, method, timeout } = conf;
       const requestData = {
-        url, method, timeout, timestamp: new Date(),
+        url, verb: method.toUpperCase(), timeout, timestamp: Date.now(),
       };
       requestHistory.storeRequest(requestData);
 
