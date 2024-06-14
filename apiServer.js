@@ -262,12 +262,12 @@ async function initiate() {
 
   eWS(app, appHttps);
 
-  const serverHttp = await startServer(app, apiPort).catch((err) => {
+  const serverHttp = await startServer(app, 3333).catch((err) => {
     log.error(err);
     process.exit();
   });
 
-  log.info(`Flux listening on port ${apiPort}!`);
+  log.info(`Flux listening on port ${3333}!`);
 
   const serverHttps = await startServer(appHttps, apiPortHttps).catch((err) => {
     log.error(err);
@@ -287,6 +287,10 @@ async function initiate() {
   serviceManager.startFluxFunctions();
 
   return apiPort;
+}
+
+if (require.main === module) {
+  initiate();
 }
 
 module.exports = {

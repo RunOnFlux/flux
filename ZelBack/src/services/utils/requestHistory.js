@@ -23,7 +23,6 @@ class RequestHistory extends EventEmitter {
     try {
       return new URL(url);
     } catch {
-      this.emit('parseError', url);
       return null;
     }
   }
@@ -48,7 +47,10 @@ class RequestHistory extends EventEmitter {
 
     console.log('STORING REQUEST URL', url);
 
-    if (!url) return;
+    if (!url) {
+      this.emit('parseError', url);
+      return;
+    }
 
     const id = crypto.randomUUID();
 

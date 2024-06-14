@@ -4,13 +4,9 @@ const verificationHelper = require('../../services/verificationHelper');
 const log = require('../log');
 
 async function debugHandler(socket) {
-  console.log('DEBUG HANDLER RUNNING');
   const { handshake: { query, address } } = socket;
 
   const { authDetails, roomName } = query;
-
-  log.info('AUTH DETAILS', authDetails);
-  log.info('ROOM NAME', roomName);
 
   if (!authDetails || !roomName) {
     socket.emit('error', 'Unauthorized');
@@ -20,8 +16,6 @@ async function debugHandler(socket) {
   }
 
   const parsed = querystring.decode(authDetails);
-
-  console.log('PARSED HERE', parsed);
 
   const req = { headers: { zelidauth: parsed } };
 

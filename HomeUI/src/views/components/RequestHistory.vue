@@ -11,6 +11,9 @@
         <b-col align="center">
           15 min Requests: {{ fifteenMinuteRequests }}
         </b-col>
+        <b-col align="center">
+          1 hour Requests: {{ totalRequests }}
+        </b-col>
       </b-row>
     </b-card>
     <b-container fluid class="p-0 wrapper">
@@ -25,7 +28,7 @@
         :fields="primaryFields"
         bordered
         responsive
-        sticky-header="500px"
+        sticky-header="100%"
         primary-key="origin"
         no-border-collapse
         show-empty
@@ -49,9 +52,8 @@
             :items="item.requests"
             :fields="secondaryFields"
             bordered
-            hover
             fixed
-            sticky-header
+            sticky-header="400px"
             primary-key="id"
             no-border-collapse
             @scroll.native="onScroll($event, item.target)"
@@ -107,6 +109,9 @@ export default {
     fifteenMinuteRequests() {
       const timestamp = Date.now() - 60_000 * 15;
       return this.requestsSinceTimestamp(timestamp);
+    },
+    totalRequests() {
+      return Object.values(this.requests).reduce((total, current) => total + current.length, 0);
     },
   },
   mounted() {
@@ -244,7 +249,7 @@ export default {
     },
     toggleDetails(row) {
       Object.keys(this.autoScroll).forEach((k) => { this.autoScroll[k] = false; });
-
+      console.log(row);
       // eslint-disable-next-line
       if (row._showDetails) {
         this.$set(row, '_showDetails', false);
@@ -258,18 +263,21 @@ export default {
         });
       }
     },
-    onScroll(event, origin) {
-      const { target: { scrollTop, clientHeight, scrollHeight } } = event;
+    onScroll() {},
+    // onScroll(event, origin) {
+    //   const { target: { scrollTop, clientHeight, scrollHeight } } = event;
 
-      // why does scrollTop have an extra 0.5???
-      this.autoScroll[origin] = scrollTop + clientHeight + 1 >= scrollHeight;
-    },
-    scrollToRow(origin, index) {
-      const ref = `requestsTable_${origin}`;
-      const tbody = this.$refs[ref].$el.querySelector('tbody');
-      const row = tbody.querySelectorAll('tr')[index];
-      row.scrollIntoView();
-    },
+    //   // why does scrollTop have an extra 0.5???
+    //   this.autoScroll[origin] = scrollTop + clientHeight + 1 >= scrollHeight;
+    // },
+    scrollToRow() {},
+    // scrollToRow(origin, index) {
+    //   const ref = `requestsTable_${origin}`;
+    //   const tbody = this.$refs[ref].$el.querySelector('tbody');
+    //   const row = tbody.querySelectorAll('tr')[index];
+    //   // row.scrollIntoView();
+    //   row.scrollTop = 50;
+    // },
   },
 };
 </script>
@@ -281,5 +289,9 @@ export default {
 .action-button {
   height: 30px;
   padding: 0;
+}
+.success td
+{
+    background-color:red !important;
 }
 </style>
