@@ -262,12 +262,12 @@ async function initiate() {
 
   eWS(app, appHttps);
 
-  const serverHttp = await startServer(app, 3333).catch((err) => {
+  const serverHttp = await startServer(app, apiPort).catch((err) => {
     log.error(err);
     process.exit();
   });
 
-  log.info(`Flux listening on port ${3333}!`);
+  log.info(`Flux listening on port ${apiPort}!`);
 
   const serverHttps = await startServer(appHttps, apiPortHttps).catch((err) => {
     log.error(err);
