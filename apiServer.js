@@ -110,15 +110,16 @@ function setAxiosDefaults(socketIoServers) {
   requestHistory = new requestHistoryStore.RequestHistory({ maxAge: 60_000 * 60 });
 
   const rooms = [];
+  const requestRoom = 'outboundHttp';
 
   socketIoServers.forEach((server) => {
-    const debugRoom = server.getRoom('httpOutbound', { namespace: 'debug' });
+    const debugRoom = server.getRoom(requestRoom, { namespace: 'debug' });
     rooms.push(debugRoom);
 
     const debugAdapter = server.getAdapter('debug');
     debugAdapter.on('join-room', (room, id) => {
       log.info(`JOINRECEIVED: ${room}, ${id}`);
-      if (room !== 'outboundHttp') return;
+      if (room !== requestRoom) return;
 
       const socket = server.getSocketById('debug', id);
       console.log('EMITTING HISTORY');
