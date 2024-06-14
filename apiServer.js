@@ -107,7 +107,7 @@ function setAxiosDefaults(socketIoServers) {
   if (!globalThis.userconfig.initial.debug) return;
 
   log.info('Userconfig debug set, setting up socket.io for debug');
-  requestHistory = new requestHistoryStore.RequestHistory({ maxAge: 30_000 });
+  requestHistory = new requestHistoryStore.RequestHistory({ maxAge: 60_000 * 60 });
 
   const rooms = [];
 
@@ -127,10 +127,12 @@ function setAxiosDefaults(socketIoServers) {
   });
 
   requestHistory.on('requestAdded', (request) => {
+    console.log('REQUEST ADDED TO HISTORY.... EMITTING');
     rooms.forEach((room) => room.emit('addRequest', request));
   });
 
   requestHistory.on('requestRemoved', (request) => {
+    console.log('REQUESET REMOVED FROM HISTORY... emitting');
     rooms.forEach((room) => room.emit('removeRequest', request));
   });
 
