@@ -111,9 +111,9 @@ export default {
   },
   mounted() {
     if (!this.socket) this.connectSocket();
-    this.refreshTimer = setInterval(() => {
-      this.$refs.primaryTable.refresh();
-    }, 5_000);
+    // this.refreshTimer = setInterval(() => {
+    //   this.$refs.primaryTable.refresh();
+    // }, 5_000);
   },
   unmounted() {
     if (this.socket) this.socket.disconnect();
@@ -127,7 +127,10 @@ export default {
     },
     timestampToLastSeen(timestamp) {
       const lastSeenSeconds = (Date.now() - timestamp) / 1000;
-      const lastSeen = new Date(lastSeenSeconds * 1000).toISOString().substring(11, 19);
+      console.log('LAST SEEN SECONDS', lastSeenSeconds);
+      // const lastSeen = new Date(lastSeenSeconds * 1000).toISOString().substring(11, 19);
+      const lastSeen = new Date(Date.now()).toISOString().substring(11, 19);
+
       return lastSeen;
     },
     generatePrimaryRow(origin) {
@@ -207,9 +210,8 @@ export default {
     connectSocket() {
       const { protocol, hostname, port } = window.location;
       // fix this
-      const apiPort = +port + 1;
+      const apiPort = hostname === '127.0.0.1' ? 3333 : +port + 1;
       const url = `${protocol}//${hostname}:${apiPort}/debug`;
-      // const url = 'http://127.0.0.1:3333/debug';
 
       const fluxAuthString = localStorage.getItem('zelidauth');
 

@@ -30,70 +30,66 @@ class RequestHistory extends EventEmitter {
 
   get allHistory() {
     const history = Object.fromEntries(this.#requests);
-    console.log(history);
 
     Object.keys(history).forEach((key) => {
       history[key] = Object.values(history[key]).sort((a, b) => a.timestamp <= b.timestamp);
     });
 
-    console.log(history);
-
     return history;
   }
-}
 
-/**
- * Adds the request to the history
- *
- * @param {{url: string, verb: "get" | "post", timeout: number, timestamp: number}} request
- */
-storeRequest(request) {
-  const url = RequestHistory.parseUrl(request.url);
+  /**
+   * Adds the request to the history
+   *
+   * @param {{url: string, verb: "get" | "post", timeout: number, timestamp: number}} request
+   */
+  storeRequest(request) {
+    const url = RequestHistory.parseUrl(request.url);
 
-  if (!url) return;
+    if (!url) return;
 
-  const id = crypto.randomUUID();
+    const id = crypto.randomUUID();
 
-  const { origin, searchParams: params } = url;
-  const { verb, timeout, timestamp } = request;
+    const { origin, searchParams: params } = url;
+    const { verb, timeout, timestamp } = request;
 
-  const requestData = {
-    params, verb, timeout, timestamp, id,
-  };
+    const requestData = {
+      params, verb, timeout, timestamp, id,
+    };
 
-  const formatted = {
-    origin,
-    requestData,
-  };
+    const formatted = {
+      origin,
+      requestData,
+    };
 
-  if (!this.#requests.has(origin)) {
-    this.#requests.set(origin, {});
-    this.emit('originAdded', origin);
+    if (!this.#requests.has(origin)) {
+      this.#requests.set(origin, {});
+      this.emit('originAdded', origin);
+    }
+
+    const dataStore = this.#requests.get(origin);
+
+    dataStore[id] = requestData;
+    this.emit('requestAdded', formatted);
+
+    this.#timers.set(id, setTimeout(() => {
+      this.#timers.delete(id);
+      delete dataStore[id];
+      this.emit('requestRemoved', { origin, id });
+
+      if (!Object.keys(dataStore).length) {
+        this.#requests.delete(origin);
+        this.emit('originRemoved', origin);
+      }
+    }, this.maxAge));
   }
 
-  const dataStore = this.#requests.get(origin);
-
-  dataStore[id] = requestData;
-  this.emit('requestAdded', formatted);
-
-  this.#timers.set(id, setTimeout(() => {
-    this.#timers.delete(id);
-    delete dataStore[id];
-    this.emit('requestRemoved', { origin, id });
-
-    if (!Object.keys(dataStore).length) {
-      this.#requests.delete(origin);
-      this.emit('originRemoved', origin);
-    }
-  }, this.maxAge));
-}
-
-clear() {
-  this.#timers.values.forEach((timer) => { clearTimeout(timer); });
-  this.#timers.clear();
-  this.#requests.clear();
-  this.emit('cleared');
-}
+  clear() {
+    this.#timers.values.forEach((timer) => { clearTimeout(timer); });
+    this.#timers.clear();
+    this.#requests.clear();
+    this.emit('cleared');
+  }
 }
 
 module.exports = { RequestHistory };

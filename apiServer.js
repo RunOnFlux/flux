@@ -117,10 +117,12 @@ function setAxiosDefaults(socketIoServers) {
 
     const debugAdapter = server.getAdapter('debug');
     debugAdapter.on('join-room', (room, id) => {
-      if (room !== 'httpOutbound') return;
+      log.info(`JOINRECEIVED: ${room}, ${id}`);
+      if (room !== 'outboundHttp') return;
 
       const socket = server.getSocketById('debug', id);
-      socket.emit(requestHistory.allHistory);
+      console.log('EMITTING HISTORY');
+      socket.emit('addHistory', requestHistory.allHistory);
     });
   });
 

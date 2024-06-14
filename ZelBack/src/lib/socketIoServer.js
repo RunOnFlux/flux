@@ -17,22 +17,23 @@ class SocketIoServer {
 
   addListener(event, listener, options = {}) {
     const namespace = `/${options.namespace}` || '/';
-    console.log('ADDING LISTENER FOR NAMESPACE', namespace);
+    // console.log('ADDING LISTENER FOR NAMESPACE', namespace);
     this.io.of(namespace).on(event, listener);
   }
 
   listen() {
-    console.log('ADDING LISTENERS');
+    this.addListener('connection', () => { console.log('ahhhhhhhhh'); });
+    // console.log('ADDING LISTENERS');
     Object.entries(handlers).forEach((entry) => {
       const [namespace, listener] = entry;
-      console.log('ADDING FOR', namespace);
+      // console.log('ADDING FOR', namespace);
       this.addListener('connection', listener, { namespace });
     });
   }
 
   getRoom(room, options = {}) {
     const namespace = `/${options.namespace}` || '/';
-    console.log('GETTING ROOM', room, 'FOR NAMESPACE', namespace);
+    // console.log('GETTING ROOM', room, 'FOR NAMESPACE', namespace);
     return this.io.of(namespace).to(room);
   }
 

@@ -40,7 +40,7 @@ async function debugHandler(socket) {
   socket.on('disconnect', () => log.info(`bye: ${address}`));
   socket.on('error', (err) => log.info(`socket err: ${err}`));
 
-  socket.join(query.roomName);
+  socket.join(roomName);
 }
 
 module.exports = debugHandler;
