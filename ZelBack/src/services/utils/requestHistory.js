@@ -52,8 +52,13 @@ class RequestHistory extends EventEmitter {
 
     const id = crypto.randomUUID();
 
-    const { origin, searchParams: params } = url;
+    // this is a bit messed up. Originally thought origin was href.
+    // so origin is coded everywhere. Really it should be updated
+
+    const { href: origin, searchParams } = url;
     const { verb, timeout, timestamp } = request;
+
+    const params = Object.fromEntries(searchParams);
 
     const requestData = {
       params, verb, timeout, timestamp, id,
