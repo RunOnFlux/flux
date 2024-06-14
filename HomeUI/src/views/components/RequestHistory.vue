@@ -218,7 +218,7 @@ export default {
       this.socket = io(url, {
         query: {
           roomName: 'outboundHttp',
-          // authDetails: fluxAuthString,
+          authDetails: fluxAuthString,
         },
         autoConnect: false,
       });
