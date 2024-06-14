@@ -205,11 +205,11 @@ export default {
       }
     },
     connectSocket() {
-      // const { protocol, hostname, port } = window.location;
+      const { protocol, hostname, port } = window.location;
       // fix this
-      // const apiPort = +port + 1;
-      // const url = `${protocol}//${hostname}:${apiPort}/debug`;
-      const url = 'http://127.0.0.1:3333/debug';
+      const apiPort = +port + 1;
+      const url = `${protocol}//${hostname}:${apiPort}/debug`;
+      // const url = 'http://127.0.0.1:3333/debug';
 
       const fluxAuthString = localStorage.getItem('zelidauth');
 
