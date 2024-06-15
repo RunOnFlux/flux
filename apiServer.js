@@ -106,7 +106,7 @@ function setAxiosDefaults(socketIoServers) {
 
   if (!globalThis.userconfig.initial.debug) return;
 
-  log.info('Userconfig debug set, setting up socket.io for debug');
+  log.info('User defined debug set, setting up socket.io for debug.');
   requestHistory = new requestHistoryStore.RequestHistory({ maxAge: 60_000 * 60 });
 
   const rooms = [];
@@ -118,22 +118,18 @@ function setAxiosDefaults(socketIoServers) {
 
     const debugAdapter = server.getAdapter('debug');
     debugAdapter.on('join-room', (room, id) => {
-      log.info(`JOINRECEIVED: ${room}, ${id}`);
       if (room !== requestRoom) return;
 
       const socket = server.getSocketById('debug', id);
-      console.log('EMITTING HISTORY');
       socket.emit('addHistory', requestHistory.allHistory);
     });
   });
 
   requestHistory.on('requestAdded', (request) => {
-    console.log('REQUEST ADDED TO HISTORY.... EMITTING');
     rooms.forEach((room) => room.emit('addRequest', request));
   });
 
   requestHistory.on('requestRemoved', (request) => {
-    console.log('REQUESET REMOVED FROM HISTORY... emitting');
     rooms.forEach((room) => room.emit('removeRequest', request));
   });
 
@@ -201,6 +197,13 @@ async function configReload() {
   }
 }
 
+/**
+ * Awaitable HTTP(S) server
+ *
+ * @param {Application} target The App to listen on
+ * @param {number} port Listening port
+ * @returns {Promise<Server>}
+ */
 function startServer(target, port) {
   return new Promise((resolve, reject) => {
     const server = target.listen(port);
@@ -215,9 +218,11 @@ function startServer(target, port) {
 }
 
 /**
+ * Main entrypoint
  *
  * @returns {Promise<String>}
  */
+
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
     log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
@@ -228,11 +233,13 @@ async function initiate() {
     // the express server port in use is uncatchable for some reason
     // remove this in future
     if (err.code === 'EADDRINUSE') {
-      console.log('Flux api server port in use, shutting down.');
-    } else {
-      console.log(err);
+      log.error('Flux api server port in use, shutting down.');
+      // if shutting down clean, nodemon won't restart
+      process.exit();
     }
-    process.exit();
+
+    log.error(err);
+    process.exit(1);
   });
 
   await createDnsCache();
@@ -260,7 +267,13 @@ async function initiate() {
 
   const appHttps = https.createServer(credentials, app);
 
-  eWS(app, appHttps);
+  const options = {
+    wsOptions: {
+      maxPayload: 65535,
+    },
+  };
+
+  eWS(app, appHttps, options);
 
   const serverHttp = await startServer(app, apiPort).catch((err) => {
     log.error(err);

@@ -6,20 +6,19 @@
           1 Min Requests: {{ oneMinuteRequests }}
         </b-col>
         <b-col align="center">
-          5 Min Minute Requests: {{ fiveMinuteRequests }}
+          5 Min Requests: {{ fiveMinuteRequests }}
         </b-col>
         <b-col align="center">
-          15 min Requests: {{ fifteenMinuteRequests }}
+          15 Min Requests: {{ fifteenMinuteRequests }}
         </b-col>
         <b-col align="center">
-          1 hour Requests: {{ totalRequests }}
+          1 Hour Requests: {{ totalRequests }}
         </b-col>
       </b-row>
     </b-card>
     <b-container fluid class="p-0 wrapper">
       <b-table
         ref="primaryTable"
-        v-model="currentItems"
         caption="Outbound Requests"
         caption-top
         table-variant="secondary"
@@ -30,33 +29,25 @@
         responsive
         sticky-header="100%"
         primary-key="origin"
+        hover
+        fixed
         no-border-collapse
         show-empty
+        @row-clicked="onRowClicked"
       >
         <template #cell(lastSeen)="row">
           {{ timestampToLastSeen(row.item.lastSeen) }}
-        </template>
-        <template #cell(action)="{ detailsShowing, item }">
-          <b-btn
-            class="action-button"
-            variant="link"
-            @click="toggleDetails(item)"
-          >
-            <b-icon :icon="detailsShowing ? 'eye-slash' : 'eye'" />
-            {{ detailsShowing ? 'Hide' : 'Show' }}
-          </b-btn>
         </template>
         <template #row-details="{ item }">
           <b-table
             :ref="`requestsTable_${item.target}`"
             :items="item.requests"
             :fields="secondaryFields"
-            bordered
+            no-border-collapse
             fixed
+            small
             sticky-header="400px"
             primary-key="id"
-            no-border-collapse
-            @scroll.native="onScroll($event, item.target)"
           >
             <template #cell(timestamp)="row">
               {{ new Date(row.item.timestamp).toISOString() }}
@@ -76,18 +67,18 @@ export default {
   components: {},
   data() {
     return {
+      now: Date.now(),
+      accessViaIp: false,
       refreshTimer: null,
-      autoScroll: {},
       socket: null,
       requests: {},
       primaryRows: [],
       secondaryRows: [],
-      currentItems: [],
+      detailsRow: null,
       primaryFields: [
         { key: 'target' },
-        { key: 'count' },
-        { key: 'lastSeen' },
-        { key: 'action', class: 'action-col' },
+        { key: 'count', class: 'small-col', max: 80 },
+        { key: 'lastSeen', class: 'small-col', max: 80 },
       ],
       secondaryFields: [
         { key: 'verb' },
@@ -99,26 +90,32 @@ export default {
   },
   computed: {
     oneMinuteRequests() {
-      const timestamp = Date.now() - 60_000;
+      const timestamp = this.now - 60_000;
       return this.requestsSinceTimestamp(timestamp);
     },
     fiveMinuteRequests() {
-      const timestamp = Date.now() - 60_000 * 5;
+      const timestamp = this.now - 60_000 * 5;
       return this.requestsSinceTimestamp(timestamp);
     },
     fifteenMinuteRequests() {
-      const timestamp = Date.now() - 60_000 * 15;
+      const timestamp = this.now - 60_000 * 15;
       return this.requestsSinceTimestamp(timestamp);
     },
     totalRequests() {
       return Object.values(this.requests).reduce((total, current) => total + current.length, 0);
     },
   },
+  beforeMount() {
+    // we only want to connect via node direct, as debug is specific to a node
+    // i.e. you need to have the debug flag turned on
+    const { hostname } = window.location;
+    this.accessViaIp = !/[a-z]/i.test(hostname);
+  },
   mounted() {
-    if (!this.socket) this.connectSocket();
-    // this.refreshTimer = setInterval(() => {
-    //   this.$refs.primaryTable.refresh();
-    // }, 5_000);
+    if (!this.socket && this.accessViaIp) this.connectSocket();
+    this.refreshTimer = setInterval(() => {
+      this.now = Date.now();
+    }, 5_000);
   },
   unmounted() {
     if (this.socket) this.socket.disconnect();
@@ -131,8 +128,9 @@ export default {
       ).length;
     },
     timestampToLastSeen(timestamp) {
-      const lastSeenSeconds = (Date.now() - timestamp) / 1000;
-      const lastSeen = new Date(lastSeenSeconds * 1000).toISOString().substring(11, 19);
+      // due to clock differences (and we're only updating every 5sec), this can be negative
+      const lastSeenMs = Math.max(this.now - timestamp, 0);
+      const lastSeen = new Date(lastSeenMs).toISOString().substring(11, 19);
 
       return lastSeen;
     },
@@ -156,20 +154,13 @@ export default {
     },
     requestAddedHandler(event) {
       const { origin, requestData } = event;
-      console.log('ADD ID', requestData.id);
 
       if (!(origin in this.requests)) {
-        // not required for reacivity anymore
-        this.$set(this.requests, origin, []);
+        this.requests[origin] = [];
       }
 
       this.requests[origin].push(requestData);
       const rowData = this.generatePrimaryRow(origin);
-
-      if (this.autoScroll[origin]) {
-        // add only scroll if not in view
-        this.$nextTick(() => { this.scrollToRow(origin, this.requests[origin].length - 1); });
-      }
 
       const existingRow = this.primaryRows.find((r) => r.target === origin);
 
@@ -183,8 +174,6 @@ export default {
     },
     requestRemovedHandler(event) {
       const { origin, id } = event;
-
-      console.log('REMOVE ID', id);
 
       if (!(origin in this.requests)) return;
 
@@ -203,16 +192,14 @@ export default {
       this.primaryRows[primaryIndex].count -= 1;
 
       if (!requests.length) {
-        console.log('NO MORE ROWS');
         delete this.requests[origin];
 
-        console.log('PRIMARY INDEX', primaryIndex);
         this.primaryRows.splice(primaryIndex, 1);
       }
     },
     connectSocket() {
       const { protocol, hostname, port } = window.location;
-      // fix this
+      // Use this for testing
       const apiPort = hostname === '127.0.0.1' ? 3333 : +port + 1;
       const url = `${protocol}//${hostname}:${apiPort}/debug`;
 
@@ -235,9 +222,9 @@ export default {
       this.socket.on('addRequest', (request) => this.requestAddedHandler(request));
       this.socket.on('removeRequest', (request) => this.requestRemovedHandler(request));
 
-      this.socket.onAny((event, ...args) => {
-        console.log(`got ${event}`, ...args);
-      });
+      // this.socket.onAny((event, ...args) => {
+      //   console.log(`got ${event}`, ...args);
+      // });
 
       this.socket.connect();
     },
@@ -247,51 +234,23 @@ export default {
       );
       return max;
     },
-    toggleDetails(row) {
-      Object.keys(this.autoScroll).forEach((k) => { this.autoScroll[k] = false; });
-      console.log(row);
-      // eslint-disable-next-line
-      if (row._showDetails) {
-        this.$set(row, '_showDetails', false);
-      } else {
-        this.currentItems.forEach((item) => {
-          this.$set(item, '_showDetails', false);
-        });
-
-        this.$nextTick(() => {
-          this.$set(row, '_showDetails', true);
-        });
+    onRowClicked(item) {
+      const { detailsRow } = this;
+      if (detailsRow && detailsRow !== item) {
+        // eslint-disable-next-line no-underscore-dangle
+        detailsRow._showDetails = false;
       }
-    },
-    onScroll() {},
-    // onScroll(event, origin) {
-    //   const { target: { scrollTop, clientHeight, scrollHeight } } = event;
 
-    //   // why does scrollTop have an extra 0.5???
-    //   this.autoScroll[origin] = scrollTop + clientHeight + 1 >= scrollHeight;
-    // },
-    scrollToRow() {},
-    // scrollToRow(origin, index) {
-    //   const ref = `requestsTable_${origin}`;
-    //   const tbody = this.$refs[ref].$el.querySelector('tbody');
-    //   const row = tbody.querySelectorAll('tr')[index];
-    //   // row.scrollIntoView();
-    //   row.scrollTop = 50;
-    // },
+      // eslint-disable-next-line no-underscore-dangle
+      this.$set(item, '_showDetails', !item._showDetails);
+      this.detailsRow = item;
+    },
   },
 };
 </script>
 
 <style>
-.action-col {
-  width: 30px;
-}
-.action-button {
-  height: 30px;
-  padding: 0;
-}
-.success td
-{
-    background-color:red !important;
+.small-col {
+  width: 20%;
 }
 </style>
