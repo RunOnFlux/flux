@@ -2,9 +2,13 @@ const socketio = require('socket.io');
 const handlers = require('./socketIoHandlers');
 
 class SocketIoServer {
+  static defaultErrorHandler = (err) => { console.log(err); };
+
   constructor(httpServer, options = {}) {
     const transports = options.transports || ['websocket', 'polling', 'flashsocket'];
     const cors = options.cors || { origin: '*', methods: ['GET', 'POST'] };
+
+    const errorHandler = options.errorHandler || SocketIoServer.defaultErrorHandler;
 
     this.io = new socketio.Server(httpServer, {
       allowEIO3: true,
@@ -12,7 +16,7 @@ class SocketIoServer {
       cors,
     });
 
-    this.io.on('error', (err) => console.log(err));
+    this.io.on('error', (err) => errorHandler(err));
   }
 
   addListener(event, listener, options = {}) {

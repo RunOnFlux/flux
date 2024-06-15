@@ -289,8 +289,9 @@ async function initiate() {
 
   log.info(`Flux https listening on port ${apiPortHttps}!`);
 
-  const socketIoHttp = new SocketIoServer(serverHttp);
-  const socketIoHttps = new SocketIoServer(serverHttps);
+  const errorHandler = log.error;
+  const socketIoHttp = new SocketIoServer(serverHttp, { errorHandler });
+  const socketIoHttps = new SocketIoServer(serverHttps, { errorHandler });
 
   socketIoHttp.listen();
   socketIoHttps.listen();
