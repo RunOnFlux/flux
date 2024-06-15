@@ -12,7 +12,7 @@
           15 Min Requests: {{ fifteenMinuteRequests }}
         </b-col>
         <b-col align="center">
-          1 Hour Requests: {{ totalRequests }}
+          Total Requests: {{ totalRequests }}
         </b-col>
       </b-row>
     </b-card>
@@ -68,6 +68,7 @@ export default {
   data() {
     return {
       now: Date.now(),
+      totalRequests: 0,
       accessViaIp: false,
       refreshTimer: null,
       socket: null,
@@ -100,9 +101,6 @@ export default {
     fifteenMinuteRequests() {
       const timestamp = this.now - 60_000 * 15;
       return this.requestsSinceTimestamp(timestamp);
-    },
-    totalRequests() {
-      return Object.values(this.requests).reduce((total, current) => total + current.length, 0);
     },
   },
   beforeMount() {
@@ -151,6 +149,8 @@ export default {
       Object.keys(this.requests).forEach((origin) => {
         this.primaryRows.push(this.generatePrimaryRow(origin));
       });
+
+      this.totalRequests = Object.values(this.requests).reduce((total, current) => total + current.length, 0);
     },
     requestAddedHandler(event) {
       const { origin, requestData } = event;
@@ -171,6 +171,7 @@ export default {
         existingRow.lastSeen = rowData.lastSeen;
         // requests is a reference of the object's requests, so don't need to update
       }
+      this.totalRequests += 1;
     },
     requestRemovedHandler(event) {
       const { origin, id } = event;
@@ -196,6 +197,8 @@ export default {
 
         this.primaryRows.splice(primaryIndex, 1);
       }
+
+      this.totalRequests -= 1;
     },
     connectSocket() {
       const { protocol, hostname, port } = window.location;
