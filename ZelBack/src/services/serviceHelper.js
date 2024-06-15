@@ -173,7 +173,6 @@ async function axiosGet(url, userOptions = {}) {
 
   if (!options.signal) options.signal = shc.signal;
 
-  console.log(url, options);
   return axios.get(url, options);
 }
 

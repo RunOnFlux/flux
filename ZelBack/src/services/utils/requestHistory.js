@@ -45,8 +45,6 @@ class RequestHistory extends EventEmitter {
   storeRequest(request) {
     const url = RequestHistory.parseUrl(request.url);
 
-    console.log('STORING REQUEST URL', url);
-
     if (!url) {
       this.emit('parseError', url);
       return;
