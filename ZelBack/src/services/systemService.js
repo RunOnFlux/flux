@@ -587,7 +587,7 @@ async function mongodGpgKeyVeryfity() {
         log.info(`MongoDB version: ${versionMatch[1]}`);
         log.info(`GPG URL: https://pgp.mongodb.com/server-${versionMatch[1]}.asc`);
         log.info(`The key has expired on ${expiredMatch[1]}`);
-        const command = `curl -fsSL ${keyUrl} | sudo gpg -o ${filePath} --dearmor`;
+        const command = `curl -fsSL ${keyUrl} | sudo gpg --batch --yes -o ${filePath} --dearmor`;
         // eslint-disable-next-line no-shadow
         const { error, stderr } = await serviceHelper.runCommand(command, {
           shell: true,
