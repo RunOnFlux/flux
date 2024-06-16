@@ -152,6 +152,9 @@
     <b-card
       v-if="callResponse.data.message"
     >
+      <b-btn variant="danger" class="top-right" @click="closeTextArea">
+        <b-icon icon="x" />
+      </b-btn>
       <b-form-textarea
         plaintext
         no-resize
@@ -160,6 +163,7 @@
         class="mt-1"
       />
     </b-card>
+    <request-history />
   </div>
 </template>
 
@@ -174,6 +178,7 @@ import {
   BRow,
 } from 'bootstrap-vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import RequestHistory from '@/views/components/RequestHistory.vue';
 import Ripple from 'vue-ripple-directive';
 import axios from 'axios';
 import FluxService from '@/services/FluxService';
@@ -187,6 +192,7 @@ export default {
     BPopover,
     BFormTextarea,
     BCardText,
+    RequestHistory,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },
@@ -216,6 +222,12 @@ export default {
     },
   },
   methods: {
+    closeTextArea() {
+      this.callResponse = {
+        status: '',
+        data: {},
+      };
+    },
     cancelDownload(logType) {
       this.abortToken[logType].cancel('User download cancelled');
       this.downloaded[logType] = '';
@@ -300,5 +312,11 @@ export default {
 .cancel-button {
   padding: 0;
   margin-top: 10px;
+}
+.top-right {
+  position: absolute;
+  left: 100%;
+  margin-left: -20px;
+  transform: translateX(-100%);
 }
 </style>
