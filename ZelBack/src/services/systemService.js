@@ -573,12 +573,10 @@ async function mongodGpgKeyVeryfity() {
   try {
     const { stdout, stderr, error } = await serviceHelper.runCommand('gpg', { runAsRoot: true, params: ['--show-keys', '/usr/share/keyrings/mongodb-archive-keyring.gpg'] });
     if (error) {
-      log.error(`Error executing gpg: ${error}`);
-      return false;
+      throw new Error(`Error executing gpg: ${error}`);
     }
     if (stderr) {
-      log.error(`gpg stderr: ${stderr}`);
-      return false;
+      throw new Error(`gpg stderr: ${stderr}`);
     }
     const expiredMatch = stdout.match(/\[expired: (\d{4}-\d{2}-\d{2})\]/);
     const versionMatch = stdout.match(/MongoDB (\d+\.\d+) Release Signing Key/);
@@ -587,7 +585,7 @@ async function mongodGpgKeyVeryfity() {
         const keyUrl = `https://pgp.mongodb.com/server-${versionMatch[1]}.asc`;
         const filePath = '/usr/share/keyrings/mongodb-archive-keyring.gpg';
         log.info(`MongoDB version: ${versionMatch[1]}`);
-        log.info(`PGP URL: https://pgp.mongodb.com/server-${versionMatch[1]}.asc`);
+        log.info(`GPG URL: https://pgp.mongodb.com/server-${versionMatch[1]}.asc`);
         log.info(`The key has expired on ${expiredMatch[1]}`);
         const command = `curl -fsSL ${keyUrl} | sudo gpg -o ${filePath} --dearmor`;
         // eslint-disable-next-line no-shadow
@@ -595,22 +593,17 @@ async function mongodGpgKeyVeryfity() {
           shell: true,
           logError: true,
         });
-
         if (error) {
-          log.error(`Error: ${error}`);
-          // eslint-disable-next-line consistent-return
-          return false;
+          throw new Error(`Error: ${error}`);
         }
         if (stderr) {
-          log.error(`Error: ${stderr}`);
-          // eslint-disable-next-line consistent-return
-          return false;
+          throw new Error(`Error: ${error}`);
         }
+        log.info('The key was updated successfully.');
         return true;
       // eslint-disable-next-line no-else-return
       } else {
-        log.error('MongoDB version not found.');
-        return false;
+        throw new Error('Error: MongoDB version not found.');
       }
     // eslint-disable-next-line no-else-return
     } else {
@@ -619,6 +612,7 @@ async function mongodGpgKeyVeryfity() {
     }
   } catch (error) {
     log.error(error);
+    return false;
   }
 }
 
