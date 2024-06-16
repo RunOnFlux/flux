@@ -8792,7 +8792,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // ToDo: Move this to global
-    const architecture = systemArchitecture();
+    const architecture = await systemArchitecture();
 
     // TODO evaluate later to move to more broad check as image can be shared among multiple apps
     const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
