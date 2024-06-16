@@ -573,7 +573,7 @@ async function mongodGpgKeyVeryfity() {
   try {
     const { stdout, stderr, error } = await serviceHelper.runCommand('gpg', { runAsRoot: true, params: ['--show-keys', '/usr/share/keyrings/mongodb-archive-keyring.gpg'] });
     if (error) {
-      throw new Error(`Error executing gpg: ${error}`);
+      throw new Error(`Executing gpg: ${error}`);
     }
     if (stderr) {
       throw new Error(`gpg stderr: ${stderr}`);
@@ -594,16 +594,16 @@ async function mongodGpgKeyVeryfity() {
           logError: true,
         });
         if (error) {
-          throw new Error(`Error: ${error}`);
+          throw new Error(`Update command failed: ${error}`);
         }
         if (stderr) {
-          throw new Error(`Error: ${error}`);
+          throw new Error(`Update command failed: ${stderr}`);
         }
         log.info('The key was updated successfully.');
         return true;
       // eslint-disable-next-line no-else-return
       } else {
-        throw new Error('Error: MongoDB version not found.');
+        throw new Error('MongoDB version not found.');
       }
     // eslint-disable-next-line no-else-return
     } else {
