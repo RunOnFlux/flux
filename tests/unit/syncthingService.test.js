@@ -160,8 +160,6 @@ describe('syncthingService tests', () => {
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
 
     beforeEach(() => {
-      errorSpy = sinon.spy(log, 'error');
-
       // this is for all the chown/chmod stuff
       sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
 
@@ -238,8 +236,6 @@ describe('syncthingService tests', () => {
     const deviceId = 'AEYDK6D-2U3U5AI-MEDDSIE-5WC7F0K-FDLAOJQ-24AFG44-Z2B749L-BOUX3QM';
 
     beforeEach(() => {
-      errorSpy = sinon.spy(log, 'error');
-
       // this is for all the chown/chmod stuff
       sinon.stub(serviceHelper, 'runCommand').resolves({ error: null });
 

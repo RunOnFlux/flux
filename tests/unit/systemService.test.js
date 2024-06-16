@@ -390,7 +390,7 @@ describe('system Services tests', () => {
         }
         if (cmd === 'fuser') return { error: null };
         if (cmd === 'dpkg') return { error: null };
-        if (cmd === 'apt-get') return { error: null } // install --fix-broken
+        if (cmd === 'apt-get') return { error: null }; // install --fix-broken
         return null;
       });
 
