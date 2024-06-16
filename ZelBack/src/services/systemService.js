@@ -607,7 +607,7 @@ async function mongodGpgKeyVeryfity() {
       }
     // eslint-disable-next-line no-else-return
     } else {
-      log.info('MongoDB PGP key is still valid.');
+      log.info('MongoDB GPG key is still valid.');
       return true;
     }
   } catch (error) {
