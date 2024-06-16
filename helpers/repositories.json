@@ -458,5 +458,6 @@
    "nyusternie",
    "moultor",
    "zookeeper",
-   "datarhei/restreamer:latest"
+   "datarhei/restreamer",
+   "vinitdcu"
 ]
