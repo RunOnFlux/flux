@@ -27,6 +27,10 @@ class RequestHistory extends EventEmitter {
     }
   }
 
+  /**
+   * Returns all records, formatted as required by frontend
+   * @returns {object}
+   */
   get allHistory() {
     const history = Object.fromEntries(this.#requests);
 
@@ -41,13 +45,14 @@ class RequestHistory extends EventEmitter {
    * Adds the request to the history
    *
    * @param {{url: string, verb: "get" | "post", timeout: number, timestamp: number}} request
+   * @returns {string | null}
    */
   storeRequest(request) {
     const url = RequestHistory.parseUrl(request.url);
 
     if (!url) {
       this.emit('parseError', url);
-      return;
+      return null;
     }
 
     const id = crypto.randomUUID();
@@ -87,10 +92,15 @@ class RequestHistory extends EventEmitter {
         this.emit('targetRemoved', target);
       }
     }, this.maxAge));
+
+    return id;
   }
 
+  /**
+   * Removes all records / targets, and clears all timers
+   */
   clear() {
-    this.#timers.values.forEach((timer) => { clearTimeout(timer); });
+    Array.from(this.#timers.values()).forEach((timer) => { clearTimeout(timer); });
     this.#timers.clear();
     this.#requests.clear();
     this.emit('cleared');

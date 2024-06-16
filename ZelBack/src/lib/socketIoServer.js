@@ -25,8 +25,6 @@ class SocketIoServer {
   }
 
   listen() {
-    // this is the default handler for namespace /
-    this.addListener('connection', () => { });
     Object.entries(handlers).forEach((entry) => {
       const [namespace, listener] = entry;
       this.addListener('connection', listener, { namespace });
@@ -44,6 +42,10 @@ class SocketIoServer {
 
   getAdapter(namespace) {
     return this.getNamespace(namespace).adapter;
+  }
+
+  getListenersByNamespace(namespace, event = 'connection') {
+    return this.getNamespace(namespace).listeners(event);
   }
 
   getSocketById(namespace, id) {
