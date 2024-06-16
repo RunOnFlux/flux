@@ -28,7 +28,7 @@
         bordered
         responsive
         sticky-header="100%"
-        primary-key="origin"
+        primary-key="target"
         hover
         fixed
         no-border-collapse
@@ -67,19 +67,19 @@ export default {
   components: {},
   data() {
     return {
-      now: Date.now(),
-      totalRequests: 0,
       accessViaIp: false,
       refreshTimer: null,
       socket: null,
-      requests: {},
+      now: Date.now(),
+      totalRequests: 0,
+      targets: {},
       primaryRows: [],
       secondaryRows: [],
       detailsRow: null,
       primaryFields: [
         { key: 'target' },
-        { key: 'count', class: 'small-col', max: 80 },
-        { key: 'lastSeen', class: 'small-col', max: 80 },
+        { key: 'count', class: 'small-col' },
+        { key: 'lastSeen', class: 'small-col' },
       ],
       secondaryFields: [
         { key: 'verb' },
@@ -121,7 +121,7 @@ export default {
   },
   methods: {
     requestsSinceTimestamp(timestamp) {
-      return Object.values(this.requests).flatMap(
+      return Object.values(this.targets).flatMap(
         (group) => group.filter((request) => request.timestamp > timestamp),
       ).length;
     },
@@ -132,37 +132,37 @@ export default {
 
       return lastSeen;
     },
-    generatePrimaryRow(origin) {
-      const requests = this.requests[origin];
+    generatePrimaryRow(target) {
+      const requests = this.targets[target];
       const count = requests.length;
-      const { timestamp: lastSeen } = this.latestRequest(origin);
+      const { timestamp: lastSeen } = this.latestRequest(target);
 
       const rowItem = {
-        target: origin, lastSeen, count, requests,
+        target, lastSeen, count, requests,
       };
       return rowItem;
     },
     historyAddedHandler(event) {
       this.primaryRows.length = 0;
-      this.requests = event;
+      this.targets = event;
 
-      Object.keys(this.requests).forEach((origin) => {
-        this.primaryRows.push(this.generatePrimaryRow(origin));
+      Object.keys(this.targets).forEach((target) => {
+        this.primaryRows.push(this.generatePrimaryRow(target));
       });
 
-      this.totalRequests = Object.values(this.requests).reduce((total, current) => total + current.length, 0);
+      this.totalRequests = Object.values(this.targets).reduce((total, current) => total + current.length, 0);
     },
     requestAddedHandler(event) {
-      const { origin, requestData } = event;
+      const { target, requestData } = event;
 
-      if (!(origin in this.requests)) {
-        this.requests[origin] = [];
+      if (!(target in this.targets)) {
+        this.targets[target] = [];
       }
 
-      this.requests[origin].push(requestData);
-      const rowData = this.generatePrimaryRow(origin);
+      this.targets[target].push(requestData);
+      const rowData = this.generatePrimaryRow(target);
 
-      const existingRow = this.primaryRows.find((r) => r.target === origin);
+      const existingRow = this.primaryRows.find((r) => r.target === target);
 
       if (!existingRow) {
         this.primaryRows.push(rowData);
@@ -174,18 +174,18 @@ export default {
       this.totalRequests += 1;
     },
     requestRemovedHandler(event) {
-      const { origin, id } = event;
+      const { target, id } = event;
 
-      if (!(origin in this.requests)) return;
+      if (!(target in this.targets)) return;
 
-      const requests = this.requests[origin];
+      const requests = this.targets[target];
 
       const index = requests.findIndex((r) => r.id === id);
       // Do we need to validate this index?
-      const primaryIndex = this.primaryRows.findIndex((r) => r.target === origin);
+      const primaryIndex = this.primaryRows.findIndex((r) => r.target === target);
 
       if (index === -1) {
-        console.log('UNKNOWN INDEX, returning');
+        console.log('Unknown request, skipping');
         return;
       }
 
@@ -193,7 +193,7 @@ export default {
       this.primaryRows[primaryIndex].count -= 1;
 
       if (!requests.length) {
-        delete this.requests[origin];
+        delete this.targets[target];
 
         this.primaryRows.splice(primaryIndex, 1);
       }
@@ -232,7 +232,7 @@ export default {
       this.socket.connect();
     },
     latestRequest(target) {
-      const max = this.requests[target].reduce(
+      const max = this.targets[target].reduce(
         (prev, current) => (prev && prev.timestamp > current.timestamp ? prev : current),
       );
       return max;

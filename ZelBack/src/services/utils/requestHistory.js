@@ -27,6 +27,10 @@ class RequestHistory extends EventEmitter {
     }
   }
 
+  /**
+   * Returns all records, formatted as required by frontend
+   * @returns {object}
+   */
   get allHistory() {
     const history = Object.fromEntries(this.#requests);
 
@@ -41,41 +45,39 @@ class RequestHistory extends EventEmitter {
    * Adds the request to the history
    *
    * @param {{url: string, verb: "get" | "post", timeout: number, timestamp: number}} request
+   * @returns {string | null}
    */
   storeRequest(request) {
     const url = RequestHistory.parseUrl(request.url);
 
     if (!url) {
       this.emit('parseError', url);
-      return;
+      return null;
     }
 
     const id = crypto.randomUUID();
 
-    // this is a bit messed up. Originally thought origin was origin + pathname.
-    // so origin is coded everywhere. Really it should be updated
-
-    const { origin: host, pathname, searchParams } = url;
+    const { origin, pathname, searchParams } = url;
     const { verb, timeout, timestamp } = request;
 
     const params = Object.fromEntries(searchParams);
-    const origin = `${host}${pathname}`;
+    const target = `${origin}${pathname}`;
 
     const requestData = {
       params, verb, timeout, timestamp, id,
     };
 
     const formatted = {
-      origin,
+      target,
       requestData,
     };
 
-    if (!this.#requests.has(origin)) {
-      this.#requests.set(origin, {});
-      this.emit('originAdded', origin);
+    if (!this.#requests.has(target)) {
+      this.#requests.set(target, {});
+      this.emit('targetAdded', target);
     }
 
-    const dataStore = this.#requests.get(origin);
+    const dataStore = this.#requests.get(target);
 
     dataStore[id] = requestData;
     this.emit('requestAdded', formatted);
@@ -83,17 +85,22 @@ class RequestHistory extends EventEmitter {
     this.#timers.set(id, setTimeout(() => {
       this.#timers.delete(id);
       delete dataStore[id];
-      this.emit('requestRemoved', { origin, id });
+      this.emit('requestRemoved', { target, id });
 
       if (!Object.keys(dataStore).length) {
-        this.#requests.delete(origin);
-        this.emit('originRemoved', origin);
+        this.#requests.delete(target);
+        this.emit('targetRemoved', target);
       }
     }, this.maxAge));
+
+    return id;
   }
 
+  /**
+   * Removes all records / targets, and clears all timers
+   */
   clear() {
-    this.#timers.values.forEach((timer) => { clearTimeout(timer); });
+    Array.from(this.#timers.values()).forEach((timer) => { clearTimeout(timer); });
     this.#timers.clear();
     this.#requests.clear();
     this.emit('cleared');

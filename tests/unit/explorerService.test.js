@@ -668,7 +668,7 @@ describe('explorerService tests', () => {
         }],
         {
           ordered: false,
-        }
+        },
       );
     });
 
