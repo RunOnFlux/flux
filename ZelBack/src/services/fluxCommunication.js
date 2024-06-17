@@ -854,7 +854,7 @@ async function fluxDiscovery() {
       const fixedIndex = fluxNodeIndex + i < sortedNodeList.length ? fluxNodeIndex + i : fluxNodeIndex + i - sortedNodeList.length;
       const { ip } = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
-      const portInc = ip.split(':')[1] || 16127;
+      const portInc = ip.split(':')[1] || '16127';
       // additional precaution
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
@@ -870,7 +870,7 @@ async function fluxDiscovery() {
       const fixedIndex = fluxNodeIndex - i > 0 ? fluxNodeIndex - i : sortedNodeList.length - fluxNodeIndex - i;
       const { ip } = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
-      const portInc = ip.split(':')[1] || 16127;
+      const portInc = ip.split(':')[1] || '16127';
       // additional precaution
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
@@ -892,7 +892,7 @@ async function fluxDiscovery() {
       const connection = await fluxNetworkHelper.getRandomConnection();
       if (connection) {
         const ipInc = connection.split(':')[0];
-        const portInc = connection.split(':')[1] || 16127;
+        const portInc = connection.split(':')[1] || '16127';
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
         const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
@@ -913,7 +913,7 @@ async function fluxDiscovery() {
       const connection = await fluxNetworkHelper.getRandomConnection();
       if (connection) {
         const ipInc = connection.split(':')[0];
-        const portInc = connection.split(':')[1] || 16127;
+        const portInc = connection.split(':')[1] || '16127';
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
         const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
