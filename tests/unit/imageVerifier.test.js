@@ -1,9 +1,11 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
-const axios = require('axios').default;
 
 const whitelistRepos = require('./data/whitelistRepos');
 const registryResponses = require('./data/registryResponses');
+
+// stub out axiosGet, axiosInstance
+const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const { ImageVerifier } = require('../../ZelBack/src/services/utils/imageVerifier');
 
@@ -16,7 +18,7 @@ describe('imageVerifier tests', () => {
     let axiosStub;
 
     beforeEach(() => {
-      axiosStub = sinon.stub(axios, 'get').resolves(whitelistRepos);
+      axiosStub = sinon.stub(serviceHelper, 'axiosGet').resolves(whitelistRepos);
       ImageVerifier.resetWhitelist();
     });
 
@@ -407,8 +409,8 @@ describe('imageVerifier tests', () => {
 
     beforeEach(() => {
       axiosInterceptorsUse = sinon.stub().returns();
-      axiosGetStub = sinon.stub(axios, 'get');
-      sinon.stub(axios, 'create').returns({ get: axiosGetStub, interceptors: { request: { use: axiosInterceptorsUse } } });
+      axiosGetStub = sinon.stub(serviceHelper, 'axiosGet');
+      sinon.stub(serviceHelper, 'axiosInstance').returns({ get: axiosGetStub, interceptors: { request: { use: axiosInterceptorsUse } } });
     });
 
     it('should throw if connection error', async () => {
