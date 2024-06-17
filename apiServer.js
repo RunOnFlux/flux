@@ -256,7 +256,8 @@ async function initiate() {
 
   if (!certExists) {
     const cwd = path.join(appRoot, 'helpers');
-    await serviceHelper.runCommand('createSSLcert.sh', { cwd });
+    const scriptPath = path.join(cwd, 'createSSLcert.sh');
+    await serviceHelper.runCommand(scriptPath, { cwd });
   }
 
   // ToDo: move these to async
