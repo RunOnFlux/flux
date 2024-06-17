@@ -1,3 +1,5 @@
+const { randomUUID } = require('node:crypto');
+
 const { EventEmitter } = require('node:events');
 
 class RequestHistory extends EventEmitter {
@@ -55,7 +57,7 @@ class RequestHistory extends EventEmitter {
       return null;
     }
 
-    const id = crypto.randomUUID();
+    const id = randomUUID();
 
     const { origin, pathname, searchParams } = url;
     const { verb, timeout, timestamp } = request;
