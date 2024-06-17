@@ -200,7 +200,7 @@ async function axiosPost(url, data, userOptions = {}) {
  * @param {object} options Standard axios options
  * @returns {object} AxiosInstance
  */
-function createAxiosinstance(userOptions = {}) {
+function axiosInstance(userOptions = {}) {
   const options = { ...userOptions };
 
   if (!options.signal) options.signal = shc.signal;
@@ -450,7 +450,7 @@ module.exports = {
   axiosGet,
   axiosPost,
   commandStringToArray,
-  createAxiosinstance,
+  axiosInstance,
   delay,
   deleteLoginPhrase,
   dockerBufferToString,

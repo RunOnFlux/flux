@@ -1,5 +1,5 @@
-// use default for typing
-const axios = require('axios').default;
+const serviceHelper = require('../serviceHelper');
+
 const { AsyncLock } = require('./asyncLock');
 
 /**
@@ -136,7 +136,7 @@ class ImageVerifier {
   }
 
   #createAxiosInstance() {
-    this.#axiosInstance = axios.create({
+    this.#axiosInstance = serviceHelper.axiosInstance({
       baseURL: `https://${this.provider}/v2/`,
       timeout: 20_000,
       signal: this.#abortController.signal,
@@ -163,8 +163,8 @@ class ImageVerifier {
         && ImageVerifier.lastWhitelistFetchTime + 600 > now
       ) return;
 
-      const { data } = await axios
-        .get(
+      const { data } = await serviceHelper
+        .axiosGet(
           'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json',
           { timeout: 20_000 },
         )
@@ -246,8 +246,8 @@ class ImageVerifier {
 
     const {
       data: { token },
-    } = await axios
-      .get(`${realm}?service=${service}&scope=${scope}`, { auth: this.credentials })
+    } = await serviceHelper
+      .axiosGet(`${realm}?service=${service}&scope=${scope}`, { auth: this.credentials })
       .catch((err) => {
         const status = err?.response.status;
 
