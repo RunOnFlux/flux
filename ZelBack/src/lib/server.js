@@ -7,7 +7,7 @@ const compression = require('compression');
 // see https://github.com/HenningM/express-ws/issues/120
 const options = {
   wsOptions: {
-    maxPayload: 65535,
+    maxPayload: 1_048_576 * 16, // 16MiB,
   },
 };
 

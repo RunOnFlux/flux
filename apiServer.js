@@ -270,7 +270,7 @@ async function initiate() {
 
   const options = {
     wsOptions: {
-      maxPayload: 65535,
+      maxPayload: 1_048_576 * 16, // 16MiB
     },
   };
 
