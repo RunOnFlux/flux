@@ -453,39 +453,25 @@ async function closeConnection(ip, port) {
  * @param {object} clientToClose Web socket for client to close.
  * @returns {object} Message.
  */
-async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
+async function closeIncomingConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  let wsObj = clientToClose;
-  if (expressWS && !wsObj) {
-    const clientsSet = expressWS.clients || [];
-    clientsSet.forEach((client) => {
-      if (client.ip === ip && client.port === port) {
-        wsObj = client;
-      }
-    });
-  }
-  if (!wsObj) {
-    const clientsSet = incomingConnections;
-    clientsSet.forEach((client) => {
-      if (client.ip === ip && client.port === port) {
-        wsObj = client;
-      }
-    });
-  }
-  if (!wsObj) {
+
+  const conIndex = incomingConnections.findIndex((peer) => peer.ip === ip && peer.port === port);
+
+  if (conIndex === -1) {
     return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
-  const ocIndex = incomingConnections.findIndex((peer) => peer.ip === ip && peer.port === port);
-  if (ocIndex === -1) {
-    return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}:${port}. Try again later.`);
-  }
+
   const peerIndex = incomingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
-  if (peerIndex > -1) {
-    incomingPeers.splice(peerIndex, 1);
-  }
+
+  if (peerIndex > -1) incomingPeers.splice(peerIndex, 1);
+
+  const wsObj = incomingConnections[conIndex];
+  incomingConnections.splice(conIndex, 1);
+
   wsObj.close(4010, 'purpusfully closed');
   log.info(`Connection from ${ip}:${port} closed with code 4010`);
-  incomingConnections.splice(ocIndex, 1);
+
   return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }
 
@@ -513,14 +499,11 @@ function checkRateLimit(ip, fillPerSecond = 10, maxBurst = 15) {
  * To get IP addresses for incoming connections.
  * @param {object} req Request.
  * @param {object} res Response.
- * @param {object} expressWS Express web socket.
  */
-function getIncomingConnections(req, res, expressWS) {
-  const clientsSet = expressWS.clients;
-  const connections = [];
-  clientsSet.forEach((client) => {
-    connections.push(client.ip);
-  });
+function getIncomingConnections(req, res) {
+  const peers = incomingPeers;
+  const connections = peers.map((p) => p.ip);
+
   const message = messageHelper.createDataMessage(connections);
   response = message;
   res.json(response);

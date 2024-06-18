@@ -18,11 +18,11 @@ const { watch } = require('node:fs/promises');
 const axios = require('axios').default;
 const config = require('config');
 const hash = require('object-hash');
-const eWS = require('express-ws');
 
 const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const { SocketIoServer } = require('./ZelBack/src/lib/socketIoServer');
+const { SocketServer } = require('./ZelBack/src/lib/socketServer');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
@@ -268,13 +268,30 @@ async function initiate() {
 
   const appHttps = https.createServer(credentials, app);
 
-  const options = {
-    wsOptions: {
-      maxPayload: 1_048_576 * 16, // 16MiB
-    },
-  };
+  const socketServerHttp = new SocketServer();
+  const socketServerHttps = new SocketServer();
 
-  eWS(app, appHttps, options);
+  app.on('upgrade', (request, socket, head) => {
+    const { pathname } = new URL(request.url);
+
+    // don't handle socket.io listeners
+    if (!pathname.startsWith('/ws')) return;
+
+    socketServerHttp.handleUpgrade(request, socket, head, (ws) => {
+      socketServerHttp.emit('connection', ws, request);
+    });
+  });
+
+  appHttps.on('upgrade', (request, socket, head) => {
+    const { pathname } = new URL(request.url);
+
+    // don't handle socket.io listeners
+    if (!pathname.startsWith('/ws')) return;
+
+    socketServerHttps.handleUpgrade(request, socket, head, (ws) => {
+      socketServerHttps.emit('connection', ws, request);
+    });
+  });
 
   const serverHttp = await startServer(app, apiPort).catch((err) => {
     log.error(err);
