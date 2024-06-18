@@ -8791,33 +8791,6 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
-    // ToDo: Move this to global
-    const architecture = await systemArchitecture();
-
-    // TODO evaluate later to move to more broad check as image can be shared among multiple apps
-    const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
-    // eslint-disable-next-line no-restricted-syntax
-    for (const componentToInstall of compositedSpecification) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const installedApp of apps) {
-        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of installedAppCompositedSpecification) {
-          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
-            log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(adjustedDelay);
-            trySpawningGlobalApplication();
-            return;
-          }
-        }
-      }
-
-      // check image is whitelisted and repotag is available for download
-      // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture });
-    }
-
     // verify app compliance
     await checkApplicationImagesComplience(appSpecifications);
 
@@ -8878,6 +8851,33 @@ async function trySpawningGlobalApplication() {
         trySpawningGlobalApplication();
         return;
       }
+    }
+
+    // ToDo: Move this to global
+    const architecture = await systemArchitecture();
+
+    // TODO evaluate later to move to more broad check as image can be shared among multiple apps
+    const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const componentToInstall of compositedSpecification) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of apps) {
+        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of installedAppCompositedSpecification) {
+          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
+            log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(adjustedDelay);
+            trySpawningGlobalApplication();
+            return;
+          }
+        }
+      }
+
+      // check image is whitelisted and repotag is available for download
+      // eslint-disable-next-line no-await-in-loop
+      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture });
     }
 
     // an application was selected and checked that it can run on this node. try to install and run it locally
