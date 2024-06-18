@@ -138,7 +138,6 @@ async function verifyAdminAndFluxTeamSession(headers) {
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
-
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {

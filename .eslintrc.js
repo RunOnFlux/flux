@@ -3,6 +3,7 @@ const path = require('path');
 module.exports = {
   root: true,
   env: {
+    es2020: true,
     commonjs: true,
     node: true,
     mocha: true,

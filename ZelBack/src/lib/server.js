@@ -4,8 +4,15 @@ const cors = require('cors');
 const morgan = require('morgan');
 const compression = require('compression');
 
-const expressWs = eWS(express());
-const { app } = expressWs;
+// see https://github.com/HenningM/express-ws/issues/120
+const options = {
+  wsOptions: {
+    maxPayload: 1_048_576 * 16, // 16MiB,
+  },
+};
+
+const app = express();
+const expressWs = eWS(app, null, options);
 
 app.use(compression());
 app.use(morgan('combined'));
