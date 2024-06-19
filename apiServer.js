@@ -22,7 +22,7 @@ const hash = require('object-hash');
 const app = require('./ZelBack/src/lib/server');
 const log = require('./ZelBack/src/lib/log');
 const { SocketIoServer } = require('./ZelBack/src/lib/socketIoServer');
-const { SocketServer } = require('./ZelBack/src/lib/socketServer');
+const { FluxSocketServer } = require('./ZelBack/src/lib/socketServer');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
@@ -268,8 +268,8 @@ async function initiate() {
 
   const appHttps = https.createServer(credentials, app);
 
-  const socketServerHttp = new SocketServer();
-  const socketServerHttps = new SocketServer();
+  const socketServerHttp = new FluxSocketServer();
+  const socketServerHttps = new FluxSocketServer();
 
   app.on('upgrade', (request, socket, head) => {
     const { pathname } = new URL(request.url);
