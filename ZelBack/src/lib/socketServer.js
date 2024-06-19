@@ -1,18 +1,7 @@
 const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
 
-const idService = require('../services/idService');
-const fluxCommunication = require('../services/fluxCommunication');
-
-class FluxSocketServer {
-  // these need to be most specific first
-  static defaultRoutes = {
-    '/ws/id/:loginphrase': idService.wsRespondLoginPhrase,
-    '/ws/sign/:message': idService.wsRespondSignature,
-    '/ws/flux/:port': fluxCommunication.handleIncomingConnection,
-    '/ws/flux': fluxCommunication.handleIncomingConnection,
-  };
-
+class FluxWebsocketServer {
   #socketServer = new WebSocketServer({ noServer: true });
 
   #routes = {};
@@ -24,7 +13,7 @@ class FluxSocketServer {
   }
 
   constructor(options = {}) {
-    this.#routes = options.routes || FluxSocketServer.defaultRoutes;
+    this.#routes = options.routes || {};
 
     this.#routeMatchers = Object.entries(this.#routes).map((entry) => {
       const [route, handler] = entry;
@@ -68,9 +57,4 @@ class FluxSocketServer {
   }
 }
 
-if (require.main === module) {
-  const server = new FluxSocketServer();
-  console.log(server.routeMatchers);
-}
-
-module.exports = { FluxSocketServer };
+module.exports = { FluxWebsocketServer };
