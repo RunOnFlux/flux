@@ -96,6 +96,8 @@ class FluxServer {
 
       provider.handleUpgrade(request, socket, head);
     });
+
+    this.server = server;
   }
 
   async listen(port) {
