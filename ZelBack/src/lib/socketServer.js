@@ -2,6 +2,8 @@ const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
 
 class FluxWebsocketServer {
+  static defautlErrorHandler = () => { };
+
   #socketServer = new WebSocketServer({ noServer: true });
 
   #routes = {};
@@ -14,6 +16,7 @@ class FluxWebsocketServer {
 
   constructor(options = {}) {
     this.#routes = options.routes || {};
+    this.errorHandler = options.errorHandler || FluxWebsocketServer.defautlErrorHandler;
 
     this.#routeMatchers = Object.entries(this.#routes).map((entry) => {
       const [route, handler] = entry;
@@ -23,14 +26,9 @@ class FluxWebsocketServer {
     });
 
     this.#socketServer.on('connection', (ws, request) => {
-      ws.on('error', (err) => {
-        console.log('SOCKET SERVER ERROR');
-        console.error(err);
-      });
+      ws.on('error', (err) => this.errorHandler(err));
 
       const { url } = request;
-
-      console.log('REQUEST URL IN CONNECTION HANDLER', url);
 
       this.#routeMatchers.some((routeMatcher) => {
         const { matcher, handler } = routeMatcher;
@@ -39,7 +37,6 @@ class FluxWebsocketServer {
 
         if (!matched) return false;
 
-        console.log('ABOUT TO RUN HANDLER');
         // Should probably pass these as is but all handlers only
         // have one param, so easier this way for now
         handler(ws, ...Object.values(matched.params));
@@ -51,7 +48,6 @@ class FluxWebsocketServer {
 
   handleUpgrade(request, socket, head) {
     this.#socketServer.handleUpgrade(request, socket, head, (ws) => {
-      console.log('IN HANDLE UPGRADE CALLBACK');
       this.#socketServer.emit('connection', ws, request);
     });
   }

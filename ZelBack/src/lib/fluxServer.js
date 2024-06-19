@@ -33,8 +33,6 @@ class FluxServer {
 
   static defaultErrorHandler = () => { };
 
-  socketServer = new FluxWebsocketServer({ routes: socketHandlers });
-
   /**
    * The Flux socket io server instance
    */
@@ -73,7 +71,16 @@ class FluxServer {
       routeBuilder(this.expressApp);
     }
 
-    const server = FluxServer.servers[mode].createServer(this.expressApp, { key, cert });
+    const server = FluxServer.servers[mode].createServer(this.expressApp, {
+      key,
+      cert,
+    });
+
+    this.socketServer = new FluxWebsocketServer({
+      routes: socketHandlers,
+      errorHandler: this.errorHandler,
+    });
+
     this.socketIoServer = new FluxSocketIoServer(server, {
       handlers: socketIoHandlers,
       errorHandler: this.errorHandler,
