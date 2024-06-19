@@ -51,7 +51,9 @@ class FluxSocketServer {
         if (!matched) return false;
 
         console.log('ABOUT TO RUN HANDLER');
-        handler(ws, ...matched.params);
+        // Should probably pass these as is but all handlers only
+        // have one param, so easier this way for now
+        handler(ws, ...Object.values(matched.params));
 
         return true;
       });
