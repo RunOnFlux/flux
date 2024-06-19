@@ -1,9 +1,6 @@
 const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
 
-// REMOVE THIS!!!
-globalThis.userconfig = { initial: { testnet: false } };
-
 const idService = require('../services/idService');
 const fluxCommunication = require('../services/fluxCommunication');
 
