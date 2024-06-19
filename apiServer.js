@@ -266,12 +266,26 @@ async function initiate() {
 
   const credentials = { key, cert };
 
+  // // you explicitly create the http server
+  // const server = http.createServer(app);
   const appHttps = https.createServer(credentials, app);
 
   const socketServerHttp = new FluxSocketServer();
   const socketServerHttps = new FluxSocketServer();
 
-  app.on('upgrade', (request, socket, head) => {
+  const serverHttp = await startServer(app, apiPort).catch((err) => {
+    log.error(err);
+    process.exit();
+  });
+
+  log.info(`Flux listening on port ${apiPort}!`);
+
+  const serverHttps = await startServer(appHttps, apiPortHttps).catch((err) => {
+    log.error(err);
+    process.exit();
+  });
+
+  serverHttp.on('upgrade', (request, socket, head) => {
     const { pathname } = new URL(request.url);
 
     console.log('UPGRADE PATHNAME', pathname);
@@ -285,7 +299,7 @@ async function initiate() {
     });
   });
 
-  appHttps.on('upgrade', (request, socket, head) => {
+  serverHttps.on('upgrade', (request, socket, head) => {
     const { pathname } = new URL(request.url);
 
     // don't handle socket.io listeners
@@ -294,18 +308,6 @@ async function initiate() {
     socketServerHttps.handleUpgrade(request, socket, head, (ws) => {
       socketServerHttps.emit('connection', ws, request);
     });
-  });
-
-  const serverHttp = await startServer(app, apiPort).catch((err) => {
-    log.error(err);
-    process.exit();
-  });
-
-  log.info(`Flux listening on port ${apiPort}!`);
-
-  const serverHttps = await startServer(appHttps, apiPortHttps).catch((err) => {
-    log.error(err);
-    process.exit();
   });
 
   log.info(`Flux https listening on port ${apiPortHttps}!`);
