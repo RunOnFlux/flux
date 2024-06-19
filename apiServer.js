@@ -270,9 +270,6 @@ async function initiate() {
   // const server = http.createServer(app);
   const appHttps = https.createServer(credentials, app);
 
-  const socketServerHttp = new FluxSocketServer();
-  const socketServerHttps = new FluxSocketServer();
-
   const serverHttp = await startServer(app, apiPort).catch((err) => {
     log.error(err);
     process.exit();
@@ -285,31 +282,22 @@ async function initiate() {
     process.exit();
   });
 
+  const socketServerHttp = new FluxSocketServer();
+  const socketServerHttps = new FluxSocketServer();
+
   serverHttp.on('upgrade', (request, socket, head) => {
     console.log('URL HERE', request.url);
-    console.log('REQUEST HERE', request);
-    const { pathname } = new URL(request.url, 'https://default.url');
-
-    console.log('UPGRADE PATHNAME', pathname);
-
     // don't handle socket.io listeners
-    if (!pathname.startsWith('/ws')) return;
+    if (!request.url.startsWith('/ws')) return;
 
-    socketServerHttp.handleUpgrade(request, socket, head, (ws) => {
-      console.log('IN HANDLE UPGRADE');
-      socketServerHttp.emit('connection', ws, request);
-    });
+    socketServerHttp.handleUpgrade(request, socket, head);
   });
 
   serverHttps.on('upgrade', (request, socket, head) => {
-    const { pathname } = new URL(request.url);
-
     // don't handle socket.io listeners
-    if (!pathname.startsWith('/ws')) return;
+    if (!request.url.startsWith('/ws')) return;
 
-    socketServerHttps.handleUpgrade(request, socket, head, (ws) => {
-      socketServerHttps.emit('connection', ws, request);
-    });
+    socketServerHttps.handleUpgrade(request, socket, head);
   });
 
   log.info(`Flux https listening on port ${apiPortHttps}!`);

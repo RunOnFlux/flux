@@ -34,7 +34,7 @@ class FluxSocketServer {
 
       const { url } = request;
 
-      console.log('REQUEST URL', url);
+      console.log('REQUEST URL IN CONNECTION HANDLER', url);
 
       this.#routeMatchers.some((routeMatcher) => {
         const { matcher, handler } = routeMatcher;
@@ -48,6 +48,13 @@ class FluxSocketServer {
 
         return true;
       });
+    });
+  }
+
+  handleUpgrade(request, socket, head) {
+    this.#socketServer.handleUpgrade(request, socket, head, (ws) => {
+      console.log('IN HANDLE UPGRADE CALLBACK');
+      this.#socketServer.emit('connection', ws, request);
     });
   }
 }
