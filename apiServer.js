@@ -274,10 +274,13 @@ async function initiate() {
   app.on('upgrade', (request, socket, head) => {
     const { pathname } = new URL(request.url);
 
+    console.log('UPGRADE PATHNAME', pathname);
+
     // don't handle socket.io listeners
     if (!pathname.startsWith('/ws')) return;
 
     socketServerHttp.handleUpgrade(request, socket, head, (ws) => {
+      console.log('IN HANDLE UPGRADE');
       socketServerHttp.emit('connection', ws, request);
     });
   });

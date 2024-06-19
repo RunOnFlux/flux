@@ -27,9 +27,14 @@ class FluxSocketServer {
     });
 
     this.#socketServer.on('connection', (ws, request) => {
-      ws.on('error', console.error);
+      ws.on('error', (err) => {
+        console.log('SOCKET SERVER ERROR');
+        console.error(err);
+      });
 
       const { url } = request;
+
+      console.log('REQUEST URL', url);
 
       this.#routeMatchers.some((routeMatcher) => {
         const { matcher, handler } = routeMatcher;
@@ -38,6 +43,7 @@ class FluxSocketServer {
 
         if (!matched) return false;
 
+        console.log('ABOUT TO RUN HANDLER');
         handler(ws, ...matched.params);
 
         return true;
