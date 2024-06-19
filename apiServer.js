@@ -286,6 +286,8 @@ async function initiate() {
   });
 
   serverHttp.on('upgrade', (request, socket, head) => {
+    console.log('URL HERE', request.url);
+    console.log('REQUEST HERE', request);
     const { pathname } = new URL(request.url);
 
     console.log('UPGRADE PATHNAME', pathname);
