@@ -97,7 +97,6 @@
     "daemonrpc": "file:lib/daemonrpc",
     "dockerode": "~3.3.5",
     "express": "~4.19.2",
-    "express-ws": "~5.0.2",
     "fast-xml-parser": "~4.3.2",
     "formidable": "~2.1.2",
     "fullnode": "file:lib/fullnode",
