@@ -88,7 +88,7 @@ class FluxServer {
 
     this.socketIoServer.attachNamespaceListeners();
 
-    // remove the socket.io listener
+    // remove the socket.io listener (so we only handle upgrade once)
     server.removeAllListeners('upgrade');
 
     server.on('upgrade', (request, socket, head) => {
