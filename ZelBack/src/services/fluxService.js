@@ -1,6 +1,7 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
+const { promisify } = require('node:util');
 
 const config = require('config');
 const fullnode = require('fullnode');
@@ -28,7 +29,9 @@ const dockerService = require('./dockerService');
 // for streamChain endpoint
 const zlib = require('node:zlib');
 const tar = require('tar-fs');
-const stream = require('node:stream/promises');
+// use non promises stream for node 14.x compatibility
+// const stream = require('node:stream/promises');
+const stream = require('node:stream');
 
 /**
  * Stream chain lock, so only one request at a time
@@ -1661,115 +1664,115 @@ async function streamChain(req, res) {
     return;
   }
 
-  lock = true;
+  try {
+    lock = true;
 
-  /**
+    /**
    * Use the remote address here, don't need to worry about x-forwarded-for headers as
    * we only allow the local network. Also, using the remote address is fine as FluxOS
    * won't confirm if the upstream is natting behind a private address. I.e public
    * connections coming in via a private address. (Flux websockets need the remote address
    * or they think there is only one inbound connnection)
    */
-  let ip = req.socket.remoteAddress;
-  if (!ip) {
-    res.statusMessage = 'Socket closed.';
-    res.status(400).end();
-    lock = false;
-    return;
-  }
-
-  // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
-  ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
-
-  if (!serviceHelper.isPrivateAddress(ip)) {
-    res.statusMessage = 'Request must be from an address on the same private network as the host.';
-    res.status(403).end();
-    lock = false;
-    return;
-  }
-
-  log.info(`Stream chain request received from: ${ip}`);
-
-  const homeDir = os.homedir();
-  const base = path.join(homeDir, '.flux');
-
-  const folders = [
-    'blocks',
-    'chainstate',
-    'determ_zelnodes',
-  ];
-
-  const folderPromises = folders.map(async (f) => {
-    try {
-      const stats = await fs.stat(path.join(base, f));
-      return stats.isDirectory();
-    } catch {
-      return false;
+    let ip = req.socket.remoteAddress;
+    if (!ip) {
+      res.statusMessage = 'Socket closed.';
+      res.status(400).end();
+      lock = false;
+      return;
     }
-  });
 
-  const foldersExist = await Promise.all(folderPromises);
-  const chainExists = foldersExist.every((x) => x);
+    // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
+    ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
-  if (!chainExists) {
-    res.statusMessage = 'Unable to find chain at $HOME/.flux';
-    res.status(500).end();
+    if (!serviceHelper.isPrivateAddress(ip)) {
+      res.statusMessage = 'Request must be from an address on the same private network as the host.';
+      res.status(403).end();
+      lock = false;
+      return;
+    }
+
+    log.info(`Stream chain request received from: ${ip}`);
+
+    const homeDir = os.homedir();
+    const base = path.join(homeDir, '.flux');
+
+    const folders = [
+      'blocks',
+      'chainstate',
+      'determ_zelnodes',
+    ];
+
+    const folderPromises = folders.map(async (f) => {
+      try {
+        const stats = await fs.stat(path.join(base, f));
+        return stats.isDirectory();
+      } catch {
+        return false;
+      }
+    });
+
+    const foldersExist = await Promise.all(folderPromises);
+    const chainExists = foldersExist.every((x) => x);
+
+    if (!chainExists) {
+      res.statusMessage = 'Unable to find chain at $HOME/.flux';
+      res.status(500).end();
+      lock = false;
+      return;
+    }
+
+    let fluxdRunning = null;
+    let compress = false;
+    let safe = true;
+
+    const processedBody = serviceHelper.ensureObject(req.body);
+
+    // use unsafe for the client end to illistrate that they should think twice before using
+    // it, and use safe here for readability
+    safe = processedBody.unsafe !== true;
+    compress = processedBody.compress || false;
+
+    if (!safe && compress) {
+      res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
+      res.status(422).end();
+      lock = false;
+      return;
+    }
+
+    if (safe) {
+      const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
+      fluxdRunning = !(blockInfoRes.status === 'error' && blockInfoRes.data.code === 'ECONNREFUSED');
+    }
+
+    if (safe && fluxdRunning) {
+      res.statusMessage = 'Flux daemon still running, unable to clone blockchain.';
+      res.status(503).end();
+      lock = false;
+      return;
+    }
+
+    const workflow = [];
+
+    workflow.push(tar.pack(base, {
+      entries: folders,
+    }));
+
+    if (compress) {
+      log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
+      workflow.push(zlib.createGzip());
+    }
+
+    workflow.push(res);
+
+    const pipeline = promisify(stream.pipeline);
+
+    const error = await pipeline(...workflow).catch((err) => err);
+
+    if (error) log.warn(`Stream error: ${error.code}`);
+  } finally {
     lock = false;
-    return;
   }
-
-  let fluxdRunning = null;
-  let compress = false;
-  let safe = true;
-
-  const processedBody = serviceHelper.ensureObject(req.body);
-
-  // use unsafe for the client end to illistrate that they should think twice before using
-  // it, and use safe here for readability
-  safe = processedBody.unsafe !== true;
-  compress = processedBody.compress || false;
-
-  if (!safe && compress) {
-    res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
-    res.status(422).end();
-    lock = false;
-    return;
-  }
-
-  if (safe) {
-    const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
-    fluxdRunning = !(blockInfoRes.status === 'error' && blockInfoRes.data.code === 'ECONNREFUSED');
-  }
-
-  if (safe && fluxdRunning) {
-    res.statusMessage = 'Flux daemon still running, unable to clone blockchain.';
-    res.status(503).end();
-    lock = false;
-    return;
-  }
-
-  const workflow = [];
-
-  workflow.push(tar.pack(base, {
-    entries: folders,
-  }));
-
-  if (compress) {
-    log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
-    workflow.push(zlib.createGzip());
-  }
-
-  workflow.push(res);
-
-  const work = stream.pipeline.apply(null, workflow);
-
-  try {
-    await work;
-  } catch (err) {
-    log.warn(`Stream error: ${err.code}`);
-  }
-
-  lock = false;
 }
 
 module.exports = {
