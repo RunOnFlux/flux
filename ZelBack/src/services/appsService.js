@@ -10194,6 +10194,9 @@ async function getAppFiatAndFluxPrice(req, res) {
           }
         }
         actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
+        if (actualPriceToPay < appPrices[0].minUSDPrice) {
+          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+        }
       }
       let fiatRates;
       let fluxUSDRate;
