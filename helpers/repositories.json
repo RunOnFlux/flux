@@ -208,7 +208,7 @@
    "bigmandave",
    "biosmarcel",
    "arkanus",
-   "chesscorp",
+   "chesscorp",tinode
    "guilhermebkel",
    "modem7",
    "marcolederdev",
@@ -460,5 +460,6 @@
    "zookeeper",
    "marciovieira3",
    "datarhei/restreamer",
-   "vinitdcu"
+   "vinitdcu",
+   "tinode"
 ]
