@@ -3978,6 +3978,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
         });
         totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
       }
+      if (height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+        totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
+      }
       let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
       if (instancesAdditional > 0) {
         const additionalPrice = (appPrice * instancesAdditional) / 3;
@@ -4047,6 +4050,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     totalPrice += priceSpecifications.staticip;
   }
   totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
+  if (height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+    totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
+  }
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
   if (instancesAdditional > 0) {
     const additionalPrice = (appPrice * instancesAdditional) / 3;
@@ -10188,9 +10194,6 @@ async function getAppFiatAndFluxPrice(req, res) {
           }
         }
         actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
-        if (actualPriceToPay < appPrices[0].minUSDPrice) {
-          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
-        }
       }
       let fiatRates;
       let fluxUSDRate;
