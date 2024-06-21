@@ -1752,6 +1752,14 @@ async function streamChain(req, res) {
       return;
     }
 
+    const sizePromises = folders.map((f) => serviceHelper.dirSize(path.join(base, f)));
+
+    const sizes = await Promise.all(sizePromises).catch(() => [0]);
+
+    const totalSize = sizes.reduce((i, size) => i + size, 0);
+
+    res.headers['content-length'] = totalSize;
+
     const workflow = [];
 
     workflow.push(tar.pack(base, {

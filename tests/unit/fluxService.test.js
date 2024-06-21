@@ -3199,6 +3199,8 @@ describe('fluxService tests', () => {
         },
       });
 
+      res.headers = {};
+
       let count = 0;
       const readable = new Readable({
         read() {
@@ -3223,6 +3225,8 @@ describe('fluxService tests', () => {
       const req = { socket: { remoteAddress: '10.20.30.40' }, body: { compress: true } };
 
       const res = zlib.createGunzip();
+
+      res.headers = {};
 
       res.on('data', (data) => {
         // this gets all data in buffer
