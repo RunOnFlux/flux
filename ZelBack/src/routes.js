@@ -1221,6 +1221,9 @@ module.exports = (app, expressWs) => {
   app.post('/daemon/getaddressmempool', (req, res) => {
     daemonServiceAddressRpcs.getAddressMempool(req, res);
   });
+  app.post('/flux/streamchain', (req, res) => {
+    fluxService.streamChain(req, res);
+  });
 
   // POST PROTECTED API - USER LEVEL
   app.post('/id/logoutspecificsession', (req, res) => { // requires the knowledge of a session loginPhrase so users level is sufficient and user cannot logout another user as he does not know the loginPhrase.
