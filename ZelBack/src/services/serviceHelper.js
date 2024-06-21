@@ -455,7 +455,6 @@ module.exports = {
   createAxiosinstance,
   delay,
   deleteLoginPhrase,
-  // dirInfo,
   dockerBufferToString,
   ensureBoolean,
   ensureNumber,
