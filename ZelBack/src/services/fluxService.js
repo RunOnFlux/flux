@@ -1752,20 +1752,6 @@ async function streamChain(req, res) {
       return;
     }
 
-    const infoPromises = folders.map((f) => serviceHelper.dirInfo(path.join(base, f), { padFiles: 512 }));
-
-    const info = await Promise.all(infoPromises).catch(() => [{ count: 0, size: 0 }]);
-
-    const { count, size } = info.reduce((prev, current) => ({ count: prev.count + current.count, size: prev.size + current.size }), { count: 0, size: 0 });
-
-    const tarHeaderSize = count * 512;
-    // if we get an error getting size, just set eof to 0, which will make totalSize 0
-    const tarEof = size ? 512 * 2 : 0;
-
-    const totalSize = size + tarHeaderSize + tarEof;
-
-    res.setHeader('Content-Length', totalSize.toString());
-
     const workflow = [];
 
     workflow.push(tar.pack(base, {
