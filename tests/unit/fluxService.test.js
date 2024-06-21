@@ -3199,7 +3199,7 @@ describe('fluxService tests', () => {
         },
       });
 
-      res.headers = {};
+      res.setHeader = () => { };
 
       let count = 0;
       const readable = new Readable({
@@ -3226,7 +3226,7 @@ describe('fluxService tests', () => {
 
       const res = zlib.createGunzip();
 
-      res.headers = {};
+      res.setHeader = () => { };
 
       res.on('data', (data) => {
         // this gets all data in buffer

@@ -1758,7 +1758,7 @@ async function streamChain(req, res) {
 
     const totalSize = sizes.reduce((i, size) => i + size, 0);
 
-    res.headers['content-length'] = totalSize;
+    res.setHeader('Content-Length', totalSize.toString());
 
     const workflow = [];
 
