@@ -180,6 +180,7 @@ async function startFluxFunctions() {
         } else {
           log.info('App consistency check OK');
         }
+        wrongAppMessage = false; // TODO remove on 5.13.2
         // rescan before last known height of hashes
         // it is important to have count values before consistency check
         if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100) || wrongAppMessage) {
