@@ -8050,7 +8050,7 @@ async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       // eslint-disable-next-line no-await-in-loop
-      const messageReceived = await checkAndRequestApp(app.hash, app.txid, app.height, app.valueSat, 2);
+      const messageReceived = await checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
       if (messageReceived) {
         appsToRemove.push(app);
       }

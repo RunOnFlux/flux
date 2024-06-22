@@ -329,10 +329,10 @@ async function respondWithAppMessage(msgObj, ws) {
         throw new Error('Invalid Flux App Request v2 message');
       }
       for (let i = 0; i < message.hashes.length; i += 1) {
-        appsMessages.push(message.hashes[i]);
-        if (typeof hash !== 'string') {
+        if (typeof message.hashes[i] !== 'string') {
           throw new Error('Invalid Flux App Request v2 message');
         }
+        appsMessages.push(message.hashes[i]);
       }
     }
 
