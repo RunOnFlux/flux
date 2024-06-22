@@ -184,7 +184,7 @@ async function startFluxFunctions() {
         // it is important to have count values before consistency check
         if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100) || wrongAppMessage) {
           // run fixExplorer at least from height 1670000
-          explorerService.fixExplorer(result[result.length - 1].height - 50 > 1670000 ? 1670000 : result[result.length - 1].height - 50, false);
+          explorerService.fixExplorer(result[result.length - 1].height - 50 > 1670000 ? 1670000 : result[result.length - 1].height - 50, wrongAppMessage);
           log.info('Flux Block Processing Service started in fix mode');
         } else if (resultApps.count > resultHashes.count) {
           explorerService.fixExplorer(0, true);
