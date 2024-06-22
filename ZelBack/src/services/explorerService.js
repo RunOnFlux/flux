@@ -1327,7 +1327,7 @@ async function reindexExplorer(req, res) {
   }
 }
 
-async function fixExplorer(height = 1637000, rescanApps = true) {
+async function fixExplorer(height = 1670000, rescanApps = true) {
   try {
     const dbopen = dbHelper.databaseConnection();
     const blockheight = serviceHelper.ensureNumber(height);

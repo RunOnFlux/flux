@@ -166,16 +166,25 @@ async function startFluxFunctions() {
         log.info(JSON.stringify(duplicateHashes));
         const result = await dbHelper.findInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, query, projection);
         if (result && result.length) {
-          log.info('Last knwon application hash');
+          log.info('Last known application hash');
           log.info(result[result.length - 1]);
         } else {
           log.info('No known application hash');
         }
+        // check if valueSat is null, if so run fixExplorer as of typo bug
+        let wrongAppMessage = false;
+        const appMessage = appsService.checkAppMessageExistence('e7e2e129dd24b8bcc5a93800c425da81f69c3dcdf02d1d5b3ce09ce2e1c94d67');
+        if (appMessage && !appMessage.valueSat) {
+          wrongAppMessage = true;
+          log.info('Fixing explorer due to wrong app message');
+        } else {
+          log.info('App consistency check OK');
+        }
         // rescan before last known height of hashes
         // it is important to have count values before consistency check
-        if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100)) {
-          // run fixExplorer at least from height 1633000
-          explorerService.fixExplorer(result[result.length - 1].height - 50 > 1633000 ? 1633000 : result[result.length - 1].height - 50, false);
+        if ((resultApps.count > resultHashes.count && result && result.length && result[result.length - 1].height >= 100) || wrongAppMessage) {
+          // run fixExplorer at least from height 1670000
+          explorerService.fixExplorer(result[result.length - 1].height - 50 > 1670000 ? 1670000 : result[result.length - 1].height - 50, false);
           log.info('Flux Block Processing Service started in fix mode');
         } else if (resultApps.count > resultHashes.count) {
           explorerService.fixExplorer(0, true);
