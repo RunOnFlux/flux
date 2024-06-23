@@ -315,8 +315,18 @@ class ImageVerifier {
   async #evaluateImageManifest(manifestIndex) {
     this.evaluated = true;
 
-    const evaluateSingleImage = (manifest, architecture = 'amd64') => {
+    const evaluateSingleImage = async (manifest, architecture) => {
       let size = 0;
+      let arch = architecture;
+
+      // this can happen if we ask for a manifest list, but only get a manifest. If
+      // so, we need to look up the image config to get the arch.
+      if (!arch) {
+        const imageConfig = await this.#fetchConfig(manifest.config.digest);
+        if (this.error) return;
+
+        arch = imageConfig.architecture;
+      }
 
       manifest.layers.forEach((layer) => {
         size += layer.size;
@@ -326,7 +336,7 @@ class ImageVerifier {
         this.#evaluationErrorDetail = `Docker image: ${this.rawImageTag} size is over Flux limit`;
       }
 
-      if (this.architecture === architecture) this.#architectureSupported = true;
+      if (this.architecture === arch) this.#architectureSupported = true;
     };
 
     const evaluateMultipleImages = async (manifest) => {
@@ -346,7 +356,10 @@ class ImageVerifier {
         });
         // eslint-disable-next-line no-await-in-loop
         const singleManifest = await this.#fetchManifest(image.digest);
-        if (!this.error) evaluateSingleImage(singleManifest, image.platform.architecture);
+
+        if (this.error) return;
+        // eslint-disable-next-line no-await-in-loop
+        await evaluateSingleImage(singleManifest, image.platform.architecture);
       }
     };
 
@@ -357,27 +370,37 @@ class ImageVerifier {
         await evaluateMultipleImages(manifestIndex);
         break;
       case 'application/vnd.oci.image.manifest.v1+json':
-        evaluateSingleImage(manifestIndex);
+        await evaluateSingleImage(manifestIndex);
         break;
       case 'application/vnd.docker.distribution.manifest.list.v2+json':
         await evaluateMultipleImages(manifestIndex);
         break;
       case 'application/vnd.docker.distribution.manifest.v2+json':
-        evaluateSingleImage(manifestIndex);
+        await evaluateSingleImage(manifestIndex);
         break;
       default:
         this.#evaluationErrorDetail = `Unsupported Media type: ${mediaType} for: ${this.rawImage}`;
     }
   }
 
-  async #fetchManifest(id) {
-    const manifestEndpoint = `${this.namespace}/${this.repository}/manifests/${id}`;
+  async #fetchManifest(digest) {
+    const manifestEndpoint = `${this.namespace}/${this.repository}/manifests/${digest}`;
 
     const { data: imageManifest } = await this.#axiosInstance
       .get(manifestEndpoint)
       .catch((error) => this.#handleAxiosError(manifestEndpoint, error));
 
     return imageManifest;
+  }
+
+  async #fetchConfig(digest) {
+    const blobsEndpoint = `${this.namespace}/${this.repository}/blobs/${digest}`;
+
+    const { data: imageConfig } = await this.#axiosInstance
+      .get(blobsEndpoint)
+      .catch((error) => this.#handleAxiosError(blobsEndpoint, error));
+
+    return imageConfig;
   }
 
   /**

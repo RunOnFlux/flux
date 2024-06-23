@@ -564,6 +564,9 @@ describe('imageVerifier tests', () => {
         if (url === 'megachips/ipshow/manifests/web') {
           return { data: registryResponses.distributionManifestAmd64 };
         }
+        if (url === 'megachips/ipshow/blobs/sha256:87a2490a12aed4100891be53b521da77508dafef1d49422f7eb5088c6eb1631a') {
+          return { data: registryResponses.imageConfigAmd64 };
+        }
 
         return { data: null };
       });
@@ -600,6 +603,9 @@ describe('imageVerifier tests', () => {
         if (url === 'megachips/ipshow/manifests/web') {
           return { data: registryResponses.oversizeDistributionManifestAmd64 };
         }
+        if (url === 'megachips/ipshow/blobs/sha256:87a2490a12aed4100891be53b521da77508dafef1d49422f7eb5088c6eb1631a') {
+          return { data: registryResponses.imageConfigAmd64 };
+        }
 
         return { data: null };
       });
@@ -617,6 +623,9 @@ describe('imageVerifier tests', () => {
       axiosGetStub.callsFake(async (url) => {
         if (url === 'megachips/ipshow/manifests/web') {
           return { data: registryResponses.ociManifestAmd64 };
+        }
+        if (url === 'megachips/ipshow/blobs/sha256:05247af918647d8d063d2e880cc65c1546a7d616cde1e6c6f5dab1ca091f6cf8') {
+          return { data: registryResponses.imageConfigAmd64 };
         }
 
         return { data: null };
@@ -653,6 +662,9 @@ describe('imageVerifier tests', () => {
       axiosGetStub.callsFake(async (url) => {
         if (url === 'megachips/ipshow/manifests/web') {
           return { data: registryResponses.oversizeOciManifestAmd64 };
+        }
+        if (url === 'megachips/ipshow/blobs/sha256:05247af918647d8d063d2e880cc65c1546a7d616cde1e6c6f5dab1ca091f6cf8') {
+          return { data: registryResponses.imageConfigAmd64 };
         }
 
         return { data: null };
