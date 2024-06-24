@@ -3,15 +3,13 @@ const sinon = require('sinon');
 
 const { Server } = require('node:http');
 
-const proxyquire = require('proxyquire').noCallThru();
-
 const handlerA = sinon.stub();
 const handlerB = sinon.stub();
 const handlers = { a: handlerA, b: handlerB };
 
-const io = proxyquire('../../ZelBack/src/lib/socketIoServer', { './socketIoHandlers/index': handlers });
+const io = require('../../ZelBack/src/lib/socketIoServer');
 
-describe('requestHistory tests', () => {
+describe('FluxSocketServer tests', () => {
   beforeEach(async () => { });
 
   afterEach(() => {
@@ -20,7 +18,7 @@ describe('requestHistory tests', () => {
 
   it('should set correct default properties when no parameters used', () => {
     const httpServer = new Server();
-    const ioServer = new io.SocketIoServer(httpServer);
+    const ioServer = new io.FluxSocketIoServer(httpServer);
     const errorHandlers = ioServer.io.listeners('error');
 
     expect(ioServer.io.opts.transports).to.deep.equal(['websocket', 'polling', 'flashsocket']);
@@ -33,7 +31,7 @@ describe('requestHistory tests', () => {
     const errorHandler = () => { logged = true; };
 
     const httpServer = new Server();
-    const ioServer = new io.SocketIoServer(httpServer, { transports: ['websocket'], cors: { origin: '/test', methods: ['GET'] }, errorHandler });
+    const ioServer = new io.FluxSocketIoServer(httpServer, { transports: ['websocket'], cors: { origin: '/test', methods: ['GET'] }, errorHandler });
     const errorHandlers = ioServer.io.listeners('error');
 
     expect(ioServer.io.opts.transports).to.deep.equal(['websocket']);
@@ -46,9 +44,9 @@ describe('requestHistory tests', () => {
 
   it('should add all handlers from socketIoHandlers', () => {
     const httpServer = new Server();
-    const ioServer = new io.SocketIoServer(httpServer);
+    const ioServer = new io.FluxSocketIoServer(httpServer, { handlers });
 
-    ioServer.listen();
+    ioServer.attachNamespaceListeners();
 
     const aListeners = ioServer.getListenersByNamespace('a');
     const bListeners = ioServer.getListenersByNamespace('b');

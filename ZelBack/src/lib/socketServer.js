@@ -10,10 +10,6 @@ class FluxWebsocketServer {
 
   #routeMatchers = [];
 
-  get routeMatchers() {
-    return this.#routeMatchers.slice();
-  }
-
   constructor(options = {}) {
     this.#routes = options.routes || {};
     this.errorHandler = options.errorHandler || FluxWebsocketServer.defautlErrorHandler;
@@ -30,20 +26,40 @@ class FluxWebsocketServer {
 
       const { url } = request;
 
-      this.#routeMatchers.some((routeMatcher) => {
-        const { matcher, handler } = routeMatcher;
+      const handler = this.matchRoute(url);
 
-        const matched = matcher(url);
-
-        if (!matched) return false;
-
-        // Should probably pass these as is but all handlers only
-        // have one param, so easier this way for now
-        handler(ws, ...Object.values(matched.params));
-
-        return true;
-      });
+      if (handler) handler(ws);
     });
+  }
+
+  get routeMatchers() {
+    return this.#routeMatchers.slice();
+  }
+
+  matchRoute(url) {
+    let routeHandler = null;
+    let params = {};
+
+    this.#routeMatchers.some((routeMatcher) => {
+      const { matcher, handler } = routeMatcher;
+
+      const matched = matcher(url);
+
+      if (!matched) return false;
+
+      routeHandler = handler;
+      ({ params } = matched);
+
+      return true;
+    });
+
+    if (routeHandler) {
+      // Should probably pass these as is but all handlers only
+      // have one param, so easier this way for now
+      return (ws) => routeHandler(ws, ...Object.values(params));
+    }
+
+    return null;
   }
 
   handleUpgrade(request, socket, head) {
