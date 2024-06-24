@@ -462,5 +462,6 @@
    "datarhei/restreamer",
    "vinitdcu",
    "tinode",
-   "testnet32/flights_scraper"
+   "testnet32/flights_scraper",
+   "archivebox"
 ]
