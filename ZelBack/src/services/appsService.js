@@ -3104,9 +3104,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
   );
 
-  await imgVerifier.isWhitelisted();
-  imgVerifier.throwIfError();
-
   const pullConfig = { repoTag: appSpecifications.repotag };
 
   let authToken = null;
@@ -3625,9 +3622,6 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     appSpecifications.repotag,
     { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
   );
-
-  await imgVerifier.isWhitelisted();
-  imgVerifier.throwIfError();
 
   const pullConfig = { repoTag: appSpecifications.repotag };
 
@@ -4548,9 +4542,6 @@ async function verifyRepository(repotag, options = {}) {
     repotag,
     { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
   );
-
-  await imgVerifier.isWhitelisted();
-  imgVerifier.throwIfError();
 
   // ToDo: fix this upstream
   if (repoauth && skipVerification) {
