@@ -71,10 +71,14 @@ class FluxServer {
       routeBuilder(this.expressApp);
     }
 
-    const server = FluxServer.servers[mode].createServer(this.expressApp, {
-      key,
-      cert,
-    });
+    // you can pass them into an http server and it ignores key / cert but
+    // better to not pass in unneeded properties
+    const sslConfig = key && cert ? { key, cert } : {};
+
+    const server = FluxServer.servers[mode].createServer(
+      this.expressApp,
+      ...sslConfig,
+    );
 
     this.socketServer = new FluxWebsocketServer({
       routes: socketHandlers,
@@ -108,6 +112,10 @@ class FluxServer {
     });
 
     this.server = server;
+  }
+
+  get isHttps() {
+    return this.server instanceof nodeHttps.Server;
   }
 
   async listen(port) {
