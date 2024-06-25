@@ -1,6 +1,4 @@
 const util = require('node:util');
-const path = require('node:path');
-const { readdir, stat } = require('node:fs/promises');
 const execFile = util.promisify(require('node:child_process').execFile);
 
 const axios = require('axios').default;
