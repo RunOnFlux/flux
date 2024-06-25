@@ -264,6 +264,26 @@ function validIpv4Address(ip) {
 }
 
 /**
+ * Check if an Ipv4 address is in the RFC1918 range. I.e. NOT routable on
+ * the internet.
+ * @param {string} ip Target IP
+ * @returns {Boolean}
+ */
+function isPrivateAddress(ip) {
+  if (!(validIpv4Address(ip))) return false;
+
+  const quads = ip.split('.').map((quad) => +quad);
+
+  if (quads.length !== 4) return false;
+
+  if ((quads[0] === 10)) return true;
+  if ((quads[0] === 192) && (quads[1] === 168)) return true;
+  if ((quads[0] === 172) && (quads[1] >= 16) && (quads[1] <= 31)) return true;
+
+  return false;
+}
+
+/**
  * To confirm if ip is in subnet
  * @param {string} ip
  * @param {string} subnet
@@ -441,6 +461,7 @@ module.exports = {
   getApplicationOwner,
   ipInSubnet,
   isDecimalLimit,
+  isPrivateAddress,
   minVersionSatisfy,
   parseVersion,
   runCommand,

@@ -571,7 +571,7 @@ async function mongoDBConfig() {
 async function mongodGpgKeyVeryfity() {
   log.info('MongoDB GPG verification...');
   try {
-    const { stdout, stderr, error } = await serviceHelper.runCommand('gpg', { runAsRoot: true, params: ['--show-keys', '/usr/share/keyrings/mongodb-archive-keyring.gpg'] });
+    const { stdout, stderr, error } = await serviceHelper.runCommand('gpg', { runAsRoot: false, params: ['--no-default-keyring', '--keyring', '/usr/share/keyrings/mongodb-archive-keyring.gpg', '--list-keys'] });
     if (error) {
       throw new Error(`Executing gpg: ${error}`);
     }

@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "5.13.2",
+  "version": "5.14.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -119,6 +119,7 @@
     "socket.io": "~4.7.2",
     "splitargs": "~0.0.7",
     "store": "~2.0.12",
+    "tar-fs": "~3.0.6",
     "ws": "~7.5.9",
     "xterm": "~5.1.0",
     "zeltrezjs": "~2.12.0"

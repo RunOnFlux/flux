@@ -3978,6 +3978,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
         });
         totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
       }
+      if (height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+        totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
+      }
       let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
       if (instancesAdditional > 0) {
         const additionalPrice = (appPrice * instancesAdditional) / 3;
@@ -4047,6 +4050,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     totalPrice += priceSpecifications.staticip;
   }
   totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
+  if (height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+    totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
+  }
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
   if (instancesAdditional > 0) {
     const additionalPrice = (appPrice * instancesAdditional) / 3;
