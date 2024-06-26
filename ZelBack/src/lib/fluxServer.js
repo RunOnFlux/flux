@@ -132,6 +132,10 @@ class FluxServer {
       this.server.listen(port);
     });
   }
+
+  close(callback) {
+    this.server.close(callback);
+  }
 }
 
 module.exports = { FluxServer };
