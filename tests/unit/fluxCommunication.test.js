@@ -662,7 +662,7 @@ describe('fluxCommunication tests', () => {
   describe('removeIncomingPeer tests', () => {
     let verificationHelperStub;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       incomingConnections.length = 0;
       incomingPeers.length = 0;
 
@@ -678,10 +678,27 @@ describe('fluxCommunication tests', () => {
         lastPingTime: Date.now(),
         latency: 50,
       };
-      incomingConnections.push(peer1);
-      incomingConnections.push(peer2);
+
       incomingPeers.push(peer1);
       incomingPeers.push(peer2);
+
+      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+      const port = 16127;
+
+      const wsIncoming1 = await connectWs(wsuri);
+      wsIncoming1.port = port;
+      wsIncoming1.ip = '127.0.3.1';
+      wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
+      wsIncoming1.close = () => true;
+
+      const wsIncoming2 = await connectWs(wsuri);
+      wsIncoming2.port = port;
+      wsIncoming2.ip = '192.168.0.0';
+      wsIncoming2._socket = { remoteAddress: '192.168.0.0' };
+      wsIncoming2.close = () => true;
+
+      incomingConnections.push(wsIncoming1);
+      incomingConnections.push(wsIncoming2);
     });
 
     afterEach(() => {
@@ -689,14 +706,6 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should close the connection with ip given in params if it exists', async () => {
-      const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
-      const port = 16127;
-      const wsIncoming1 = await connectWs(wsuri1);
-      wsIncoming1.port = port;
-      wsIncoming1.ip = '127.0.3.1';
-      wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
-      wsIncoming1.close = () => true;
-      incomingConnections.push(wsIncoming1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const expectedResult = {
         status: 'success',
@@ -719,23 +728,14 @@ describe('fluxCommunication tests', () => {
         return res;
       };
       const res = generateResponse();
-      const expressWsList = { clients: [wsIncoming1] };
 
-      const result = await fluxCommunication.removeIncomingPeer(req, res, expressWsList);
+      const result = await fluxCommunication.removeIncomingPeer(req, res);
 
       expect(result).to.eql(expectedResult);
       sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);
     }).timeout(5000);
 
     it('should close the connection with ip given in query if it exists', async () => {
-      const wsuri1 = 'wss://api.runonflux.io/ws/flux/';
-      const port = 16127;
-      const wsIncoming1 = await connectWs(wsuri1);
-      wsIncoming1.port = port;
-      wsIncoming1.ip = '127.0.3.1';
-      wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
-      wsIncoming1.close = () => true;
-      incomingConnections.push(wsIncoming1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const expectedResult = {
         status: 'success',
@@ -761,9 +761,8 @@ describe('fluxCommunication tests', () => {
         return res;
       };
       const res = generateResponse();
-      const expressWsList = { clients: [wsIncoming1] };
 
-      const result = await fluxCommunication.removeIncomingPeer(req, res, expressWsList);
+      const result = await fluxCommunication.removeIncomingPeer(req, res);
 
       expect(result).to.eql(expectedResult);
       sinon.assert.calledOnceWithExactly(verificationHelperStub, 'adminandfluxteam', req);

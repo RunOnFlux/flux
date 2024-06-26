@@ -468,7 +468,6 @@ async function closeIncomingConnection(ip, port) {
 
   const wsObj = incomingConnections[conIndex];
   incomingConnections.splice(conIndex, 1);
-
   wsObj.close(4010, 'purpusfully closed');
   log.info(`Connection from ${ip}:${port} closed with code 4010`);
 

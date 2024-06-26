@@ -4,7 +4,15 @@ const sinon = require('sinon');
 const nodeHttp = require('node:http');
 const nodeHttps = require('node:https');
 
-const fluxServer = require('../../ZelBack/src/lib/fluxServer');
+const proxyquire = require('proxyquire');
+
+const useStub = sinon.stub();
+const noop = () => { };
+const expressApp = { use: useStub, get: noop, post: noop };
+const expressFunc = sinon.stub().returns(expressApp);
+
+// we have to use proxyquire here as the default export for express is a function
+const fluxServer = proxyquire('../../ZelBack/src/lib/fluxServer', { express: expressFunc });
 
 describe('FluxServer tests', () => {
   const createHttpServer = Object.create(nodeHttp.Server.prototype);
@@ -20,6 +28,8 @@ describe('FluxServer tests', () => {
 
   afterEach(() => {
     sinon.restore();
+    // restore doesn't reset the stub when using proxyquire for some reason
+    useStub.reset();
   });
 
   it('should set default mode to http server', () => {
@@ -54,31 +64,31 @@ describe('FluxServer tests', () => {
 
   it('should create a new express app and add middlewares / routes if expressApp option not present', () => {
     const routeBuilder = sinon.stub();
-    const testMiddleware = sinon.stub();
+    const testMiddleware = noop;
     const middlewares = [testMiddleware];
 
     const options = { routeBuilder, middlewares };
 
     const server = new fluxServer.FluxServer(options);
+
+    expect(server.expressApp === expressApp).to.equal(true);
+    sinon.assert.calledWithExactly(useStub, testMiddleware);
+    sinon.assert.calledWithExactly(routeBuilder, expressApp);
   });
-  // it('should choose correct server based on mode', () => {
-  //   const mode = 'https';
-  //   const testMiddleware = sinon.stub();
-  //   const routeBuilder = sinon.stub();
-  //   const middlewares = [testMiddleware];
-  //   const key = 'mykey';
-  //   const cert = 'mycert';
 
-  //   const useStub = sinon.stub();
-  //   const expressApp = sinon.stub();
-  //   expressApp.use = useStub;
+  it('should use existing express app and skip middlewares / routes if expressApp option present', () => {
+    const routeBuilder = sinon.stub();
+    const testMiddleware = noop;
+    const middlewares = [testMiddleware];
 
-  //   const server = new fluxServer.FluxServer({
-  //     mode, middlewares, key, cert, expressApp,
-  //   });
+    const localExpressApp = { use: useStub, get: noop, post: noop };
 
-  //   expect(server.isHttps).to.equal(true);
-  //   // sinon.assert.calledWithExactly(useStub, testMiddleware);
-  //   // sinon.assert.calledWithExactly(routeBuilder, expressApp);
-  // });
+    const options = { routeBuilder, middlewares, expressApp: localExpressApp };
+
+    const server = new fluxServer.FluxServer(options);
+
+    expect(server.expressApp === localExpressApp).to.equal(true);
+    sinon.assert.neverCalledWith(useStub);
+    sinon.assert.notCalled(routeBuilder);
+  });
 });

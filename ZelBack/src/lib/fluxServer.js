@@ -77,7 +77,7 @@ class FluxServer {
 
     const server = FluxServer.servers[mode].createServer(
       this.expressApp,
-      ...sslConfig,
+      sslConfig,
     );
 
     this.socketServer = new FluxWebsocketServer({
@@ -122,15 +122,11 @@ class FluxServer {
     return new Promise((resolve, reject) => {
       this.server
         .once('error', (err) => {
-          this.server
-            .listeners('listening')
-            .forEach((l) => this.server.removeListener('listening', l));
+          this.server.removeAllListeners('listening');
           reject(err);
         })
         .once('listening', () => {
-          this.server
-            .listeners('error')
-            .forEach((l) => this.server.removeListener('error', l));
+          this.server.removeAllListeners('error');
           resolve();
         });
       this.server.listen(port);
