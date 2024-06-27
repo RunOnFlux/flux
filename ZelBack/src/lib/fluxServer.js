@@ -111,6 +111,9 @@ class FluxServer {
       provider.handleUpgrade(request, socket, head);
     });
 
+    /**
+     * The http server
+     */
     this.server = server;
   }
 

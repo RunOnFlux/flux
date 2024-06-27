@@ -28,7 +28,6 @@ describe('loading express', () => {
   });
   before(async () => {
     await dbHelper.initiateDB();
-    console.log('db done');
     await fluxServer.listen(config.server.apiport);
     log.info(`Flux listening on port ${config.server.apiport}!`);
   });
