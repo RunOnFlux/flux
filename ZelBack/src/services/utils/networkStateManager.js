@@ -67,9 +67,7 @@ class NetworkStateManager extends EventEmitter {
     const filter = options.filter || null;
     const type = options.type || 'pubkey';
 
-    const remove = Boolean(nodes.length);
-
-    if (remove) {
+    if (!nodes.length) {
       if (type === 'pubkey') {
         const toDelete = this.#indexes.pubkey.get(filter);
         this.#indexes.pubkey.delete(filter);
