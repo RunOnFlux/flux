@@ -26,10 +26,11 @@ async function start() {
         options,
       );
 
-      if (res.status === 'success') {
-        return res.data;
-      }
-      return [];
+      const nodes = res.status === 'success' ? res.data : [];
+
+      // testing
+      log.info('FLUXNODE LIST LENGTH', nodes.length);
+      return nodes;
     };
 
     stateManager = new networkStateManager.NetworkStateManager(fetcher, {
