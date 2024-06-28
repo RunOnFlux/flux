@@ -145,11 +145,11 @@ async function verifyBroadcast(broadcast) {
     // zelappregister zelappupdate fluxappregister fluxappupdate
     default:
       // we take the first node. Why??? What does this validate?
-      target = nodes.size ? nodes.keys().next().value.ip : null;
+      target = nodes.size ? nodes.keys().next().value : null;
       error = `No node belonging to ${pubKey} found`;
   }
 
-  const node = nodes.get(target) || (await stateManager.search(target, 'endpoint'));
+  const node = nodes.get(target) || await stateManager.search(target, 'endpoint');
 
   if (!node) {
     log.warn(error);
