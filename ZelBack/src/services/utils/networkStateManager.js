@@ -4,8 +4,6 @@
  * multiple blocks in a short timeframe.
  */
 
-globalThis.userconfig = { initial: { testnet: false } };
-
 const { EventEmitter } = require('node:events');
 const { FluxController } = require('./fluxController');
 
