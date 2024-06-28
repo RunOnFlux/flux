@@ -18,7 +18,7 @@ const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchma
 const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
-const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const networkStateService = require('./networkStateService');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -268,7 +268,7 @@ async function checkAppAvailability(req, res) {
       const ipPort = processedBody.port;
 
       // pubkey of the message has to be on the list
-      const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+      const zl = await networkStateService.getFluxnodesByPubkey(pubKey); // this itself is sufficient.
       const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
       const dataToVerify = processedBody;
       delete dataToVerify.signature;
@@ -406,8 +406,8 @@ async function getFluxNodePublicKey(privatekey) {
  * To get a random connection.
  * @returns {string} IP:Port or just IP if default.
  */
-async function getRandomConnection() {
-  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+function getRandomConnection() {
+  const nodeList = networkStateService.networkState();
   const zlLength = nodeList.length;
   if (zlLength === 0) {
     return null;
@@ -682,7 +682,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (!fluxBenchVersionAllowed) {
     return false;
   }
-  let askingIP = await getRandomConnection();
+  let askingIP = getRandomConnection();
   if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
     return false;
   }
@@ -764,7 +764,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   const measuredUptime = fluxUptime();
   if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
-    const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+    const nodeList = networkStateService.networkState();
     // nodeList must include our fluxnode ip myIP
     let myCorrectIp = `${myIP}:${apiPort}`;
     if (apiPort === 16127 || apiPort === '16127') {
@@ -903,7 +903,7 @@ async function checkDeterministicNodesCollisions() {
         }, 120 * 1000);
         return;
       }
-      const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+      const nodeList = networkStateService.networkState();
       const result = nodeList.filter((node) => node.ip === myIP);
       const nodeStatus = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
       if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
