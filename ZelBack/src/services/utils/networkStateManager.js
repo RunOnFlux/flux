@@ -65,9 +65,9 @@ class NetworkStateManager extends EventEmitter {
     return this.#running;
   }
 
-  #setIndexes(nodes, filter, type) {
-    // storing a reference is 64 bits, same as a number, so may
-    // as well just store the reference, instead of array index
+  #setIndexes(nodes, options = {}) {
+    const filter = options.filter || null;
+    const type = options.type || 'pubkey';
 
     const remove = Boolean(nodes.length);
 
@@ -151,7 +151,7 @@ class NetworkStateManager extends EventEmitter {
     // Any LRU cache should not return a direct object, it should return a copy.
     const nodes = await this.stateFetcher(filter).catch(() => []);
 
-    this.#setIndexes(nodes, filter, type);
+    this.#setIndexes(nodes, { filter, type });
 
     return this.#indexes[type].get(filter);
   }
@@ -186,6 +186,8 @@ async function main() {
   }, 5_000);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
 
 module.exports = { NetworkStateManager };
