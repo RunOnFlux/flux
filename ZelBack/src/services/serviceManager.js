@@ -103,11 +103,9 @@ async function startFluxFunctions() {
     });
     log.info('Mongodb zelnodetransactions dropped');
 
-    setTimeout(() => {
-      // updates deterministic flux list for communication every 2 minutes.
-      // ToDo: subscribe to fluxd block notifications
-      networkStateService.start();
-    }, 15 * 1000);
+    // fetch the fluxnode list. This is probably broken - if daemon isn't running, will hang here
+    await networkStateService.start();
+
     setTimeout(async () => {
       log.info('Rechecking firewall app rules');
       fluxNetworkHelper.purgeUFW();

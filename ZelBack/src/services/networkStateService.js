@@ -26,10 +26,8 @@ async function start() {
         options,
       );
 
-      const nodes = res.status === 'success' ? res.data : [];
+      const nodes = res.status === 'success' ? res.data : null;
 
-      // testing
-      log.info('FLUXNODE LIST LENGTH', nodes.length);
       return nodes;
     };
 

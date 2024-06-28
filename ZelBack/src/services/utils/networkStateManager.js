@@ -104,8 +104,21 @@ class NetworkStateManager extends EventEmitter {
 
   async start() {
     const runner = async () => {
+      // should use monotonic clock for any elapsed times
       const start = Date.now();
-      const state = await this.stateFetcher().catch(() => []);
+
+      let state = null;
+
+      while (!state) {
+        if (this.#controller.aborted) break;
+
+        // eslint-disable-next-line no-await-in-loop
+        const res = await this.stateFetcher().catch(() => null);
+
+        // eslint-disable-next-line no-await-in-loop
+        state = res || await this.#controller.sleep(15_000);
+      }
+
       const populated = Boolean(this.#state.length);
 
       if (state.length) {
