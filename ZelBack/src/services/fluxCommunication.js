@@ -659,6 +659,7 @@ async function initiateAndHandleConnection(connection) {
         }
         return;
       }
+
       // check if we have the message in cache. If yes, return false. If not, store it and continue
       await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should help processing duplicated messages received at same timestamp
 
