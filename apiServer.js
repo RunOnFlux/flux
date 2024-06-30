@@ -1,4 +1,4 @@
-global.userconfig = require('./config/userconfig');
+globalThis.userconfig = require('./config/userconfig');
 
 if (typeof AbortController === 'undefined') {
   // polyfill for nodeJS 14.18.1 - without having to use experimental features
