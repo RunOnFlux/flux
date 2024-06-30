@@ -1,7 +1,13 @@
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
+const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const systemService = require('./systemService');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const networkStateManager = require('./utils/networkStateManager');
 
 /**
@@ -15,12 +21,69 @@ const networkStateManager = require('./utils/networkStateManager');
  */
 let stateManager = null;
 
+async function enableZmq(zmqEndpoint) {
+  const fluxConfigDir = daemonServiceUtils.getConfigDir();
+  const zmqEnabledPath = path.join(fluxConfigDir, '.zmqEnabled');
+
+  const exists = Boolean(await fs.stat(zmqEnabledPath).catch(() => false));
+
+  if (exists) return true;
+
+  let parseError = false;
+
+  try {
+    const { protocol, hostname, port } = new URL(zmqEndpoint);
+
+    if (!protocol === 'tcp' || !hostname || !port) parseError = true;
+  } catch {
+    parseError = true;
+  }
+
+  if (parseError) {
+    log.error(`Error parsing zmqEndpoint: ${zmqEndpoint}. Unable to start zmq publisher`);
+    return false;
+  }
+
+  const topics = [
+    'zmqpubhashtx',
+    'zmqpubhashblock',
+    'zmqpubrawblock',
+    'zmqpubrawtx',
+    'zmqpubsequence',
+  ];
+
+  topics.forEach((topic, index) => {
+    const write = index + 1 === topics.length;
+    daemonServiceUtils.setConfigValue(topic, zmqEndpoint, {
+      write,
+      replace: true,
+    });
+  });
+
+  await fs.writeFile(zmqEnabledPath, '').catch(() => { });
+
+  const { error: restartError } = await systemService.restartSystemdService('zelcash.service');
+
+  if (restartError) {
+    log.error('Error restarting zelcash.service after config update');
+    return false;
+  }
+
+  return true;
+}
+
 async function start() {
+  const { daemon: { zmqport } } = config ?? { daemon: { zmqport: 28332 } };
+
+  let zmqEndpoint = `tcp://127.0.0.1:${zmqport}`;
+  const zmqEnabled = await enableZmq(zmqEndpoint);
+  zmqEndpoint = zmqEnabled ? zmqEndpoint : null;
+
   return new Promise((resolve, reject) => {
     if (stateManager) resolve();
 
     const fetcher = async (filter = null) => {
-      const options = { params: { filter }, query: { filter: null } };
+      const options = { params: { useCache: false, filter }, query: { filter: null } };
 
       const res = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(
         options,
@@ -33,7 +96,9 @@ async function start() {
 
     stateManager = new networkStateManager.NetworkStateManager(fetcher, {
       intervalMs: 120_000,
+      zmqEndpoint,
     });
+
     const timeout = setTimeout(
       () => reject(new Error('Unable To Start: Timeout of 300s reached')),
       300_000,
@@ -52,6 +117,7 @@ async function stop() {
   if (!stateManager) return;
 
   await stateManager.stop();
+  stateManager = null;
 }
 
 /**
@@ -67,7 +133,7 @@ function networkState() {
 async function getFluxnodesByPubkey(pubkey) {
   const nodes = await stateManager.search(pubkey, 'pubkey');
   // in the future, just return the map.
-  return [...nodes.values()];
+  return nodes ? [...nodes.values()] : [];
 }
 
 /**
@@ -94,7 +160,6 @@ function isBroadcastStale(broadcast, options = {}) {
 /**
  * To verify Flux broadcast.
  * @param {object} broadcast Flux network layer message containing public key, timestamp, signature and version.
- * @param {{maxAge?: number}} options
  * @returns {Promise<boolean>} False unless message is successfully verified.
  */
 async function verifyBroadcast(broadcast) {
@@ -163,6 +228,13 @@ async function verifyBroadcast(broadcast) {
     signature,
   );
   return verified;
+}
+
+if (require.main === module) {
+  start();
+  setInterval(() => {
+    console.log(stateManager.search('045ae66321cfc172086d79252323b6cd4b83460e580e88f220582affda8a83b3ec68078ad80f7e465c42c3ef9bc01b912b3663e2ba09057bc43fbedf0afa9f3864', 'pubkey'));
+  }, 5_000);
 }
 
 module.exports = {

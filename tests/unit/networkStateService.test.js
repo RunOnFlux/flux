@@ -1,16 +1,17 @@
 const chai = require('chai');
-const { LRUCache } = require('lru-cache');
-const sinon = require('sinon');
-const proxyquire = require('proxyquire');
 
 const { expect } = chai;
-let fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+
+const sinon = require('sinon');
+
 const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/fluxCommunicationMessagesSender');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxList = require('./data/listfluxnodes.json');
 
-describe('fluxCommunicationUtils tests', () => {
-  describe('deterministicFluxList tests', () => {
+const networkStateService = require('../../ZelBack/src/services/networkStateService');
+
+describe('networkStateService tests', () => {
+  describe('networkState tests', () => {
     const deterministicFluxnodeListResponseBase = {
       data: [
         {
@@ -75,35 +76,27 @@ describe('fluxCommunicationUtils tests', () => {
       daemonStub = sinon.stub(daemonServiceFluxnodeRpcs, 'viewDeterministicFluxNodeList');
     });
 
-    afterEach(() => {
-      daemonStub.restore();
+    afterEach(async () => {
       sinon.restore();
+      await networkStateService.stop();
     });
 
     it('should return the whole list if the filter was not provided', async () => {
-      // Start with clear cache
-      fluxCommunicationUtils = proxyquire(
-        '../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': LRUCache },
-      );
       const deterministicFluxnodeListResponse = {
         ...deterministicFluxnodeListResponseBase,
         status: 'success',
       };
       daemonStub.resolves(deterministicFluxnodeListResponse);
 
-      const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList();
+      await networkStateService.start();
+
+      const deterministicFluxListResult = networkStateService.networkState();
 
       expect(deterministicFluxListResult).to.eql(deterministicFluxnodeListResponse.data);
       sinon.assert.calledOnce(daemonStub);
     });
 
     it('should return the list filtered out with proper public key', async () => {
-      // Start with clear cache
-      fluxCommunicationUtils = proxyquire(
-        '../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': LRUCache },
-      );
       const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
       const expectedResult = [{
         collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
@@ -148,18 +141,15 @@ describe('fluxCommunicationUtils tests', () => {
       };
       daemonStub.resolves(deterministicFluxnodeListResponse);
 
-      const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList(filteredPubKey);
+      await networkStateService.start();
+
+      const deterministicFluxListResult = await networkStateService.getFluxnodesByPubkey(filteredPubKey);
 
       expect(deterministicFluxListResult).to.eql(expectedResult);
       sinon.assert.calledOnce(daemonStub);
     });
 
     it('should return an empty list if the public key does not match', async () => {
-      // Start with clear cache
-      fluxCommunicationUtils = proxyquire(
-        '../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': LRUCache },
-      );
       const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424asdfde37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
       const expectedResult = [];
 
@@ -169,29 +159,30 @@ describe('fluxCommunicationUtils tests', () => {
       };
       daemonStub.resolves(deterministicFluxnodeListResponse);
 
-      const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList(filteredPubKey);
+      await networkStateService.start();
+
+      const deterministicFluxListResult = await networkStateService.getFluxnodesByPubkey(filteredPubKey);
 
       expect(deterministicFluxListResult).to.eql(expectedResult);
-      sinon.assert.calledOnce(daemonStub);
+      // once at start, once again to find non existent pubkey
+      sinon.assert.calledTwice(daemonStub);
     });
 
     it('should get list from cache with no filter applied', async () => {
-      // Stub cache to simulate the actual lru-cache called
-      const getCacheStub = sinon.stub();
-      const stubCache = sinon.stub().callsFake(() => ({
-        get: getCacheStub,
-      }));
-      const stubCacheB = { LRUCache: stubCache };
-      getCacheStub.withArgs('fluxList').returns(deterministicFluxnodeListResponseBase.data);
-      fluxCommunicationUtils = proxyquire(
-        '../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': stubCacheB },
-      );
+      const deterministicFluxnodeListResponse = {
+        ...deterministicFluxnodeListResponseBase,
+        status: 'success',
+      };
+      daemonStub.resolves(deterministicFluxnodeListResponse);
 
-      const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList();
+      await networkStateService.start();
+
+      sinon.assert.calledOnce(daemonStub);
+
+      const deterministicFluxListResult = networkStateService.networkState();
 
       expect(deterministicFluxListResult).to.eql(deterministicFluxnodeListResponseBase.data);
-      sinon.assert.calledOnceWithExactly(getCacheStub, 'fluxList');
+      sinon.assert.calledOnce(daemonStub);
     });
 
     it('should get list from cache with filter applied', async () => {
@@ -232,22 +223,21 @@ describe('fluxCommunicationUtils tests', () => {
         amount: '2000.00',
         rank: 1,
       }];
-      // Stub cache to simulate the actual lru-cache called
-      const getCacheStub = sinon.stub();
-      const stubCache = sinon.stub().callsFake(() => ({
-        get: getCacheStub,
-      }));
-      const stubCacheB = { LRUCache: stubCache };
-      getCacheStub.withArgs(`fluxList${filteredPubKey}`).returns(expectedResult);
-      fluxCommunicationUtils = proxyquire(
-        '../../ZelBack/src/services/fluxCommunicationUtils',
-        { 'lru-cache': stubCacheB },
-      );
 
-      const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList(filteredPubKey);
+      const deterministicFluxnodeListResponse = {
+        ...deterministicFluxnodeListResponseBase,
+        status: 'success',
+      };
+      daemonStub.resolves(deterministicFluxnodeListResponse);
+
+      await networkStateService.start();
+
+      sinon.assert.calledOnce(daemonStub);
+
+      const deterministicFluxListResult = await networkStateService.getFluxnodesByPubkey(filteredPubKey);
 
       expect(deterministicFluxListResult).to.eql(expectedResult);
-      sinon.assert.calledOnceWithExactly(getCacheStub, `fluxList${filteredPubKey}`);
+      sinon.assert.calledOnce(daemonStub);
     });
   });
 
