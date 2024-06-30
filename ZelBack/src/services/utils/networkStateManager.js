@@ -258,7 +258,7 @@ class NetworkStateManager extends EventEmitter {
       this.fallbackTimer = setTimeout(() => this.#startPolling(), this.fallbackTimeout);
     });
 
-    this.#socket.connect(`tcp://${this.zmqEndpoint}`);
+    this.#socket.connect(this.zmqEndpoint);
     this.#socket.subscribe('hashblock');
 
     this.#handleBlocks();
