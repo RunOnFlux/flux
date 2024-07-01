@@ -9167,9 +9167,12 @@ export default {
             for (const fdmServer of fdmData) {
               const serviceName = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${this.appName.toLowerCase()}apprunonfluxio`));
               if (serviceName) {
+                console.log('FDM_Data_Service_Found');
                 const ipElement = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                 if (ipElement) {
+                  console.log('FDM_Data_IP_Found');
                   this.masterIP = ipElement.value.value.split(':')[0];
+                  console.log(this.masterIP);
                   if (!this.selectedIp) {
                     if (ipElement.value.value.split(':')[1] === '16127') {
                       this.selectedIp = ipElement.value.value.split(':')[0];
@@ -9177,15 +9180,16 @@ export default {
                       this.selectedIp = ipElement.value.value;
                     }
                   }
+                } else {
+                  this.masterIP = 'Defining New Primary In Progress';
                 }
-                return;
+                break;
               }
             }
           }
           if (!this.selectedIp) {
             this.selectedIp = this.instances.data[0].ip;
           }
-          this.masterIP = 'Defining New Primary In Progress';
         } else if (!this.selectedIp) {
           this.selectedIp = this.instances.data[0].ip;
         }
@@ -9219,7 +9223,6 @@ export default {
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.masterIP = null;
         this.instances.data = [];
         this.instances.data = response.data.data;
         // eslint-disable-next-line no-restricted-syntax
