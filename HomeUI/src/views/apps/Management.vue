@@ -9163,17 +9163,23 @@ export default {
           fdmData = fdmData.data;
           if (fdmData && fdmData.length > 0) {
             console.log('FDM_Data_Received');
-            const ipElement = fdmData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-            if (ipElement) {
-              this.masterIP = ipElement.value.value.split(':')[0];
-              if (!this.selectedIp) {
-                if (ipElement.value.value.split(':')[1] === '16127') {
-                  this.selectedIp = ipElement.value.value.split(':')[0];
-                } else {
-                  this.selectedIp = ipElement.value.value;
+            // eslint-disable-next-line no-restricted-syntax
+            for (const fdmServer of fdmData) {
+              const serviceName = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${this.appName.toLowerCase()}apprunonfluxio`));
+              if (serviceName) {
+                const ipElement = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                if (ipElement) {
+                  this.masterIP = ipElement.value.value.split(':')[0];
+                  if (!this.selectedIp) {
+                    if (ipElement.value.value.split(':')[1] === '16127') {
+                      this.selectedIp = ipElement.value.value.split(':')[0];
+                    } else {
+                      this.selectedIp = ipElement.value.value;
+                    }
+                  }
                 }
+                return;
               }
-              return;
             }
           }
           if (!this.selectedIp) {
