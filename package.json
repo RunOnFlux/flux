@@ -86,7 +86,7 @@
     "@runonflux/nat-upnp": "~1.0.2",
     "apicache": "~1.6.3",
     "archiver": "~6.0.1",
-    "axios": "~0.27.2",
+    "axios": "~1.7.2",
     "bitcoin": "~3.0.3",
     "bitcoinjs-message": "~2.2.0",
     "cacheable-lookup": "~7.0.0",

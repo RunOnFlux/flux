@@ -3,6 +3,7 @@ global.userconfig = require('../../config/userconfig');
 
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const chai = require('chai');
+
 const appService = require('../../ZelBack/src/services/appsService');
 const generalService = require('../../ZelBack/src/services/generalService');
 
@@ -149,21 +150,20 @@ describe('checkHWParameters', () => {
       repotagC: ' bunnyanalyst/fluxrun:latest',
       repotagD: 'bunnyanalyst/fluxrun:latest ',
     };
-    const repA = await appService.verifyRepository(fluxAppSpecs.repotag);
-    expect(repA).to.be.equal(true);
-    const repB = await appService.verifyRepository(fluxAppSpecs.repotagB).catch((error) => {
-      expect(error.message).to.be.equal('Repository yurinnick/folding-at-home:latestaaa is not found on hub.docker.com in expected format');
-    });
-    expect(repB).to.be.equal(undefined);
-    const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((error) => {
-      expect(error.message).to.be.equal('Repository " bunnyanalyst/fluxrun:latest" should not contain space characters.');
-    });
-    expect(repC).to.be.equal(undefined);
-    const repD = await appService.verifyRepository(fluxAppSpecs.repotagD).catch((error) => {
-      expect(error.message).to.be.equal('Repository "bunnyanalyst/fluxrun:latest " should not contain space characters.');
-    });
-    expect(repD).to.be.equal(undefined);
-    // expect(appService.verifyAppSpecifications(fluxAppSpecs)).to.not.throw();
+    const repA = await appService.verifyRepository(fluxAppSpecs.repotag).catch(() => true);
+    expect(repA).to.be.equal(undefined);
+
+    const repB = await appService.verifyRepository(fluxAppSpecs.repotagB).catch((err) => err);
+    expect(repB).to.be.an.instanceof(Error);
+    expect(repB.message).to.be.equal('Bad HTTP Status 404: yurinnick/folding-at-home:latestaaa not available');
+
+    const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((err) => err);
+    expect(repB).to.be.an.instanceof(Error);
+    expect(repC.message).to.be.equal('Image tag: " bunnyanalyst/fluxrun:latest" should not contain space characters.');
+
+    const repD = await appService.verifyRepository(fluxAppSpecs.repotagD).catch((err) => err);
+    expect(repB).to.be.an.instanceof(Error);
+    expect(repD.message).to.be.equal('Image tag: "bunnyanalyst/fluxrun:latest " should not contain space characters.');
   });
 
   it('Message Hash is correctly calculated', async () => {

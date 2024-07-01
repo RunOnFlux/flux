@@ -135,9 +135,14 @@ function setAxiosDefaults(socketIoServers) {
 
   axios.interceptors.request.use(
     (conf) => {
-      const { url, method, timeout } = conf;
+      const {
+        baseURL, url, method, timeout,
+      } = conf;
+
+      const fullUrl = baseURL ? `${baseURL}${url}` : url;
+
       const requestData = {
-        url, verb: method.toUpperCase(), timeout, timestamp: Date.now(),
+        url: fullUrl, verb: method.toUpperCase(), timeout, timestamp: Date.now(),
       };
       requestHistory.storeRequest(requestData);
 
