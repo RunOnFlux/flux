@@ -11372,9 +11372,16 @@ async function masterSlaveApps() {
         if (fdmOk) {
           fdmEUData = fdmEUData.data;
           if (fdmEUData && fdmEUData.length > 0) {
-            const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-            if (ipElement) {
-              ip = ipElement.value.value;
+            // eslint-disable-next-line no-restricted-syntax
+            for (const fdmData of fdmEUData) {
+              const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
+              if (serviceName) {
+                const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                if (ipElement) {
+                  ip = ipElement.value.value;
+                }
+                break;
+              }
             }
           }
         }
@@ -11388,9 +11395,16 @@ async function masterSlaveApps() {
           if (fdmOk) {
             fdmUSAData = fdmUSAData.data;
             if (fdmUSAData && fdmUSAData.length > 0) {
-              const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-              if (ipElement) {
-                ip = ipElement.value.value;
+              // eslint-disable-next-line no-restricted-syntax
+              for (const fdmData of fdmUSAData) {
+                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
+                if (serviceName) {
+                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                  if (ipElement) {
+                    ip = ipElement.value.value;
+                  }
+                  break;
+                }
               }
             }
           }
@@ -11405,9 +11419,16 @@ async function masterSlaveApps() {
           if (fdmOk) {
             fdmASIAData = fdmASIAData.data;
             if (fdmASIAData && fdmASIAData.length > 0) {
-              const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-              if (ipElement) {
-                ip = ipElement.value.value;
+              // eslint-disable-next-line no-restricted-syntax
+              for (const fdmData of fdmASIAData) {
+                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
+                if (serviceName) {
+                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                  if (ipElement) {
+                    ip = ipElement.value.value;
+                  }
+                  break;
+                }
               }
             }
           }
