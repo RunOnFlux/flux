@@ -672,7 +672,7 @@ async function enableZmq(zmqEndpoint) {
     const newFluxdAbsolutePath = path.join(fluxConfigDir, newFluxdConfig);
     const fluxdConfigBackupAbsolutePath = path.join(fluxConfigDir, fluxdConfigBackup);
 
-    topics.slice.forEach((topic) => {
+    topics.forEach((topic) => {
       daemonServiceUtils.setConfigValue(topic, zmqEndpoint, {
         replace: true,
       });
