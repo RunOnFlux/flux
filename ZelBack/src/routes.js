@@ -301,7 +301,7 @@ module.exports = (app, expressWs) => {
     fluxNetworkHelper.checkAppAvailability(req, res);
   });
 
-  app.get('/apps/listrunningapps', (req, res) => {
+  app.get('/apps/listrunningapps', cache('5 seconds'), (req, res) => {
     appsService.listRunningApps(req, res);
   });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
