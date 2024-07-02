@@ -121,7 +121,8 @@
     "tar-fs": "~3.0.6",
     "ws": "~7.5.9",
     "xterm": "~5.1.0",
-    "zeltrezjs": "~2.12.0"
+    "zeltrezjs": "~2.12.0",
+    "zeromq": "^6.0.0-beta.20"
   },
   "devDependencies": {
     "@babel/core": "~7.23.6",

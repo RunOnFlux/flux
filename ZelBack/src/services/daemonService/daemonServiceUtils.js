@@ -217,8 +217,27 @@ function getConfigValue(parameter) {
   return value;
 }
 
+/**
+ * To set a value for a specified key from the configuration file.
+ * @param {string} parameter Config key.
+ * @param {string} value Config key value.
+ * @param {{write?: boolean, replace?: boolean}} options
+ * @returns {<void>}
+ */
+function setConfigValue(parameter, value, options = {}) {
+  if (!fluxdConfig) return;
+
+  const replace = options.replace || false;
+
+  fluxdConfig.set(parameter, value, replace);
+}
+
 function getFluxdConfig() {
   return fluxdConfig;
+}
+
+function getFluxdConfigPath() {
+  return fluxdConfig.absConfigPath;
 }
 
 function getFluxdDir() {
@@ -231,20 +250,34 @@ function getFluxdClient() {
   return fluxdClient;
 }
 
+async function writeFluxdConfig(fileName = null) {
+  await fluxdConfig.write({ fileName });
+}
+
+async function createBackupFluxdConfig(fileName) {
+  if (!fileName) return false;
+
+  return fluxdConfig.createBackupConfig(fileName);
+}
+
 module.exports = {
   buildFluxdClient,
+  createBackupFluxdConfig,
   executeCall,
   getConfigValue,
   getFluxdClient,
   getFluxdConfig,
+  getFluxdConfigPath,
   getFluxdDir,
   readDaemonConfig,
+  setConfigValue,
+  writeFluxdConfig,
 
   // exports for testing purposes
-  setStandardCache,
-  setRawTxCache,
-  setBlockCache,
-  getStandardCache,
-  getRawTxCacheCache,
   getBlockCache,
+  getRawTxCacheCache,
+  getStandardCache,
+  setBlockCache,
+  setRawTxCache,
+  setStandardCache,
 };

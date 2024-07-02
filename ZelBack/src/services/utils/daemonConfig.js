@@ -140,8 +140,12 @@ class DaemonConfig {
     }
   }
 
-  async write() {
+  async write(options = {}) {
+    const fileName = options.fileName || null;
+
     if (!this.absConfigPath) return false;
+
+    const writePath = fileName ? path.join(this.configDir, fileName) : this.absConfigPath;
 
     const lines = Object.entries(this.configElements).flatMap((entry) => {
       const [key, value] = entry;
@@ -153,17 +157,17 @@ class DaemonConfig {
     const fileData = `${lines.join('\n')}\n`;
 
     const ok = await fs
-      .writeFile(this.absConfigPath, fileData)
+      .writeFile(writePath, fileData)
       .catch(() => false);
 
     return ok;
   }
 
-  async createBackupConfig(location) {
+  async createBackupConfig(name) {
     if (!this.raw) return false;
 
     const ok = await fs
-      .writeFile(location, this.raw)
+      .writeFile(path.join(this.configDir, name), this.raw)
       .catch(() => false);
 
     return ok;

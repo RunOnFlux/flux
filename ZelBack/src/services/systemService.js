@@ -13,6 +13,7 @@ const hash = require('object-hash');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fifoQueue = require('./utils/fifoQueue');
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 
 /**
  * The running interval to check when syncthing was updated
@@ -601,11 +602,11 @@ async function mongodGpgKeyVeryfity() {
         }
         log.info('The key was updated successfully.');
         return true;
-      // eslint-disable-next-line no-else-return
+        // eslint-disable-next-line no-else-return
       } else {
         throw new Error('MongoDB version not found.');
       }
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       log.info('MongoDB GPG key is still valid.');
       return true;
@@ -616,6 +617,97 @@ async function mongodGpgKeyVeryfity() {
   }
 }
 
+async function restartSystemdService(service) {
+  const { error } = await serviceHelper.runCommand('systemctl', {
+    runAsRoot: true,
+    params: ['restart', service],
+  });
+
+  return !error;
+}
+
+async function enableZmq(zmqEndpoint) {
+  const fluxConfigDir = daemonServiceUtils.getFluxdDir();
+  const zmqEnabledPath = path.join(fluxConfigDir, '.zmqEnabled');
+
+  const exists = Boolean(await fs.stat(zmqEnabledPath).catch(() => false));
+
+  if (exists) return true;
+
+  let parseError = false;
+
+  try {
+    const { protocol, hostname, port } = new URL(zmqEndpoint);
+
+    if (!protocol === 'tcp' || !hostname || !port) parseError = true;
+  } catch {
+    parseError = true;
+  }
+
+  if (parseError) {
+    log.error(`Error parsing zmqEndpoint: ${zmqEndpoint}. Unable to start zmq publisher`);
+    return false;
+  }
+
+  // to keep things simple, we only config zmq if fluxd is running and working, that way it is
+  // easier to revert config changes on error
+  const { error: daemonError } = await serviceHelper.runCommand('flux-cli', { params: ['getblockcount'] });
+
+  if (daemonError) {
+    return false;
+  }
+
+  const topics = [
+    'zmqpubhashtx',
+    'zmqpubhashblock',
+    'zmqpubrawblock',
+    'zmqpubrawtx',
+    'zmqpubsequence',
+  ];
+
+  const fluxdConfigPath = daemonServiceUtils.getFluxdConfigPath();
+  const newFluxdConfig = 'flux.conf.new';
+  const fluxdConfigBackup = 'flux.conf.bak';
+  const newFluxdAbsolutePath = path.join(fluxConfigDir, newFluxdConfig);
+  const fluxdConfigBackupAbsolutePath = path.join(fluxConfigDir, fluxdConfigBackup);
+
+  topics.slice.forEach((topic) => {
+    daemonServiceUtils.setConfigValue(topic, zmqEndpoint, {
+      replace: true,
+    });
+  });
+
+  await daemonServiceUtils.writeFluxdConfig(newFluxdConfig);
+
+  // we check to make sure the config file is parseable by fluxd. If not, the below will fail.
+  const { error: semanticError } = await serviceHelper.runCommand('flux-cli', { params: [`-conf=${newFluxdAbsolutePath}`, 'getblockcount'] });
+
+  await fs.rm(newFluxdAbsolutePath, { force: true }).catch(() => { });
+
+  if (semanticError) {
+    log.error('Parsing error on new zmq fluxd config file... skipping');
+    return false;
+  }
+
+  await daemonServiceUtils.createBackupFluxdConfig(fluxdConfigBackup);
+
+  // thi writes the actual file
+  await daemonServiceUtils.writeFluxdConfig();
+
+  const { error: restartError } = await restartSystemdService('zelcash.service');
+
+  if (restartError) {
+    log.error('Error restarting zelcash.service after config update');
+    await fs.rename(fluxdConfigBackupAbsolutePath, fluxdConfigPath);
+    await restartSystemdService('zelcash.service');
+    return false;
+  }
+
+  await fs.writeFile(zmqEnabledPath, '').catch(() => { });
+
+  return true;
+}
+
 module.exports = {
   monitorSystem,
   // testing exports
@@ -624,6 +716,7 @@ module.exports = {
   addSyncthingRepository,
   aptRunner,
   cacheUpdateTime,
+  enableZmq,
   ensurePackageVersion,
   getPackageVersion,
   getQueue,
