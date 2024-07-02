@@ -128,8 +128,8 @@ async function dockerNetworkInspect(netw) {
  * @returns {array} containers list
  */
 async function dockerListContainers(all, limit, size, filter) {
-  if (appsRunningCache.has(all)) {
-    return appsRunningCache.get(all);
+  if (appsRunningCache.has(`apps${all}`)) {
+    return appsRunningCache.get(`apps${all}`);
   }
   const options = {
     all,
@@ -138,7 +138,7 @@ async function dockerListContainers(all, limit, size, filter) {
     filter,
   };
   const containers = await docker.listContainers(options);
-  appsRunningCache.set(all, containers);
+  appsRunningCache.set(`apps${all}`, containers);
   return containers;
 }
 
