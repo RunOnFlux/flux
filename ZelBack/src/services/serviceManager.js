@@ -4,7 +4,7 @@ const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
-const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -103,9 +103,9 @@ async function startFluxFunctions() {
     });
     log.info('Mongodb zelnodetransactions dropped');
 
-    setTimeout(() => {
-      fluxCommunicationUtils.constantlyUpdateDeterministicFluxList(); // updates deterministic flux list for communication every 2 minutes, so we always trigger cache and have up to date value
-    }, 15 * 1000);
+    // fetch the fluxnode list. This is probably broken - if daemon isn't running, will hang here
+    await networkStateService.start();
+
     setTimeout(async () => {
       log.info('Rechecking firewall app rules');
       fluxNetworkHelper.purgeUFW();

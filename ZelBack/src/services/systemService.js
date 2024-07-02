@@ -516,6 +516,15 @@ async function monitorSystem() {
   }
 }
 
+async function restartSystemdService(service) {
+  const { error } = await serviceHelper.runCommand('systemctl', {
+    runAsRoot: true,
+    params: ['restart', service],
+  });
+
+  return !error;
+}
+
 async function mongoDBConfig() {
   log.info('MongoDB file config verification...');
   try {
@@ -601,11 +610,11 @@ async function mongodGpgKeyVeryfity() {
         }
         log.info('The key was updated successfully.');
         return true;
-      // eslint-disable-next-line no-else-return
+        // eslint-disable-next-line no-else-return
       } else {
         throw new Error('MongoDB version not found.');
       }
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       log.info('MongoDB GPG key is still valid.');
       return true;
@@ -631,6 +640,7 @@ module.exports = {
   monitorSyncthingPackage,
   queueAptGetCommand,
   resetTimers,
+  restartSystemdService,
   updateAptCache,
   upgradePackage,
   mongoDBConfig,
