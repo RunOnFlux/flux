@@ -705,6 +705,8 @@ async function enableZmq(zmqEndpoint) {
 
   await fs.writeFile(zmqEnabledPath, '').catch(() => { });
 
+  log.info('ZMQ pub/sub enabled');
+
   return true;
 }
 

@@ -127,6 +127,10 @@ async function startFluxFunctions() {
       log.info('Starting setting Node Geolocation');
       geolocationService.setNodeGeolocation();
     }, 90 * 1000);
+    setTimeout(() => {
+      const { daemon: { zmqport } } = config;
+      systemService.enableZmq(`tcp://127.0.0.1:${zmqport}`);
+    }, 15 * 60 * 1000);
     setTimeout(async () => { // wait as of restarts due to ui building
       try {
         // todo code shall be removed after some time
