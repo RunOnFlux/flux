@@ -11488,6 +11488,7 @@ async function masterSlaveApps() {
                     appDockerRestart(installedApp.name);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                   } else {
+                    log.info(`masterSlaveApps: will start docker app:${installedApp.name} at ${timetoStartApp.toString()}`);
                     timeTostartNewMasterApp.set(identifier, timetoStartApp);
                   }
                 }
