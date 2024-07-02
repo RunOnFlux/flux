@@ -1,10 +1,18 @@
-const fullnode = require('fullnode');
 const { LRUCache } = require('lru-cache');
+
+const daemonrpc = require('daemonrpc');
+
+const daemonConfig = require('../utils/daemonConfig');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
-const client = require('../utils/daemonrpcClient').default;
 
-const fnconfig = new fullnode.Config();
+const config = require('config');
+const userconfig = require('../../../../config/userconfig');
+
+const { initial: { testnet: isTestnet } } = userconfig;
+
+let fluxdConfig = null;
+let fluxdClient = null;
 
 // default cache
 const LRUoptions = {
@@ -33,6 +41,33 @@ const blockCache = new LRUCache(LRUoptionsBlocks); // store 1.5k blocks in cache
 
 let daemonCallRunning = false;
 
+async function readDaemonConfig() {
+  fluxdConfig = new daemonConfig.DaemonConfig();
+  await fluxdConfig.parseConfig();
+}
+
+async function buildFluxdClient() {
+  if (!fluxdConfig) await readDaemonConfig();
+
+  const rpcuser = fluxdConfig.rpcuser() || 'rpcuser';
+  const rpcpassword = fluxdConfig.rpcpassword() || 'rpcpassword';
+
+  const portId = isTestnet ? 'rpcporttestnet' : 'rpcport';
+
+  const rpcport = fluxdConfig.rpcport() || config.daemon[portId];
+
+  const client = new daemonrpc.Client({
+    port: rpcport,
+    user: rpcuser,
+    pass: rpcpassword,
+    timeout: 60000,
+  });
+
+  fluxdClient = client;
+
+  return client;
+}
+
 /**
  * To execute a remote procedure call (RPC).
  * @param {string} rpc Remote procedure call.
@@ -41,6 +76,9 @@ let daemonCallRunning = false;
  */
 async function executeCall(rpc, params) {
   const rpcparameters = params || [];
+
+  if (!fluxdClient) buildFluxdClient();
+
   try {
     let data;
     if (daemonCallRunning) {
@@ -80,7 +118,7 @@ async function executeCall(rpc, params) {
     }
     if (!data) {
       daemonCallRunning = true;
-      data = await client[rpc](...rpcparameters);
+      data = await fluxdClient[rpc](...rpcparameters);
       if (rpc === 'getBlock') {
         blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
       } else if (rpc === 'getRawTransaction') {
@@ -173,13 +211,34 @@ function getBlockCache(key) {
  * @returns {string} Config value.
  */
 function getConfigValue(parameter) {
-  const value = fnconfig.get(parameter);
+  if (!fluxdConfig) return undefined;
+
+  const value = fluxdConfig.get(parameter);
   return value;
 }
 
+function getFluxdConfig() {
+  return fluxdConfig;
+}
+
+function getFluxdDir() {
+  if (!fluxdConfig) return undefined;
+
+  return fluxdConfig.configDir;
+}
+
+function getFluxdClient() {
+  return fluxdClient;
+}
+
 module.exports = {
+  buildFluxdClient,
   executeCall,
   getConfigValue,
+  getFluxdClient,
+  getFluxdConfig,
+  getFluxdDir,
+  readDaemonConfig,
 
   // exports for testing purposes
   setStandardCache,

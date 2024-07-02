@@ -8,6 +8,7 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
@@ -37,6 +38,7 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
     }
+    await daemonServiceUtils.buildFluxdClient();
     log.info('Checking docker log for corruption...');
     await dockerService.dockerLogsFix();
     await systemService.mongodGpgKeyVeryfity();
