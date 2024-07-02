@@ -656,8 +656,7 @@ async function logoutAllUsers(req, res) {
  * @param {object} ws Web socket.
  * @param {object} req Request.
  */
-async function wsRespondLoginPhrase(ws, req) {
-  const { loginphrase } = req.params;
+async function wsRespondLoginPhrase(ws, loginphrase) {
   // console.log(loginphrase)
   // respond with object containing address and signature to received message
   let connclosed = false;
@@ -751,8 +750,7 @@ async function wsRespondLoginPhrase(ws, req) {
  * @param {object} ws Web socket.
  * @param {object} req Request.
  */
-async function wsRespondSignature(ws, req) {
-  const { message } = req.params;
+async function wsRespondSignature(ws, message) {
   console.log(message);
 
   let connclosed = false;

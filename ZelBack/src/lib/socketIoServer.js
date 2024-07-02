@@ -1,14 +1,19 @@
 const socketio = require('socket.io');
-const handlers = require('./socketIoHandlers');
 
-class SocketIoServer {
-  static defaultErrorHandler = (err) => { console.log(err); };
+class FluxSocketIoServer {
+  static defaultErrorHandler = () => { };
+
+  static defaultTransports = ['websocket', 'polling', 'flashsocket'];
+
+  static defaultCors = { origin: '*', methods: ['GET', 'POST'] };
 
   constructor(httpServer, options = {}) {
-    const transports = options.transports || ['websocket', 'polling', 'flashsocket'];
-    const cors = options.cors || { origin: '*', methods: ['GET', 'POST'] };
+    this.handlers = options.handlers || {};
 
-    const errorHandler = options.errorHandler || SocketIoServer.defaultErrorHandler;
+    const transports = options.transports || FluxSocketIoServer.defaultTransports;
+    const cors = options.cors || FluxSocketIoServer.defaultCors;
+
+    const errorHandler = options.errorHandler || FluxSocketIoServer.defaultErrorHandler;
 
     this.io = new socketio.Server(httpServer, {
       allowEIO3: true,
@@ -24,11 +29,15 @@ class SocketIoServer {
     this.io.of(namespace).on(event, listener);
   }
 
-  listen() {
-    Object.entries(handlers).forEach((entry) => {
+  attachNamespaceListeners() {
+    Object.entries(this.handlers).forEach((entry) => {
       const [namespace, listener] = entry;
       this.addListener('connection', listener, { namespace });
     });
+  }
+
+  handleUpgrade(request, socket, head) {
+    this.io.engine.handleUpgrade(request, socket, head);
   }
 
   getRoom(room, options = {}) {
@@ -53,4 +62,4 @@ class SocketIoServer {
   }
 }
 
-module.exports = { SocketIoServer };
+module.exports = { FluxSocketIoServer };

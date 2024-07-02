@@ -233,10 +233,10 @@ async function handleAppRemovedMessage(message, fromIP, port) {
  */
 // let messageNumber = 0;
 // eslint-disable-next-line no-unused-vars
-function handleIncomingConnection(websocket, req) {
+function handleIncomingConnection(websocket, optionalPort) {
   try {
     const ws = websocket;
-    const port = req.params.port || 16127;
+    const port = optionalPort || 16127;
     // now we are in connections state. push the websocket to our incomingconnections
     const maxPeers = 4 * config.fluxapps.minIncoming;
     const maxNumberOfConnections = numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 160 : 9 * config.fluxapps.minIncoming;
@@ -506,7 +506,7 @@ async function removePeer(req, res) {
  * @param {object} expressWS Express web socket.
  * @returns {object} Message.
  */
-async function removeIncomingPeer(req, res, expressWS) {
+async function removeIncomingPeer(req, res) {
   try {
     let { ip } = req.params;
     ip = ip || req.query.ip;
@@ -519,7 +519,7 @@ async function removeIncomingPeer(req, res, expressWS) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
-      const closeResponse = await fluxNetworkHelper.closeIncomingConnection(justIP, port, expressWS);
+      const closeResponse = await fluxNetworkHelper.closeIncomingConnection(justIP, port);
       response = closeResponse;
     } else {
       response = messageHelper.errUnauthorizedMessage();

@@ -5,7 +5,8 @@ process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const request = require('supertest');
 const config = require('config');
 const chai = require('chai');
-const app = require('../../ZelBack/src/lib/server');
+
+const { FluxServer } = require('../../ZelBack/src/lib/fluxServer');
 const log = require('../../ZelBack/src/lib/log');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
@@ -15,19 +16,20 @@ const packageJson = require('../../package.json');
 const { expect } = chai;
 const { version } = packageJson;
 
-const server = app.listen(config.server.apiport, () => {
-  log.info(`Flux listening on port ${config.server.apiport}!`);
-});
+const fluxServer = new FluxServer();
+const { server } = fluxServer;
 
 describe('loading express', () => {
   after((done) => {
-    server.close(done);
+    fluxServer.close(done);
     setTimeout(() => {
       process.exit();
     }, 10000);
   });
   before(async () => {
     await dbHelper.initiateDB();
+    await fluxServer.listen(config.server.apiport);
+    log.info(`Flux listening on port ${config.server.apiport}!`);
   });
   it('/flux/version', (done) => {
     request(server)
