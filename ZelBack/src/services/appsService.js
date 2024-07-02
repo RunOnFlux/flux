@@ -11501,6 +11501,7 @@ async function masterSlaveApps() {
             ip = ip.split(':')[0];
             mastersRunningGSyncthingApps.set(identifier, ip);
             if (timeTostartNewMasterApp.has(identifier)) {
+              log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
               timeTostartNewMasterApp.delete(identifier);
             }
             if (myIP.split(':')[0] !== ip && runningAppsNames.includes(identifier)) {
