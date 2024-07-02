@@ -129,7 +129,6 @@ async function dockerNetworkInspect(netw) {
  */
 async function dockerListContainers(all, limit, size, filter) {
   if (appsRunningCache.has(all)) {
-    log.info('appsRunningCache returned');
     return appsRunningCache.get(all);
   }
   const options = {
