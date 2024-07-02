@@ -11477,12 +11477,12 @@ async function masterSlaveApps() {
                   let timetoStartApp = Date.now();
                   if (previousMasterIndex >= 0) {
                     if (index > previousMasterIndex) {
-                      timetoStartApp += (index - 1) * 60 * 1000;
+                      timetoStartApp += (index - 1) * 2 * 60 * 1000;
                     } else {
-                      timetoStartApp += index * 60 * 1000;
+                      timetoStartApp += index * 2 * 60 * 1000;
                     }
                   } else {
-                    timetoStartApp += index * 60 * 1000;
+                    timetoStartApp += index * 2 * 60 * 1000;
                   }
                   if (timetoStartApp <= Date.now()) {
                     appDockerRestart(installedApp.name);
