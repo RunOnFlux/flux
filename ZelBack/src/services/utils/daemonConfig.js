@@ -150,7 +150,9 @@ class DaemonConfig {
     const lines = Object.entries(this.configElements).flatMap((entry) => {
       const [key, value] = entry;
 
+      // a comment won't have a value, so we just return the comment as is
       if (typeof value === 'string') return `${key}=${value}`;
+      if (typeof value === 'undefined') return key;
       return value.map((item) => `${key}=${item}`);
     });
 
@@ -172,6 +174,17 @@ class DaemonConfig {
 
     return ok;
   }
+}
+
+async function main() {
+  const dc = new DaemonConfig();
+  await dc.parseConfig();
+  await dc.write({ fileName: 'flux.conf.new' });
+  console.log(dc.configElements);
+}
+
+if (require.main === module) {
+  main();
 }
 
 module.exports = {
