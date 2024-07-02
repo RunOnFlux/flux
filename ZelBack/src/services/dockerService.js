@@ -667,11 +667,16 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
  * @returns {string} message
  */
 async function appDockerStart(idOrName) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+  try {
+    // container ID or name
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-  await dockerContainer.start(); // may throw
-  return `Flux App ${idOrName} successfully started.`;
+    await dockerContainer.start(); // may throw
+    return `Flux App ${idOrName} successfully started.`;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
 }
 
 /**

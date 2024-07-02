@@ -9157,29 +9157,40 @@ export default {
             console.log(`UImasterSlave: Failed to reach FDM with error: ${error}`);
             this.masterIP = 'Failed to Check';
           });
-          if (errorFdm) {
-            return;
-          }
-          fdmData = fdmData.data;
-          if (fdmData && fdmData.length > 0) {
-            console.log('FDM_Data_Received');
-            const ipElement = fdmData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-            if (ipElement) {
-              this.masterIP = ipElement.value.value.split(':')[0];
-              if (!this.selectedIp) {
-                if (ipElement.value.value.split(':')[1] === '16127') {
-                  this.selectedIp = ipElement.value.value.split(':')[0];
-                } else {
-                  this.selectedIp = ipElement.value.value;
+          if (!errorFdm) {
+            fdmData = fdmData.data;
+            if (fdmData && fdmData.length > 0) {
+              console.log('FDM_Data_Received');
+              // eslint-disable-next-line no-restricted-syntax
+              for (const fdmServer of fdmData) {
+                const serviceName = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${this.appName.toLowerCase()}apprunonfluxio`));
+                if (serviceName) {
+                  console.log('FDM_Data_Service_Found');
+                  const ipElement = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                  if (ipElement) {
+                    console.log('FDM_Data_IP_Found');
+                    this.masterIP = ipElement.value.value.split(':')[0];
+                    console.log(this.masterIP);
+                    if (!this.selectedIp) {
+                      if (ipElement.value.value.split(':')[1] === '16127') {
+                        this.selectedIp = ipElement.value.value.split(':')[0];
+                      } else {
+                        this.selectedIp = ipElement.value.value;
+                      }
+                    }
+                    return;
+                  }
+                  break;
                 }
               }
-              return;
+            }
+            if (!this.masterIP) {
+              this.masterIP = 'Defining New Primary In Progress';
+            }
+            if (!this.selectedIp) {
+              this.selectedIp = this.instances.data[0].ip;
             }
           }
-          if (!this.selectedIp) {
-            this.selectedIp = this.instances.data[0].ip;
-          }
-          this.masterIP = 'Defining New Primary In Progress';
         } else if (!this.selectedIp) {
           this.selectedIp = this.instances.data[0].ip;
         }
@@ -9213,36 +9224,74 @@ export default {
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
       } else {
-        this.masterIP = null;
-        this.instances.data = [];
-        this.instances.data = response.data.data;
-        // eslint-disable-next-line no-restricted-syntax
-        for (const node of this.instances.data) {
-          const ip = node.ip.split(':')[0];
-          const port = node.ip.split(':')[1] || 16127;
-          let url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
-          if (this.ipAccess) {
-            url = `http://${ip}:${port}/flux/geolocation`;
-          }
-          let errorFluxOs = false;
-          // eslint-disable-next-line no-await-in-loop
-          const fluxGeo = await axios.get(url).catch((error) => {
-            errorFluxOs = true;
-            console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
-            node.continent = 'N/A';
-            node.country = 'N/A';
-            node.region = 'N/A';
+        if (this.masterSlaveApp) {
+          const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
+          let errorFdm = false;
+          this.masterIP = null;
+          let fdmData = await axios.get(url).catch((error) => {
+            errorFdm = true;
+            console.log(`UImasterSlave: Failed to reach FDM with error: ${error}`);
+            this.masterIP = 'Failed to Check';
           });
-          if (!errorFluxOs && fluxGeo.data?.status === 'success' && fluxGeo.data.data?.continent) {
-            node.continent = fluxGeo.data.data.continent;
-            node.country = fluxGeo.data.data.country;
-            node.region = fluxGeo.data.data.regionName;
-          } else {
-            node.continent = 'N/A';
-            node.country = 'N/A';
-            node.region = 'N/A';
+          if (!errorFdm) {
+            fdmData = fdmData.data;
+            if (fdmData && fdmData.length > 0) {
+              console.log('FDM_Data_Received');
+              // eslint-disable-next-line no-restricted-syntax
+              for (const fdmServer of fdmData) {
+                const serviceName = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${this.appName.toLowerCase()}apprunonfluxio`));
+                if (serviceName) {
+                  console.log('FDM_Data_Service_Found');
+                  const ipElement = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                  if (ipElement) {
+                    console.log('FDM_Data_IP_Found');
+                    this.masterIP = ipElement.value.value.split(':')[0];
+                    console.log(this.masterIP);
+                  } else {
+                    this.masterIP = 'Defining New Primary In Progress';
+                  }
+                  break;
+                }
+              }
+            }
+            if (!this.masterIP) {
+              this.masterIP = 'Defining New Primary In Progress';
+            }
           }
         }
+        this.instances.data = [];
+        this.instances.data = response.data.data;
+        const appsLocations = this.instances.data;
+        setTimeout(async () => {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const node of appsLocations) {
+            const ip = node.ip.split(':')[0];
+            const port = node.ip.split(':')[1] || 16127;
+            let url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
+            if (this.ipAccess) {
+              url = `http://${ip}:${port}/flux/geolocation`;
+            }
+            let errorFluxOs = false;
+            // eslint-disable-next-line no-await-in-loop
+            const fluxGeo = await axios.get(url).catch((error) => {
+              errorFluxOs = true;
+              console.log(`Error geting geolocation from ${ip}:${port} : ${error}`);
+              node.continent = 'N/A';
+              node.country = 'N/A';
+              node.region = 'N/A';
+            });
+            if (!errorFluxOs && fluxGeo.data?.status === 'success' && fluxGeo.data.data?.continent) {
+              node.continent = fluxGeo.data.data.continent;
+              node.country = fluxGeo.data.data.country;
+              node.region = fluxGeo.data.data.regionName;
+            } else {
+              node.continent = 'N/A';
+              node.country = 'N/A';
+              node.region = 'N/A';
+            }
+          }
+        }, 5);
+
         this.instances.totalRows = this.instances.data.length;
         this.tableKey += 1;
         this.isBusy = false;
