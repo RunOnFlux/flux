@@ -49,12 +49,12 @@ async function readDaemonConfig() {
 async function buildFluxdClient() {
   if (!fluxdConfig) await readDaemonConfig();
 
-  const rpcuser = fluxdConfig.rpcuser() || 'rpcuser';
-  const rpcpassword = fluxdConfig.rpcpassword() || 'rpcpassword';
+  const rpcuser = fluxdConfig.rpcuser || 'rpcuser';
+  const rpcpassword = fluxdConfig.rpcpassword || 'rpcpassword';
 
   const portId = isTestnet ? 'rpcporttestnet' : 'rpcport';
 
-  const rpcport = fluxdConfig.rpcport() || config.daemon[portId];
+  const rpcport = fluxdConfig.rpcport || config.daemon[portId];
 
   const client = new daemonrpc.Client({
     port: rpcport,
