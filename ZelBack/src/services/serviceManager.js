@@ -173,7 +173,7 @@ async function startFluxFunctions() {
         }
         // check if valueSat is null, if so run fixExplorer as of typo bug
         let wrongAppMessage = false;
-        const appMessage = appsService.checkAppMessageExistence('e7e2e129dd24b8bcc5a93800c425da81f69c3dcdf02d1d5b3ce09ce2e1c94d67');
+        const appMessage = await appsService.checkAppMessageExistence('e7e2e129dd24b8bcc5a93800c425da81f69c3dcdf02d1d5b3ce09ce2e1c94d67');
         log.info(`appMessage: ${JSON.stringify(appMessage)}`);
         if (appMessage && !appMessage.valueSat) {
           wrongAppMessage = true;
