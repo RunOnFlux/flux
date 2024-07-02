@@ -83,7 +83,7 @@ class DaemonConfig {
     this.#resolveAttempted = true;
 
     const { fluxPath, zelPath } = DaemonConfig.daemonPaths[this.platform];
-    const { fluxFile, zelFile } = DaemonConfig.confFileNames[this.platform];
+    const { fluxFile, zelFile } = DaemonConfig.confFileNames;
 
     const fluxDir = path.join(this.baseDir, fluxPath, fluxFile);
     const zelDir = path.join(this.baseDir, zelPath, zelFile);
