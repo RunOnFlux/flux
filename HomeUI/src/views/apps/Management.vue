@@ -9157,41 +9157,39 @@ export default {
             console.log(`UImasterSlave: Failed to reach FDM with error: ${error}`);
             this.masterIP = 'Failed to Check';
           });
-          if (errorFdm) {
-            return;
-          }
-          fdmData = fdmData.data;
-          if (fdmData && fdmData.length > 0) {
-            console.log('FDM_Data_Received');
-            // eslint-disable-next-line no-restricted-syntax
-            for (const fdmServer of fdmData) {
-              const serviceName = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${this.appName.toLowerCase()}apprunonfluxio`));
-              if (serviceName) {
-                console.log('FDM_Data_Service_Found');
-                const ipElement = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                if (ipElement) {
-                  console.log('FDM_Data_IP_Found');
-                  this.masterIP = ipElement.value.value.split(':')[0];
-                  console.log(this.masterIP);
-                  if (!this.selectedIp) {
-                    if (ipElement.value.value.split(':')[1] === '16127') {
-                      this.selectedIp = ipElement.value.value.split(':')[0];
-                    } else {
-                      this.selectedIp = ipElement.value.value;
+          if (!errorFdm) {
+            fdmData = fdmData.data;
+            if (fdmData && fdmData.length > 0) {
+              console.log('FDM_Data_Received');
+              // eslint-disable-next-line no-restricted-syntax
+              for (const fdmServer of fdmData) {
+                const serviceName = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${this.appName.toLowerCase()}apprunonfluxio`));
+                if (serviceName) {
+                  console.log('FDM_Data_Service_Found');
+                  const ipElement = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                  if (ipElement) {
+                    console.log('FDM_Data_IP_Found');
+                    this.masterIP = ipElement.value.value.split(':')[0];
+                    console.log(this.masterIP);
+                    if (!this.selectedIp) {
+                      if (ipElement.value.value.split(':')[1] === '16127') {
+                        this.selectedIp = ipElement.value.value.split(':')[0];
+                      } else {
+                        this.selectedIp = ipElement.value.value;
+                      }
                     }
+                    return;
                   }
-                } else {
-                  this.masterIP = 'Defining New Primary In Progress';
+                  break;
                 }
-                break;
               }
             }
-          }
-          if (!this.masterIP) {
-            this.masterIP = 'Defining New Primary In Progress';
-          }
-          if (!this.selectedIp) {
-            this.selectedIp = this.instances.data[0].ip;
+            if (!this.masterIP) {
+              this.masterIP = 'Defining New Primary In Progress';
+            }
+            if (!this.selectedIp) {
+              this.selectedIp = this.instances.data[0].ip;
+            }
           }
         } else if (!this.selectedIp) {
           this.selectedIp = this.instances.data[0].ip;
@@ -9229,6 +9227,7 @@ export default {
         if (this.masterSlaveApp) {
           const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
           let errorFdm = false;
+          this.masterIP = null;
           let fdmData = await axios.get(url).catch((error) => {
             errorFdm = true;
             console.log(`UImasterSlave: Failed to reach FDM with error: ${error}`);
