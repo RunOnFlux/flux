@@ -665,49 +665,54 @@ async function enablefluxdZmq(zmqEndpoint) {
     'zmqpubsequence',
   ];
 
-  const fluxdConfigPath = daemonServiceUtils.getFluxdConfigPath();
-  const newFluxdConfig = 'flux.conf.new';
-  const fluxdConfigBackup = 'flux.conf.bak';
-  const newFluxdAbsolutePath = path.join(fluxConfigDir, newFluxdConfig);
-  const fluxdConfigBackupAbsolutePath = path.join(fluxConfigDir, fluxdConfigBackup);
+  try {
+    const fluxdConfigPath = daemonServiceUtils.getFluxdConfigPath();
+    const newFluxdConfig = 'flux.conf.new';
+    const fluxdConfigBackup = 'flux.conf.bak';
+    const newFluxdAbsolutePath = path.join(fluxConfigDir, newFluxdConfig);
+    const fluxdConfigBackupAbsolutePath = path.join(fluxConfigDir, fluxdConfigBackup);
 
-  topics.forEach((topic) => {
-    daemonServiceUtils.setConfigValue(topic, zmqEndpoint, {
-      replace: true,
+    topics.forEach((topic) => {
+      daemonServiceUtils.setConfigValue(topic, zmqEndpoint, {
+        replace: true,
+      });
     });
-  });
 
-  await daemonServiceUtils.writeFluxdConfig(newFluxdConfig);
+    await daemonServiceUtils.writeFluxdConfig(newFluxdConfig);
 
-  // we check to make sure the config file is parseable by fluxd. If not, the below will fail.
-  const { error: semanticError } = await serviceHelper.runCommand('flux-cli', { params: [`-conf=${newFluxdAbsolutePath}`, 'getblockcount'] });
+    // we check to make sure the config file is parseable by fluxd. If not, the below will fail.
+    const { error: semanticError } = await serviceHelper.runCommand('flux-cli', { params: [`-conf=${newFluxdAbsolutePath}`, 'getblockcount'] });
 
-  await fs.rm(newFluxdAbsolutePath, { force: true }).catch(() => { });
+    await fs.rm(newFluxdAbsolutePath, { force: true }).catch(() => { });
 
-  if (semanticError) {
-    log.error('Parsing error on new zmq fluxd config file... skipping');
-    return false;
+    if (semanticError) {
+      log.error('Parsing error on new zmq fluxd config file... skipping');
+      return false;
+    }
+
+    await daemonServiceUtils.createBackupFluxdConfig(fluxdConfigBackup);
+
+    // thi writes the actual file
+    await daemonServiceUtils.writeFluxdConfig();
+
+    const { error: restartError } = await restartSystemdService('zelcash.service');
+
+    if (restartError) {
+      log.error('Error restarting zelcash.service after config update');
+      await fs.rename(fluxdConfigBackupAbsolutePath, fluxdConfigPath);
+      await restartSystemdService('zelcash.service');
+      return false;
+    }
+
+    await fs.writeFile(zmqEnabledPath, '').catch(() => { });
+
+    log.info('ZMQ pub/sub enabled');
+
+    return true;
+  } catch (err) {
+    log.info('FOUND THE ERROR');
+    log.error(err);
   }
-
-  await daemonServiceUtils.createBackupFluxdConfig(fluxdConfigBackup);
-
-  // thi writes the actual file
-  await daemonServiceUtils.writeFluxdConfig();
-
-  const { error: restartError } = await restartSystemdService('zelcash.service');
-
-  if (restartError) {
-    log.error('Error restarting zelcash.service after config update');
-    await fs.rename(fluxdConfigBackupAbsolutePath, fluxdConfigPath);
-    await restartSystemdService('zelcash.service');
-    return false;
-  }
-
-  await fs.writeFile(zmqEnabledPath, '').catch(() => { });
-
-  log.info('ZMQ pub/sub enabled');
-
-  return true;
 }
 
 module.exports = {
