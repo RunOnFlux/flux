@@ -623,11 +623,16 @@ async function restartSystemdService(service) {
     params: ['restart', service],
   });
 
-  return !error;
+  return Boolean(error);
 }
 
 async function enablefluxdZmq(zmqEndpoint) {
+  if (typeof zmqEndpoint !== 'string') return false;
+
   const fluxConfigDir = daemonServiceUtils.getFluxdDir();
+
+  if (!fluxConfigDir) return false;
+
   const zmqEnabledPath = path.join(fluxConfigDir, '.zmqEnabled');
 
   const exists = Boolean(await fs.stat(zmqEnabledPath).catch(() => false));
@@ -654,6 +659,7 @@ async function enablefluxdZmq(zmqEndpoint) {
   const { error: daemonError } = await serviceHelper.runCommand('flux-cli', { params: ['getblockcount'] });
 
   if (daemonError) {
+    log.error('Error getting blockcount via flux-cli to validate new zmq config, skipping');
     return false;
   }
 
