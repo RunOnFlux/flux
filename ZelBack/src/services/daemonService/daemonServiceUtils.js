@@ -287,6 +287,13 @@ async function createBackupFluxdConfig(fileName) {
   return fluxdConfig.createBackupConfig(fileName);
 }
 
+/**
+ * Testing
+ */
+function setFluxdClient(testClient) {
+  fluxdClient = testClient;
+}
+
 module.exports = {
   buildFluxdClient,
   createBackupFluxdConfig,
@@ -305,6 +312,7 @@ module.exports = {
   getRawTxCacheCache,
   getStandardCache,
   setBlockCache,
+  setFluxdClient,
   setRawTxCache,
   setStandardCache,
 };
