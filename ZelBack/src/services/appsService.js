@@ -3713,7 +3713,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
   }
-  if (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:')) {
+  if (!appSpecifications.containerData.includes('g:')) {
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
