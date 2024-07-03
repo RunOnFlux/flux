@@ -680,11 +680,11 @@ async function enablefluxdZmq(zmqEndpoint) {
   await daemonServiceUtils.writeFluxdConfig(newFluxdConfig);
 
   // we check to make sure the config file is parseable by fluxd. If not, the below will fail.
-  const { error: semanticError } = await serviceHelper.runCommand('flux-cli', { params: [`-conf=${newFluxdAbsolutePath}`, 'getblockcount'] });
+  const { error: syntaxError } = await serviceHelper.runCommand('flux-cli', { params: [`-conf=${newFluxdAbsolutePath}`, 'getblockcount'] });
 
   await fs.rm(newFluxdAbsolutePath, { force: true }).catch(() => { });
 
-  if (semanticError) {
+  if (syntaxError) {
     log.error('Parsing error on new zmq fluxd config file... skipping');
     return false;
   }
@@ -694,7 +694,7 @@ async function enablefluxdZmq(zmqEndpoint) {
   // this writes the config to default location
   await daemonServiceUtils.writeFluxdConfig();
 
-  const { error: restartError } = await restartSystemdService('zelcash.service');
+  const restartError = await restartSystemdService('zelcash.service');
 
   if (restartError) {
     log.error('Error restarting zelcash.service after config update');
