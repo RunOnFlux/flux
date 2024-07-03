@@ -155,7 +155,7 @@ describe('daemonConfig tests', () => {
       'zmqpubrawtx',
       'zmqpubsequence',
     ];
-    const endpoint = 'tcp://127.0.0.1:28332';
+    const endpoint = 'tcp://127.0.0.1:16126';
 
     setPlatform('linux');
     sinon.stub(fs, 'stat').resolves({ found: true });

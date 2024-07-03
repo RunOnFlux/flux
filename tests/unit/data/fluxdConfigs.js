@@ -412,11 +412,11 @@ bind=0.0.0.0
 addnode=80.211.207.17
 addnode=95.217.12.176
 maxconnections=256
-zmqpubhashtx=tcp://127.0.0.1:28332
-zmqpubhashblock=tcp://127.0.0.1:28332
-zmqpubrawblock=tcp://127.0.0.1:28332
-zmqpubrawtx=tcp://127.0.0.1:28332
-zmqpubsequence=tcp://127.0.0.1:28332
+zmqpubhashtx=tcp://127.0.0.1:16126
+zmqpubhashblock=tcp://127.0.0.1:16126
+zmqpubrawblock=tcp://127.0.0.1:16126
+zmqpubrawtx=tcp://127.0.0.1:16126
+zmqpubsequence=tcp://127.0.0.1:16126
 `;
 
 const withOptionsUpdated = `rpcuser=testuser

@@ -801,7 +801,7 @@ describe('system Services tests', () => {
     });
 
     it('should return true if zmq has already been enabled', async () => {
-      const result = await systemService.enablefluxdZmq('tcp://127.0.0.1:28332');
+      const result = await systemService.enablefluxdZmq('tcp://127.0.0.1:16126');
 
       sinon.assert.calledWithExactly(statStub, '/home/testuser/.flux/.zmqEnabled');
       expect(result).to.equal(true);
