@@ -3215,20 +3215,18 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
   }
-  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  const app = await dockerService.appDockerStart(identifier);
-  if (!app) {
-    return;
-  }
-  startAppMonitoring(identifier);
-  const appResponse = messageHelper.createDataMessage(app);
-  log.info(appResponse);
-  if (appSpecifications.containerData.includes('r:') || appSpecifications.containerData.includes('g:')) {
-    dockerService.appDockerStop(identifier).catch((error) => log.error(`Error stopping app docker after installApplicationHard:${error}`));
-    stopAppMonitoring(identifier, false);
-  }
-  if (res) {
-    res.write(serviceHelper.ensureString(appResponse));
+  if (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:')) {
+    const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+    const app = await dockerService.appDockerStart(identifier);
+    if (!app) {
+      return;
+    }
+    startAppMonitoring(identifier);
+    const appResponse = messageHelper.createDataMessage(app);
+    log.info(appResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(appResponse));
+    }
   }
 }
 
@@ -3715,16 +3713,18 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
   }
-  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  const app = await dockerService.appDockerStart(identifier);
-  if (!app) {
-    return;
-  }
-  startAppMonitoring(identifier);
-  const appResponse = messageHelper.createDataMessage(app);
-  log.info(appResponse);
-  if (res) {
-    res.write(serviceHelper.ensureString(appResponse));
+  if (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:')) {
+    const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+    const app = await dockerService.appDockerStart(identifier);
+    if (!app) {
+      return;
+    }
+    startAppMonitoring(identifier);
+    const appResponse = messageHelper.createDataMessage(app);
+    log.info(appResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(appResponse));
+    }
   }
 }
 
