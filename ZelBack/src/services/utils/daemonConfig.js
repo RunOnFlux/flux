@@ -178,7 +178,10 @@ class DaemonConfig {
 
 async function main() {
   const dc = new DaemonConfig();
-  await dc.parseConfig();
+  const parsed = await dc.parseConfig();
+
+  if (!parsed) return;
+
   await dc.write({ fileName: 'flux.conf.new' });
   console.log(dc.configElements);
 }
