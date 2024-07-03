@@ -221,7 +221,7 @@ function getConfigValue(parameter) {
  * To set a value for a specified key from the configuration file.
  * @param {string} parameter Config key.
  * @param {string} value Config key value.
- * @param {{write?: boolean, replace?: boolean}} options
+ * @param {{replace?: boolean}} options
  * @returns {<void>}
  */
 function setConfigValue(parameter, value, options = {}) {
@@ -232,28 +232,55 @@ function setConfigValue(parameter, value, options = {}) {
   fluxdConfig.set(parameter, value, replace);
 }
 
+/**
+ * The DaemonConfig object
+ * @returns {daemonConfig.DaemonConfig}
+ */
 function getFluxdConfig() {
   return fluxdConfig;
 }
 
+/**
+ * The fluxd config file path
+ * @returns {string}
+ */
 function getFluxdConfigPath() {
   return fluxdConfig.absConfigPath;
 }
 
+/**
+ * The fluxd config directory
+ * @returns {string}
+ */
 function getFluxdDir() {
   if (!fluxdConfig) return undefined;
 
   return fluxdConfig.configDir;
 }
 
+/**
+ * The fluxd daemon rpc client
+ * @returns {daemonrpc.Client}
+ */
 function getFluxdClient() {
   return fluxdClient;
 }
 
+/**
+ *  writes a flux config to the fluxd config directory
+ * @param {string?} fileName The name of the config file to write. If empty, this
+ * defaults to flux.conf
+ * @returns {Promise<Boolean>}
+ */
 async function writeFluxdConfig(fileName = null) {
   await fluxdConfig.write({ fileName });
 }
 
+/**
+ *
+ * @param {string} fileName The name of the backup file to write (in the fluxd conf dir)
+ * @returns {Promise<boolean>}
+ */
 async function createBackupFluxdConfig(fileName) {
   if (!fileName) return false;
 
