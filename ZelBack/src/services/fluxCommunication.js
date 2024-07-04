@@ -916,7 +916,7 @@ async function fluxDiscovery() {
       // additional precaution
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-      if (!clientExists && !clientIncomingExists) {
+      if (ipInc && !clientExists && !clientIncomingExists) {
         deterministicPeerConnections = true;
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
@@ -939,7 +939,7 @@ async function fluxDiscovery() {
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
         const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
         const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+        if (ipInc && !sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding random Flux peer: ${connection}`);
           currentIpsConnTried.push(connection);
           initiateAndHandleConnection(connection);

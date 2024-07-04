@@ -353,7 +353,7 @@ class NetworkStateManager extends EventEmitter {
 
 async function main() {
   // eslint-disable-next-line global-require
-  const daemonServiceFluxnodeRpcs = require('../zelflux/ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
+  const daemonServiceFluxnodeRpcs = require('../daemonService/daemonServiceFluxnodeRpcs');
 
   const fetcher = async (filter = null) => {
     const options = { params: { useCache: false, filter }, query: { filter: null } };
@@ -387,3 +387,26 @@ if (require.main === module) {
 }
 
 module.exports = { NetworkStateManager };
+
+// interesting stuff:
+
+// 6 nodes with no ip address
+
+// ~ 420ms fetch time (on localhost) ~ 8.2Mb i/o. Not sure if this is time for fluxd
+// to generate the list, or for the actual i/o on localhost.
+
+// ~ 20ms to build cache. This was 8ms under no load, so obviously, yielding
+// to the event queue is a good thing as there is other work to be done.
+
+// if we need to search... we wait for indexes. What about if fetching?
+// do we try for a search without waiting, then if a cache miss, we wait for
+// the search to finish?
+
+// fetching state
+// Fetch finished, elapsed ms: 418.639369
+// Nodes found: 13047
+// Setting state and indexes
+// pubkeyIndexSize: 3011
+// endpointIndexSize: 13041
+// Indexes created, elapsed ms: 18.25089
+// New Flux App Removed message received.
