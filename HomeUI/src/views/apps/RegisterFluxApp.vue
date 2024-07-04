@@ -1694,15 +1694,15 @@
         <b-row>
           <b-card title="Test Application Installation">
             <b-card-text>
-              You can now test install/launch your application. It's very important to test the app install/launch to make sure your application specifications work.
-              You will get the install/launch log of the application at the bottom of this page, if it starts you can proceed with the payment if not make sure you fix/change the specifications and try again before you pay.
+              You can now test your application install/launch. It's very important to test the app install/launch to make sure your application specifications work.
+              You will get the application install/launch log bottom of this page, if the app starts you can proceed with the payment if not make sure you fix/change the specifications and try again before you pay.
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
               variant="success"
               aria-label="Test Launch"
               class="my-1"
-              @click="testInstallApp(registrationHash)"
+              @click="testAppInstall(registrationHash)"
             >
               Test Installation
             </b-button>
@@ -3378,7 +3378,7 @@ export default {
       });
       return string;
     },
-    async testInstallApp(app) {
+    async testAppInstall(app) {
       if (this.downloading) {
         this.showToast('danger', 'Test install/launch was already initiated');
         return;
@@ -3405,10 +3405,10 @@ export default {
           const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appRegistrationSpecification.nodes.length)];
           const ip = nodeip.split(':')[0];
           const port = Number(nodeip.split(':')[1] || 16127);
-          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testinstallapp/${app}`;
+          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testappinstall/${app}`;
           response = await axios.get(url, axiosConfig);
         } else {
-          response = await AppsService.justAPI().get(`/apps/testinstallapp/${app}`, axiosConfig);
+          response = await AppsService.justAPI().get(`/apps/testappinstall/${app}`, axiosConfig);
         }
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);

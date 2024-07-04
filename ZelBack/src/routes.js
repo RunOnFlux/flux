@@ -1134,8 +1134,8 @@ module.exports = (app, expressWs) => {
   app.get('/apps/installapplocally/:appname?', (req, res) => {
     appsService.installAppLocally(req, res);
   });
-  app.get('/apps/testinstallapp/:appname?', (req, res) => {
-    appsService.testInstallApp(req, res);
+  app.get('/apps/testappinstall/:appname?', (req, res) => {
+    appsService.testAppInstall(req, res);
   });
   app.get('/apps/createfluxnetwork', (req, res) => {
     appsService.createFluxNetworkAPI(req, res);
