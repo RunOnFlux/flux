@@ -1,7 +1,9 @@
 // const { Worker } = require('node:worker_threads');
 
 const { EventEmitter } = require('node:events');
-const { FluxController } = require('../zelflux/ZelBack/src/services/utils/fluxController');
+// const { FluxController } = require('../zelflux/ZelBack/src/services/utils/fluxController');
+
+const { FluxController } = require('./fluxController');
 
 const zmq = require('zeromq');
 
