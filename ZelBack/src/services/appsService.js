@@ -3550,9 +3550,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       res.end();
     }
     installationInProgress = false;
-    if (test) {
-      await removeAppLocally(appSpecs.name, null, true, false, false);
-    }
   } catch (error) {
     installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
@@ -7747,7 +7744,8 @@ async function testAppInstall(req, res) {
         throw new Error(`Application ${appname} is already installed`);
       }
       res.setHeader('Content-Type', 'application/json');
-      registerAppLocally(appSpecifications, undefined, res, true); // can throw
+      await registerAppLocally(appSpecifications, undefined, res, true); // can throw
+      removeAppLocally(appSpecifications.name, null, true, false, false);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -7760,6 +7758,8 @@ async function testAppInstall(req, res) {
       error.code,
     );
     res.json(errorResponse);
+  } finally {
+    res.end();
   }
 }
 
