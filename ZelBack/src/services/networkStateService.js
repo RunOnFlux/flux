@@ -1,13 +1,8 @@
-const fs = require('node:fs/promises');
-const path = require('node:path');
-
 const config = require('config');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const systemService = require('./systemService');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
-const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const networkStateManager = require('./utils/networkStateManager');
 
 /**
@@ -21,63 +16,15 @@ const networkStateManager = require('./utils/networkStateManager');
  */
 let stateManager = null;
 
-async function enableZmq(zmqEndpoint) {
-  const fluxConfigDir = daemonServiceUtils.getConfigDir();
-  const zmqEnabledPath = path.join(fluxConfigDir, '.zmqEnabled');
-
-  const exists = Boolean(await fs.stat(zmqEnabledPath).catch(() => false));
-
-  if (exists) return true;
-
-  let parseError = false;
-
-  try {
-    const { protocol, hostname, port } = new URL(zmqEndpoint);
-
-    if (!protocol === 'tcp' || !hostname || !port) parseError = true;
-  } catch {
-    parseError = true;
-  }
-
-  if (parseError) {
-    log.error(`Error parsing zmqEndpoint: ${zmqEndpoint}. Unable to start zmq publisher`);
-    return false;
-  }
-
-  const topics = [
-    'zmqpubhashtx',
-    'zmqpubhashblock',
-    'zmqpubrawblock',
-    'zmqpubrawtx',
-    'zmqpubsequence',
-  ];
-
-  topics.forEach((topic, index) => {
-    const write = index + 1 === topics.length;
-    daemonServiceUtils.setConfigValue(topic, zmqEndpoint, {
-      write,
-      replace: true,
-    });
-  });
-
-  await fs.writeFile(zmqEnabledPath, '').catch(() => { });
-
-  const { error: restartError } = await systemService.restartSystemdService('zelcash.service');
-
-  if (restartError) {
-    log.error('Error restarting zelcash.service after config update');
-    return false;
-  }
-
-  return true;
-}
-
+/**
+ * Starts the network state service. It will either subscribe to the fluxd zmq
+ * endpoint if possible, or fallback to polling.
+ * @returns {void}
+ */
 async function start() {
-  const { daemon: { zmqport } } = config ?? { daemon: { zmqport: 28332 } };
+  const { daemon: { zmqport } } = config ?? { daemon: { zmqport: 16126 } };
 
-  let zmqEndpoint = `tcp://127.0.0.1:${zmqport}`;
-  const zmqEnabled = await enableZmq(zmqEndpoint);
-  zmqEndpoint = zmqEnabled ? zmqEndpoint : null;
+  const zmqEndpoint = `tcp://127.0.0.1:${zmqport}`;
 
   return new Promise((resolve, reject) => {
     if (stateManager) resolve();

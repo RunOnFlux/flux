@@ -1,13 +1,7 @@
-/**
- * This should really subscribe to fluxd blocks using zmq.
- * It doesn't make sense to poll every 2 minutes when you often get
- * multiple blocks in a short timeframe.
- */
-
-const { Worker } = require('node:worker_threads');
+// const { Worker } = require('node:worker_threads');
 
 const { EventEmitter } = require('node:events');
-const { FluxController } = require('./fluxController');
+const { FluxController } = require('../zelflux/ZelBack/src/services/utils/fluxController');
 
 const zmq = require('zeromq');
 
@@ -40,44 +34,43 @@ class NetworkStateManager extends EventEmitter {
 
   #endpointIndex = new Map();
 
-  #running = false;
-
   #controller = new FluxController();
 
-  #socket = new zmq.Subscriber({
-    reconnectInterval: 500,
-    reconnectMaxInterval: 15_000,
-    heartbeatInterval: 20_000,
-    heartbeatTimeout: 60_000,
-    connectTimeout: 3_000,
-    tcpMaxRetransmitTimeout: 120_000,
-  });
+  #socket = zmq.socket('sub');
 
   #socketConnected = null;
 
+  #indexStart = null;
+
   #updatingState = false;
 
-  #indexWorker = null;
-
-  #indexStart = null;
+  /**
+   * @type { "polling" | "subscription" }
+   */
+  #updateTrigger = 'subscription';
 
   /**
    *
    * @param {()=>Promise<Array<Fluxnode>>} stateFetcher
-   * @param {{}} options
+   * @param {{intervalMs?: number, zmqEndpoint?: string, fallbackTimeout?: number}} options
    */
   constructor(stateFetcher, options = {}) {
     super();
 
     this.stateFetcher = stateFetcher;
-    this.intervalMs = options.intervalMs || 0;
+    this.intervalMs = options.intervalMs || 120_000;
     this.zmqEndpoint = options.zmqEndpoint || null;
-    this.fallbackTimeout = options.fallbackTimeout || 120_000;
-    this.useIndexWorker = options.useIndexWorker || false;
 
-    if (this.useIndexWorker) {
-      this.#createIndexWorker();
-    }
+    if (!this.zmqEndpoint) this.#updateTrigger = 'polling';
+
+    this.fallbackTimeout = options.fallbackTimeout || 120_000;
+
+    this.#socket.setsockopt(zmq.ZMQ_RECONNECT_IVL, 500);
+    this.#socket.setsockopt(zmq.ZMQ_RECONNECT_IVL_MAX, 15_000);
+    this.#socket.setsockopt(zmq.ZMQ_HEARTBEAT_IVL, 20_000);
+    this.#socket.setsockopt(zmq.ZMQ_HEARTBEAT_TIMEOUT, 60_000);
+    this.#socket.setsockopt(zmq.ZMQ_CONNECT_TIMEOUT, 3_000);
+    this.#socket.monitor();
   }
 
   get state() {
@@ -85,26 +78,16 @@ class NetworkStateManager extends EventEmitter {
     return this.#state;
   }
 
-  get running() {
-    return this.#running;
+  get updateTrigger() {
+    return this.#updateTrigger;
   }
 
+  /**
+   * Index map. Has to be a getter and not a field, as the field doesn't update
+   * the reference.
+   */
   get #indexes() {
     return { pubkey: this.#pubkeyIndex, endpoint: this.#endpointIndex };
-  }
-
-  #createIndexWorker() {
-    this.#indexWorker = new Worker('./ZelBack/src/services/utils/networkStateWorker.js');
-    this.#indexWorker.on('message', (indexes) => {
-      console.log('Indexes created, elapsed ms:', Number(process.hrtime.bigint() - this.#indexStart) / 1000000);
-      this.#indexStart = null;
-
-      const { pubkeyIndex, endpointIndex } = indexes;
-      this.#setIndexes(pubkeyIndex, endpointIndex);
-      this.emit('updated');
-    });
-    this.#indexWorker.on('error', (err) => { console.log(err); });
-    this.#indexWorker.on('exit', (code) => { console.log(code); });
   }
 
   #setIndexes(pubkeyIndex, endpointIndex) {
@@ -171,7 +154,7 @@ class NetworkStateManager extends EventEmitter {
   async fetchNetworkState() {
     console.log('fetching state');
     this.#updatingState = true;
-    // should use monotonic clock for any elapsed times
+    // always use monotonic clock for any elapsed times
     const start = process.hrtime.bigint();
 
     let state = [];
@@ -181,7 +164,11 @@ class NetworkStateManager extends EventEmitter {
 
       const fetchStart = process.hrtime.bigint();
       // eslint-disable-next-line no-await-in-loop
-      const res = await this.stateFetcher().catch(() => []);
+      const res = await this.stateFetcher().catch(() => {
+        console.log('state fetcher error');
+        return [];
+      });
+
       console.log('Fetch finished, elapsed ms:', Number(process.hrtime.bigint() - fetchStart) / 1000000);
 
       // eslint-disable-next-line no-await-in-loop
@@ -195,21 +182,15 @@ class NetworkStateManager extends EventEmitter {
 
       this.#state = state;
 
-      if (!populated) this.emit('populated');
-
       console.log('Setting state and indexes');
       this.#indexStart = process.hrtime.bigint();
 
-      if (this.useIndexWorker) {
-        this.#indexWorker.postMessage(state);
-      } else {
-        // this.#recreateIndexes();
-        await this.#buildIndexes(this.#state);
-        console.log('Indexes created, elapsed ms:', Number(process.hrtime.bigint() - this.#indexStart) / 1000000);
-        this.#indexStart = null;
+      await this.#buildIndexes(this.#state);
+      console.log('Indexes created, elapsed ms:', Number(process.hrtime.bigint() - this.#indexStart) / 1000000);
+      this.#indexStart = null;
 
-        this.emit('updated');
-      }
+      if (!populated) this.emit('populated');
+      this.emit('updated');
     }
 
     this.#updatingState = false;
@@ -218,24 +199,89 @@ class NetworkStateManager extends EventEmitter {
     return this.intervalMs - elapsed;
   }
 
-  async #handleBlocks() {
-    await this.fetchNetworkState();
-    // eslint-disable-next-line no-restricted-syntax
-    for await (const [topicBuf, msgBuf, seqBuf] of this.#socket) {
-      const topic = topicBuf.toString();
-      const blockId = msgBuf.toString('hex');
-      const seq = seqBuf.readUInt32LE(0);
-      console.log(`${topic}: ${blockId}, sequence: ${seq}`);
-      this.emit('block', blockId);
+  #handleBlock(msgBuf, seqBuf) {
+    const blockId = msgBuf.toString('hex');
+    const seq = seqBuf.readUInt32LE(0);
+    console.log(`hashblock: ${blockId}, sequence: ${seq}`);
 
-      if (this.#updatingState) this.#controller.abort();
-      this.fetchNetworkState();
+    if (this.#updatingState) this.#controller.abort();
+    this.fetchNetworkState();
+
+    // should we await fetch before emitting block?
+    this.emit('block', blockId);
+  }
+
+  #handleMessage(topicBuf, msgBuf, seqBuf) {
+    const topic = topicBuf.toString();
+
+    switch (topic) {
+      case 'hashblock':
+        this.#handleBlock(msgBuf, seqBuf);
+        break;
+      default:
+        throw new Error(`Unknown topic: ${topic}`);
     }
   }
 
-  #startSubscription() {
-    this.#socket.events.on('connect', () => {
+  /**
+   * Test if the zmqendpoint is connectable. Takes about 8 seconds to fail
+   */
+  async #probeZmqEndpoint() {
+    const maxRetries = 10;
+    let retryCounter = 0;
+
+    const probe = zmq.socket('sub');
+
+    probe.setsockopt(zmq.ZMQ_RECONNECT_IVL, 200);
+    probe.setsockopt(zmq.ZMQ_RECONNECT_IVL_MAX, 1000);
+    probe.setsockopt(zmq.ZMQ_CONNECT_TIMEOUT, 3_000);
+
+    probe.monitor();
+
+    return new Promise((resolve) => {
+      probe.on('connect', () => {
+        console.log('probe connected');
+        probe.unmonitor();
+        probe.close();
+        resolve(true);
+      });
+
+      probe.on('connect_retry', (retryTimer) => {
+        retryCounter += 1;
+
+        if (retryCounter < maxRetries) {
+          console.log('probe retrying ms:', retryTimer);
+          return;
+        }
+
+        console.log('max retries hit, bailing');
+        probe.unmonitor();
+        probe.close();
+        resolve(false);
+      });
+
+      probe.connect(this.zmqEndpoint);
+    });
+  }
+
+  async #startSubscription() {
+    console.log('start subscription');
+    await this.fetchNetworkState();
+
+    const zmqEnabled = await this.#probeZmqEndpoint();
+
+    if (!zmqEnabled) {
+      console.log('zmq not enabled');
+      this.#updateTrigger = 'polling';
+      this.#startPolling();
+      return;
+    }
+
+    console.log('probe connected, setting up subscription');
+
+    this.#socket.on('connect', () => {
       if (this.#socketConnected === false) {
+        // State: previously connected, now reconnected.
         clearTimeout(this.fallbackTimer);
         this.fallbackTimer = null;
         this.#controller.stopLoop();
@@ -245,16 +291,16 @@ class NetworkStateManager extends EventEmitter {
       this.emit('zmqConnected');
     });
 
-    this.#socket.events.on('disconnect', () => {
+    this.#socket.on('disconnect', () => {
       this.#socketConnected = false;
       this.emit('zmqDisconnected');
       this.fallbackTimer = setTimeout(() => this.#startPolling(), this.fallbackTimeout);
     });
 
+    this.#socket.on('message', (...args) => this.#handleMessage(...args));
+
     this.#socket.connect(this.zmqEndpoint);
     this.#socket.subscribe('hashblock');
-
-    this.#handleBlocks();
   }
 
   #startPolling() {
@@ -275,59 +321,50 @@ class NetworkStateManager extends EventEmitter {
   }
 
   /**
-     * Find a node in the fluxnode list by either pubkey or endpoint, it
-     * first looks up the node locally, using O(1) from a Map; failing that,
-     * it goes out to the api and fetches it, and updates the local cache.
-     *
-     * @param {string} filter Pubkey or endpoint (ip:port)
-     * @param {"pubkey"|"endpoint"} type
-     * @returns
-     */
+   * Find a node in the fluxnode network state by either pubkey or endpoint
+   *
+   * @param {string} filter Pubkey or endpoint (ip:port)
+   * @param {"pubkey"|"endpoint"} type
+   * @returns
+   */
   search(filter, type) {
     if (!filter) return null;
     if (!Object.keys(this.#indexes).includes(type)) return null;
 
     const cached = this.#indexes[type].get(filter);
-    // if (cached) return cached;
     return cached || null;
-
-    // this is a reference to the object in the LRU cache (daemonServiceutils),
-    // if you modify this object, you are actually modifying the object in the cache.
-    // Any LRU cache should not return a direct object, it should return a copy.
-    // const nodes = await this.stateFetcher(filter).catch(() => []);
-
-    // this.#setIndexes(nodes, { filter, type });
-
-    // return this.#indexes[type].get(filter);
   }
 }
 
-const daemonServiceFluxnodeRpcs = require('../daemonService/daemonServiceFluxnodeRpcs');
-
 async function main() {
+  // eslint-disable-next-line global-require
+  const daemonServiceFluxnodeRpcs = require('../zelflux/ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
+
   const fetcher = async (filter = null) => {
-    const options = { params: { filter }, query: { filter: null } };
+    const options = { params: { useCache: false, filter }, query: { filter: null } };
 
     const res = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(options);
 
+    console.log(res);
     if (res.status === 'success') {
       return res.data;
     }
+    console.log('fetcher not success');
     return [];
   };
 
-  const network = new NetworkStateManager(fetcher, { intervalMs: 120_000 });
+  const network = new NetworkStateManager(fetcher, { intervalMs: 120_000, zmqEndpoint: 'tcp://127.0.0.1:28332' });
   network.on('updated', () => {
     console.log('received updated event');
   });
-  network.on('populated', async () => {
+  network.on('populated', () => {
     console.log('received populated event');
-    console.log(await network.search('212.71.244.159:16137', 'endpoint'));
+    console.log('Search result populated:', network.search('212.71.244.159:16137', 'endpoint'));
   });
-  // network.start();
+  network.start();
   setInterval(async () => {
     // await network.search('212.71.244.159:16137', 'endpoint');
-    console.log(await network.search('0404bccaf5d3108439b4897697bf7ce4d045950264e118596e31cc579028a7f808870d6ac59b9c00412d2f354610a9d18b47db80b08ba6536f0ae093c08a3aaccb', 'pubkey'));
+    console.log('Search pubkey:', network.search('045ae66321cfc172086d79252323b6cd4b83460e580e88f220582affda8a83b3ec68078ad80f7e465c42c3ef9bc01b912b3663e2ba09057bc43fbedf0afa9f3864', 'pubkey'));
   }, 5_000);
 }
 
