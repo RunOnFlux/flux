@@ -2611,6 +2611,7 @@ export default {
         this.timestamp = null;
         this.dataForAppRegistration = {};
         this.registrationHash = '';
+        this.output = [];
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
