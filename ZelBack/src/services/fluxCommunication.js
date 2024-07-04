@@ -900,7 +900,7 @@ async function fluxDiscovery() {
       // additional precaution
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-      if (!clientExists && !clientIncomingExists) {
+      if (ipInc && !clientExists && !clientIncomingExists) {
         deterministicPeerConnections = true;
         initiateAndHandleConnection(ip);
         // eslint-disable-next-line no-await-in-loop
@@ -960,7 +960,7 @@ async function fluxDiscovery() {
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
         const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
         const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-        if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
+        if (ipInc && !sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Asking random Flux ${connection} to add us as a peer`);
           currentIpsConnTried.push(connection);
           // eslint-disable-next-line no-await-in-loop
