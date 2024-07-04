@@ -3071,9 +3071,10 @@ async function checkAppRequirements(appSpecs) {
  * @param {string} appName App name.
  * @param {boolean} isComponent True if a Docker Compose component.
  * @param {object} res Response.
+ * @param {boolean} test indicates if we are just testing the install of the app.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
   // check image and its architecture
   // eslint-disable-next-line no-use-before-define
   const architecture = await systemArchitecture();
@@ -3130,7 +3131,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (res) {
     res.write(serviceHelper.ensureString(portStatusInitial));
   }
-  if (appSpecifications.ports) {
+  if (!test && appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
@@ -3172,7 +3173,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
         }
       }
     }
-  } else if (appSpecifications.port) {
+  } else if (!test && appSpecifications.port) {
     // v1 compatibility
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
@@ -3215,13 +3216,15 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
   }
-  if (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:')) {
+  if (test || (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:'))) {
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
       return;
     }
-    startAppMonitoring(identifier);
+    if (!test) {
+      startAppMonitoring(identifier);
+    }
     const appResponse = messageHelper.createDataMessage(app);
     log.info(appResponse);
     if (res) {
@@ -3235,9 +3238,10 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
+ * @param {boolean} test indicates if it is just to test the app install.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res) {
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -3486,16 +3490,16 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+      appSpecifications.cpu = test ? 0.2 : appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = test ? 300 : appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = test ? 2 : appSpecifications[hddTier] || appSpecifications.hdd;
     } else {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-      appComponent.ram = appComponent[ramTier] || appComponent.ram;
-      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+      appComponent.cpu = test ? 0.2 : appComponent[cpuTier] || appComponent.cpu;
+      appComponent.ram = test ? 300 : appComponent[ramTier] || appComponent.ram;
+      appComponent.hdd = test ? 2 : appComponent[hddTier] || appComponent.hdd;
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
@@ -3507,34 +3511,37 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         const hddTier = `hdd${tier}`;
         const ramTier = `ram${tier}`;
         const cpuTier = `cpu${tier}`;
-        appComponentSpecs.cpu = appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
-        appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
-        appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
+        appComponentSpecs.cpu = test ? 0.2 : appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
+        appComponentSpecs.ram = test ? 300 : appComponentSpecs[ramTier] || appComponentSpecs.ram;
+        appComponentSpecs.hdd = test ? 2 : appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications);
+        await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test);
       }
     } else {
-      await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
+      await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
     }
-    const broadcastedAt = Date.now();
-    const newAppRunningMessage = {
-      type: 'fluxapprunning',
-      version: 1,
-      name: appSpecifications.name,
-      hash: appSpecifications.hash, // hash of application specifics that are running
-      ip: myIP,
-      broadcastedAt,
-      runningSince: broadcastedAt,
-    };
+    if (!test) {
+      const broadcastedAt = Date.now();
+      const newAppRunningMessage = {
+        type: 'fluxapprunning',
+        version: 1,
+        name: appSpecifications.name,
+        hash: appSpecifications.hash, // hash of application specifics that are running
+        ip: myIP,
+        broadcastedAt,
+        runningSince: broadcastedAt,
+      };
 
-    // store it in local database first
-    // eslint-disable-next-line no-await-in-loop, no-use-before-define
-    await storeAppRunningMessage(newAppRunningMessage);
+      // store it in local database first
+      // eslint-disable-next-line no-await-in-loop, no-use-before-define
+      await storeAppRunningMessage(newAppRunningMessage);
+      // broadcast messages about running apps to all peers
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+      await serviceHelper.delay(500);
+      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
     // broadcast messages about running apps to all peers
-    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-    await serviceHelper.delay(500);
-    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
-    // broadcast messages about running apps to all peers
+    }
+
     // all done message
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
     log.info(successStatus);
@@ -3543,6 +3550,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       res.end();
     }
     installationInProgress = false;
+    if (test) {
+      await removeAppLocally(appSpecs.name, null, true, false, false);
+    }
   } catch (error) {
     installationInProgress = false;
     const errorResponse = messageHelper.createErrorMessage(
@@ -7630,6 +7640,111 @@ async function installAppLocally(req, res) {
 
       res.setHeader('Content-Type', 'application/json');
       registerAppLocally(appSpecifications, undefined, res); // can throw
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+* Test will be used on UI for app owners to test their app specifications are good and the app installs and start
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function testInstallApp(req, res) {
+  try {
+    // appname can be app name or app hash of specific app version
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    let blockAllowance = config.fluxapps.ownerAppAllowance;
+    // needs to be logged in
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (authorized) {
+      let appSpecifications;
+      // anyone can deploy temporary app
+      // favor temporary to launch test temporary apps
+      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      if (tempMessage) {
+        // eslint-disable-next-line prefer-destructuring
+        appSpecifications = tempMessage.appSpecifications;
+        blockAllowance = config.fluxapps.temporaryAppAllowance;
+      }
+      if (!appSpecifications) {
+        // only owner can deploy permanent message or existing app
+        const ownerAuthorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+        if (!ownerAuthorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+      }
+      if (!appSpecifications) {
+        const allApps = await availableApps();
+        appSpecifications = allApps.find((app) => app.name === appname);
+      }
+      if (!appSpecifications) {
+        // eslint-disable-next-line no-use-before-define
+        appSpecifications = await getApplicationGlobalSpecifications(appname);
+      }
+      // search in permanent messages for the specific apphash to launch
+      if (!appSpecifications) {
+        const permMessage = await checkAppMessageExistence(appname);
+        if (permMessage) {
+          // eslint-disable-next-line prefer-destructuring
+          appSpecifications = permMessage.appSpecifications;
+        }
+      }
+      if (!appSpecifications) {
+        throw new Error(`Application Specifications of ${appname} not found`);
+      }
+      // get current height
+      const dbopen = dbHelper.databaseConnection();
+      if (!appSpecifications.height && appSpecifications.height !== 0) {
+        // precaution for old temporary apps. Set up for custom test specifications.
+        const database = dbopen.db(config.database.daemon.database);
+        const query = { generalScannedHeight: { $gte: 0 } };
+        const projection = {
+          projection: {
+            _id: 0,
+            generalScannedHeight: 1,
+          },
+        };
+        const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+        if (!result) {
+          throw new Error('Scanning not initiated');
+        }
+        const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
+        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + blockAllowance; // allow running for this amount of blocks
+      }
+
+      const appsDatabase = dbopen.db(config.database.appslocal.database);
+      const appsQuery = {}; // all
+      const appsProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
+      };
+      const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      const appExists = apps.find((app) => app.name === appSpecifications.name);
+      if (appExists) { // double checked in installation process.
+        throw new Error(`Application ${appname} is already installed`);
+      }
+      res.setHeader('Content-Type', 'application/json');
+      registerAppLocally(appSpecifications, undefined, res, true); // can throw
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -12982,6 +13097,7 @@ module.exports = {
   reindexGlobalAppsLocationAPI,
   expireGlobalApplications,
   installAppLocally,
+  testInstallApp,
   updateAppGlobalyApi,
   getAppPrice,
   getAppFiatAndFluxPrice,
