@@ -82,6 +82,10 @@ class NetworkStateManager extends EventEmitter {
     return this.#updateTrigger;
   }
 
+  get indexesReady() {
+    return this.#controller.lock.ready;
+  }
+
   /**
    * Index map. Has to be a getter and not a field, as the field doesn't update
    * the reference.
@@ -103,6 +107,10 @@ class NetworkStateManager extends EventEmitter {
     //   this.#pubkeyIndex.get(node.pubkey).set(node.ip, node);
     //   this.#endpointIndex.set(node.ip, node);
     // });
+
+    // if we are building an index already, just wait for it to finish.
+    // maybe look at cancelling it in future.
+    await this.#controller.lock.enable();
 
     const nodeCount = nodes.length;
 
@@ -139,6 +147,7 @@ class NetworkStateManager extends EventEmitter {
         this.#setIndexes(pubkeyIndex, endpointIndex);
         console.log('pubkeyIndexSize:', pubkeyIndex.size);
         console.log('endpointIndexSize:', endpointIndex.size);
+        this.#controller.lock.disable();
         resolve();
       });
     });
@@ -327,9 +336,13 @@ class NetworkStateManager extends EventEmitter {
    * @param {"pubkey"|"endpoint"} type
    * @returns
    */
-  search(filter, type) {
+  async search(filter, type) {
     if (!filter) return null;
     if (!Object.keys(this.#indexes).includes(type)) return null;
+
+    // if we are mid stroke indexing, may as well wait the 10ms (max) and get the
+    // latest block
+    await this.indexesReady;
 
     const cached = this.#indexes[type].get(filter);
     return cached || null;
@@ -345,7 +358,6 @@ async function main() {
 
     const res = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(options);
 
-    console.log(res);
     if (res.status === 'success') {
       return res.data;
     }
@@ -357,14 +369,14 @@ async function main() {
   network.on('updated', () => {
     console.log('received updated event');
   });
-  network.on('populated', () => {
+  network.on('populated', async () => {
     console.log('received populated event');
-    console.log('Search result populated:', network.search('212.71.244.159:16137', 'endpoint'));
+    console.log('Search result populated:', await network.search('212.71.244.159:16137', 'endpoint'));
   });
   network.start();
   setInterval(async () => {
     // await network.search('212.71.244.159:16137', 'endpoint');
-    console.log('Search pubkey:', network.search('045ae66321cfc172086d79252323b6cd4b83460e580e88f220582affda8a83b3ec68078ad80f7e465c42c3ef9bc01b912b3663e2ba09057bc43fbedf0afa9f3864', 'pubkey'));
+    console.log('Search pubkey:', await network.search('045ae66321cfc172086d79252323b6cd4b83460e580e88f220582affda8a83b3ec68078ad80f7e465c42c3ef9bc01b912b3663e2ba09057bc43fbedf0afa9f3864', 'pubkey'));
   }, 5_000);
 }
 
