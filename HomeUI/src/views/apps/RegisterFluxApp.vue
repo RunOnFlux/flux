@@ -2848,6 +2848,7 @@ export default {
             component.domains = component.domains.replace('\\“', '\\"');
             if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
+              component.secrets = component.secrets.replace('\\“', '\\"');
               // eslint-disable-next-line no-await-in-loop
               const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
               if (!encryptedMessage) {
