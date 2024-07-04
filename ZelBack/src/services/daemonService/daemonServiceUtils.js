@@ -77,7 +77,7 @@ async function buildFluxdClient() {
 async function executeCall(rpc, params) {
   const rpcparameters = params || [];
 
-  if (!fluxdClient) buildFluxdClient();
+  if (!fluxdClient) await buildFluxdClient();
 
   try {
     let data;
