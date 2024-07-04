@@ -1692,7 +1692,7 @@
       </b-row>
       <div v-if="registrationHash && !isPrivateApp">
         <b-row>
-          <b-card title="Test Install/Launch">
+          <b-card title="Test Application Installation">
             <b-card-text>
               You can now test install/launch your application. It's very important to test the app install/launch to make sure your application specifications work.
               You will get the install/launch log of the application at the bottom of this page, if it starts you can proceed with the payment if not make sure you fix/change the specifications and try again before you pay.
@@ -1704,7 +1704,7 @@
               class="my-1"
               @click="testInstallApp(registrationHash)"
             >
-              Test Install/Launch
+              Test Installation
             </b-button>
           </b-card>
         </b-row>
@@ -3388,7 +3388,7 @@ export default {
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.downloading = true;
-      this.showToast('warning', `Testing installing/launching ${app}`);
+      this.showToast('warning', `Testing installing ${app}`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -3400,37 +3400,41 @@ export default {
         },
       };
       let response;
-      if (this.appRegistrationSpecification.nodes.length > 0) {
-        const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appRegistrationSpecification.nodes.length)];
-        const ip = nodeip.split(':')[0];
-        const port = Number(nodeip.split(':')[1] || 16127);
-        const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testinstallapp/${app}`;
-        response = await axios.get(url, axiosConfig);
-      } else {
-        response = await AppsService.justAPI().get(`/apps/testinstallapp/${app}`, axiosConfig);
-      }
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      } else {
-        console.log(response);
-        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
-        console.log(this.output);
-        for (let i = 0; i < this.output.length; i += 1) {
-          if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
-            // error is defined one line above
-            if (this.output[i - 1] && this.output[i - 1].data) {
-              this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data);
-              return;
+      try {
+        if (this.appRegistrationSpecification.nodes.length > 0) {
+          const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appRegistrationSpecification.nodes.length)];
+          const ip = nodeip.split(':')[0];
+          const port = Number(nodeip.split(':')[1] || 16127);
+          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testinstallapp/${app}`;
+          response = await axios.get(url, axiosConfig);
+        } else {
+          response = await AppsService.justAPI().get(`/apps/testinstallapp/${app}`, axiosConfig);
+        }
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          console.log(response);
+          this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+          console.log(this.output);
+          for (let i = 0; i < this.output.length; i += 1) {
+            if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
+              // error is defined one line above
+              if (this.output[i - 1] && this.output[i - 1].data) {
+                this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data);
+                return;
+              }
             }
           }
+          if (this.output[this.output.length - 1].status === 'error') {
+            this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          } else if (this.output[this.output.length - 1].status === 'warning') {
+            this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          } else {
+            this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          }
         }
-        if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        } else if (this.output[this.output.length - 1].status === 'warning') {
-          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
       }
       this.downloading = false;
     },

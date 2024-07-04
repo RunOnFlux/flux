@@ -7669,6 +7669,7 @@ async function testInstallApp(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
+    log.info(`testInstallApp: ${appname}`);
     let blockAllowance = config.fluxapps.ownerAppAllowance;
     // needs to be logged in
     const authorized = await verificationHelper.verifyPrivilege('user', req);
