@@ -3388,7 +3388,7 @@ export default {
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.downloading = true;
-      this.showToast('warning', `Testing installing ${app}`);
+      this.showToast('warning', `Testing ${app} installation, please wait`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -3420,17 +3420,17 @@ export default {
             if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
               // error is defined one line above
               if (this.output[i - 1] && this.output[i - 1].data) {
-                this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data);
+                this.showToast('danger', 'Error on Test, check logs');
                 return;
               }
             }
           }
           if (this.output[this.output.length - 1].status === 'error') {
-            this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+            this.showToast('danger', 'Error on Test, check logs');
           } else if (this.output[this.output.length - 1].status === 'warning') {
-            this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+            this.showToast('warning', 'Warning on Test, check logs');
           } else {
-            this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+            this.showToast('success', 'Test passed, you can continue with app payment');
           }
         }
       } catch (error) {
