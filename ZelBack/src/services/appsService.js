@@ -7743,6 +7743,7 @@ async function testAppInstall(req, res) {
       if (appExists) { // double checked in installation process.
         throw new Error(`Application ${appname} is already installed`);
       }
+      appSpecifications.name += 'Test';
       res.setHeader('Content-Type', 'application/json');
       await registerAppLocally(appSpecifications, undefined, res, true); // can throw
       removeAppLocally(appSpecifications.name, null, true, false, false);
