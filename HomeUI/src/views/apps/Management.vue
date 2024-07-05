@@ -5151,6 +5151,25 @@
               </b-card>
             </b-col>
           </b-row>
+          <div v-if="updateHash && updateSpecifications">
+            <b-row>
+              <b-card title="Test Application Installation">
+                <b-card-text>
+                  It's now time to test your application install/launch. If you have update app specifications other than hardware specs it's very important to test the app install/launch to make sure your new application specifications work.
+                  You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before pay for the app update.
+                </b-card-text>
+                <b-button
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="success"
+                  aria-label="Test Launch"
+                  class="my-1"
+                  @click="testAppInstall(updateHash)"
+                >
+                  Test Installation
+                </b-button>
+              </b-card>
+            </b-row>
+          </div>
           <b-row
             v-if="updateHash && !freeUpdate"
             class="match-height"
@@ -6646,6 +6665,7 @@ export default {
         this.timestamp = null;
         this.dataForAppUpdate = {};
         this.updateHash = '';
+        this.output = [];
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -6660,6 +6680,7 @@ export default {
         this.timestamp = null;
         this.dataForAppUpdate = {};
         this.updateHash = '';
+        this.output = [];
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -6685,6 +6706,7 @@ export default {
       this.timestamp = null;
       this.dataForAppUpdate = {};
       this.updateHash = '';
+      this.output = [];
       if (this.websocket !== null) {
         this.websocket.close();
         this.websocket = null;
@@ -8548,6 +8570,66 @@ export default {
           }
         }
       }
+    },
+    async testAppInstall(app) {
+      if (this.downloading) {
+        this.showToast('danger', 'Test install/launch was already initiated');
+        return;
+      }
+      const self = this;
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloadOutputReturned = false;
+      this.downloading = true;
+      this.showToast('warning', `Testing ${app} installation, please wait`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        onDownloadProgress(progressEvent) {
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+        },
+      };
+      let response;
+      try {
+        if (this.appUpdateSpecification.nodes.length > 0) {
+          const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appUpdateSpecification.nodes.length)];
+          const ip = nodeip.split(':')[0];
+          const port = Number(nodeip.split(':')[1] || 16127);
+          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testappinstall/${app}`;
+          response = await axios.get(url, axiosConfig);
+        } else {
+          response = await AppsService.justAPI().get(`/apps/testappinstall/${app}`, axiosConfig);
+        }
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          console.log(response);
+          this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+          console.log(this.output);
+          for (let i = 0; i < this.output.length; i += 1) {
+            if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
+              // error is defined one line above
+              if (this.output[i - 1] && this.output[i - 1].data) {
+                this.showToast('danger', 'Error on Test, check logs');
+                return;
+              }
+            }
+          }
+          if (this.output[this.output.length - 1].status === 'error') {
+            this.showToast('danger', 'Error on Test, check logs');
+          } else if (this.output[this.output.length - 1].status === 'warning') {
+            this.showToast('warning', 'Warning on Test, check logs');
+          } else {
+            this.showToast('success', 'Test passed, you can continue with app payment');
+          }
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+      this.downloading = false;
     },
 
     async update() {
@@ -10592,6 +10674,7 @@ export default {
       this.timestamp = '';
       this.signature = '';
       this.updateHash = '';
+      this.output = [];
     },
   },
 };
