@@ -1690,12 +1690,12 @@
           </b-card>
         </b-col>
       </b-row>
-      <div v-if="registrationHash && !isPrivateApp">
+      <div v-if="registrationHash">
         <b-row>
           <b-card title="Test Application Installation">
             <b-card-text>
-              You can now test your application install/launch. It's very important to test the app install/launch to make sure your application specifications work.
-              You will get the application install/launch log bottom of this page, if the app starts you can proceed with the payment if not make sure you fix/change the specifications and try again before you pay.
+              It's now time to test your application install/launch. It's very important to test the app install/launch to make sure your application specifications work.
+              You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before you can pay the app subscription.
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1710,7 +1710,7 @@
         </b-row>
       </div>
       <b-row
-        v-if="registrationHash"
+        v-if="testPassed"
         class="match-height"
       >
         <b-col
@@ -1781,7 +1781,7 @@
         </b-col>
       </b-row>
       <b-row
-        v-if="registrationHash && !applicationPriceFluxError"
+        v-if="testPassed && !applicationPriceFluxError"
         class="match-height"
       >
         <b-col
@@ -2523,6 +2523,7 @@ export default {
       ipAccess: false,
       stripeEnabled: true,
       paypalEnabled: true,
+      testPassed: false,
     };
   },
   computed: {
@@ -2612,6 +2613,7 @@ export default {
         this.dataForAppRegistration = {};
         this.registrationHash = '';
         this.output = [];
+        this.testPassed = false;
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -2625,6 +2627,8 @@ export default {
         this.timestamp = null;
         this.dataForAppRegistration = {};
         this.registrationHash = '';
+        this.output = [];
+        this.testPassed = false;
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -3432,6 +3436,7 @@ export default {
             this.showToast('warning', 'Warning on Test, check logs');
           } else {
             this.showToast('success', 'Test passed, you can continue with app payment');
+            this.testPassed = true;
           }
         }
       } catch (error) {
