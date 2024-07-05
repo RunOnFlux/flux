@@ -35,7 +35,7 @@ function isLocal(req, res, next) {
 
 const cache = apicache.middleware;
 
-module.exports = (app, expressWs) => {
+module.exports = (app) => {
   // GET PUBLIC methods
   app.get('/daemon/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     daemonServiceControlRpcs.help(req, res);
@@ -289,7 +289,7 @@ module.exports = (app, expressWs) => {
     fluxCommunication.connectedPeersInfo(req, res);
   });
   app.get('/flux/incomingconnections', cache('30 seconds'), (req, res) => {
-    fluxNetworkHelper.getIncomingConnections(req, res, expressWs.getWss('/ws/flux'));
+    fluxNetworkHelper.getIncomingConnections(req, res);
   });
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getIncomingConnectionsInfo(req, res);
@@ -1027,7 +1027,7 @@ module.exports = (app, expressWs) => {
     fluxCommunication.addOutgoingPeer(req, res);
   });
   app.get('/flux/removeincomingpeer/:ip?', (req, res) => {
-    fluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/flux'));
+    fluxCommunication.removeIncomingPeer(req, res);
   });
   app.get('/flux/allowport/:port?', (req, res) => {
     fluxNetworkHelper.allowPortApi(req, res);
@@ -1353,25 +1353,6 @@ module.exports = (app, expressWs) => {
   });
   app.post('/syncthing/db/scan', (req, res) => {
     syncthingService.postDbScan(req, res);
-  });
-
-  // WebSockets PUBLIC
-  app.ws('/ws/id/:loginphrase', (ws, req) => {
-    idService.wsRespondLoginPhrase(ws, req);
-  });
-  app.ws('/ws/zelid/:loginphrase', (ws, req) => { // DEPRECATED
-    idService.wsRespondLoginPhrase(ws, req);
-  });
-  app.ws('/ws/sign/:message', (ws, req) => {
-    idService.wsRespondSignature(ws, req);
-  });
-
-  // communication between multiple flux solution is on this:
-  app.ws('/ws/flux/:port', (ws, req) => {
-    fluxCommunication.handleIncomingConnection(ws, req);
-  });
-  app.ws('/ws/flux', (ws, req) => {
-    fluxCommunication.handleIncomingConnection(ws, req);
   });
 
   // FluxShare
