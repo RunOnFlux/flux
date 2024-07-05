@@ -1690,8 +1690,27 @@
           </b-card>
         </b-col>
       </b-row>
+      <div v-if="registrationHash">
+        <b-row>
+          <b-card title="Test Application Installation">
+            <b-card-text>
+              It's now time to test your application install/launch. It's very important to test the app install/launch to make sure your application specifications work.
+              You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before you can pay the app subscription.
+            </b-card-text>
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Test Launch"
+              class="my-1"
+              @click="testAppInstall(registrationHash)"
+            >
+              Test Installation
+            </b-button>
+          </b-card>
+        </b-row>
+      </div>
       <b-row
-        v-if="registrationHash"
+        v-if="testPassed"
         class="match-height"
       >
         <b-col
@@ -1762,7 +1781,7 @@
         </b-col>
       </b-row>
       <b-row
-        v-if="registrationHash && !applicationPriceFluxError"
+        v-if="testPassed && !applicationPriceFluxError"
         class="match-height"
       >
         <b-col
@@ -1811,26 +1830,6 @@
             </div>
           </b-card>
         </b-col>
-      </b-row>
-    </div>
-    <div v-if="registrationHash && !isPrivateApp">
-      <b-row>
-        <b-card title="Test Launch">
-          <b-card-text>
-            You can now test launch your application locally. It will run on this particular node for a few hours, so you can spot and tune your app specifications.
-            <br>
-            Application will run on IP: {{ nodeIP || 'Sorry, something went wrong, check IP manually' }}
-          </b-card-text>
-          <b-button
-            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="success"
-            aria-label="Test Launch"
-            class="my-1"
-            @click="installAppLocally(registrationHash)"
-          >
-            Test Launch
-          </b-button>
-        </b-card>
       </b-row>
     </div>
     <div
@@ -2524,6 +2523,7 @@ export default {
       ipAccess: false,
       stripeEnabled: true,
       paypalEnabled: true,
+      testPassed: false,
     };
   },
   computed: {
@@ -2612,6 +2612,8 @@ export default {
         this.timestamp = null;
         this.dataForAppRegistration = {};
         this.registrationHash = '';
+        this.output = [];
+        this.testPassed = false;
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -2625,6 +2627,8 @@ export default {
         this.timestamp = null;
         this.dataForAppRegistration = {};
         this.registrationHash = '';
+        this.output = [];
+        this.testPassed = false;
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -2848,6 +2852,7 @@ export default {
             component.domains = component.domains.replace('\\“', '\\"');
             if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
+              component.secrets = component.secrets.replace('\\“', '\\"');
               // eslint-disable-next-line no-await-in-loop
               const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
               if (!encryptedMessage) {
@@ -3378,9 +3383,9 @@ export default {
       });
       return string;
     },
-    async installAppLocally(app) {
+    async testAppInstall(app) {
       if (this.downloading) {
-        this.showToast('danger', 'Test launch was already initiated');
+        this.showToast('danger', 'Test install/launch was already initiated');
         return;
       }
       const self = this;
@@ -3388,9 +3393,8 @@ export default {
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.downloading = true;
-      this.showToast('warning', `Installing ${app}`);
+      this.showToast('warning', `Testing ${app} installation, please wait`);
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await AppsService.installAppLocally(zelidauth, app);
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -3400,29 +3404,43 @@ export default {
           self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/installapplocally/${app}`, axiosConfig);
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      } else {
-        console.log(response);
-        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
-        console.log(this.output);
-        for (let i = 0; i < this.output.length; i += 1) {
-          if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
-            // error is defined one line above
-            if (this.output[i - 1] && this.output[i - 1].data) {
-              this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data);
-              return;
+      let response;
+      try {
+        if (this.appRegistrationSpecification.nodes.length > 0) {
+          const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appRegistrationSpecification.nodes.length)];
+          const ip = nodeip.split(':')[0];
+          const port = Number(nodeip.split(':')[1] || 16127);
+          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testappinstall/${app}`;
+          response = await axios.get(url, axiosConfig);
+        } else {
+          response = await AppsService.justAPI().get(`/apps/testappinstall/${app}`, axiosConfig);
+        }
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          console.log(response);
+          this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+          console.log(this.output);
+          for (let i = 0; i < this.output.length; i += 1) {
+            if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
+              // error is defined one line above
+              if (this.output[i - 1] && this.output[i - 1].data) {
+                this.showToast('danger', 'Error on Test, check logs');
+                return;
+              }
             }
           }
+          if (this.output[this.output.length - 1].status === 'error') {
+            this.showToast('danger', 'Error on Test, check logs');
+          } else if (this.output[this.output.length - 1].status === 'warning') {
+            this.showToast('warning', 'Warning on Test, check logs');
+          } else {
+            this.showToast('success', 'Test passed, you can continue with app payment');
+            this.testPassed = true;
+          }
         }
-        if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        } else if (this.output[this.output.length - 1].status === 'warning') {
-          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
       }
       this.downloading = false;
     },
