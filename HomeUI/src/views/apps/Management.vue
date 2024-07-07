@@ -8107,7 +8107,7 @@ export default {
 
       let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/terminal`;
       if (this.ipAccess) {
-        queryUrl = `http://${url}:${urlPort}/${namespace}`;
+        queryUrl = `http://${url}:${urlPort}/terminal`;
       }
       this.socket = io.connect(queryUrl);
 
