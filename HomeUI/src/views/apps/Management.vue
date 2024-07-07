@@ -5878,7 +5878,6 @@ export default {
   },
   data() {
     return {
-      selectedFluxVersion: '5.13.0',
       progressVisable: false,
       operationTitle: '',
       appInfoObject: [],
@@ -6652,11 +6651,6 @@ export default {
           this.selectedAppVolume = this.appSpecification.compose[0].name;
         }
       }
-    },
-    selectedIp: {
-      handler() {
-        this.getFluxVersion();
-      },
     },
     appUpdateSpecification: {
       handler() {
@@ -8111,11 +8105,7 @@ export default {
       const urlPort = this.selectedIp.split(':')[1] || 16127;
       const zelidauth = localStorage.getItem('zelidauth');
 
-      const [major, minor] = this.selectedFluxVersion.split('.');
-
-      const namespace = major >= 5 && minor >= 13 ? 'terminal' : '';
-
-      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/${namespace}`;
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/terminal`;
       if (this.ipAccess) {
         queryUrl = `http://${url}:${urlPort}/${namespace}`;
       }
@@ -10655,14 +10645,6 @@ export default {
           }
         }
         this.applicationManagementAndStatus = niceString;
-      }
-    },
-    async getFluxVersion() {
-      const res = await this.executeLocalCommand('/flux/version');
-      if (res?.data?.status === 'success') {
-        this.selectedFluxVersion = res.data.data;
-      } else {
-        this.selectedFluxVersion = '5.13.0';
       }
     },
     selectedIpChanged() {
