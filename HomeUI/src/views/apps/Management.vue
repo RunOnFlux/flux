@@ -5151,7 +5151,10 @@
               </b-card>
             </b-col>
           </b-row>
-          <div v-if="updateHash && updateSpecifications">
+          <div
+            v-if="updateHash && updateSpecifications"
+            class="match-height"
+          >
             <b-row>
               <b-card title="Test Application Installation">
                 <b-card-text>

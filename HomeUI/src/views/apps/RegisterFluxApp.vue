@@ -1690,7 +1690,10 @@
           </b-card>
         </b-col>
       </b-row>
-      <div v-if="registrationHash">
+      <div
+        v-if="registrationHash"
+        class="match-height"
+      >
         <b-row>
           <b-card title="Test Application Installation">
             <b-card-text>
