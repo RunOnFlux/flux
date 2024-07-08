@@ -891,6 +891,7 @@ async function checkDeterministicNodesCollisions() {
       if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
         const myCollateral = nodeStatus.data.collateral;
         const myNode = result.find((node) => node.collateral === myCollateral);
+        const nodeCollateralDifferentIp = nodeList.find((node) => node.collateral === myCollateral && node.ip !== myIP);
         if (result.length > 1) {
           log.warn('Multiple Flux Node instances detected');
           if (myNode) {
@@ -913,6 +914,18 @@ async function checkDeterministicNodesCollisions() {
             log.error('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
             dosState = 100;
             setDosMessage('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
+            setTimeout(() => {
+              checkDeterministicNodesCollisions();
+            }, 60 * 1000);
+            return;
+          }
+        } else if (nodeCollateralDifferentIp) {
+          let errorCall = false;
+          await serviceHelper.axiosGet(`http://${nodeCollateralDifferentIp.ip}/flux/version`, axiosConfig).catch(errorCall = true);
+          if (!errorCall) {
+            log.error('Flux collision detection. Another ip:port is confirmed and reachable on flux network with the same collateral transaction information.');
+            dosState = 100;
+            setDosMessage('Flux collision detection. Another ip:port is confirmed and reachable on flux network with the same collateral transaction information.');
             setTimeout(() => {
               checkDeterministicNodesCollisions();
             }, 60 * 1000);
