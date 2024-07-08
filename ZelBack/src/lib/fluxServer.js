@@ -76,8 +76,8 @@ class FluxServer {
     const sslConfig = key && cert ? { key, cert } : {};
 
     const server = FluxServer.servers[mode].createServer(
-      this.expressApp,
       sslConfig,
+      this.expressApp,
     );
 
     this.socketServer = new FluxWebsocketServer({
