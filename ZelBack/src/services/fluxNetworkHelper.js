@@ -852,12 +852,6 @@ async function adjustExternalIP(ip) {
           await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
         }
       }
-      const benchmarkResponse = await benchmarkService.getBenchmarks();
-      if (benchmarkResponse.status === 'error') {
-        await serviceHelper.delay(15 * 60 * 1000);
-      } else if (benchmarkResponse.status === 'running') {
-        await serviceHelper.delay(8 * 60 * 1000);
-      }
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
     }
@@ -919,7 +913,7 @@ async function checkDeterministicNodesCollisions() {
             }, 60 * 1000);
             return;
           }
-        } else if (nodeCollateralDifferentIp) {
+        } else if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp) {
           let errorCall = false;
           await serviceHelper.axiosGet(`http://${nodeCollateralDifferentIp.ip}/flux/version`, axiosConfig).catch(errorCall = true);
           if (!errorCall) {
@@ -931,6 +925,8 @@ async function checkDeterministicNodesCollisions() {
             }, 60 * 1000);
             return;
           }
+          const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
+          log.info(`createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
         }
       }
       // early stages of the network or testnet
