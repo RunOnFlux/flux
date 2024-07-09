@@ -2,13 +2,13 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyAtMsozWwJhhPIOd9BGkZxk5D6Wr8jVGVM',
-  authDomain: 'fluxcore-prod.firebaseapp.com',
-  projectId: 'fluxcore-prod',
-  storageBucket: 'fluxcore-prod.appspot.com',
-  messagingSenderId: '468366888401',
-  appId: '1:468366888401:web:56eb34ebe93751527ea4f0',
-  measurementId: 'G-SEGT3X2737',
+  apiKey: 'AIzaSyDlXKeY5U9zUF2OtCm4in3dJivIim8nP0U',
+  authDomain: 'fluxcore-4fef9.firebaseapp.com',
+  projectId: 'fluxcore-4fef9',
+  storageBucket: 'fluxcore-4fef9.appspot.com',
+  messagingSenderId: '907826123074',
+  appId: '1:907826123074:web:b5f8bbfc6b8e077482f8db',
+  measurementId: 'G-J9X11EGJCT',
 };
 
 // Initialize Firebase
