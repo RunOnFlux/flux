@@ -28,41 +28,108 @@
       <b-card-title>Automated Login</b-card-title>
       <dl class="row">
         <dd class="col-sm-6">
-          <b-card-text class="text-center loginText">
-            Flux Single Sign On (SSO) Login
-          </b-card-text>
-          <div class="ssoLogin">
-            <div id="ssoLoading">
-              <b-spinner variant="primary" />
-              <div>
-                Loading Sign In Options
-              </div>
-            </div>
-            <div
-              id="ssoLoggedIn"
-              style="display: none"
-            >
-              <b-spinner variant="primary" />
-              <div>
-                Finishing Login Process
-              </div>
-            </div>
-            <div id="ssoVerify" style="display: none">
-              <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
-                Cancel Verification
-              </b-button>
-              <div>
-                <b-spinner variant="primary" />
-                <div>
-                  Finishing Verification Process
+          <b-tabs content-class="mt-0">
+            <b-tab title="Email/Password" active>
+              <dl class="row">
+                <dd class="col-sm-12 mt-1">
+                  <b-form
+                    class="mx-5"
+                    @submit.prevent
+                  >
+                    <b-row>
+                      <b-col cols="12">
+                        <b-form-group
+                          label="Email"
+                          label-for="h-email"
+                          label-cols-md="4"
+                        >
+                          <b-form-input
+                            id="h-email"
+                            v-model="emailForm.email"
+                            type="email"
+                            placeholder="Email..."
+                          />
+                        </b-form-group>
+                      </b-col>
+                      <b-col cols="12">
+                        <b-form-group
+                          label="Password"
+                          label-for="h-password"
+                          label-cols-md="4"
+                        >
+                          <b-form-input
+                            id="h-password"
+                            v-model="emailForm.password"
+                            type="password"
+                            placeholder="Password..."
+                          />
+                        </b-form-group>
+                      </b-col>
+                      <b-col cols="12">
+                        <b-form-group label-cols-md="4">
+                          <b-button
+                            type="submit"
+                            variant="primary"
+                            class="w-100"
+                            @click="emailLogin"
+                          >
+                            Login
+                          </b-button>
+                        </b-form-group>
+                      </b-col>
+                      <b-col cols="12">
+                        <b-form-group label-cols-md="4">
+                          <b-button
+                            v-b-modal.modal-prevent-closing
+                            type="submit"
+                            variant="secondary"
+                            class="w-100"
+                            @click="createAccount"
+                          >
+                            Sign Up
+                          </b-button>
+                        </b-form-group>
+                      </b-col>
+                    </b-row>
+                  </b-form>
+                </dd>
+              </dl>
+            </b-tab>
+            <b-tab title="3rd Party Login">
+              <div class="ssoLogin">
+                <div id="ssoLoading">
+                  <b-spinner variant="primary" />
+                  <div>
+                    Loading Sign In Options
+                  </div>
                 </div>
-                <div>
-                  <i>Please check email for verification link.</i>
+                <div
+                  id="ssoLoggedIn"
+                  style="display: none"
+                >
+                  <b-spinner variant="primary" />
+                  <div>
+                    Finishing Login Process
+                  </div>
                 </div>
+                <div id="ssoVerify" style="display: none">
+                  <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
+                    Cancel Verification
+                  </b-button>
+                  <div>
+                    <b-spinner variant="primary" />
+                    <div>
+                      Finishing Verification Process
+                    </div>
+                    <div>
+                      <i>Please check email for verification link.</i>
+                    </div>
+                  </div>
+                </div>
+                <div id="firebaseui-auth-container" />
               </div>
-            </div>
-            <div id="firebaseui-auth-container" />
-          </div>
+            </b-tab>
+          </b-tabs>
         </dd>
         <dd class="col-sm-6">
           <b-card-text class="text-center loginText">
@@ -194,6 +261,59 @@
         </dd>
       </dl>
     </b-card>
+    <b-modal
+      id="modal-prevent-closing"
+      ref="modal"
+      title="Create Flux SSO Account"
+      @show="resetModal"
+      @hidden="resetModal"
+      @ok="handleOk"
+    >
+      <form ref="form" @submit.stop.prevent="handleSubmit">
+        <b-form-group
+          label="Email"
+          label-for="email-input"
+          invalid-feedback="Email is required"
+          :state="emailState"
+        >
+          <b-form-input
+            id="email-input"
+            v-model="createSSOForm.email"
+            type="email"
+            :state="emailState"
+            required
+          />
+        </b-form-group>
+        <b-form-group
+          label="Password"
+          label-for="pw1-input"
+          invalid-feedback="Password is required"
+          :state="pw1State"
+        >
+          <b-form-input
+            id="pw1-input"
+            v-model="createSSOForm.pw1"
+            type="password"
+            :state="pw1State"
+            required
+          />
+        </b-form-group>
+        <b-form-group
+          label="Confirm Password"
+          label-for="pw2-input"
+          invalid-feedback="Password is required"
+          :state="pw2State"
+        >
+          <b-form-input
+            id="pw2-input"
+            v-model="createSSOForm.pw2"
+            type="password"
+            :state="pw2State"
+            required
+          />
+        </b-form-group>
+      </form>
+    </b-modal>
   </div>
 </template>
 
@@ -208,7 +328,7 @@ import { MetaMaskSDK } from '@metamask/sdk';
 
 import firebase from 'firebase/compat/app';
 import * as firebaseui from 'firebaseui';
-import { getUser } from '@/libs/firebase';
+import { getUser, loginWithEmail } from '@/libs/firebase';
 import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
@@ -256,6 +376,7 @@ export default {
   },
   data() {
     return {
+      modalShow: false,
       dashboard: 'Check Flux network information, resources available or a map with server locations.',
       xdao: 'See the list of changes proposed to Flux network, create new ones and vote.',
       applications: 'Buy on marketplace, register your own app, manage your active apps.',
@@ -270,6 +391,18 @@ export default {
         signature: '',
         loginPhrase: '',
       },
+      emailForm: {
+        email: '',
+        password: '',
+      },
+      createSSOForm: {
+        email: '',
+        pw1: '',
+        pw2: '',
+      },
+      emailState: null,
+      pw1State: null,
+      pw2State: null,
       signClient: null,
       getNodeStatusResponse: {
         class: 'text-success',
@@ -310,18 +443,12 @@ export default {
       signInFlow: 'popup',
       signInOptions: [
         {
-          provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
-          buttonColor: '#2B61D1',
-          requireDisplayName: true,
-        },
-        {
           provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID,
           customParameters: {
             prompt: 'select_account',
           },
         },
         'apple.com',
-        // firebase.auth.GithubAuthProvider.PROVIDER_ID,
       ],
       tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
       privacyPolicyUrl: 'https://runonflux.io/privacyPolicy',
@@ -629,6 +756,17 @@ export default {
           this.showToast('danger', e.toString());
         });
     },
+    async emailLogin() {
+      try {
+        const checkUser = await loginWithEmail(this.emailForm);
+        this.handleSignInSuccessWithAuthResult(checkUser);
+      } catch (error) {
+        this.showToast('danger', 'login failed, please try again');
+      }
+    },
+    async createAccount() {
+      this.modalShow = !this.modalShow;
+    },
     async onSessionConnect(session) {
       console.log(session);
       // const msg = `0x${Buffer.from(this.loginPhrase, 'utf8').toString('hex')}`;
@@ -797,6 +935,58 @@ export default {
       } catch (error) {
         this.showToast('danger', error.message);
       }
+    },
+    checkFormValidity() {
+      const valid = this.$refs.form.checkValidity();
+      const checkValid = this.$refs.form.reportValidity();
+      console.log(checkValid);
+
+      if (this.createSSOForm.email.length > 8) this.emailState = true;
+      else {
+        this.showToast('info', 'email must be at least 8 chars');
+        return null;
+      }
+
+      if (this.createSSOForm.pw1.length >= 8) this.pw1State = true;
+      else {
+        this.showToast('info', 'password must be at least 8 chars');
+        return null;
+      }
+
+      if (this.createSSOForm.pw2.length >= 8) this.pw2State = true;
+      else {
+        this.showToast('info', 'password must be at least 8 chars');
+        return null;
+      }
+
+      if (this.createSSOForm.pw1 !== this.createSSOForm.pw2) {
+        this.showToast('info', 'passwords do not match');
+        this.pw1State = false;
+        this.pw2State = false;
+        return null;
+      }
+
+      return valid;
+    },
+    resetModal() {
+      this.createSSOForm.email = '';
+      this.createSSOForm.pw1 = '';
+      this.createSSOForm.pw2 = '';
+      this.emailState = null;
+      this.pw1State = null;
+      this.pw2State = null;
+    },
+    handleOk(bvModalEvent) {
+      bvModalEvent.preventDefault();
+      this.handleSubmit();
+    },
+    handleSubmit() {
+      if (!this.checkFormValidity()) {
+        return;
+      }
+      this.$nextTick(() => {
+        this.$bvModal.hide('modal-prevent-closing');
+      });
     },
   },
 };
