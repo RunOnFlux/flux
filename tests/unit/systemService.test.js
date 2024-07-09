@@ -6,14 +6,12 @@ const { expect } = chai;
 const config = require('config');
 
 const fs = require('node:fs/promises');
-const os = require('node:os');
 const axios = require('axios');
 
 const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 
 const systemService = require('../../ZelBack/src/services/systemService');
-const fluxdConfigs = require('./data/fluxdConfigs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 
 describe('system Services tests', () => {
@@ -772,7 +770,7 @@ describe('system Services tests', () => {
       sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'update'] });
     });
   });
-  describe('enablefluxdZmq tests', () => {
+  describe('enableFluxdZmq tests', () => {
     let statStub;
     let errorSpy;
     let infoSpy;
@@ -801,7 +799,7 @@ describe('system Services tests', () => {
     });
 
     it('should return true if zmq has already been enabled', async () => {
-      const result = await systemService.enablefluxdZmq('tcp://127.0.0.1:16126');
+      const result = await systemService.enableFluxdZmq('tcp://127.0.0.1:16126');
 
       sinon.assert.calledWithExactly(statStub, '/home/testuser/.flux/.zmqEnabled');
       expect(result).to.equal(true);
@@ -811,7 +809,7 @@ describe('system Services tests', () => {
       // for .zmqEnabled file
       statStub.resolves(false);
 
-      const result = await systemService.enablefluxdZmq({ badendpoint: true });
+      const result = await systemService.enableFluxdZmq({ badendpoint: true });
 
       expect(result).to.equal(false);
     });
@@ -819,7 +817,7 @@ describe('system Services tests', () => {
     it('should return false and log error if url string is unparseable', async () => {
       statStub.resolves(false);
 
-      const result = await systemService.enablefluxdZmq('notaurl');
+      const result = await systemService.enableFluxdZmq('notaurl');
 
       expect(result).to.equal(false);
       sinon.assert.calledWithMatch(errorSpy, 'Error parsing zmqEndpoint');
@@ -829,27 +827,44 @@ describe('system Services tests', () => {
       statStub.resolves(false);
       runCommandStub.resolves({ error: 'Test: not running' });
 
-      const result = await systemService.enablefluxdZmq('tcp://1.2.3.4:3333');
+      const result = await systemService.enableFluxdZmq('tcp://1.2.3.4:3333');
 
       expect(result).to.equal(false);
       sinon.assert.calledOnceWithExactly(errorSpy, 'Error getting blockcount via flux-cli to validate new zmq config, skipping');
     });
+
+    it('should return false if there is an error getting systemd zelcash status', async () => {
+      statStub.resolves(false);
+
+      runCommandStub.callsFake(async (cmd) => {
+        if (cmd === 'flux-cli') return { error: null };
+        return { error: 'Zelcash.service does not exist (test error)' };
+      });
+
+      const result = await systemService.enableFluxdZmq('tcp://1.2.3.4:3333');
+
+      expect(result).to.equal(false);
+      sinon.assert.calledOnceWithExactly(errorSpy, 'Unable to get Fluxd status via systemd, skipping config update');
+    });
+
     it('should write a fluxd config backupfile if flux-cli returns no error', async () => {
       statStub.resolves(false);
       runCommandStub.resolves({ error: null });
 
-      await systemService.enablefluxdZmq('tcp://1.2.3.4:3333');
+      await systemService.enableFluxdZmq('tcp://1.2.3.4:3333');
 
       sinon.assert.calledOnceWithExactly(configBackupStub, 'flux.conf.bak');
     });
+
     it('should write to the main fluxd config file if flux-cli returns no error', async () => {
       statStub.resolves(false);
       runCommandStub.resolves({ error: null });
 
-      await systemService.enablefluxdZmq('tcp://1.2.3.4:3333');
+      await systemService.enableFluxdZmq('tcp://1.2.3.4:3333');
 
       sinon.assert.calledWithExactly(configWriteStub);
     });
+
     it('should return if there is a parsing error on new config file', async () => {
       runCommandStub.callsFake(async (cmd, opts) => {
         const { params } = opts;
@@ -862,23 +877,25 @@ describe('system Services tests', () => {
 
       statStub.resolves(false);
 
-      const result = await systemService.enablefluxdZmq('tcp://1.2.3.4:3333');
+      const result = await systemService.enableFluxdZmq('tcp://1.2.3.4:3333');
 
       expect(result).to.equal(false);
       sinon.assert.calledOnceWithExactly(errorSpy, 'Parsing error on new zmq fluxd config file... skipping');
     });
+
     it('should restart the zelcash service on successful parse of new service', async () => {
       statStub.resolves(false);
 
-      const result = await systemService.enablefluxdZmq('tcp://1.2.3.4:3333');
+      const result = await systemService.enableFluxdZmq('tcp://1.2.3.4:3333');
 
       expect(result).to.equal(true);
       sinon.assert.calledOnceWithExactly(infoSpy, 'ZMQ pub/sub enabled');
       sinon.assert.calledWithExactly(runCommandStub, 'systemctl', { runAsRoot: true, params: ['restart', 'zelcash.service'] });
     });
+
     it('should revert config and reset if there is a problem starting fluxd', async () => {
-      runCommandStub.callsFake(async (cmd) => {
-        if (cmd === 'systemctl') return { error: 'broken' };
+      runCommandStub.callsFake(async (cmd, opts) => {
+        if (cmd === 'systemctl' && opts.params[0] === 'restart') return { error: 'broken' };
         return { error: null };
       });
 
@@ -886,16 +903,17 @@ describe('system Services tests', () => {
 
       statStub.resolves(false);
 
-      const result = await systemService.enablefluxdZmq('tcp://1.2.3.4:3333');
+      const result = await systemService.enableFluxdZmq('tcp://1.2.3.4:3333');
 
       expect(result).to.equal(false);
       sinon.assert.calledOnceWithExactly(renameStub, '/home/testuser/.flux/flux.conf.bak', '/home/testuser/.flux/flux.conf');
       sinon.assert.calledOnceWithExactly(errorSpy, 'Error restarting zelcash.service after config update');
     });
+
     it('should write lockfile if everything installed and restarted peroperly', async () => {
       statStub.resolves(false);
 
-      const result = await systemService.enablefluxdZmq('tcp://1.2.3.4:3333');
+      const result = await systemService.enableFluxdZmq('tcp://1.2.3.4:3333');
 
       expect(result).to.equal(true);
       sinon.assert.calledOnceWithExactly(writeStub, '/home/testuser/.flux/.zmqEnabled', '');

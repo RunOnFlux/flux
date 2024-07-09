@@ -131,7 +131,7 @@ async function startFluxFunctions() {
       const { daemon: { zmqport } } = config;
       log.info(`Ensuring zmq is enabled for fluxd on port: ${zmqport}`);
       try {
-        systemService.enablefluxdZmq(`tcp://127.0.0.1:${zmqport}`);
+        systemService.enableFluxdZmq(`tcp://127.0.0.1:${zmqport}`);
       } catch (err) {
         log.error(err);
       }

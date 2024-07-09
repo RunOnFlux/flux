@@ -626,7 +626,7 @@ async function restartSystemdService(service) {
   return Boolean(error);
 }
 
-async function enablefluxdZmq(zmqEndpoint) {
+async function enableFluxdZmq(zmqEndpoint) {
   if (typeof zmqEndpoint !== 'string') return false;
 
   const fluxConfigDir = daemonServiceUtils.getFluxdDir();
@@ -660,6 +660,18 @@ async function enablefluxdZmq(zmqEndpoint) {
 
   if (daemonError) {
     log.error('Error getting blockcount via flux-cli to validate new zmq config, skipping');
+    return false;
+  }
+
+  // this returns an error if the service
+  const { error: serviceError } = await serviceHelper.runCommand('systemctl', {
+    asRoot: true,
+    logError: false,
+    params: ['status', 'zelcash.service'],
+  });
+
+  if (serviceError) {
+    log.error('Unable to get Fluxd status via systemd, skipping config update');
     return false;
   }
 
@@ -724,7 +736,7 @@ module.exports = {
   addSyncthingRepository,
   aptRunner,
   cacheUpdateTime,
-  enablefluxdZmq,
+  enableFluxdZmq,
   ensurePackageVersion,
   getPackageVersion,
   getQueue,
