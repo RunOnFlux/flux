@@ -12,9 +12,6 @@ const dbHelper = require('./dbHelper');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 
-const dockerTagPattern = /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-_.]+\/{0,1}[a-z0-9-_.]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
-const wwwAuthHeaderPattern = /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:\-./]*?))")?(?:,scope="(?<scope>[0-9a-z:\-./]*?)")?/;
-
 let storedTier = null;
 let storedCollateral = null;
 
@@ -216,140 +213,6 @@ async function checkSynced() {
 }
 
 /**
- * Parse www-authenticate header
- * @param {string} authHeader # www-auth header
- * @returns {object} Object of parsed header - {realm, service, scope}
- */
-function parseAuthHeader(header) {
-  const match = wwwAuthHeaderPattern.exec(header);
-
-  return { ...match.groups };
-}
-
-/**
- * Split docker repotag
- * @param {string} targetDockerTag Docker repotag
- * @returns {object} Object of parsed dockertag - {provider, namespace, repository, tag}
- */
-function parseDockerTag(targetDockerTag) {
-  if (/\s/.test(targetDockerTag)) {
-    throw new Error(
-      `Repository "${targetDockerTag}" should not contain space characters.`,
-    );
-  }
-
-  const match = dockerTagPattern.exec(targetDockerTag);
-
-  if (match === null || !(match.groups.repository && match.groups.tag)) {
-    throw new Error(
-      `Repository ${targetDockerTag} is not in valid format namespace/repository:tag`,
-    );
-  }
-
-  const {
-    groups: {
-      provider, namespace, repository, tag,
-    },
-  } = match;
-
-  const parsedTag = {
-    provider: '', namespace: '', repository: '', tag: '',
-  };
-
-  parsedTag.provider = provider || 'hub.docker.com';
-
-  // Without doing a lookup against the dockerhub library, no way to know if a single string is
-  // an image or a namespace
-  if (tag === undefined) {
-    if (parsedTag.provider === 'hub.docker.com') {
-      // we can't tell, so we set namespace/repository to repository
-      parsedTag.namespace = namespace || repository;
-      parsedTag.repository = repository;
-      parsedTag.tag = tag;
-      parsedTag.ambiguous = parsedTag.namespace === parsedTag.repository;
-    } else { // registry
-      parsedTag.namespace = namespace;
-      parsedTag.repository = repository;
-      parsedTag.tag = tag;
-      // a registry is ambiguous as you can have multiple / in both namespace and repository,
-      // and we don't know how it is split
-      parsedTag.ambiguous = true;
-    }
-  } else {
-    // we have certainty that the image parts that we have are correct
-    // this would be better to lookup against dockerhub library (only 150 odd images to pull via api)
-    parsedTag.namespace = namespace || 'library';
-    parsedTag.repository = repository;
-    parsedTag.tag = tag;
-    parsedTag.ambiguous = false;
-  }
-  // ToDo: update regex so we don't have to strip last namespace /
-  if (parsedTag.namespace.slice(-1) === '/') {
-    parsedTag.namespace = parsedTag.namespace.slice(0, -1);
-  }
-  return parsedTag;
-}
-
-/**
- * To check if an app's Git repository is whitelisted and able to be run on FluxOS.
- * docker hub is namespace/repository:tag
- * github is ghcr.io/namespace/repository:tag
- * google is gcr.io/namespace/repository:tag
- * @param {string} repotag GitHub repository tag.
- * @returns {boolean} True or an error is thrown.
- */
-async function checkWhitelistedRepository(targetDockerTag) {
-  if (typeof targetDockerTag !== 'string') {
-    throw new Error('Invalid repotag');
-  }
-
-  const parsedTag = parseDockerTag(targetDockerTag);
-  console.log(parsedTag);
-
-  // Cache?
-  const res = await serviceHelper.axiosGet(
-    'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json',
-  );
-
-  if (!res || !res.data) {
-    throw new Error(
-      'Unable to communicate with Flux Services! Try again later.',
-    );
-  }
-
-  // this does not work few scenarios - e.g. if we have namespace whitelisted but this is namespaceb
-  const filteredImageTags = res.data.filter((imageTag) => targetDockerTag.slice(0, imageTag.length) === imageTag);
-
-  if (filteredImageTags.length) {
-    // the check above has scenarios not covered. Enforce additional check that namespace is truly matching
-    if (res.data.includes(`${parsedTag.provider}/${parsedTag.namespace}/${parsedTag.repository}:${parsedTag.tag}`)
-      || res.data.includes(`${parsedTag.provider}/${parsedTag.namespace}/${parsedTag.repository}`)
-      || res.data.includes(`${parsedTag.provider}/${parsedTag.namespace}`)
-    ) {
-      return true;
-    }
-    if (parsedTag.provider === 'hub.docker.com') {
-      if (res.data.includes(`${parsedTag.namespace}/${parsedTag.repository}:${parsedTag.tag}`)
-        || res.data.includes(`${parsedTag.namespace}/${parsedTag.repository}`)
-        || res.data.includes(parsedTag.namespace)
-      ) {
-        return true;
-      }
-    }
-    if (parsedTag.namespace === 'library') {
-      if (res.data.includes(`${parsedTag.repository}:${parsedTag.tag}`)
-        || res.data.includes(parsedTag.repository)
-        || res.data.includes(`${parsedTag.provider}/${parsedTag.repository}:${parsedTag.tag}`)
-        || res.data.includes(`${parsedTag.provider}/${parsedTag.repository}`)
-      ) {
-        return true;
-      }
-    }
-  }
-  throw new Error('Repository is not whitelisted. Please contact Flux Team.');
-}
-
-/**
  * To create a JSON response showing a list of whitelisted Github repositories.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -414,12 +277,9 @@ module.exports = {
   getNewNodeTier,
   isNodeStatusConfirmed,
   checkSynced,
-  checkWhitelistedRepository,
   whitelistedRepositories,
   messageHash,
   nodeCollateral,
-  parseDockerTag,
-  parseAuthHeader,
   obtainNodeCollateralInformation,
 
   // exported for testing purposes

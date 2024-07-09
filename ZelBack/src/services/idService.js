@@ -304,7 +304,7 @@ async function verifyLogin(req, res) {
               expireAt,
             };
             let privilage = 'user';
-            if (address === config.fluxTeamFluxID) {
+            if (address === config.fluxTeamFluxID || address === config.fluxSupportTeamFluxID) {
               privilage = 'fluxteam';
             } else if (address === userconfig.initial.zelid) {
               privilage = 'admin';
@@ -656,8 +656,7 @@ async function logoutAllUsers(req, res) {
  * @param {object} ws Web socket.
  * @param {object} req Request.
  */
-async function wsRespondLoginPhrase(ws, req) {
-  const { loginphrase } = req.params;
+async function wsRespondLoginPhrase(ws, loginphrase) {
   // console.log(loginphrase)
   // respond with object containing address and signature to received message
   let connclosed = false;
@@ -689,7 +688,7 @@ async function wsRespondLoginPhrase(ws, req) {
       if (result) {
         // user is logged, all ok
         let privilage = 'user';
-        if (result.zelid === config.fluxTeamFluxID) {
+        if (result.zelid === config.fluxTeamFluxID || result.zelid === config.fluxSupportTeamFluxID) {
           privilage = 'fluxteam';
         } else if (result.zelid === userconfig.initial.zelid) {
           privilage = 'admin';
@@ -751,8 +750,7 @@ async function wsRespondLoginPhrase(ws, req) {
  * @param {object} ws Web socket.
  * @param {object} req Request.
  */
-async function wsRespondSignature(ws, req) {
-  const { message } = req.params;
+async function wsRespondSignature(ws, message) {
   console.log(message);
 
   let connclosed = false;

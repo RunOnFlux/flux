@@ -453,39 +453,24 @@ async function closeConnection(ip, port) {
  * @param {object} clientToClose Web socket for client to close.
  * @returns {object} Message.
  */
-async function closeIncomingConnection(ip, port, expressWS, clientToClose) {
+async function closeIncomingConnection(ip, port) {
   if (!ip) return messageHelper.createWarningMessage('To close a connection please provide a proper IP number.');
-  let wsObj = clientToClose;
-  if (expressWS && !wsObj) {
-    const clientsSet = expressWS.clients || [];
-    clientsSet.forEach((client) => {
-      if (client.ip === ip && client.port === port) {
-        wsObj = client;
-      }
-    });
-  }
-  if (!wsObj) {
-    const clientsSet = incomingConnections;
-    clientsSet.forEach((client) => {
-      if (client.ip === ip && client.port === port) {
-        wsObj = client;
-      }
-    });
-  }
-  if (!wsObj) {
+
+  const conIndex = incomingConnections.findIndex((peer) => peer.ip === ip && peer.port === port);
+
+  if (conIndex === -1) {
     return messageHelper.createWarningMessage(`Connection from ${ip}:${port} does not exists.`);
   }
-  const ocIndex = incomingConnections.findIndex((peer) => peer.ip === ip && peer.port === port);
-  if (ocIndex === -1) {
-    return messageHelper.createErrorMessage(`Unable to close incoming connection ${ip}:${port}. Try again later.`);
-  }
+
   const peerIndex = incomingPeers.findIndex((peer) => peer.ip === ip && peer.port === port);
-  if (peerIndex > -1) {
-    incomingPeers.splice(peerIndex, 1);
-  }
+
+  if (peerIndex > -1) incomingPeers.splice(peerIndex, 1);
+
+  const wsObj = incomingConnections[conIndex];
+  incomingConnections.splice(conIndex, 1);
   wsObj.close(4010, 'purpusfully closed');
   log.info(`Connection from ${ip}:${port} closed with code 4010`);
-  incomingConnections.splice(ocIndex, 1);
+
   return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }
 
@@ -513,14 +498,11 @@ function checkRateLimit(ip, fillPerSecond = 10, maxBurst = 15) {
  * To get IP addresses for incoming connections.
  * @param {object} req Request.
  * @param {object} res Response.
- * @param {object} expressWS Express web socket.
  */
-function getIncomingConnections(req, res, expressWS) {
-  const clientsSet = expressWS.clients;
-  const connections = [];
-  clientsSet.forEach((client) => {
-    connections.push(client.ip);
-  });
+function getIncomingConnections(req, res) {
+  const peers = incomingPeers;
+  const connections = peers.map((p) => p.ip);
+
   const message = messageHelper.createDataMessage(connections);
   response = message;
   res.json(response);
@@ -870,12 +852,6 @@ async function adjustExternalIP(ip) {
           await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);
         }
       }
-      const benchmarkResponse = await benchmarkService.getBenchmarks();
-      if (benchmarkResponse.status === 'error') {
-        await serviceHelper.delay(15 * 60 * 1000);
-      } else if (benchmarkResponse.status === 'running') {
-        await serviceHelper.delay(8 * 60 * 1000);
-      }
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
     }
@@ -909,6 +885,7 @@ async function checkDeterministicNodesCollisions() {
       if (nodeStatus.status === 'success') { // different scenario is caught elsewhere
         const myCollateral = nodeStatus.data.collateral;
         const myNode = result.find((node) => node.collateral === myCollateral);
+        const nodeCollateralDifferentIp = nodeList.find((node) => node.collateral === myCollateral && node.ip !== myIP);
         if (result.length > 1) {
           log.warn('Multiple Flux Node instances detected');
           if (myNode) {
@@ -936,6 +913,22 @@ async function checkDeterministicNodesCollisions() {
             }, 60 * 1000);
             return;
           }
+        } else if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp) {
+          let errorCall = false;
+          const askingIP = nodeCollateralDifferentIp.ip.split(':')[0];
+          const askingIpPort = nodeCollateralDifferentIp.ip.split(':')[1] || '16127';
+          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(errorCall = true);
+          if (!errorCall) {
+            log.error('Flux collision detection. Another ip:port is confirmed and reachable on flux network with the same collateral transaction information.');
+            dosState = 100;
+            setDosMessage('Flux collision detection. Another ip:port is confirmed and reachable on flux network with the same collateral transaction information.');
+            setTimeout(() => {
+              checkDeterministicNodesCollisions();
+            }, 60 * 1000);
+            return;
+          }
+          const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
+          log.info(`createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
         }
       }
       // early stages of the network or testnet

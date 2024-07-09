@@ -18,11 +18,11 @@ const { watch } = require('node:fs/promises');
 const axios = require('axios').default;
 const config = require('config');
 const hash = require('object-hash');
-const eWS = require('express-ws');
 
-const app = require('./ZelBack/src/lib/server');
+const fluxServer = require('./ZelBack/src/lib/fluxServer');
+
 const log = require('./ZelBack/src/lib/log');
-const { SocketIoServer } = require('./ZelBack/src/lib/socketIoServer');
+
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
@@ -135,9 +135,14 @@ function setAxiosDefaults(socketIoServers) {
 
   axios.interceptors.request.use(
     (conf) => {
-      const { url, method, timeout } = conf;
+      const {
+        baseURL, url, method, timeout,
+      } = conf;
+
+      const fullUrl = baseURL ? `${baseURL}${url}` : url;
+
       const requestData = {
-        url, verb: method.toUpperCase(), timeout, timestamp: Date.now(),
+        url: fullUrl, verb: method.toUpperCase(), timeout, timestamp: Date.now(),
       };
       requestHistory.storeRequest(requestData);
 
@@ -198,26 +203,6 @@ async function configReload() {
 }
 
 /**
- * Awaitable HTTP(S) server
- *
- * @param {Application} target The App to listen on
- * @param {number} port Listening port
- * @returns {Promise<Server>}
- */
-function startServer(target, port) {
-  return new Promise((resolve, reject) => {
-    const server = target.listen(port);
-    server.once('error', (err) => {
-      server.listeners('listening').forEach((l) => server.removeListener('listening', l));
-      reject(err);
-    }).once('listening', () => {
-      server.listeners('error').forEach((l) => server.removeListener('error', l));
-      resolve(server);
-    });
-  });
-}
-
-/**
  * Main entrypoint
  *
  * @returns {Promise<String>}
@@ -264,40 +249,18 @@ async function initiate() {
   const key = fs.readFileSync(path.join(appRoot, 'certs/v1.key'), 'utf8');
   const cert = fs.readFileSync(path.join(appRoot, 'certs/v1.crt'), 'utf8');
 
-  const credentials = { key, cert };
-
-  const appHttps = https.createServer(credentials, app);
-
-  const options = {
-    wsOptions: {
-      maxPayload: 1_048_576 * 16, // 16MiB
-    },
-  };
-
-  eWS(app, appHttps, options);
-
-  const serverHttp = await startServer(app, apiPort).catch((err) => {
-    log.error(err);
-    process.exit();
+  const httpServer = new fluxServer.FluxServer();
+  const httpsServer = new fluxServer.FluxServer({
+    mode: 'https', key, cert, expressApp: httpServer.app,
   });
 
+  await httpServer.listen(apiPort);
   log.info(`Flux listening on port ${apiPort}!`);
 
-  const serverHttps = await startServer(appHttps, apiPortHttps).catch((err) => {
-    log.error(err);
-    process.exit();
-  });
-
+  await httpsServer.listen(apiPortHttps);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
 
-  const errorHandler = log.error;
-  const socketIoHttp = new SocketIoServer(serverHttp, { errorHandler });
-  const socketIoHttps = new SocketIoServer(serverHttps, { errorHandler });
-
-  socketIoHttp.listen();
-  socketIoHttps.listen();
-
-  setAxiosDefaults([socketIoHttp, socketIoHttps]);
+  setAxiosDefaults([httpServer.socketIo, httpsServer.socketIo]);
 
   serviceManager.startFluxFunctions();
 

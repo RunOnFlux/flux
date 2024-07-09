@@ -5151,6 +5151,34 @@
               </b-card>
             </b-col>
           </b-row>
+          <div
+            v-if="updateHash && updateSpecifications"
+            class="match-height"
+          >
+            <b-row>
+              <b-card title="Test Application Installation">
+                <b-card-text>
+                  <div>
+                    It's now time to test your application install/launch. If you have update app specifications other than hardware specs it's very important to test the app install/launch to make sure your new application specifications work.
+                    You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before pay for the app update.
+                  </div>
+                  <span v-if="testError" style="color: red">
+                    <br>
+                    <b>WARNING: Test failed! Check logs at the bottom. If the error is related with your application specifications try to fix it before you pay your update subscription.</b>
+                  </span>
+                </b-card-text>
+                <b-button
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="success"
+                  aria-label="Test Launch"
+                  class="my-1"
+                  @click="testAppInstall(updateHash)"
+                >
+                  Test Installation
+                </b-button>
+              </b-card>
+            </b-row>
+          </div>
           <b-row
             v-if="updateHash && !freeUpdate"
             class="match-height"
@@ -5859,7 +5887,6 @@ export default {
   },
   data() {
     return {
-      selectedFluxVersion: '5.13.0',
       progressVisable: false,
       operationTitle: '',
       appInfoObject: [],
@@ -6083,6 +6110,7 @@ export default {
       timestamp: '',
       signature: '',
       updateHash: '',
+      testError: false,
       websocket: null,
       selectedAppOwner: '',
       appSpecification: {},
@@ -6634,11 +6662,6 @@ export default {
         }
       }
     },
-    selectedIp: {
-      handler() {
-        this.getFluxVersion();
-      },
-    },
     appUpdateSpecification: {
       handler() {
         this.dataToSign = '';
@@ -6646,6 +6669,8 @@ export default {
         this.timestamp = null;
         this.dataForAppUpdate = {};
         this.updateHash = '';
+        this.testError = false;
+        this.output = [];
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -6660,6 +6685,8 @@ export default {
         this.timestamp = null;
         this.dataForAppUpdate = {};
         this.updateHash = '';
+        this.testError = false;
+        this.output = [];
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -6685,6 +6712,8 @@ export default {
       this.timestamp = null;
       this.dataForAppUpdate = {};
       this.updateHash = '';
+      this.testError = false;
+      this.output = [];
       if (this.websocket !== null) {
         this.websocket.close();
         this.websocket = null;
@@ -8089,13 +8118,9 @@ export default {
       const urlPort = this.selectedIp.split(':')[1] || 16127;
       const zelidauth = localStorage.getItem('zelidauth');
 
-      const [major, minor] = this.selectedFluxVersion.split('.');
-
-      const namespace = major >= 5 && minor >= 13 ? 'terminal' : '';
-
-      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/${namespace}`;
+      let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io/terminal`;
       if (this.ipAccess) {
-        queryUrl = `http://${url}:${urlPort}/${namespace}`;
+        queryUrl = `http://${url}:${urlPort}/terminal`;
       }
       this.socket = io.connect(queryUrl);
 
@@ -8549,6 +8574,72 @@ export default {
         }
       }
     },
+    async testAppInstall(app) {
+      if (this.downloading) {
+        this.showToast('danger', 'Test install/launch was already initiated');
+        return;
+      }
+      const self = this;
+      this.output = [];
+      this.downloadOutput = {};
+      this.downloadOutputReturned = false;
+      this.downloading = true;
+      this.testError = false;
+      this.showToast('warning', `Testing ${app} installation, please wait`);
+      const zelidauth = localStorage.getItem('zelidauth');
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+        onDownloadProgress(progressEvent) {
+          console.log(progressEvent.target.response);
+          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+        },
+      };
+      let response;
+      try {
+        if (this.appUpdateSpecification.nodes.length > 0) {
+          const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appUpdateSpecification.nodes.length)];
+          const ip = nodeip.split(':')[0];
+          const port = Number(nodeip.split(':')[1] || 16127);
+          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testappinstall/${app}`;
+          response = await axios.get(url, axiosConfig);
+        } else {
+          response = await AppsService.justAPI().get(`/apps/testappinstall/${app}`, axiosConfig);
+        }
+        if (response.data.status === 'error') {
+          this.testError = true;
+          this.showToast('danger', response.data.data.message || response.data.data);
+        } else {
+          console.log(response);
+          this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+          console.log(this.output);
+          for (let i = 0; i < this.output.length; i += 1) {
+            if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
+              // error is defined one line above
+              if (this.output[i - 1] && this.output[i - 1].data) {
+                this.testError = true;
+                this.showToast('danger', 'Error on Test, check logs');
+                return;
+              }
+            }
+          }
+          if (this.output[this.output.length - 1].status === 'error') {
+            this.showToast('danger', 'Error on Test, check logs');
+            this.testError = true;
+          } else if (this.output[this.output.length - 1].status === 'warning') {
+            this.showToast('warning', 'Warning on Test, check logs');
+            this.testError = true;
+          } else {
+            this.testError = false;
+            this.showToast('success', 'Test passed, you can continue with app payment');
+          }
+        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
+      }
+      this.downloading = false;
+    },
 
     async update() {
       const zelidauth = localStorage.getItem('zelidauth');
@@ -8662,6 +8753,7 @@ export default {
             component.domains = component.domains.replace('\\“', '\\"');
             if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
+              component.secrets = component.secrets.replace('\\“', '\\"');
               // eslint-disable-next-line no-await-in-loop
               const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
               if (!encryptedMessage) {
@@ -10574,14 +10666,6 @@ export default {
         this.applicationManagementAndStatus = niceString;
       }
     },
-    async getFluxVersion() {
-      const res = await this.executeLocalCommand('/flux/version');
-      if (res?.data?.status === 'success') {
-        this.selectedFluxVersion = res.data.data;
-      } else {
-        this.selectedFluxVersion = '5.13.0';
-      }
-    },
     selectedIpChanged() {
       this.getApplicationManagementAndStatus();
       this.getInstalledApplicationSpecifics();
@@ -10591,6 +10675,7 @@ export default {
       this.timestamp = '';
       this.signature = '';
       this.updateHash = '';
+      this.output = [];
     },
   },
 };
