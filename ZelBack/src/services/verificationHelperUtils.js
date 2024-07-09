@@ -95,7 +95,7 @@ async function verifyFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamFluxID) return false;
+  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== config.fluxSupportTeamFluxID) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -129,7 +129,7 @@ async function verifyAdminAndFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
+  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid && auth.zelid !== config.fluxSupportTeamFluxID) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -205,7 +205,7 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
   const ownerFluxID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid) return false;
+  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid && auth.zelid !== config.fluxSupportTeamFluxID) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);

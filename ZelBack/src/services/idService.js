@@ -304,7 +304,7 @@ async function verifyLogin(req, res) {
               expireAt,
             };
             let privilage = 'user';
-            if (address === config.fluxTeamFluxID) {
+            if (address === config.fluxTeamFluxID || address === config.fluxSupportTeamFluxID) {
               privilage = 'fluxteam';
             } else if (address === userconfig.initial.zelid) {
               privilage = 'admin';
@@ -688,7 +688,7 @@ async function wsRespondLoginPhrase(ws, loginphrase) {
       if (result) {
         // user is logged, all ok
         let privilage = 'user';
-        if (result.zelid === config.fluxTeamFluxID) {
+        if (result.zelid === config.fluxTeamFluxID || result.zelid === config.fluxSupportTeamFluxID) {
           privilage = 'fluxteam';
         } else if (result.zelid === userconfig.initial.zelid) {
           privilage = 'admin';

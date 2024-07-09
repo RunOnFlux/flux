@@ -80,6 +80,7 @@ module.exports = {
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+  fluxSupportTeamFluxID: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
   deterministicNodesStart: 558000,
   fluxapps: {
     // in flux main chain per month (blocksLasting)
