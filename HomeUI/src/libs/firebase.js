@@ -23,6 +23,16 @@ export function getUser() {
   }
 }
 
+export async function createEmailSSO(login) {
+  try {
+    const { email, password } = login;
+    return await auth.createUserWithEmailAndPassword(email, password);
+  } catch (error) {
+    console.log(error);
+    return null;
+  }
+}
+
 export async function loginWithEmail(login) {
   const { email, password } = login;
   try {
