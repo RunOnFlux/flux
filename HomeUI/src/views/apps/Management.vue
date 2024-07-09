@@ -5158,8 +5158,14 @@
             <b-row>
               <b-card title="Test Application Installation">
                 <b-card-text>
-                  It's now time to test your application install/launch. If you have update app specifications other than hardware specs it's very important to test the app install/launch to make sure your new application specifications work.
-                  You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before pay for the app update.
+                  <div>
+                    It's now time to test your application install/launch. If you have update app specifications other than hardware specs it's very important to test the app install/launch to make sure your new application specifications work.
+                    You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before pay for the app update.
+                  </div>
+                  <span v-if="testError" style="color: red">
+                    <br>
+                    <b>WARNING: Test failed! Check logs at the bottom. If the error is related with your app specifications try to fix it before you pay your application update.</b>
+                  </span>
                 </b-card-text>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -6104,6 +6110,7 @@ export default {
       timestamp: '',
       signature: '',
       updateHash: '',
+      testError: false,
       websocket: null,
       selectedAppOwner: '',
       appSpecification: {},
@@ -6662,6 +6669,7 @@ export default {
         this.timestamp = null;
         this.dataForAppUpdate = {};
         this.updateHash = '';
+        this.testError = false;
         this.output = [];
         if (this.websocket !== null) {
           this.websocket.close();
@@ -6677,6 +6685,7 @@ export default {
         this.timestamp = null;
         this.dataForAppUpdate = {};
         this.updateHash = '';
+        this.testError = false;
         this.output = [];
         if (this.websocket !== null) {
           this.websocket.close();
@@ -6703,6 +6712,7 @@ export default {
       this.timestamp = null;
       this.dataForAppUpdate = {};
       this.updateHash = '';
+      this.testError = false;
       this.output = [];
       if (this.websocket !== null) {
         this.websocket.close();
@@ -8574,6 +8584,7 @@ export default {
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.downloading = true;
+      this.testError = false;
       this.showToast('warning', `Testing ${app} installation, please wait`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
@@ -8597,6 +8608,7 @@ export default {
           response = await AppsService.justAPI().get(`/apps/testappinstall/${app}`, axiosConfig);
         }
         if (response.data.status === 'error') {
+          this.testError = true;
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
           console.log(response);
@@ -8606,6 +8618,7 @@ export default {
             if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
               // error is defined one line above
               if (this.output[i - 1] && this.output[i - 1].data) {
+                this.testError = true;
                 this.showToast('danger', 'Error on Test, check logs');
                 return;
               }
@@ -8613,9 +8626,12 @@ export default {
           }
           if (this.output[this.output.length - 1].status === 'error') {
             this.showToast('danger', 'Error on Test, check logs');
+            this.testError = true;
           } else if (this.output[this.output.length - 1].status === 'warning') {
             this.showToast('warning', 'Warning on Test, check logs');
+            this.testError = true;
           } else {
+            this.testError = false;
             this.showToast('success', 'Test passed, you can continue with app payment');
           }
         }

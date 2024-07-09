@@ -1697,8 +1697,14 @@
         <b-row>
           <b-card title="Test Application Installation">
             <b-card-text>
-              It's now time to test your application install/launch. It's very important to test the app install/launch to make sure your application specifications work.
-              You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before you can pay the app subscription.
+              <div>
+                It's now time to test your application install/launch. It's very important to test the app install/launch to make sure your application specifications work.
+                You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before you can pay the app subscription.
+              </div>
+              <span v-if="testError" style="color: red">
+                <br>
+                <b>WARNING: Test failed! Check logs at the bottom. If the error is related with your app specifications try to fix it before you pay your application subscription.</b>
+              </span>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1713,7 +1719,7 @@
         </b-row>
       </div>
       <b-row
-        v-if="testPassed"
+        v-if="testFinished"
         class="match-height"
       >
         <b-col
@@ -1784,7 +1790,7 @@
         </b-col>
       </b-row>
       <b-row
-        v-if="testPassed && !applicationPriceFluxError"
+        v-if="testFinished && !applicationPriceFluxError"
         class="match-height"
       >
         <b-col
@@ -2526,7 +2532,8 @@ export default {
       ipAccess: false,
       stripeEnabled: true,
       paypalEnabled: true,
-      testPassed: false,
+      testError: false,
+      testFinished: false,
     };
   },
   computed: {
@@ -2616,7 +2623,8 @@ export default {
         this.dataForAppRegistration = {};
         this.registrationHash = '';
         this.output = [];
-        this.testPassed = false;
+        this.testError = false;
+        this.testFinished = false;
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -2631,7 +2639,8 @@ export default {
         this.dataForAppRegistration = {};
         this.registrationHash = '';
         this.output = [];
-        this.testPassed = false;
+        this.testError = false;
+        this.testFinished = false;
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -3396,6 +3405,8 @@ export default {
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.downloading = true;
+      this.testError = false;
+      this.testFinished = false;
       this.showToast('warning', `Testing ${app} installation, please wait`);
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
@@ -3420,6 +3431,7 @@ export default {
         }
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
+          this.testError = true;
         } else {
           console.log(response);
           this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
@@ -3429,22 +3441,26 @@ export default {
               // error is defined one line above
               if (this.output[i - 1] && this.output[i - 1].data) {
                 this.showToast('danger', 'Error on Test, check logs');
+                this.testError = true;
                 return;
               }
             }
           }
           if (this.output[this.output.length - 1].status === 'error') {
+            this.testError = true;
             this.showToast('danger', 'Error on Test, check logs');
           } else if (this.output[this.output.length - 1].status === 'warning') {
+            this.testError = true;
             this.showToast('warning', 'Warning on Test, check logs');
           } else {
             this.showToast('success', 'Test passed, you can continue with app payment');
-            this.testPassed = true;
+            this.testError = false;
           }
         }
       } catch (error) {
         this.showToast('danger', error.message || error);
       }
+      this.testFinished = true;
       this.downloading = false;
     },
     async uploadEnvToFluxStorage(componentIndex) {
