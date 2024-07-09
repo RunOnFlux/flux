@@ -1703,7 +1703,7 @@
               </div>
               <span v-if="testError" style="color: red">
                 <br>
-                <b>WARNING: Test failed! Check logs at the bottom. If the error is related with your app specifications try to fix it before you pay your application subscription.</b>
+                <b>WARNING: Test failed! Check logs at the bottom. If the error is related with your application specifications try to fix it before you pay your registration subscription.</b>
               </span>
             </b-card-text>
             <b-button
