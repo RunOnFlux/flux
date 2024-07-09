@@ -28,41 +28,94 @@
       <b-card-title>Automated Login</b-card-title>
       <dl class="row">
         <dd class="col-sm-6">
-          <b-card-text class="text-center loginText">
-            Flux Single Sign On (SSO) Login
-          </b-card-text>
-          <div class="ssoLogin">
-            <div id="ssoLoading">
-              <b-spinner variant="primary" />
-              <div>
-                Loading Sign In Options
-              </div>
-            </div>
-            <div
-              id="ssoLoggedIn"
-              style="display: none"
-            >
-              <b-spinner variant="primary" />
-              <div>
-                Finishing Login Process
-              </div>
-            </div>
-            <div id="ssoVerify" style="display: none">
-              <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
-                Cancel Verification
-              </b-button>
-              <div>
-                <b-spinner variant="primary" />
-                <div>
-                  Finishing Verification Process
+          <b-tabs content-class="mt-0">
+            <b-tab title="Email/Password" active>
+              <dl class="row">
+                <dd class="col-sm-12 mt-1">
+                  <b-form
+                    class="mx-5"
+                    @submit.prevent
+                  >
+                    <b-row>
+                      <b-col cols="12">
+                        <b-form-group
+                          label="Email"
+                          label-for="h-email"
+                          label-cols-md="4"
+                        >
+                          <b-form-input
+                            id="h-email"
+                            v-model="emailForm.email"
+                            placeholder="Email..."
+                          />
+                        </b-form-group>
+                      </b-col>
+                      <b-col cols="12">
+                        <b-form-group
+                          label="Password"
+                          label-for="h-password"
+                          label-cols-md="4"
+                        >
+                          <b-form-input
+                            type="password"
+                            id="h-password"
+                            v-model="emailForm.password"
+                            placeholder="Password..."
+                          />
+                        </b-form-group>
+                      </b-col>
+                      <b-col cols="12">
+                        <b-form-group label-cols-md="4">
+                          <b-button
+                            type="submit"
+                            variant="primary"
+                            class="w-100"
+                            @click="emailLogin"
+                          >
+                            Login
+                          </b-button>
+                        </b-form-group>
+                      </b-col>
+                    </b-row>
+                  </b-form>
+                </dd>
+              </dl>
+            </b-tab>
+            <b-tab title="3rd Party Login">
+              <div class="ssoLogin">
+                <div id="ssoLoading">
+                  <b-spinner variant="primary" />
+                  <div>
+                    Loading Sign In Options
+                  </div>
                 </div>
-                <div>
-                  <i>Please check email for verification link.</i>
+                <div
+                  id="ssoLoggedIn"
+                  style="display: none"
+                >
+                  <b-spinner variant="primary" />
+                  <div>
+                    Finishing Login Process
+                  </div>
                 </div>
+                <div id="ssoVerify" style="display: none">
+                  <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
+                    Cancel Verification
+                  </b-button>
+                  <div>
+                    <b-spinner variant="primary" />
+                    <div>
+                      Finishing Verification Process
+                    </div>
+                    <div>
+                      <i>Please check email for verification link.</i>
+                    </div>
+                  </div>
+                </div>
+                <div id="firebaseui-auth-container" />
               </div>
-            </div>
-            <div id="firebaseui-auth-container" />
-          </div>
+            </b-tab>
+          </b-tabs>
         </dd>
         <dd class="col-sm-6">
           <b-card-text class="text-center loginText">
@@ -208,7 +261,7 @@ import { MetaMaskSDK } from '@metamask/sdk';
 
 import firebase from 'firebase/compat/app';
 import * as firebaseui from 'firebaseui';
-import { getUser } from '@/libs/firebase';
+import { getUser, loginWithEmail } from '@/libs/firebase';
 import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
@@ -270,6 +323,10 @@ export default {
         signature: '',
         loginPhrase: '',
       },
+      emailForm: {
+        email: '',
+        password: '',
+      },
       signClient: null,
       getNodeStatusResponse: {
         class: 'text-success',
@@ -310,18 +367,12 @@ export default {
       signInFlow: 'popup',
       signInOptions: [
         {
-          provider: firebase.auth.EmailAuthProvider.PROVIDER_ID,
-          buttonColor: '#2B61D1',
-          requireDisplayName: true,
-        },
-        {
           provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID,
           customParameters: {
             prompt: 'select_account',
           },
         },
         'apple.com',
-        // firebase.auth.GithubAuthProvider.PROVIDER_ID,
       ],
       tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
       privacyPolicyUrl: 'https://runonflux.io/privacyPolicy',
@@ -628,6 +679,15 @@ export default {
           console.log(e);
           this.showToast('danger', e.toString());
         });
+    },
+    async emailLogin() {
+      try {
+        const checkUser = await loginWithEmail(this.emailForm);
+        this.handleSignInSuccessWithAuthResult(checkUser);
+      } catch (error) {
+        this.showToast('info', 'login failed, please try again');
+        console.log(error);
+      }
     },
     async onSessionConnect(session) {
       console.log(session);

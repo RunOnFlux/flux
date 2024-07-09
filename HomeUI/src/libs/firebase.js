@@ -23,4 +23,13 @@ export function getUser() {
   }
 }
 
+export async function loginWithEmail(login) {
+  const { email, password } = login;
+  try {
+    return await auth.signInWithEmailAndPassword(email, password);
+  } catch (error) {
+    return null;
+  }
+}
+
 export default firebaseApp;
