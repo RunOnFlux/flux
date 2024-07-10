@@ -663,7 +663,7 @@ async function enableFluxdZmq(zmqEndpoint) {
     return false;
   }
 
-  // this returns an error if the service
+  // this returns an error if the service doesn't exit or isn't running
   const { error: serviceError } = await serviceHelper.runCommand('systemctl', {
     asRoot: true,
     logError: false,
