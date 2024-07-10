@@ -118,6 +118,26 @@ export default {
   methods: {
     click: (e) => console.log('clusterclick', e),
     ready: (e) => console.log('ready', e),
+    /**
+     * @param {string} endpoint The ip[:port] of the node
+     * @param {{urlType?: "home"|"api"}} options The optional parameters
+     * @returns {string} The full https node url
+     */
+    nodeHttpsUrlFromEndpoint(endpoint, options = {}) {
+      const scheme = 'https://';
+      const domain = 'node.api.runonflux.io';
+      const portMap = { api: 0, home: -1 };
+
+      const urlType = options.urlType || 'api';
+      const [ip, apiPort] = endpoint.includes(':') ? endpoint.split(':') : [endpoint, '16127'];
+
+      const ipAsName = ip.replace(/\./g, '-');
+      const port = +apiPort + portMap[urlType];
+
+      const url = `${scheme}${ipAsName}-${port}.${domain}`;
+
+      return url;
+    },
     buildGeoJson(nodes) {
       const { features } = this.geoJson[0];
 
@@ -168,8 +188,9 @@ export default {
         : this.filterNodes.map((nodeIp) => {
           const found = nodes.find((n) => n.ip === nodeIp);
           if (!found) {
-            const endpoint = nodeIp.includes(':') ? nodeIp : `${nodeIp}:16127`;
-            missingTargets.push(`http://${endpoint}/flux/info`);
+            const url = this.nodeHttpsUrlFromEndpoint(nodeIp);
+            console.log('me url', url);
+            missingTargets.push(`${url}/flux/info`);
           }
           return found;
         }).filter((node) => node);
