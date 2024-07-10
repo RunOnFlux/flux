@@ -29,7 +29,7 @@
       <dl class="row">
         <dd class="col-sm-6">
           <b-tabs content-class="mt-0">
-            <b-tab title="3rd Party Login">
+            <b-tab title="3rd Party Login" active>
               <div class="ssoLogin">
                 <div id="ssoLoading">
                   <b-spinner variant="primary" />
@@ -63,7 +63,7 @@
                 <div id="firebaseui-auth-container" />
               </div>
             </b-tab>
-            <b-tab title="Email/Password" active>
+            <b-tab title="Email/Password">
               <dl class="row">
                 <dd class="col-sm-12 mt-1">
                   <b-form
