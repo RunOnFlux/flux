@@ -188,7 +188,6 @@ export default {
           const found = nodes.find((n) => n.ip === nodeIp);
           if (!found) {
             const url = this.nodeHttpsUrlFromEndpoint(nodeIp);
-            console.log('me url', url);
             missingTargets.push(`${url}/flux/info`);
           }
           return found;
