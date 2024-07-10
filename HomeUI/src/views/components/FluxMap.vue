@@ -84,7 +84,6 @@ export default {
         url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
         zoom: 2,
         center: latLng(20, 0),
-        markers: [],
         clusterOptions: { chunkedLoading: true },
       },
       geoJsonOptions: {
