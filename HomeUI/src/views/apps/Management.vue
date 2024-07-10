@@ -8599,7 +8599,7 @@ export default {
       let response;
       try {
         if (this.appUpdateSpecification.nodes.length > 0) {
-          const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appUpdateSpecification.nodes.length)];
+          const nodeip = this.appUpdateSpecification.nodes[Math.floor(Math.random() * this.appUpdateSpecification.nodes.length)];
           const ip = nodeip.split(':')[0];
           const port = Number(nodeip.split(':')[1] || 16127);
           const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testappinstall/${app}`;
