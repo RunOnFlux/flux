@@ -28,7 +28,6 @@ export async function createEmailSSO(login) {
     const { email, password } = login;
     return await auth.createUserWithEmailAndPassword(email, password);
   } catch (error) {
-    console.log(error);
     return null;
   }
 }

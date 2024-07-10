@@ -29,72 +29,6 @@
       <dl class="row">
         <dd class="col-sm-6">
           <b-tabs content-class="mt-0">
-            <b-tab title="Email/Password" active>
-              <dl class="row">
-                <dd class="col-sm-12 mt-1">
-                  <b-form
-                    class="mx-5"
-                    @submit.prevent
-                  >
-                    <b-row>
-                      <b-col cols="12">
-                        <b-form-group
-                          label="Email"
-                          label-for="h-email"
-                          label-cols-md="4"
-                        >
-                          <b-form-input
-                            id="h-email"
-                            v-model="emailForm.email"
-                            type="email"
-                            placeholder="Email..."
-                          />
-                        </b-form-group>
-                      </b-col>
-                      <b-col cols="12">
-                        <b-form-group
-                          label="Password"
-                          label-for="h-password"
-                          label-cols-md="4"
-                        >
-                          <b-form-input
-                            id="h-password"
-                            v-model="emailForm.password"
-                            type="password"
-                            placeholder="Password..."
-                          />
-                        </b-form-group>
-                      </b-col>
-                      <b-col cols="12">
-                        <b-form-group label-cols-md="4">
-                          <b-button
-                            type="submit"
-                            variant="primary"
-                            class="w-100"
-                            @click="emailLogin"
-                          >
-                            Login
-                          </b-button>
-                        </b-form-group>
-                      </b-col>
-                      <b-col cols="12">
-                        <b-form-group label-cols-md="4">
-                          <b-button
-                            v-b-modal.modal-prevent-closing
-                            type="submit"
-                            variant="secondary"
-                            class="w-100"
-                            @click="createAccount"
-                          >
-                            Sign Up
-                          </b-button>
-                        </b-form-group>
-                      </b-col>
-                    </b-row>
-                  </b-form>
-                </dd>
-              </dl>
-            </b-tab>
             <b-tab title="3rd Party Login">
               <div class="ssoLogin">
                 <div id="ssoLoading">
@@ -128,6 +62,96 @@
                 </div>
                 <div id="firebaseui-auth-container" />
               </div>
+            </b-tab>
+            <b-tab title="Email/Password" active>
+              <dl class="row">
+                <dd class="col-sm-12 mt-1">
+                  <b-form
+                    id="emailLoginForm"
+                    ref="emailLoginForm"
+                    class="mx-5"
+                    @submit.prevent
+                  >
+                    <b-row>
+                      <b-col cols="12">
+                        <b-form-group
+                          label="Email"
+                          label-for="h-email"
+                          label-cols-md="4"
+                        >
+                          <b-form-input
+                            id="h-email"
+                            v-model="emailForm.email"
+                            type="email"
+                            placeholder="Email..."
+                            required
+                          />
+                        </b-form-group>
+                      </b-col>
+                      <b-col cols="12">
+                        <b-form-group
+                          label="Password"
+                          label-for="h-password"
+                          label-cols-md="4"
+                        >
+                          <b-form-input
+                            id="h-password"
+                            v-model="emailForm.password"
+                            type="password"
+                            placeholder="Password..."
+                            required
+                          />
+                        </b-form-group>
+                      </b-col>
+                      <b-col cols="12">
+                        <b-form-group label-cols-md="4">
+                          <b-button
+                            type="submit"
+                            variant="primary"
+                            class="w-100"
+                            @click="emailLogin"
+                          >
+                            <div id="emailLoginProcessing" style="display: none">
+                              <b-spinner variant="secondary" small />
+                            </div>
+                            <div id="emailLoginExecute">
+                              Login
+                            </div>
+                          </b-button>
+                        </b-form-group>
+                      </b-col>
+                      <b-col cols="12">
+                        <b-form-group label-cols-md="4">
+                          <b-button
+                            id="signUpButton"
+                            v-b-modal.modal-prevent-closing
+                            type="submit"
+                            variant="secondary"
+                            class="w-100"
+                            @click="createAccount"
+                          >
+                            Sign Up
+                          </b-button>
+                        </b-form-group>
+                      </b-col>
+                    </b-row>
+                  </b-form>
+                  <div id="ssoEmailVerify" class="text-center" style="display: none">
+                    <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
+                      Cancel Verification
+                    </b-button>
+                    <div>
+                      <b-spinner variant="primary" />
+                      <div>
+                        Finishing Verification Process
+                      </div>
+                      <div>
+                        <i>Please check email for verification link.</i>
+                      </div>
+                    </div>
+                  </div>
+                </dd>
+              </dl>
             </b-tab>
           </b-tabs>
         </dd>
@@ -265,6 +289,8 @@
       id="modal-prevent-closing"
       ref="modal"
       title="Create Flux SSO Account"
+      header-bg-variant="primary"
+      title-class="modal-title"
       @show="resetModal"
       @hidden="resetModal"
       @ok="handleOk"
@@ -313,6 +339,14 @@
           />
         </b-form-group>
       </form>
+      <div class="sso-tos">
+        <p style="width: 75%;">
+          By continuing, you are indicating that you accept our
+          <a class="highlight" href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf" referrerpolicy="no-referrer" target="_blank" rel="noopener noreferrer"> Terms of Service</a>
+          and
+          <a class="highlight" href="https://runonflux.io/privacyPolicy" referrerpolicy="no-referrer" target="_blank" rel="noopener noreferrer"> Privacy Policy</a>.
+        </p>
+      </div>
     </b-modal>
   </div>
 </template>
@@ -328,7 +362,7 @@ import { MetaMaskSDK } from '@metamask/sdk';
 
 import firebase from 'firebase/compat/app';
 import * as firebaseui from 'firebaseui';
-import { getUser, loginWithEmail } from '@/libs/firebase';
+import { getUser, loginWithEmail, createEmailSSO } from '@/libs/firebase';
 import 'firebaseui/dist/firebaseui.css';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
@@ -529,6 +563,8 @@ export default {
             })
             .finally(async () => {
               document.getElementById('ssoVerify').style.display = 'block';
+              document.getElementById('ssoEmailVerify').style.display = 'block';
+              document.getElementById('emailLoginForm').style.display = 'none';
               this.ssoVerification = true;
               await this.checkVerification();
             });
@@ -567,7 +603,14 @@ export default {
     },
     resetLoginUI() {
       document.getElementById('ssoVerify').style.display = 'none';
+      document.getElementById('ssoEmailVerify').style.display = 'none';
       document.getElementById('ssoLoggedIn').style.display = 'none';
+      document.getElementById('emailLoginProcessing').style.display = 'none';
+      document.getElementById('emailLoginExecute').style.display = 'block';
+      document.getElementById('emailLoginForm').style.display = 'block';
+      document.getElementById('signUpButton').style.display = 'block';
+      this.emailForm.email = '';
+      this.emailForm.password = '';
       this.ui.reset();
       this.ui.start('#firebaseui-auth-container');
       this.ssoVerification = false;
@@ -758,9 +801,18 @@ export default {
     },
     async emailLogin() {
       try {
-        const checkUser = await loginWithEmail(this.emailForm);
-        this.handleSignInSuccessWithAuthResult(checkUser);
+        if (this.$refs.emailLoginForm.reportValidity()) {
+          document.getElementById('emailLoginExecute').style.display = 'none';
+          document.getElementById('emailLoginProcessing').style.display = 'block';
+          document.getElementById('signUpButton').style.display = 'none';
+          const checkUser = await loginWithEmail(this.emailForm);
+          this.handleSignInSuccessWithAuthResult(checkUser);
+        }
       } catch (error) {
+        document.getElementById('emailLoginExecute').style.display = 'block';
+        document.getElementById('emailLoginProcessing').style.display = 'none';
+        document.getElementById('signUpButton').style.display = 'block';
+        document.getElementById('ssoEmailVerify').style.display = 'none';
         this.showToast('danger', 'login failed, please try again');
       }
     },
@@ -937,15 +989,7 @@ export default {
       }
     },
     checkFormValidity() {
-      const valid = this.$refs.form.checkValidity();
-      const checkValid = this.$refs.form.reportValidity();
-      console.log(checkValid);
-
-      if (this.createSSOForm.email.length > 8) this.emailState = true;
-      else {
-        this.showToast('info', 'email must be at least 8 chars');
-        return null;
-      }
+      const valid = this.$refs.form.reportValidity();
 
       if (this.createSSOForm.pw1.length >= 8) this.pw1State = true;
       else {
@@ -980,9 +1024,16 @@ export default {
       bvModalEvent.preventDefault();
       this.handleSubmit();
     },
-    handleSubmit() {
+    async handleSubmit() {
       if (!this.checkFormValidity()) {
         return;
+      }
+      try {
+        const createUser = await createEmailSSO({ email: this.createSSOForm.email, password: this.createSSOForm.pw1 });
+        this.handleSignInSuccessWithAuthResult(createUser);
+      } catch (error) {
+        this.resetLoginUI();
+        this.showToast('danger', 'Account creation failed, try again');
       }
       this.$nextTick(() => {
         this.$bvModal.hide('modal-prevent-closing');
@@ -1044,5 +1095,21 @@ a:hover img {
 
 .firebaseui-title {
   color: black !important;
+}
+
+.sso-tos {
+  color: lightgray;
+  display: flex;
+  justify-content: center;
+  text-align: center;
+  font-size: 12px;
+}
+
+.highlight {
+  color:#2b61d1
+}
+
+.modal-title {
+  color: white;
 }
 </style>
