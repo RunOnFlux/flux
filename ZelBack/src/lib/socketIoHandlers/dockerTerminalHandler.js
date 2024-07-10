@@ -14,7 +14,12 @@ async function dockerTerminalHandler(socket) {
     const mainAppName = nameOrId.split('_')[1] || nameOrId;
     let authorized = await verificationHelperUtils.verifyAppOwnerSession(auth, mainAppName);
     if (authorized !== true) {
-      authorized = await verificationHelper.verifyPrivilege('fluxteam', auth);
+      const req = {
+        headers: {
+          zelidauth,
+        },
+      };
+      authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
       if (authorized !== true) {
         socket.emit('error', 'Not authorized.');
         return;
