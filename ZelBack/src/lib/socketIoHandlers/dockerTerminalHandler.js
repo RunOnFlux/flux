@@ -1,5 +1,4 @@
 const verificationHelperUtils = require('../../services/verificationHelperUtils');
-const verificationHelper = require('../../services/verificationHelper');
 const dockerService = require('../../services/dockerService');
 const serviceHelper = require('../../services/serviceHelper');
 
@@ -12,14 +11,8 @@ async function dockerTerminalHandler(socket) {
     };
     const container = await dockerService.getDockerContainerByIdOrName(nameOrId);
     const mainAppName = nameOrId.split('_')[1] || nameOrId;
-    let authorized = await verificationHelperUtils.verifyAppOwnerSession(auth, mainAppName);
+    const authorized = await verificationHelperUtils.verifyAppOwnerOrHigherSession(auth, mainAppName);
     if (authorized !== true) {
-      const req = {
-        headers: {
-          zelidauth,
-        },
-      };
-      authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
       if (authorized !== true) {
         socket.emit('error', 'Not authorized.');
         return;
