@@ -13,10 +13,8 @@ async function dockerTerminalHandler(socket) {
     const mainAppName = nameOrId.split('_')[1] || nameOrId;
     const authorized = await verificationHelperUtils.verifyAppOwnerOrHigherSession(auth, mainAppName);
     if (authorized !== true) {
-      if (authorized !== true) {
-        socket.emit('error', 'Not authorized.');
-        return;
-      }
+      socket.emit('error', 'Not authorized.');
+      return;
     }
     if (!container) {
       socket.emit('error', 'Container not found.');
