@@ -768,7 +768,6 @@ async function checkMyFluxAvailability(retryNumber = 0) {
               dosState += 11;
               setDosMessage('IP changes over the limit allowed, one in 20 hours');
               log.error(dosMessage);
-              return false;
             }
             return true;
           }
