@@ -29,6 +29,7 @@ let dosMessage = null;
 let storedFluxBenchAllowed = null;
 let ipChangeData = null;
 let dosTooManyIpChanges = false;
+let maxNumberOfIpChanges = 0;
 
 // default cache
 const LRUoptions = {
@@ -649,6 +650,9 @@ async function ipChangesOverLimit() {
     const timeDifference = currentTime - oldTime;
     if (timeDifference <= 20 * 60 * 60 * 1000) {
       ipChangeData.count += 1;
+      if (ipChangeData.count > maxNumberOfIpChanges) {
+        maxNumberOfIpChanges = ipChangeData.count;
+      }
       if (ipChangeData.count >= 2) {
         // eslint-disable-next-line global-require
         const appsService = require('./appsService');
@@ -669,6 +673,7 @@ async function ipChangesOverLimit() {
     } else {
       ipChangeData.time = currentTime;
       ipChangeData.count = 1;
+      maxNumberOfIpChanges = 1;
     }
     return false;
   }
@@ -677,6 +682,10 @@ async function ipChangesOverLimit() {
     count: 1,
   };
   return false;
+}
+
+function getMaxNumberOfIpChanges() {
+  return maxNumberOfIpChanges;
 }
 
 /**
@@ -1641,4 +1650,5 @@ module.exports = {
   isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
   removeDockerContainerAccessToNonRoutable,
+  getMaxNumberOfIpChanges,
 };
