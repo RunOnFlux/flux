@@ -39,7 +39,9 @@ let daemonCallRunning = false;
  * @param {string[]} params RPC parameters.
  * @returns {object} Message.
  */
-async function executeCall(rpc, params) {
+async function executeCall(rpc, params, options = {}) {
+  const useCache = options.useCache ?? true;
+
   const rpcparameters = params || [];
   try {
     let data;
@@ -71,11 +73,11 @@ async function executeCall(rpc, params) {
       const randomDelay = Math.floor((Math.random() * 25)) + 10;
       await serviceHelper.delay(randomDelay);
     }
-    if (rpc === 'getBlock') {
+    if (useCache && rpc === 'getBlock') {
       data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    } else if (rpc === 'getRawTransaction') {
+    } else if (useCache && rpc === 'getRawTransaction') {
       data = rawTxCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    } else {
+    } else if (useCache) {
       data = cache.get(rpc + serviceHelper.ensureString(rpcparameters));
     }
     if (!data) {

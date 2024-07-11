@@ -9,7 +9,7 @@ const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/flux
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const appsService = require('../../ZelBack/src/services/appsService');
 const generalService = require('../../ZelBack/src/services/generalService');
@@ -985,7 +985,7 @@ describe('fluxCommunication tests', () => {
         },
       });
       lruRateLimitStub.returns(false);
-      const checkObjectSpy = sinon.spy(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast');
+      const checkObjectSpy = sinon.spy(networkStateService, 'verifyBroadcast');
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
@@ -1042,53 +1042,49 @@ describe('fluxCommunication tests', () => {
       sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
     });
 
-    const appRequestCommands = ['fluxapprequest'];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const command of appRequestCommands) {
-      // eslint-disable-next-line no-loop-func
-      it(`should handle the ${command} message properly`, async () => {
-        const message = JSON.stringify({
-          timestamp: Date.now(),
-          pubKey: '1234asd',
-          signature: 'blabla',
-          version: 1,
-          data: {
-            type: `${command}`,
-          },
-        });
-        const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
-          wss.on('connection', (ws) => {
-            ws.send(message);
-            resolve();
-          });
-          // eslint-disable-next-line no-param-reassign
-          wss.onerror = (err) => {
-            reject(err);
-          };
-        });
-        const ip = '127.0.0.2';
-        wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
-        lruRateLimitStub.returns(true);
-        sinon.stub(LRUCache.prototype, 'has').returns(false);
-        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
-        const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
-        daemonServiceMiscRpcsStub.returns({
-          data:
-          {
-            synced: false,
-            height: 0,
-          },
-        });
-        await fluxCommunication.initiateAndHandleConnection(ip);
-
-        await waitForWsConnected(wsserver);
-        // slight delay to let onopen to be triggered
-        await serviceHelper.delay(100);
-
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
-        sinon.assert.calledWith(respondWithAppMessageStub, JSON.parse(message));
+    // eslint-disable-next-line no-loop-func
+    it('should handle the fluxapprequest message properly', async () => {
+      const message = JSON.stringify({
+        timestamp: Date.now(),
+        pubKey: '1234asd',
+        signature: 'blabla',
+        version: 1,
+        data: {
+          type: 'fluxapprequest',
+        },
       });
-    }
+      const waitForWsConnected = (wss) => new Promise((resolve, reject) => {
+        wss.on('connection', (ws) => {
+          ws.send(message);
+          resolve();
+        });
+        // eslint-disable-next-line no-param-reassign
+        wss.onerror = (err) => {
+          reject(err);
+        };
+      });
+      const ip = '127.0.0.2';
+      wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
+      lruRateLimitStub.returns(true);
+      sinon.stub(LRUCache.prototype, 'has').returns(false);
+      const verifyBroadcastStub = sinon.stub(networkStateService, 'verifyBroadcast').returns(true);
+      const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
+      daemonServiceMiscRpcsStub.returns({
+        data:
+        {
+          synced: false,
+          height: 0,
+        },
+      });
+      await fluxCommunication.initiateAndHandleConnection(ip);
+
+      await waitForWsConnected(wsserver);
+      // slight delay to let onopen to be triggered
+      await serviceHelper.delay(100);
+
+      sinon.assert.calledOnceWithExactly(verifyBroadcastStub, JSON.parse(message));
+      sinon.assert.calledWith(respondWithAppMessageStub, JSON.parse(message));
+    });
 
     const registerUpdateAppList = ['zelappregister', 'zelappupdate', 'fluxappregister', 'fluxappupdate'];
     // eslint-disable-next-line no-restricted-syntax
@@ -1118,7 +1114,7 @@ describe('fluxCommunication tests', () => {
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
-        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
+        const verifyFluxBroadcast = sinon.stub(networkStateService, 'verifyBroadcast').returns(true);
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -1133,7 +1129,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message));
         sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, true);
       });
     }
@@ -1166,7 +1162,7 @@ describe('fluxCommunication tests', () => {
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
-        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
+        const verifyBroadcast = sinon.stub(networkStateService, 'verifyBroadcast').returns(true);
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -1181,7 +1177,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyBroadcast, JSON.parse(message));
         sinon.assert.calledOnceWithExactly(storeAppRunningMessageStub, JSON.parse(message).data);
       });
     }
@@ -1412,7 +1408,7 @@ describe('fluxCommunication tests', () => {
       ];
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
       fluxNetworkHelper.setMyFluxIp('44.192.51.11');
-      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
+      sinon.stub(networkStateService, 'networkState').returns(fluxNodeList);
       sinon.stub(serviceHelper, 'delay').resolves(() => new Promise((resolve) => { setTimeout(resolve, 50); }));
       const infoSpy = sinon.spy(log, 'info');
       daemonServiceStub.returns({

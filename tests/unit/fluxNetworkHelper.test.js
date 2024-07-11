@@ -14,7 +14,7 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
-const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
@@ -472,7 +472,7 @@ describe('fluxNetworkHelper tests', () => {
           rank: 1,
         },
       ];
-      deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
+      deterministicFluxListStub = sinon.stub(networkStateService, 'networkState');
       fluxNetworkHelper.setMyFluxIp('83.52.214.240:16167');
     });
 
@@ -985,7 +985,7 @@ describe('fluxNetworkHelper tests', () => {
           rank: 0,
         },
       ];
-      sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicFluxnodeListResponse);
+      sinon.stub(networkStateService, 'networkState').returns(deterministicFluxnodeListResponse);
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
     });
@@ -1231,7 +1231,7 @@ describe('fluxNetworkHelper tests', () => {
         }];
       getBenchmarksStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
       isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
-      deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
+      deterministicFluxListStub = sinon.stub(networkStateService, 'networkState');
       getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
       fluxNetworkHelper.setDosMessage(null);
       fluxNetworkHelper.setDosStateValue(0);
