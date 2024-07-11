@@ -135,6 +135,10 @@ class ImageVerifier {
     return this.verified && this.#architectureSupported;
   }
 
+  get blobsEndpoint() {
+    return `${this.namespace}/${this.repository}/blobs`;
+  }
+
   #createAxiosInstance() {
     this.#axiosInstance = serviceHelper.axiosInstance({
       baseURL: `https://${this.provider}/v2/`,
@@ -277,6 +281,8 @@ class ImageVerifier {
       'ENETUNREACH',
     ];
 
+    // ToDo: handle 429?
+
     if (connectionErrors.includes(error.code)) {
       this.#lookupErrorDetail = `Connection Error ${error.code}: ${this.rawImageTag} not available`;
       return { data: null };
@@ -310,6 +316,63 @@ class ImageVerifier {
     return this.#axiosInstance
       .get(endpointUrl)
       .catch((err) => this.#handleAxiosError(endpointUrl, err));
+  }
+
+  async evaluateLegacySchema(manifest) {
+    // the v1 schema has the content-type:
+    // application/vnd.docker.distribution.manifest.v1+prettyjws
+    this.evaluated = true;
+
+    let imageSize = 0;
+
+    const { architecture: arch, fsLayers } = manifest;
+
+    const chunk = (arr, size) => Array.from({ length: Math.ceil(arr.length / size) }, (v, i) => arr.slice(i * size, i * size + size));
+
+    // max layers is specified by docker as 127. Max listeners on an event,
+    // (without using setMaxListeners) is 10. We have to chunk anyway as we can't
+    // do 127 HEAD requests at once, so may as well set to 10.
+    const layerChunks = chunk(fsLayers, 10);
+
+    const responses = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const layerChunk of layerChunks) {
+      const promises = layerChunk.map(async (layer) => {
+        const endpoint = `${this.blobsEndpoint}/${layer.blobSum}`;
+        return this.#axiosInstance.head(endpoint);
+      });
+
+      // eslint-disable-next-line no-await-in-loop
+      const res = await Promise.allSettled(promises);
+      responses.push(res);
+    }
+
+    responses.flat().every((response) => {
+      const { status, value } = response;
+
+      if (status === 'rejected') {
+        this.#lookupErrorDetail = 'Http error getting size for v1 image.';
+        return false;
+      }
+
+      const contentLength = value.headers['content-length'];
+
+      if (!contentLength) {
+        this.#lookupErrorDetail = 'Unable to get size for v1 image.';
+        return false;
+      }
+
+      imageSize += +contentLength;
+      return true;
+    });
+
+    if (this.error) return;
+
+    if (imageSize > this.maxImageSize) {
+      this.#evaluationErrorDetail = `Docker image: ${this.rawImageTag} size is over Flux limit`;
+    }
+
+    if (this.architecture === arch) this.#architectureSupported = true;
   }
 
   async #evaluateImageManifest(manifestIndex) {
@@ -366,16 +429,16 @@ class ImageVerifier {
     const { mediaType } = manifestIndex;
 
     switch (mediaType) {
-      case 'application/vnd.oci.image.index.v1+json':
-        await evaluateMultipleImages(manifestIndex);
-        break;
-      case 'application/vnd.oci.image.manifest.v1+json':
-        await evaluateSingleImage(manifestIndex);
-        break;
       case 'application/vnd.docker.distribution.manifest.list.v2+json':
         await evaluateMultipleImages(manifestIndex);
         break;
       case 'application/vnd.docker.distribution.manifest.v2+json':
+        await evaluateSingleImage(manifestIndex);
+        break;
+      case 'application/vnd.oci.image.index.v1+json':
+        await evaluateMultipleImages(manifestIndex);
+        break;
+      case 'application/vnd.oci.image.manifest.v1+json':
         await evaluateSingleImage(manifestIndex);
         break;
       default:
@@ -394,11 +457,11 @@ class ImageVerifier {
   }
 
   async #fetchConfig(digest) {
-    const blobsEndpoint = `${this.namespace}/${this.repository}/blobs/${digest}`;
+    const endpoint = `${this.blobsEndpoint}/${digest}`;
 
     const { data: imageConfig } = await this.#axiosInstance
-      .get(blobsEndpoint)
-      .catch((error) => this.#handleAxiosError(blobsEndpoint, error));
+      .get(endpoint)
+      .catch((error) => this.#handleAxiosError(endpoint, error));
 
     return imageConfig;
   }
@@ -491,12 +554,19 @@ class ImageVerifier {
 
     if (!imageManifest) return false;
 
-    if (imageManifest.schemaVersion !== 2) {
-      this.#lookupErrorDetail = `Unsupported schemaVersion: ${imageManifest.schemaVersion} for: ${this.rawImageTag}`;
-      return false;
-    }
+    const { schemaVersion } = imageManifest;
 
-    await this.#evaluateImageManifest(imageManifest);
+    switch (schemaVersion) {
+      case 1:
+        await this.evaluateLegacySchema(imageManifest);
+        break;
+      case 2:
+        await this.#evaluateImageManifest(imageManifest);
+        break;
+      default:
+        this.#lookupErrorDetail = `Unsupported schemaVersion: ${schemaVersion} for: ${this.rawImageTag}`;
+        return false;
+    }
 
     return this.verified;
   }

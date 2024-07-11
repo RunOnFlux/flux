@@ -392,6 +392,7 @@ describe('imageVerifier tests', () => {
 
   describe('verifyImage tests', async () => {
     let axiosGetStub;
+    let axiosHeadStub;
     let axiosInterceptorsUse;
 
     const unauthorizedError = (auth) => {
@@ -410,7 +411,8 @@ describe('imageVerifier tests', () => {
     beforeEach(() => {
       axiosInterceptorsUse = sinon.stub().returns();
       axiosGetStub = sinon.stub(serviceHelper, 'axiosGet');
-      sinon.stub(serviceHelper, 'axiosInstance').returns({ get: axiosGetStub, interceptors: { request: { use: axiosInterceptorsUse } } });
+      axiosHeadStub = sinon.stub();
+      sinon.stub(serviceHelper, 'axiosInstance').returns({ get: axiosGetStub, head: axiosHeadStub, interceptors: { request: { use: axiosInterceptorsUse } } });
     });
 
     it('should throw if connection error', async () => {
@@ -827,6 +829,103 @@ describe('imageVerifier tests', () => {
       expect(result).to.equal(true);
       expect(() => verifier.throwIfError()).to.not.throw();
       expect(verifier.supported).to.equal(false);
+    });
+
+    it('should throw if image schema version is not supported', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      axiosGetStub.callsFake(async (url) => {
+        if (url === 'megachips/ipshow/manifests/web') {
+          return { data: { schemaVersion: 4, data: 'test blah' } };
+        }
+
+        return { data: null };
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      const result = await verifier.verifyImage();
+
+      expect(result).to.equal(false);
+      expect(() => verifier.throwIfError()).to.throw(`Unsupported schemaVersion: 4 for: ${repotag}`);
+    });
+
+    it('should not throw if valid v1 schema manifest received', async () => {
+      const repotag = 'megachips/ipshow:web';
+      const layerSize = '5000';
+      const layerCount = 19;
+
+      axiosGetStub.callsFake(async (url) => {
+        if (url === 'megachips/ipshow/manifests/web') {
+          return { data: registryResponses.schemaV1Amd64 };
+        }
+
+        return { data: null };
+      });
+
+      axiosHeadStub.resolves({ headers: { 'content-length': layerSize } });
+
+      const verifier = new ImageVerifier(repotag);
+      const result = await verifier.verifyImage();
+      console.log('RESULT', result);
+      expect(result).to.equal(true);
+      expect(axiosHeadStub.getCalls().length).to.equal(layerCount);
+      expect(() => verifier.throwIfError()).to.not.throw();
+    });
+
+    it('should throw if v1 schema manifest blobs oversize', async () => {
+      const repotag = 'megachips/ipshow:web';
+      const layerSize = '222000000';
+      const layerCount = 19;
+
+      axiosGetStub.callsFake(async (url) => {
+        if (url === 'megachips/ipshow/manifests/web') {
+          return { data: registryResponses.schemaV1Amd64 };
+        }
+
+        return { data: null };
+      });
+
+      axiosHeadStub.resolves({ headers: { 'content-length': layerSize } });
+
+      const verifier = new ImageVerifier(repotag);
+      const result = await verifier.verifyImage();
+
+      expect(result).to.equal(false);
+      expect(axiosHeadStub.getCalls().length).to.equal(layerCount);
+      expect(() => verifier.throwIfError()).to.throw(`Docker image: ${repotag} size is over Flux limit`);
+    });
+
+    it('should throw if there is an error getting blob via head request', async () => {
+      const repotag = 'megachips/ipshow:web';
+      const layerSize = '20000';
+      const layerCount = 19;
+
+      let callCount = 0;
+
+      axiosGetStub.callsFake(async (url) => {
+        if (url === 'megachips/ipshow/manifests/web') {
+          return { data: registryResponses.schemaV1Amd64 };
+        }
+
+        return { data: null };
+      });
+
+      axiosHeadStub.callsFake(async () => {
+        callCount += 1;
+        if (callCount === 15) {
+          throw new Error('Test 429 too many requests');
+        }
+        return {
+          headers: { 'content-length': layerSize },
+        };
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      const result = await verifier.verifyImage();
+
+      expect(result).to.equal(false);
+      expect(axiosHeadStub.getCalls().length).to.equal(layerCount);
+      expect(() => verifier.throwIfError()).to.throw('Http error getting size for v1 image.');
     });
   });
 });

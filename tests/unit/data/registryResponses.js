@@ -1355,6 +1355,149 @@ const ociIndexUnsupported = {
   schemaVersion: 2,
 };
 
+/* eslint-disable max-len, vue/max-len, no-template-curly-in-string */
+const schemaV1Amd64 = {
+  schemaVersion: 1,
+  name: 'audreyt/ethercalc',
+  tag: 'latest',
+  architecture: 'amd64',
+  fsLayers: [
+    {
+      blobSum: 'sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4',
+    },
+    {
+      blobSum: 'sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4',
+    },
+    {
+      blobSum: 'sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4',
+    },
+    {
+      blobSum: 'sha256:bb5c7462cbfc3f4aca95497563a0fcd970f9c24bcf12753b37c517a4b09b9111',
+    },
+    {
+      blobSum: 'sha256:f1fc9067a4a1b18179ec04ff24d46e65deb04028b5652d9a2817da135359c241',
+    },
+    {
+      blobSum: 'sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4',
+    },
+    {
+      blobSum: 'sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4',
+    },
+    {
+      blobSum: 'sha256:38238ad0b0db7a02388a2cabb42f53c5135fc1224c51808f83b726d365ec6021',
+    },
+    {
+      blobSum: 'sha256:c9a9199019d2c8be77aee17b0e682956b27aa319bd79a8ab608f7e702c1fdd91',
+    },
+    {
+      blobSum: 'sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4',
+    },
+    {
+      blobSum: 'sha256:6d782fdb5f10c99358441d7ea546c328c626e55720cde27495bc33e3397aedf8',
+    },
+    {
+      blobSum: 'sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4',
+    },
+    {
+      blobSum: 'sha256:b6df75eec292ecd9f2d8a209abc9465c1876f6319ce48aafe081a522291a65f3',
+    },
+    {
+      blobSum: 'sha256:ca91690e422b1df8f66dd21e9234c356ccded59f8c8e927c24d1c3296d5c71e0',
+    },
+    {
+      blobSum: 'sha256:6ad558883a035a2f483655baf501b03cf7fc4df759c7efe8f53793bc34c23f74',
+    },
+    {
+      blobSum: 'sha256:8acc8724fd16ac465b9325c745cf13d3645cbca75dd67e827b0b1d4412619fc2',
+    },
+    {
+      blobSum: 'sha256:7bf7fb3eb2dce2e46399c1f0efd2eff3516417033fa0559e2e44f17c015eee6c',
+    },
+    {
+      blobSum: 'sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4',
+    },
+    {
+      blobSum: 'sha256:597a484e68396f8bd016db7bf8f0226ed36fe209c9d6469544551a1cacccccd1',
+    },
+  ],
+  history: [
+    {
+      v1Compatibility: '{"id":"66ba885277e5e213d29d063b4b2078146c883ce2455a3f26905cfae144b0ea8c","parent":"47561fa0cc1c2f02f21c844e4693850ff19c63d05dd256b8ba73304c863d3d27","created":"2020-12-26T17:45:04.862345039Z","container":"fe172bac1dc8481e29cb0521e8208428b6fe79fe042b3973079417c21cc82764","container_config":{"Hostname":"5f0840e2add5","Domainname":"","User":"ethercalc","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"ExposedPorts":{"8000/tcp":{}},"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["/bin/sh","-c","#(nop) CMD [\\"sh\\" \\"-c\\" \\"REDIS_HOST=$REDIS_PORT_6379_TCP_ADDR REDIS_PORT=$REDIS_PORT_6379_TCP_PORT pm2 start -x `which ethercalc` -- --vm --cors \\u0026\\u0026 pm2 logs\\"]"],"Image":"47561fa0cc1c2f02f21c844e4693850ff19c63d05dd256b8ba73304c863d3d27","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"docker_version":"1.9.1","config":{"Hostname":"5f0840e2add5","Domainname":"","User":"ethercalc","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"ExposedPorts":{"8000/tcp":{}},"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["sh","-c","REDIS_HOST=$REDIS_PORT_6379_TCP_ADDR REDIS_PORT=$REDIS_PORT_6379_TCP_PORT pm2 start -x `which ethercalc` -- --vm --cors \\u0026\\u0026 pm2 logs"],"Image":"47561fa0cc1c2f02f21c844e4693850ff19c63d05dd256b8ba73304c863d3d27","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"architecture":"amd64","os":"linux"}',
+    },
+    {
+      v1Compatibility: '{"id":"47561fa0cc1c2f02f21c844e4693850ff19c63d05dd256b8ba73304c863d3d27","parent":"4e5bfbbd0c6c03d96c47893907c7ab7d44781a5976dc5429a06476c8a4188a88","created":"2020-12-26T17:44:58.737236377Z","container":"f606baa48882d214616c41f69b19ae47da571ba9bf3b3766dfa804f2efa1c47b","container_config":{"Hostname":"5f0840e2add5","Domainname":"","User":"ethercalc","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"ExposedPorts":{"8000/tcp":{}},"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["/bin/sh","-c","#(nop) EXPOSE 8000/tcp"],"Image":"4e5bfbbd0c6c03d96c47893907c7ab7d44781a5976dc5429a06476c8a4188a88","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"docker_version":"1.9.1","config":{"Hostname":"5f0840e2add5","Domainname":"","User":"ethercalc","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"ExposedPorts":{"8000/tcp":{}},"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["node"],"Image":"4e5bfbbd0c6c03d96c47893907c7ab7d44781a5976dc5429a06476c8a4188a88","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"architecture":"amd64","os":"linux"}',
+    },
+    {
+      v1Compatibility: '{"id":"4e5bfbbd0c6c03d96c47893907c7ab7d44781a5976dc5429a06476c8a4188a88","parent":"55c71bbec927161871af137e9d9826526e2595cd7b703bb44e4ad101d5c543a7","created":"2020-12-26T17:44:52.564123942Z","container":"70b91d1c73745e6eb4e9bc846a7c063860be29f828204c3db2f4b0166cdb2f3a","container_config":{"Hostname":"5f0840e2add5","Domainname":"","User":"ethercalc","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["/bin/sh","-c","#(nop) USER [ethercalc]"],"Image":"55c71bbec927161871af137e9d9826526e2595cd7b703bb44e4ad101d5c543a7","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"docker_version":"1.9.1","config":{"Hostname":"5f0840e2add5","Domainname":"","User":"ethercalc","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["node"],"Image":"55c71bbec927161871af137e9d9826526e2595cd7b703bb44e4ad101d5c543a7","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"architecture":"amd64","os":"linux"}',
+    },
+    {
+      v1Compatibility: '{"id":"55c71bbec927161871af137e9d9826526e2595cd7b703bb44e4ad101d5c543a7","parent":"cb4d76f9783d4d8084f2608c82c7e6fe0ec8cf0df3b74c589af2b4af36cefdf4","created":"2020-12-26T17:44:42.30707347Z","container":"47d47caf48c273448092c8bece2ec32b644d2fa104458f65165c7998f6b90d0f","container_config":{"Hostname":"5f0840e2add5","Domainname":"","User":"","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["/bin/sh","-c","npm install -g ethercalc pm2 || true"],"Image":"cb4d76f9783d4d8084f2608c82c7e6fe0ec8cf0df3b74c589af2b4af36cefdf4","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"docker_version":"1.9.1","config":{"Hostname":"5f0840e2add5","Domainname":"","User":"","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["node"],"Image":"cb4d76f9783d4d8084f2608c82c7e6fe0ec8cf0df3b74c589af2b4af36cefdf4","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"architecture":"amd64","os":"linux","Size":103312054}',
+    },
+    {
+      v1Compatibility: '{"id":"cb4d76f9783d4d8084f2608c82c7e6fe0ec8cf0df3b74c589af2b4af36cefdf4","parent":"c25e18e94a91819a4e8f98c4b699a1f3df0f9b4a93597bfe5bca0722b186fb18","created":"2020-12-26T17:43:56.993267026Z","container":"5f0840e2add5ad65d5dcddcc8fb3037714267e63e08842727500581fc520363d","container_config":{"Hostname":"5f0840e2add5","Domainname":"","User":"","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["/bin/sh","-c","useradd ethercalc --create-home"],"Image":"575f56fa5cfbe403545dd0679291fc0bdaa4b25f5f29453dbddb6cc09e9d43c0","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"docker_version":"1.9.1","config":{"Hostname":"5f0840e2add5","Domainname":"","User":"","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["node"],"Image":"575f56fa5cfbe403545dd0679291fc0bdaa4b25f5f29453dbddb6cc09e9d43c0","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":[],"Labels":{}},"architecture":"amd64","os":"linux","Size":333982}',
+    },
+    {
+      v1Compatibility: '{"architecture":"amd64","config":{"Hostname":"","Domainname":"","User":"","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["node"],"Image":"sha256:b41c508f718fadc4862cfdb89d6fc49313a8107ec532c4c9383284a162ec7c9d","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":null,"Labels":null},"container":"18960504edc132929fdfb566e5ac71257f63cef1389428c0aa5e544bad0f3489","container_config":{"Hostname":"18960504edc1","Domainname":"","User":"","AttachStdin":false,"AttachStdout":false,"AttachStderr":false,"Tty":false,"OpenStdin":false,"StdinOnce":false,"Env":["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","NODE_VERSION=15.5.0","YARN_VERSION=1.22.5"],"Cmd":["/bin/sh","-c","#(nop) ","CMD [\\"node\\"]"],"Image":"sha256:b41c508f718fadc4862cfdb89d6fc49313a8107ec532c4c9383284a162ec7c9d","Volumes":null,"WorkingDir":"","Entrypoint":["docker-entrypoint.sh"],"OnBuild":null,"Labels":{}},"created":"2020-12-23T20:25:59.156071601Z","docker_version":"19.03.12","id":"c25e18e94a91819a4e8f98c4b699a1f3df0f9b4a93597bfe5bca0722b186fb18","os":"linux","parent":"612ae752fc894d6f4032343ef7fd245727cef47b1d7d2b155549ef0208a7d68e","throwaway":true}',
+    },
+    {
+      v1Compatibility: '{"id":"612ae752fc894d6f4032343ef7fd245727cef47b1d7d2b155549ef0208a7d68e","parent":"14061e5fa1106fbc3c991b60f263039c9741c3392a5624c0e1abbe4f57a0c557","created":"2020-12-23T20:25:58.96864162Z","container_config":{"Cmd":["/bin/sh -c #(nop)  ENTRYPOINT [\\"docker-entrypoint.sh\\"]"]},"throwaway":true}',
+    },
+    {
+      v1Compatibility: '{"id":"14061e5fa1106fbc3c991b60f263039c9741c3392a5624c0e1abbe4f57a0c557","parent":"0cb69a0b39a9efbe59371decb64bdbaf51a9acb7c38a0e9a23a46b73aa1827b1","created":"2020-12-23T20:25:58.784997262Z","container_config":{"Cmd":["/bin/sh -c #(nop) COPY file:238737301d47304174e4d24f4def935b29b3069c03c72ae8de97d94624382fce in /usr/local/bin/ "]}}',
+    },
+    {
+      v1Compatibility: '{"id":"0cb69a0b39a9efbe59371decb64bdbaf51a9acb7c38a0e9a23a46b73aa1827b1","parent":"a49649d38180d95f75b1c16b35be09426abd57c9bf5bb56f44a50a007dfd6016","created":"2020-12-23T20:25:58.555940237Z","container_config":{"Cmd":["/bin/sh -c set -ex   \\u0026\\u0026 for key in     6A010C5166006599AA17F08146C2130DFD2497F5   ; do     gpg --batch --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys \\"$key\\" ||     gpg --batch --keyserver hkp://ipv4.pool.sks-keyservers.net --recv-keys \\"$key\\" ||     gpg --batch --keyserver hkp://pgp.mit.edu:80 --recv-keys \\"$key\\" ;   done   \\u0026\\u0026 curl -fsSLO --compressed \\"https://yarnpkg.com/downloads/$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz\\"   \\u0026\\u0026 curl -fsSLO --compressed \\"https://yarnpkg.com/downloads/$YARN_VERSION/yarn-v$YARN_VERSION.tar.gz.asc\\"   \\u0026\\u0026 gpg --batch --verify yarn-v$YARN_VERSION.tar.gz.asc yarn-v$YARN_VERSION.tar.gz   \\u0026\\u0026 mkdir -p /opt   \\u0026\\u0026 tar -xzf yarn-v$YARN_VERSION.tar.gz -C /opt/   \\u0026\\u0026 ln -s /opt/yarn-v$YARN_VERSION/bin/yarn /usr/local/bin/yarn   \\u0026\\u0026 ln -s /opt/yarn-v$YARN_VERSION/bin/yarnpkg /usr/local/bin/yarnpkg   \\u0026\\u0026 rm yarn-v$YARN_VERSION.tar.gz.asc yarn-v$YARN_VERSION.tar.gz   \\u0026\\u0026 yarn --version"]}}',
+    },
+    {
+      v1Compatibility: '{"id":"a49649d38180d95f75b1c16b35be09426abd57c9bf5bb56f44a50a007dfd6016","parent":"a3fb7d45d1d4fa9b57a696baddfa249543a533834ccc85a58de614be8ce39e09","created":"2020-12-23T20:25:54.477738407Z","container_config":{"Cmd":["/bin/sh -c #(nop)  ENV YARN_VERSION=1.22.5"]},"throwaway":true}',
+    },
+    {
+      v1Compatibility: "{\"id\":\"a3fb7d45d1d4fa9b57a696baddfa249543a533834ccc85a58de614be8ce39e09\",\"parent\":\"7f844edcff5f61da44da11552f2a14dc940dbe274730644b83cf855ab88682dc\",\"created\":\"2020-12-23T20:25:54.178160309Z\",\"container_config\":{\"Cmd\":[\"/bin/sh -c ARCH= \\u0026\\u0026 dpkgArch=\\\"$(dpkg --print-architecture)\\\"   \\u0026\\u0026 case \\\"${dpkgArch##*-}\\\" in     amd64) ARCH='x64';;     ppc64el) ARCH='ppc64le';;     s390x) ARCH='s390x';;     arm64) ARCH='arm64';;     armhf) ARCH='armv7l';;     i386) ARCH='x86';;     *) echo \\\"unsupported architecture\\\"; exit 1 ;;   esac   \\u0026\\u0026 set -ex   \\u0026\\u0026 for key in     4ED778F539E3634C779C87C6D7062848A1AB005C     94AE36675C464D64BAFA68DD7434390BDBE9B9C5     1C050899334244A8AF75E53792EF661D867B9DFA     71DCFD284A79C3B38668286BC97EC7A07EDE3FC1     8FCCA13FEF1D0C2E91008E09770F7A9A5AE15600     C4F0DFFF4E8C1A8236409D08E73BC641CC11F4C8     C82FA3AE1CBEDC6BE46B9360C43CEC45C17AB93C     DD8F2338BAE7501E3DD5AC78C273792F7D83545D     A48C2BEE680E841632CD4E44F07496B3EB3C1762     108F52B48DB57BB0CC439B2997B01419BD92F80A     B9E2F5981AA6E0CD28160D9FF13993A75599653C   ; do     gpg --batch --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys \\\"$key\\\" ||     gpg --batch --keyserver hkp://ipv4.pool.sks-keyservers.net --recv-keys \\\"$key\\\" ||     gpg --batch --keyserver hkp://pgp.mit.edu:80 --recv-keys \\\"$key\\\" ;   done   \\u0026\\u0026 curl -fsSLO --compressed \\\"https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$ARCH.tar.xz\\\"   \\u0026\\u0026 curl -fsSLO --compressed \\\"https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc\\\"   \\u0026\\u0026 gpg --batch --decrypt --output SHASUMS256.txt SHASUMS256.txt.asc   \\u0026\\u0026 grep \\\" node-v$NODE_VERSION-linux-$ARCH.tar.xz\\\\$\\\" SHASUMS256.txt | sha256sum -c -   \\u0026\\u0026 tar -xJf \\\"node-v$NODE_VERSION-linux-$ARCH.tar.xz\\\" -C /usr/local --strip-components=1 --no-same-owner   \\u0026\\u0026 rm \\\"node-v$NODE_VERSION-linux-$ARCH.tar.xz\\\" SHASUMS256.txt.asc SHASUMS256.txt   \\u0026\\u0026 ln -s /usr/local/bin/node /usr/local/bin/nodejs   \\u0026\\u0026 node --version   \\u0026\\u0026 npm --version\"]}}",
+    },
+    {
+      v1Compatibility: '{"id":"7f844edcff5f61da44da11552f2a14dc940dbe274730644b83cf855ab88682dc","parent":"0c971729eb7ab4409655366fb28abfcdcd581177c60cee51de2aab2f6e9b54a1","created":"2020-12-23T20:25:46.527272635Z","container_config":{"Cmd":["/bin/sh -c #(nop)  ENV NODE_VERSION=15.5.0"]},"throwaway":true}',
+    },
+    {
+      v1Compatibility: '{"id":"0c971729eb7ab4409655366fb28abfcdcd581177c60cee51de2aab2f6e9b54a1","parent":"a45e4aee6f3951e67600fdd3b713cbcae9168e43c200f9b2bad785437852f18b","created":"2020-12-18T02:47:25.031252672Z","container_config":{"Cmd":["/bin/sh -c groupadd --gid 1000 node   \\u0026\\u0026 useradd --uid 1000 --gid node --shell /bin/bash --create-home node"]}}',
+    },
+    {
+      v1Compatibility: "{\"id\":\"a45e4aee6f3951e67600fdd3b713cbcae9168e43c200f9b2bad785437852f18b\",\"parent\":\"c512f912a5e580315736561d7b6b097493389ee4a3a34b909a8e30a703aeb55c\",\"created\":\"2020-12-17T17:02:40.727565679Z\",\"container_config\":{\"Cmd\":[\"/bin/sh -c set -ex; \\tapt-get update; \\tapt-get install -y --no-install-recommends \\t\\tautoconf \\t\\tautomake \\t\\tbzip2 \\t\\tdpkg-dev \\t\\tfile \\t\\tg++ \\t\\tgcc \\t\\timagemagick \\t\\tlibbz2-dev \\t\\tlibc6-dev \\t\\tlibcurl4-openssl-dev \\t\\tlibdb-dev \\t\\tlibevent-dev \\t\\tlibffi-dev \\t\\tlibgdbm-dev \\t\\tlibglib2.0-dev \\t\\tlibgmp-dev \\t\\tlibjpeg-dev \\t\\tlibkrb5-dev \\t\\tliblzma-dev \\t\\tlibmagickcore-dev \\t\\tlibmagickwand-dev \\t\\tlibmaxminddb-dev \\t\\tlibncurses5-dev \\t\\tlibncursesw5-dev \\t\\tlibpng-dev \\t\\tlibpq-dev \\t\\tlibreadline-dev \\t\\tlibsqlite3-dev \\t\\tlibssl-dev \\t\\tlibtool \\t\\tlibwebp-dev \\t\\tlibxml2-dev \\t\\tlibxslt-dev \\t\\tlibyaml-dev \\t\\tmake \\t\\tpatch \\t\\tunzip \\t\\txz-utils \\t\\tzlib1g-dev \\t\\t\\t\\t$( \\t\\t\\tif apt-cache show 'default-libmysqlclient-dev' 2\\u003e/dev/null | grep -q '^Version:'; then \\t\\t\\t\\techo 'default-libmysqlclient-dev'; \\t\\t\\telse \\t\\t\\t\\techo 'libmysqlclient-dev'; \\t\\t\\tfi \\t\\t) \\t; \\trm -rf /var/lib/apt/lists/*\"]}}",
+    },
+    {
+      v1Compatibility: '{"id":"c512f912a5e580315736561d7b6b097493389ee4a3a34b909a8e30a703aeb55c","parent":"5c403d7b89c8ae69189a42baa8d26c1a3ec2cd1d8806824549a0b517349cb032","created":"2020-12-17T17:01:43.674842485Z","container_config":{"Cmd":["/bin/sh -c apt-get update \\u0026\\u0026 apt-get install -y --no-install-recommends \\t\\tbzr \\t\\tgit \\t\\tmercurial \\t\\topenssh-client \\t\\tsubversion \\t\\t\\t\\tprocps \\t\\u0026\\u0026 rm -rf /var/lib/apt/lists/*"]}}',
+    },
+    {
+      v1Compatibility: '{"id":"5c403d7b89c8ae69189a42baa8d26c1a3ec2cd1d8806824549a0b517349cb032","parent":"b284aebf865048e18fee9e2fe6d95900a23796b488b677cca3c51379bd69941c","created":"2020-12-17T17:01:19.973409764Z","container_config":{"Cmd":["/bin/sh -c set -ex; \\tif ! command -v gpg \\u003e /dev/null; then \\t\\tapt-get update; \\t\\tapt-get install -y --no-install-recommends \\t\\t\\tgnupg \\t\\t\\tdirmngr \\t\\t; \\t\\trm -rf /var/lib/apt/lists/*; \\tfi"]}}',
+    },
+    {
+      v1Compatibility: '{"id":"b284aebf865048e18fee9e2fe6d95900a23796b488b677cca3c51379bd69941c","parent":"b4a5442a11b5f969a17a2a2f802c3cbee19dd5fe791c1e33e1d304db2dc1c326","created":"2020-12-17T17:01:14.607850538Z","container_config":{"Cmd":["/bin/sh -c set -eux; \\tapt-get update; \\tapt-get install -y --no-install-recommends \\t\\tca-certificates \\t\\tcurl \\t\\tnetbase \\t\\twget \\t; \\trm -rf /var/lib/apt/lists/*"]}}',
+    },
+    {
+      v1Compatibility: '{"id":"b4a5442a11b5f969a17a2a2f802c3cbee19dd5fe791c1e33e1d304db2dc1c326","parent":"56b0fc4faa4c5f35dcd1c34c1bd916fd24c9978c3435e5b69d8b87649da9b8d8","created":"2020-12-11T02:08:43.491641669Z","container_config":{"Cmd":["/bin/sh -c #(nop)  CMD [\\"bash\\"]"]},"throwaway":true}',
+    },
+    {
+      v1Compatibility: '{"id":"56b0fc4faa4c5f35dcd1c34c1bd916fd24c9978c3435e5b69d8b87649da9b8d8","created":"2020-12-11T02:08:43.162307581Z","container_config":{"Cmd":["/bin/sh -c #(nop) ADD file:c3a852d22b3aac160ba028af69d56b491a2a9419f32a459c4b9b2cbd9129c004 in / "]}}',
+    },
+  ],
+  signatures: [
+    {
+      header: {
+        jwk: {
+          crv: 'P-256',
+          kid: 'RZIN:74Z6:2E67:JI5V:WTS7:YKYO:VSPS:5LAN:5TIJ:5XMT:XMTR:JXER',
+          kty: 'EC',
+          x: 'idbGw_f9uaBXF5TgNdeVh45554JcjOs0Djw-f8d4HKE',
+          y: '9vCe9laREBmBKUZPO0PbY9AG539gsBee4OBKkRW41jA',
+        },
+        alg: 'ES256',
+      },
+      signature: 'rNzaN5wkc--3ivqPmTRIu6LoEpEA-XkXwB4iWwa2QNfV6VpfCSdstbir6QgdColndLvhiImJWu0j22zYV99G8g',
+      protected: 'eyJmb3JtYXRMZW5ndGgiOjIwOTQzLCJmb3JtYXRUYWlsIjoiQ24wIiwidGltZSI6IjIwMjQtMDctMTFUMDY6MzQ6MTRaIn0',
+    },
+  ],
+};
+/* eslint-enable max-len, vue/max-len, no-template-curly-in-string */
+
 module.exports = {
   ociIndex,
   ociIndexUnsupported,
@@ -1368,4 +1511,5 @@ module.exports = {
   imageConfigArm64,
   oversizeDistributionManifestAmd64,
   oversizeOciManifestAmd64,
+  schemaV1Amd64,
 };
