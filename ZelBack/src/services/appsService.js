@@ -9037,32 +9037,27 @@ async function trySpawningGlobalApplication() {
 /**
  * To check and notify peers of running apps. Checks if apps are installed, stopped or running.
  */
-let nodeConfirmedOnLastCheck = true;
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
-      if (!nodeConfirmedOnLastCheck) {
-        const installedAppsRes = await installedApps();
-        if (installedAppsRes.status !== 'success') {
-          throw new Error('Failed to get installed Apps');
-        }
-        const appsInstalled = installedAppsRes.data;
-        // eslint-disable-next-line no-restricted-syntax
-        for (const installedApp of appsInstalled) {
-          log.info(`Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network for more than 2 hours..`);
-          log.warn(`Removing application ${installedApp.name} locally`);
-          // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(installedApp.name, null, false, true, true);
-          log.warn(`Application ${installedApp.name} locally removed`);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
-        }
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
       }
-      nodeConfirmedOnLastCheck = false;
+      const appsInstalled = installedAppsRes.data;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of appsInstalled) {
+        log.info(`Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network for more than 2 hours..`);
+        log.warn(`Removing application ${installedApp.name} locally`);
+        // eslint-disable-next-line no-await-in-loop
+        await removeAppLocally(installedApp.name, null, false, true, true);
+        log.warn(`Application ${installedApp.name} locally removed`);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
+      }
       return;
     }
-    nodeConfirmedOnLastCheck = true;
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
