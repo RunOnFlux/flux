@@ -9154,7 +9154,7 @@ async function checkAndNotifyPeersOfRunningApps() {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
-    if ((daemonHeight >= config.apprunningRefactorActivation || daemonHeight === 0) && checkAndNotifyPeersOfRunningAppsRun > 0) {
+    if (daemonHeight >= config.apprunningRefactorActivation && checkAndNotifyPeersOfRunningAppsRun > 0) {
       return;
     }
     checkAndNotifyPeersOfRunningAppsRun += 1;
