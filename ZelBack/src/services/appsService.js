@@ -9035,30 +9035,28 @@ async function trySpawningGlobalApplication() {
 }
 
 /**
- * To check and notify peers of running apps. Checks if apps are installed, stopped or running.
+ * Apps monitoring and node status check
  */
-let checkAndNotifyPeersOfRunningAppsRun = 0;
-async function checkAndNotifyPeersOfRunningApps() {
+async function nodeAndAppsStatusCheck() {
   try {
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height || 0;
-    if ((daemonHeight >= config.apprunningRefactorActivation || daemonHeight === 0) && checkAndNotifyPeersOfRunningAppsRun > 0) {
-      return;
-    }
-    checkAndNotifyPeersOfRunningAppsRun += 1;
-
-    // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
-    let myIP = null;
-    if (benchmarkResponse.status === 'success') {
-      const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
-      if (benchmarkResponseData.ipaddress) {
-        log.info(`Gathered IP ${benchmarkResponseData.ipaddress}`);
-        myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
+    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
       }
-    }
-    if (myIP === null) {
-      throw new Error('Unable to detect Flux IP address');
+      const appsInstalled = installedAppsRes.data;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of appsInstalled) {
+        log.info(`Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network for more than 2 hours..`);
+        log.warn(`Removing application ${installedApp.name} locally`);
+        // eslint-disable-next-line no-await-in-loop
+        await removeAppLocally(installedApp.name, null, false, true, true);
+        log.warn(`Application ${installedApp.name} locally removed`);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
+      }
+      return;
     }
     // get list of locally installed apps. Store them in database as running and send info to our peers.
     // check if they are running?
@@ -9141,6 +9139,87 @@ async function checkAndNotifyPeersOfRunningApps() {
     } else {
       log.warn('Stopped application checks not running, some removal or installation is in progress');
     }
+  } catch (error) {
+    log.error(error);
+  } finally {
+    await serviceHelper.delay(10 * 60 * 1000);
+    nodeAndAppsStatusCheck();
+  }
+}
+/**
+ * To check and notify peers of running apps. Checks if apps are installed, stopped or running.
+ */
+let checkAndNotifyPeersOfRunningAppsRun = 0;
+async function checkAndNotifyPeersOfRunningApps() {
+  try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
+    if ((daemonHeight >= config.apprunningRefactorActivation || daemonHeight === 0) && checkAndNotifyPeersOfRunningAppsRun > 0) {
+      return;
+    }
+    checkAndNotifyPeersOfRunningAppsRun += 1;
+
+    // get my external IP and check that it is longer than 5 in length.
+    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+    let myIP = null;
+    if (benchmarkResponse.status === 'success') {
+      const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+      if (benchmarkResponseData.ipaddress) {
+        log.info(`Gathered IP ${benchmarkResponseData.ipaddress}`);
+        myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
+      }
+    }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
+    }
+    // get list of locally installed apps. Store them in database as running and send info to our peers.
+    // check if they are running?
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const runningAppsRes = await listRunningApps();
+    if (runningAppsRes.status !== 'success') {
+      throw new Error('Unable to check running Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const runningApps = runningAppsRes.data;
+    const installedAppComponentNames = [];
+    appsInstalled.forEach((app) => {
+      if (app.version >= 4) {
+        app.compose.forEach((appComponent) => {
+          installedAppComponentNames.push(`${appComponent.name}_${app.name}`);
+        });
+      } else {
+        installedAppComponentNames.push(app.name);
+      }
+    });
+    // kadena and folding is old naming scheme having /zel.  all global application start with /flux
+    const runningAppsNames = runningApps.map((app) => {
+      if (app.Names[0].startsWith('/zel')) {
+        return app.Names[0].slice(4);
+      }
+      return app.Names[0].slice(5);
+    });
+    // installed always is bigger array than running
+    const runningSet = new Set(runningAppsNames);
+    const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
+    const masterSlaveAppsInstalled = [];
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const stoppedApp of stoppedApps) { // will uninstall app if some component is missing
+      try {
+        const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
+        const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
+        const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
+        if (appInstalledMasterSlaveCheck) {
+          masterSlaveAppsInstalled.push(appInstalledMasterSlave);
+        }
+      } catch (err) {
+        log.error(err);
+      }
+    }
+
     const installedAndRunning = [];
     appsInstalled.forEach((app) => {
       if (app.version >= 4) {
@@ -12880,4 +12959,5 @@ module.exports = {
   triggerAppHashesCheckAPI,
   masterSlaveApps,
   getAppSpecsUSDPrice,
+  nodeAndAppsStatusCheck,
 };

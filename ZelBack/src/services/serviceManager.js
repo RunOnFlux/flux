@@ -206,10 +206,13 @@ async function startFluxFunctions() {
       appsService.checkMyAppsAvailability(); // periodically checks
     }, 3 * 60 * 1000);
     setTimeout(() => {
-      appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
+      appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 2m of starting fluxos
       setInterval(() => { // every 60 mins messages stay on db for 65m
         appsService.checkAndNotifyPeersOfRunningApps();
       }, 60 * 60 * 1000);
+    }, 2 * 60 * 1000);
+    setTimeout(() => {
+      appsService.nodeAndAppsStatusCheck(); // start node and apps monitoring check
     }, 2 * 60 * 1000);
     setTimeout(() => {
       appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every 2 minutes
