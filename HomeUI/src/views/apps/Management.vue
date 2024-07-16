@@ -3438,6 +3438,11 @@
             />
           </b-col>
         </b-row>
+        <b-row class="pt-1">
+          <b-col>
+            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+          </b-col>
+        </b-row>
       </b-tab>
       <b-tab
         title="Update/Renew"
@@ -5775,6 +5780,7 @@ import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
+import FluxMap from '@/views/components/FluxMap.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
@@ -5861,6 +5867,7 @@ export default {
     // eslint-disable-next-line vue/no-unused-components
     BProgressBar,
     ConfirmDialog,
+    FluxMap,
     ListEntry,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
@@ -6298,6 +6305,9 @@ export default {
     };
   },
   computed: {
+    mapLocations() {
+      return this.instances.data.map((i) => i.ip);
+    },
     appRunningTill() {
       const blockTime = 2 * 60 * 1000;
       const expires = this.callBResponse.data.expire || 22000;
