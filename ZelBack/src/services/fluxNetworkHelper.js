@@ -27,6 +27,9 @@ let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
 let storedFluxBenchAllowed = null;
+let ipChangeData = null;
+let dosTooManyIpChanges = false;
+let maxNumberOfIpChanges = 0;
 
 // default cache
 const LRUoptions = {
@@ -637,11 +640,65 @@ function isCommunicationEstablished(req, res) {
 }
 
 /**
+ * To check ip changes limit. If over limit all apps are uninstalled from the node and it get dos state
+ * @returns {boolean} True if a ip as changes more than one time in the last 20h
+ */
+async function ipChangesOverLimit() {
+  const currentTime = Date.now();
+  if (ipChangeData) {
+    const oldTime = ipChangeData.time;
+    const timeDifference = currentTime - oldTime;
+    if (timeDifference <= 20 * 60 * 60 * 1000) {
+      ipChangeData.count += 1;
+      if (ipChangeData.count > maxNumberOfIpChanges) {
+        maxNumberOfIpChanges = ipChangeData.count;
+      }
+      if (ipChangeData.count >= 2) {
+        // eslint-disable-next-line global-require
+        const appsService = require('./appsService');
+        let apps = await appsService.installedApps();
+        if (apps.status === 'success' && apps.data.length > 0) {
+          apps = apps.data;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const app of apps) {
+            // eslint-disable-next-line no-await-in-loop
+            await appsService.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(500);
+          }
+        }
+        dosTooManyIpChanges = true;
+        return true;
+      }
+    } else {
+      ipChangeData.time = currentTime;
+      ipChangeData.count = 1;
+      maxNumberOfIpChanges = 1;
+    }
+    return false;
+  }
+  ipChangeData = {
+    time: currentTime,
+    count: 1,
+  };
+  return false;
+}
+
+function getMaxNumberOfIpChanges() {
+  return maxNumberOfIpChanges;
+}
+
+/**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
  * @returns {boolean} True if all checks passed.
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
+  if (dosTooManyIpChanges) {
+    dosState += 11;
+    setDosMessage('IP changes over the limit allowed, one in 20 hours');
+    return false;
+  }
   let userBlockedPorts = userconfig.initial.blockedPorts || [];
   userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
   if (Array.isArray(userBlockedPorts)) {
@@ -716,6 +773,11 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
           if (newIP && newIP !== oldIP) { // double check
             log.info('FluxBench reported a new IP');
+            if (await ipChangesOverLimit()) {
+              dosState += 11;
+              setDosMessage('IP changes over the limit allowed, one in 20 hours');
+              log.error(dosMessage);
+            }
             return true;
           }
         } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
@@ -1588,4 +1650,5 @@ module.exports = {
   isPortUserBlocked,
   allowNodeToBindPrivilegedPorts,
   removeDockerContainerAccessToNonRoutable,
+  getMaxNumberOfIpChanges,
 };

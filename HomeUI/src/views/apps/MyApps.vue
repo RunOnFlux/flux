@@ -408,6 +408,11 @@
                           /> &nbsp;Locations&nbsp;</kbd>
                       </h3>
                       <b-row>
+                        <b-col class="p-0 m-0">
+                          <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+                        </b-col>
+                      </b-row>
+                      <b-row>
                         <b-col
                           md="4"
                           sm="4"
@@ -988,6 +993,7 @@ import ToastificationContent from '@core/components/toastification/Toastificatio
 import ListEntry from '@/views/components/ListEntry.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import Management from '@/views/apps/Management.vue';
+import FluxMap from '@/views/components/FluxMap.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
 
@@ -1011,6 +1017,7 @@ export default {
     Management,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
+    FluxMap,
   },
   directives: {
     'b-tooltip': VBTooltip,
@@ -1122,6 +1129,9 @@ export default {
         return true;
       }
       return false;
+    },
+    mapLocations() {
+      return this.appLocations.map((l) => l.ip);
     },
   },
   mounted() {

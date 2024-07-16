@@ -3305,6 +3305,11 @@
           </b-card>
         </div>
         <b-row>
+          <b-col>
+            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+          </b-col>
+        </b-row>
+        <b-row>
           <b-col
             md="4"
             sm="4"
@@ -3350,7 +3355,6 @@
               </b-input-group>
             </b-form-group>
           </b-col>
-
           <b-col cols="12">
             <b-table
               :key="tableKey"
@@ -5775,6 +5779,7 @@ import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
 import ListEntry from '@/views/components/ListEntry.vue';
+import FluxMap from '@/views/components/FluxMap.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
@@ -5861,6 +5866,7 @@ export default {
     // eslint-disable-next-line vue/no-unused-components
     BProgressBar,
     ConfirmDialog,
+    FluxMap,
     ListEntry,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
@@ -6298,6 +6304,9 @@ export default {
     };
   },
   computed: {
+    mapLocations() {
+      return this.instances.data.map((i) => i.ip);
+    },
     appRunningTill() {
       const blockTime = 2 * 60 * 1000;
       const expires = this.callBResponse.data.expire || 22000;
@@ -8599,7 +8608,7 @@ export default {
       let response;
       try {
         if (this.appUpdateSpecification.nodes.length > 0) {
-          const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appUpdateSpecification.nodes.length)];
+          const nodeip = this.appUpdateSpecification.nodes[Math.floor(Math.random() * this.appUpdateSpecification.nodes.length)];
           const ip = nodeip.split(':')[0];
           const port = Number(nodeip.split(':')[1] || 16127);
           const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testappinstall/${app}`;
