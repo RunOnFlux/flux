@@ -451,6 +451,7 @@
    "zquestz",
    "ziii",
    "ghcr.io/marctheshark3/sigmanaut-mining-pool-ui",
+   "neuralyogi/sigmanaut-mining-pool-ui",
    "garyotto",
    "4haiko/dante-socks5-proxy",
    "jepbura/gaganode",
@@ -460,5 +461,8 @@
    "marciovieira3",
    "datarhei/restreamer",
    "vinitdcu",
-   "tinode"
+   "tinode",
+   "testnet32/flights_scraper",
+   "kingsimpa69/50-50.io",
+   "archivebox"
 ]
