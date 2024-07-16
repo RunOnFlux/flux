@@ -3428,9 +3428,6 @@
             </b-table>
           </b-col>
           <b-col cols="12">
-            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
-          </b-col>
-          <b-col cols="12">
             <b-pagination
               v-model="instances.currentPage"
               :total-rows="instances.totalRows"
@@ -3439,6 +3436,11 @@
               size="sm"
               class="my-0"
             />
+          </b-col>
+        </b-row>
+        <b-row class="pt-1">
+          <b-col>
+            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
           </b-col>
         </b-row>
       </b-tab>
