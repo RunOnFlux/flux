@@ -3305,6 +3305,11 @@
           </b-card>
         </div>
         <b-row>
+          <b-col>
+            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+          </b-col>
+        </b-row>
+        <b-row>
           <b-col
             md="4"
             sm="4"
@@ -3350,7 +3355,6 @@
               </b-input-group>
             </b-form-group>
           </b-col>
-
           <b-col cols="12">
             <b-table
               :key="tableKey"
@@ -3436,11 +3440,6 @@
               size="sm"
               class="my-0"
             />
-          </b-col>
-        </b-row>
-        <b-row class="pt-1">
-          <b-col>
-            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
           </b-col>
         </b-row>
       </b-tab>
