@@ -1,7 +1,10 @@
 const chai = require('chai');
 const sinon = require('sinon');
-const benchmarkrpc = require('daemonrpc');
+
 const { PassThrough } = require('stream');
+
+const fluxRpc = require('../../ZelBack/src/services/utils/fluxRpc');
+const fs = require('node:fs/promises');
 
 const { expect } = chai;
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -12,20 +15,20 @@ describe('benchmarkService tests', () => {
     let benchmarkStub;
 
     beforeEach(() => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getstatus').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
+      sinon.restore();
     });
 
     it('should return a sucessful response if called properly with no parameters', async () => {
       const executeCallResult = await benchmarkService.executeCall('getstatus');
-
       expect(executeCallResult).to.be.an('object');
       expect(executeCallResult.status).to.equal('success');
       expect(executeCallResult.data).to.equal('called');
-      sinon.assert.calledOnce(benchmarkStub);
+      sinon.assert.calledOnceWithExactly(benchmarkStub, 'getstatus', { params: [] });
     });
 
     it('should return a sucessful response if called properly with parameters', async () => {
@@ -35,16 +38,18 @@ describe('benchmarkService tests', () => {
 
       expect(executeCallResult).to.be.an('object');
       expect(executeCallResult.status).to.equal('success');
-      sinon.assert.calledOnceWithExactly(benchmarkStub, ...params);
+      sinon.assert.calledOnceWithExactly(benchmarkStub, 'getstatus', { params });
     });
 
     it('should throw error if called function does not exist', async () => {
+      benchmarkStub.rejects(new Error('Invalid Method: testing123'));
+
       const expectedErrorMessage = {
         status: 'error',
         data: {
           code: undefined,
-          message: 'client[rpc] is not a function',
-          name: 'TypeError',
+          message: 'Invalid Method: testing123',
+          name: 'Error',
         },
       };
       const executeCallRes = await benchmarkService.executeCall('testing123');
@@ -53,6 +58,8 @@ describe('benchmarkService tests', () => {
     });
 
     it('should throw error if parameter is not an iterable', async () => {
+      benchmarkStub.rejects(new Error('Params must be an Array'));
+
       const params = {
         test: 'test1',
         test2: 'test3',
@@ -61,8 +68,8 @@ describe('benchmarkService tests', () => {
         status: 'error',
         data: {
           code: undefined,
-          name: 'TypeError',
-          message: 'Spread syntax requires ...iterable[Symbol.iterator] to be a function',
+          name: 'Error',
+          message: 'Params must be an Array',
         },
       };
       const executeCallRes = await benchmarkService.executeCall('getstatus', params);
@@ -75,11 +82,12 @@ describe('benchmarkService tests', () => {
     let benchmarkStub;
 
     beforeEach(() => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getstatus').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
+      sinon.restore();
     });
 
     it('should return a sucessful response if called without parameters', async () => {
@@ -113,12 +121,12 @@ describe('benchmarkService tests', () => {
     let verificationHelperStub;
 
     beforeEach(async () => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'restartnodebenchmarks').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
-      verificationHelperStub.restore();
+      sinon.restore();
     });
 
     // No need to test specific privilege - function has been tested in verification helper
@@ -194,12 +202,12 @@ describe('benchmarkService tests', () => {
     let verificationHelperStub;
 
     beforeEach(async () => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'signzelnodetransaction').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
-      verificationHelperStub.restore();
+      sinon.restore();
     });
 
     it('should return a sucessful response if called without parameters by an authorized party', async () => {
@@ -223,7 +231,7 @@ describe('benchmarkService tests', () => {
       expect(signFluxTransactionResult.status).to.equal('success');
       expect(signFluxTransactionResult.data).to.equal('called');
       sinon.assert.calledOnceWithExactly(verificationHelperStub, 'admin', req);
-      sinon.assert.calledOnceWithExactly(benchmarkStub, req.params.hexstring);
+      sinon.assert.calledOnceWithExactly(benchmarkStub, 'signzelnodetransaction', { params: [req.params.hexstring] });
     });
 
     it('should return a sucessful response if called with parameters by an authorized party', async () => {
@@ -254,7 +262,7 @@ describe('benchmarkService tests', () => {
       sinon.assert.calledOnce(benchmarkStub);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(verificationHelperStub, 'admin', req);
-      sinon.assert.calledOnceWithExactly(benchmarkStub, req.params.hexstring);
+      sinon.assert.calledOnceWithExactly(benchmarkStub, 'signzelnodetransaction', { params: [req.params.hexstring] });
     });
 
     it('should return an access denied response if called without parameters by an unauthorized party', async () => {
@@ -284,20 +292,18 @@ describe('benchmarkService tests', () => {
     // TODO: These tests are going to be altered when we're switching all requests from streams to body.parse.
     // As they are right now - it's almost impossible to test without actually starting the deamon or without using hacky workarounds
 
-    let benchmarkStub;
-    let verificationHelperStub;
-
     beforeEach(async () => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'signzelnodetransaction').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
-      verificationHelperStub.restore();
+      sinon.restore();
     });
 
     it('should sign flux transaction if called properly', async () => {
-      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+      sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
+
       const req = {
         headers: {
           zelidauth: {
@@ -333,11 +339,12 @@ describe('benchmarkService tests', () => {
     let benchmarkStub;
 
     beforeEach(async () => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'help').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
+      sinon.restore();
     });
 
     it('should return a sucessful response if called without response', async () => {
@@ -351,7 +358,7 @@ describe('benchmarkService tests', () => {
       expect(signFluxTransactionResult).to.be.an('object');
       expect(signFluxTransactionResult.status).to.equal('success');
       expect(signFluxTransactionResult.data).to.equal('called');
-      sinon.assert.calledOnceWithExactly(benchmarkStub, req.params.command);
+      sinon.assert.calledOnceWithExactly(benchmarkStub, 'help', { params: [req.params.command] });
     });
 
     it('should return a sucessful response if called with response', async () => {
@@ -373,7 +380,7 @@ describe('benchmarkService tests', () => {
 
       sinon.assert.calledOnce(benchmarkStub);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
-      sinon.assert.calledOnceWithExactly(benchmarkStub, req.params.command);
+      sinon.assert.calledOnceWithExactly(benchmarkStub, 'help', { params: [req.params.command] });
     });
 
     it('should return a sucessful response if called with paramaters in query', async () => {
@@ -398,7 +405,7 @@ describe('benchmarkService tests', () => {
 
       sinon.assert.calledOnce(benchmarkStub);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
-      sinon.assert.calledOnceWithExactly(benchmarkStub, req.query.command);
+      sinon.assert.calledOnceWithExactly(benchmarkStub, 'help', { params: [req.query.command] });
     });
 
     it('should return a sucessful response if called without parameters in query or params', async () => {
@@ -423,7 +430,7 @@ describe('benchmarkService tests', () => {
 
       sinon.assert.calledOnce(benchmarkStub);
       sinon.assert.calledOnceWithExactly(mockResponse.json, expectedSuccessMessage);
-      sinon.assert.calledOnceWithExactly(benchmarkStub, '');
+      sinon.assert.calledOnceWithExactly(benchmarkStub, 'help', { params: [''] });
     });
   });
 
@@ -432,12 +439,12 @@ describe('benchmarkService tests', () => {
     let verificationHelperStub;
 
     beforeEach(async () => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'stop').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
-      verificationHelperStub.restore();
+      sinon.restore();
     });
 
     it('should return a sucessful response if called without parameters by an authorized party', async () => {
@@ -512,11 +519,12 @@ describe('benchmarkService tests', () => {
     let benchmarkStub;
 
     beforeEach(() => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getbenchmarks').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
+      sinon.restore();
     });
 
     it('should return a sucessful response if called without parameters', async () => {
@@ -549,11 +557,12 @@ describe('benchmarkService tests', () => {
     let benchmarkStub;
 
     beforeEach(() => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getInfo').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
+      sinon.restore();
     });
 
     it('should return a sucessful response if called without parameters', async () => {
@@ -586,11 +595,12 @@ describe('benchmarkService tests', () => {
     let benchmarkStub;
 
     beforeEach(() => {
-      benchmarkStub = sinon.stub(benchmarkrpc.Client.prototype, 'getpublicip').returns(Promise.resolve('called'));
+      sinon.stub(fs, 'stat').resolves(true);
+      benchmarkStub = sinon.stub(fluxRpc.FluxRpc.prototype, 'run').resolves('called');
     });
 
     afterEach(() => {
-      benchmarkStub.restore();
+      sinon.restore();
     });
 
     it('should return a sucessful response if called without parameters', async () => {
