@@ -5,7 +5,6 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
-const client = require('../../ZelBack/src/services/utils/daemonrpcClient').default;
 
 const generateResponse = () => {
   const res = { test: 'testing' };
@@ -20,7 +19,8 @@ describe('daemonServiceTransactionRpcs tests', () => {
     let clientStub;
     const execCallResult = 'RPC call executed';
     beforeEach(() => {
-      clientStub = sinon.stub(client, 'getBlockCount');
+      clientStub = sinon.stub();
+      sinon.stub(daemonServiceUtils, 'getFluxdClient').callsFake(() => ({ getBlockCount: clientStub }));
       daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves(execCallResult);
     });
 
@@ -221,7 +221,8 @@ describe('daemonServiceTransactionRpcs tests', () => {
     let clientStub;
     const execCallResult = 'RPC call executed';
     beforeEach(() => {
-      clientStub = sinon.stub(client, 'getBlockCount');
+      clientStub = sinon.stub();
+      sinon.stub(daemonServiceUtils, 'getFluxdClient').callsFake(() => ({ getBlockCount: clientStub }));
       daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves(execCallResult);
     });
 

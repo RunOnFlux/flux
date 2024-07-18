@@ -8,6 +8,7 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appsService = require('./appsService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const fluxService = require('./fluxService');
 const geolocationService = require('./geolocationService');
 const upnpService = require('./upnpService');
@@ -37,6 +38,7 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
     }
+    await daemonServiceUtils.buildFluxdClient();
     log.info('Checking docker log for corruption...');
     await dockerService.dockerLogsFix();
     await systemService.mongodGpgKeyVeryfity();
@@ -125,6 +127,15 @@ async function startFluxFunctions() {
       log.info('Starting setting Node Geolocation');
       geolocationService.setNodeGeolocation();
     }, 90 * 1000);
+    setTimeout(() => {
+      const { daemon: { zmqport } } = config;
+      log.info(`Ensuring zmq is enabled for fluxd on port: ${zmqport}`);
+      try {
+        systemService.enableFluxdZmq(`tcp://127.0.0.1:${zmqport}`);
+      } catch (err) {
+        log.error(err);
+      }
+    }, 20 * 60 * 1000);
     setTimeout(async () => { // wait as of restarts due to ui building
       try {
         // todo code shall be removed after some time
