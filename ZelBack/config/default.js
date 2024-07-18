@@ -74,7 +74,7 @@ module.exports = {
     rpcport: 16124,
     porttestnet: 26125,
     rpcporttestnet: 26124,
-    zmqport: 16126,
+    zmqport: 16123,
   },
   minimumFluxBenchAllowedVersion: '4.0.0',
   minimumFluxOSAllowedVersion: '5.4.0',
