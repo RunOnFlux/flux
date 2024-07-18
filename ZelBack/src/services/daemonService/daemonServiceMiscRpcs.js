@@ -3,7 +3,9 @@ const daemonServiceUtils = require('./daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
 const log = require('../../lib/log');
 
-const isTestnet = userconfig.initial.testnet;
+const userconfig = require('../../../../config/userconfig');
+
+const { initial: { isTestnet } } = userconfig;
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = isTestnet === true ? 377006 : 1136836;

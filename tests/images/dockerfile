@@ -1,6 +1,6 @@
 FROM ubuntu:22.04
 
-RUN apt-get update && apt-get install -y sudo ufw curl docker.io ca-certificates
+RUN apt-get update && apt-get install -y sudo ufw curl docker.io ca-certificates make
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 apt-get update && apt-get install -y nodejs

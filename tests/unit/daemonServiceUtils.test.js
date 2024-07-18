@@ -79,12 +79,12 @@ describe('daemonServiceUtils tests', () => {
       };
       const daemonRpcClientStub = sinon.stub().resolves(data);
 
-      daemonServiceUtils.setFluxdClient({ [rpc]: daemonRpcClientStub });
+      daemonServiceUtils.setFluxdClient({ run: daemonRpcClientStub });
       const result = await daemonServiceUtils.executeCall(rpc, params);
 
       expect(result).to.eql(expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(getSpy, key);
-      sinon.assert.calledOnceWithExactly(daemonRpcClientStub, ...params);
+      sinon.assert.calledOnceWithExactly(daemonRpcClientStub, rpc, { params });
       expect(daemonServiceUtils.getBlockCache(key)).to.eql(data);
     });
 
@@ -98,13 +98,13 @@ describe('daemonServiceUtils tests', () => {
         data,
       };
       const daemonRpcClientStub = sinon.stub().resolves(data);
-      daemonServiceUtils.setFluxdClient({ [rpc]: daemonRpcClientStub });
+      daemonServiceUtils.setFluxdClient({ run: daemonRpcClientStub });
 
       const result = await daemonServiceUtils.executeCall(rpc, params);
 
       expect(result).to.eql(expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(getSpy, key);
-      sinon.assert.calledOnceWithExactly(daemonRpcClientStub, ...params);
+      sinon.assert.calledOnceWithExactly(daemonRpcClientStub, rpc, { params });
       expect(daemonServiceUtils.getRawTxCacheCache(key)).to.eql(data);
     });
 
@@ -118,13 +118,13 @@ describe('daemonServiceUtils tests', () => {
         data,
       };
       const daemonRpcClientStub = sinon.stub().resolves(data);
-      daemonServiceUtils.setFluxdClient({ [rpc]: daemonRpcClientStub });
+      daemonServiceUtils.setFluxdClient({ run: daemonRpcClientStub });
 
       const result = await daemonServiceUtils.executeCall(rpc, params);
 
       expect(result).to.eql(expectedSuccessMessage);
       sinon.assert.calledOnceWithExactly(getSpy, key);
-      sinon.assert.calledOnceWithExactly(daemonRpcClientStub, ...params);
+      sinon.assert.calledOnceWithExactly(daemonRpcClientStub, rpc, { params });
       expect(daemonServiceUtils.getStandardCache(key)).to.eql(data);
     });
 
@@ -140,7 +140,7 @@ describe('daemonServiceUtils tests', () => {
         },
       };
       const daemonRpcClientStub = sinon.stub().throws();
-      daemonServiceUtils.setFluxdClient({ [rpc]: daemonRpcClientStub });
+      daemonServiceUtils.setFluxdClient({ run: daemonRpcClientStub });
 
       const result = await daemonServiceUtils.executeCall(rpc, params);
 

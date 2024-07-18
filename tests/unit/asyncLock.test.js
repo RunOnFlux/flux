@@ -79,4 +79,58 @@ describe('asyncLock tests', () => {
     expect(asyncLock.locked).to.be.false;
     await asyncLock.ready;
   });
+
+  it('should wait and unlock lock after timeout if not unlocked prior', async () => {
+    const clock = sinon.useFakeTimers();
+    const timeout = 3_000;
+    const asyncLock = new AsyncLock();
+
+    let testVar = false;
+
+    const tester = async () => {
+      await asyncLock.enable();
+      await asyncLock.unlockTimeout(timeout);
+      testVar = true;
+    };
+
+    expect(asyncLock.locked).to.be.false;
+
+    const promise = tester();
+
+    await clock.tickAsync(2_900);
+    expect(asyncLock.locked).to.be.true;
+    expect(testVar).to.be.false;
+
+    await clock.tickAsync(100);
+    await promise;
+    expect(asyncLock.locked).to.be.false;
+    expect(testVar).to.be.true;
+  });
+
+  it('should wait for lock with timeout and not unlock lock', async () => {
+    const clock = sinon.useFakeTimers();
+    const timeout = 3_000;
+    const asyncLock = new AsyncLock();
+
+    let testVar = false;
+
+    const tester = async () => {
+      await asyncLock.enable();
+      await asyncLock.readyTimeout(timeout);
+      testVar = true;
+    };
+
+    expect(asyncLock.locked).to.be.false;
+
+    const promise = tester();
+
+    await clock.tickAsync(2_900);
+    expect(asyncLock.locked).to.be.true;
+    expect(testVar).to.be.false;
+
+    await clock.tickAsync(100);
+    await promise;
+    expect(asyncLock.locked).to.be.true;
+    expect(testVar).to.be.true;
+  });
 });
