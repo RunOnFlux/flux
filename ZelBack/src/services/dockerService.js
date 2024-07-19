@@ -536,13 +536,13 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     if (Array.isArray(arraySecrets)) {
       arraySecrets.forEach((parameter) => {
         if (typeof parameter !== 'string' || parameter.length > 5000000) {
-          throw new Error('Environment parameters from Secrets are invalid');
+          throw new Error(`Environment parameters from Secrets are invalid - type or length: ${decodedEnvParams}`);
         } else if (parameter !== 'privileged') {
           envParams.push(parameter);
         }
       });
     } else {
-      throw new Error('Environment parameters from Secrets are invalid');
+      throw new Error(`Environment parameters from Secrets are invalid - not an array: ${decodedEnvParams}`);
     }
   }
   const adjustedCommands = [];
