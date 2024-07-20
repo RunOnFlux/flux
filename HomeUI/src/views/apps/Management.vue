@@ -5813,7 +5813,7 @@ const walletConnectOptions = {
 };
 
 const metamaskOptions = {
-  enableDebug: true,
+  // enableAnalytics: true,
 };
 
 const MMSDK = new MetaMaskSDK(metamaskOptions);
