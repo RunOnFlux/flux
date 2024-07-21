@@ -60,7 +60,7 @@
               outlined
               responsive
               :items="apps"
-              :fields="fields"
+              :fields="mergedFields"
               :sort-by.sync="tableOptions.sortBy"
               :sort-desc.sync="tableOptions.sortDesc"
               :sort-direction="tableOptions.sortDirection"
@@ -403,10 +403,8 @@
             class="my-0"
           />
         </b-col>
-        <div v-if="isLoggedIn && apps.length > 0">
-          <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
-          <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ apps.length || 0 }}&nbsp;</kbd></b>
-        </div>
+        <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
+        <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ apps.length || 0 }}&nbsp;</kbd></b>
       </b-card>
     </b-overlay>
   </b-tab>
@@ -426,6 +424,7 @@ const qs = require('qs');
 const geolocations = require('../../../libs/geolocation');
 
 export default {
+  expose: ['hideTabs'],
   components: {
     Locations,
     Redeploy,
@@ -454,7 +453,7 @@ export default {
     fields: {
       type: Array,
       default() {
-        return this.defaultFields;
+        return [];
       },
     },
   },
@@ -487,11 +486,21 @@ export default {
     emptyText() {
       return this.activeAppsTab ? 'No Global Apps are owned.' : 'No owned Apps are expired.';
     },
-    tableData() {
-      return this.activeAppsTab ? this.tableConfig.active : this.tableConfig.my_expired;
+    mergedFields() {
+      // deep copy (would use structuredClone but we dont have a polyfill for 14.18.1)
+      const fields = this.fields.map((a) => ({ ...a }));
+      this.defaultFields.forEach((field) => {
+        if (!fields.find((f) => f.key === field.key)) fields.push(field);
+      });
+      return fields;
     },
   },
   methods: {
+    hideTabs() {
+      this.apps.forEach((item) => {
+        this.$set(item, '_showDetails', false);
+      });
+    },
     openAppManagement(appName) {
       this.$emit('open-app-management', appName);
     },
@@ -619,7 +628,6 @@ export default {
       return `${result[0]}`;
     },
     getServiceUsageValue(index, name, compose) {
-      // eslint-disable-next-line space-before-blocks
       if (typeof compose?.compose === 'undefined') {
         this.usage = [+compose.cpu, +compose.ram, +compose.hdd];
         return this.usage[index];
@@ -640,7 +648,6 @@ export default {
       });
       // Return an array containing the sum of RAM, CPU, and HDD usage
       return [totalRAM, totalCPU, totalHDD];
-      // eslint-disable-next-line no-else-return
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -666,35 +673,15 @@ export default {
       }
     },
     async loadLocations(row) {
-      this.appLocations = [];
       const response = await AppsService.getAppLocation(row.item.name).catch((error) => {
         this.showToast('danger', error.message || error);
         return { data: { status: 'fail' } };
       });
       if (response.data.status === 'success') {
-        const appLocations = response.data.data;
+        const { data: { data: appLocations } } = response;
         this.appLocations = appLocations;
       }
     },
   },
 };
 </script>
-
-<style>
-  /* .apps-active-table td:nth-child(1) {
-    padding: 0 0  5px;
-  }
-  .apps-active-table th:nth-child(1) {
-    padding: 0 0 0 5px;
-  }
-  .myapps-table td:nth-child(1) {
-    padding: 0 0 0 5px;
-  }
-  .myapps-table th:nth-child(1) {
-    padding: 0 0 0 5px;
-  }
-  .myapps-table thead th,
-  .myapps-table tbody td {
-    text-transform: none !important;
-  } */
-</style>

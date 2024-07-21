@@ -1,42 +1,33 @@
 <template>
   <div>
-    <b-tabs
-      v-if="!managedApplication"
-      pills
-      @activate-tab="tabChanged()"
-    >
-      <my-apps-tab :apps="activeApps" :current-block-height="daemonBlockCount" @open-app-management="openAppManagement" />
-      <my-apps-tab :apps="expiredApps" :active-apps-tab="false" :current-block-height="daemonBlockCount" />
+    <b-tabs v-if="!managedApplication" pills @activate-tab="tabChanged">
+      <my-apps-tab
+        ref="activeApps"
+        :apps="activeApps"
+        :loading="loading.active"
+        :current-block-height="daemonBlockCount"
+        @open-app-management="openAppManagement"
+      />
+      <my-apps-tab
+        ref="expiredApps"
+        :apps="expiredApps"
+        :loading="loading.expired"
+        :current-block-height="daemonBlockCount"
+        :active-apps-tab="false"
+      />
     </b-tabs>
     <management
       v-if="managedApplication"
       :app-name="managedApplication"
       :global="true"
       :installed-apps="[]"
-      @back="clearManagedApplication()"
+      @back="clearManagedApplication"
     />
   </div>
 </template>
 
 <script>
-import {
-  BTabs,
-  // BTab,
-  // BTable,
-  // BCol,
-  // BCard,
-  // // BCardTitle,
-  // BRow,
-  // BButton,
-  // BOverlay,
-  VBTooltip,
-} from 'bootstrap-vue';
-
-import Ripple from 'vue-ripple-directive';
-import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
-// import ListEntry from f'@/views/components/ListEntry.vue';
 import Management from '@/views/apps/Management.vue';
-// import ExpiryLabel from '@/views/components/myApps/ExpiryLabel.vue';
 import MyAppsTab from '@/views/components/myApps/MyAppsTab.vue';
 import AppsService from '@/services/AppsService';
 import DaemonService from '@/services/DaemonService';
@@ -45,28 +36,12 @@ const qs = require('qs');
 
 export default {
   components: {
-    BTabs,
-    // BTab,
-    // BTable,
-    // BCol,
-    // BCard,
-    // // BCardTitle,
-    // BRow,
-    // BButton,
-    // BOverlay,
-    // ListEntry,
     Management,
-    // eslint-disable-next-line vue/no-unused-components
-    ToastificationContent,
     MyAppsTab,
-    // ExpiryLabel,
-  },
-  directives: {
-    'b-tooltip': VBTooltip,
-    Ripple,
   },
   data() {
     return {
+      allApps: [],
       activeApps: [],
       expiredApps: [],
       managedApplication: '',
@@ -75,8 +50,6 @@ export default {
         active: true,
         expired: true,
       },
-      allApps: [],
-      allNodesLocations: [],
     };
   },
   created() {
@@ -86,7 +59,9 @@ export default {
   },
   methods: {
     async getDaemonBlockCount() {
-      const response = await DaemonService.getBlockCount();
+      const response = await DaemonService.getBlockCount().catch(
+        () => ({ data: { status: 'fail' } }),
+      );
       if (response.data.status === 'success') {
         this.daemonBlockCount = response.data.data;
       }
@@ -96,10 +71,15 @@ export default {
     },
     clearManagedApplication() {
       this.managedApplication = '';
+      this.$nextTick(() => {
+        this.tabChanged();
+      });
     },
     async getActiveApps() {
       this.loading.active = true;
-      const response = await AppsService.globalAppSpecifications().catch(() => ({ data: { data: [] } }));
+      const response = await AppsService.globalAppSpecifications().catch(
+        () => ({ data: { data: [] } }),
+      );
       this.allApps = response.data.data;
 
       const zelidauth = localStorage.getItem('zelidauth');
@@ -116,30 +96,43 @@ export default {
         const auth = qs.parse(zelidauth);
         if (!auth.zelid) return;
 
-        const response = await AppsService.permanentMessagesOwner(auth.zelid).catch(() => ({ data: { data: [] } }));
+        const response = await AppsService.permanentMessagesOwner(
+          auth.zelid,
+        ).catch(() => ({ data: { data: [] } }));
         const adjustedPermMessages = [];
 
-        const { data: { data: appMessages } } = response;
-        appMessages.forEach((appMess) => {
-          const appExists = adjustedPermMessages.find((existingApp) => existingApp.appSpecifications.name === appMess.appSpecifications.name);
+        const {
+          data: { data: appMessages },
+        } = response;
+        appMessages.forEach((msg) => {
+          const appExists = adjustedPermMessages.find(
+            (existingApp) => existingApp.appSpecifications.name
+              === msg.appSpecifications.name,
+          );
           if (appExists) {
-            if (appMess.height > appExists.height) {
-              const index = adjustedPermMessages.findIndex((existingApp) => existingApp.appSpecifications.name === appMess.appSpecifications.name);
+            if (msg.height > appExists.height) {
+              const index = adjustedPermMessages.findIndex(
+                (existingApp) => existingApp.appSpecifications.name
+                  === msg.appSpecifications.name,
+              );
               if (index > -1) {
                 adjustedPermMessages.splice(index, 1);
-                adjustedPermMessages.push(appMess);
+                adjustedPermMessages.push(msg);
               }
             }
           } else {
-            adjustedPermMessages.push(appMess);
+            adjustedPermMessages.push(msg);
           }
         });
 
         const expiredApps = [];
-        adjustedPermMessages.forEach((appMes) => {
-          const appAlreadyDeployed = this.allApps.find((existingApp) => existingApp.name.toLowerCase() === appMes.appSpecifications.name.toLowerCase());
+        adjustedPermMessages.forEach((msg) => {
+          const appAlreadyDeployed = this.allApps.find(
+            (existingApp) => existingApp.name.toLowerCase()
+              === msg.appSpecifications.name.toLowerCase(),
+          );
           if (!appAlreadyDeployed) {
-            const app = appMes.appSpecifications;
+            const app = msg.appSpecifications;
             expiredApps.push(app);
           }
         });
@@ -152,12 +145,8 @@ export default {
       }
     },
     tabChanged() {
-      this.activeApps.forEach((item) => {
-        this.$set(item, '_showDetails', false);
-      });
-      this.expiredApps.forEach((item) => {
-        this.$set(item, '_showDetails', false);
-      });
+      this.$refs.activeApps.hideTabs();
+      this.$refs.expiredApps.hideTabs();
     },
   },
 };
