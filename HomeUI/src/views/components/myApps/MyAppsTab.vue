@@ -685,3 +685,15 @@ export default {
   },
 };
 </script>
+<style lang="scss">
+  .myapps-table td:nth-child(1) {
+    padding: 0 0 0 5px;
+  }
+  .myapps-table th:nth-child(1) {
+    padding: 0 0 0 5px;
+  }
+  .myapps-table thead th,
+  .myapps-table tbody td {
+    text-transform: none !important;
+  }
+</style>
