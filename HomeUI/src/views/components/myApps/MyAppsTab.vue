@@ -492,7 +492,7 @@ export default {
   },
   computed: {
     emptyText() {
-      if (!this.loggedIn) return 'You must login to see your applications.';
+      if (!this.loggedIn) return 'You must log in to see your applications.';
       return this.activeAppsTab ? 'No Global Apps are owned.' : 'No owned Apps are expired.';
     },
     mergedFields() {
