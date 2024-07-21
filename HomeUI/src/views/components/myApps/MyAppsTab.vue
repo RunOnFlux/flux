@@ -13,17 +13,20 @@
           <b-col
             md="4"
             sm="4"
-            class="my-1"
+            class="my-1 pl-0"
           >
-            <b-form-group class="mb-0">
-              <label class="d-inline-block text-left mr-50">
-                Per page
-                <b-form-select
-                  v-model="tableOptions.perPage"
-                  size="sm"
-                  :options="tableOptions.pageOptions"
-                  class="w-50"
-                /></label>
+            <b-form-group
+              class="mb-0"
+              label="Per Page"
+              label-cols-sm="3"
+              label-align-sm="right"
+            >
+              <b-form-select
+                v-model="tableOptions.perPage"
+                size="sm"
+                :options="tableOptions.pageOptions"
+                class="w-50"
+              />
             </b-form-group>
           </b-col>
           <b-col
@@ -53,6 +56,8 @@
               </b-input-group>
             </b-form-group>
           </b-col>
+        </b-row>
+        <b-row>
           <b-col cols="12">
             <b-table
               class="myapps-table"
