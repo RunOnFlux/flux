@@ -5,6 +5,7 @@
         ref="activeApps"
         :apps="activeApps"
         :loading="loading.active"
+        :logged-in="loggedIn"
         :current-block-height="daemonBlockCount"
         @open-app-management="openAppManagement"
       />
@@ -12,6 +13,7 @@
         ref="expiredApps"
         :apps="expiredApps"
         :loading="loading.expired"
+        :logged-in="loggedIn"
         :current-block-height="daemonBlockCount"
         :active-apps-tab="false"
       />
@@ -50,9 +52,11 @@ export default {
         active: true,
         expired: true,
       },
+      loggedIn: false,
     };
   },
   created() {
+    this.setLoginStatus();
     this.getActiveApps();
     this.getExpiredApps();
     this.getDaemonBlockCount();
@@ -85,7 +89,10 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
 
-      if (!auth) return;
+      if (!auth) {
+        this.$set(this.activeApps, []);
+        return;
+      }
 
       this.activeApps = this.allApps.filter((app) => app.owner === auth.zelid);
       this.loading.active = false;
@@ -94,7 +101,10 @@ export default {
       try {
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
-        if (!auth.zelid) return;
+        if (!auth.zelid) {
+          this.$set(this.expiredApps, []);
+          return;
+        }
 
         const response = await AppsService.permanentMessagesOwner(
           auth.zelid,
@@ -147,6 +157,13 @@ export default {
     tabChanged() {
       this.$refs.activeApps.hideTabs();
       this.$refs.expiredApps.hideTabs();
+      this.setLoginStatus();
+    },
+    setLoginStatus() {
+      const zelidauth = localStorage.getItem('zelidauth');
+      const auth = qs.parse(zelidauth);
+      // this should check time too
+      this.loggedIn = Boolean(auth.zelid);
     },
   },
 };

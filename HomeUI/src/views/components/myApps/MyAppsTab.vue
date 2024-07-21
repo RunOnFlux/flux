@@ -425,7 +425,6 @@ import Redeploy from '@/views/components/myApps/Redeploy.vue';
 import Manage from '@/views/components/myApps/Manage.vue';
 import ExpiryLabel from '@/views/components/myApps/ExpiryLabel.vue';
 
-const qs = require('qs');
 const geolocations = require('../../../libs/geolocation');
 
 export default {
@@ -461,6 +460,10 @@ export default {
         return [];
       },
     },
+    loggedIn: {
+      type: Boolean,
+      default: false,
+    },
   },
   data() {
     return {
@@ -489,6 +492,7 @@ export default {
   },
   computed: {
     emptyText() {
+      if (!this.loggedIn) return 'You must login to see your applications.';
       return this.activeAppsTab ? 'No Global Apps are owned.' : 'No owned Apps are expired.';
     },
     mergedFields() {
@@ -508,14 +512,6 @@ export default {
     },
     openAppManagement(appName) {
       this.$emit('open-app-management', appName);
-    },
-    isLoggedIn() {
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      if (auth.zelid) {
-        return true;
-      }
-      return false;
     },
     getGeolocation(geo) {
       if (geo.startsWith('a') && !geo.startsWith('ac') && !geo.startsWith('a!c')) {
