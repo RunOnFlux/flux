@@ -13,13 +13,13 @@
           <b-col
             md="4"
             sm="4"
-            class="my-1 pl-0"
+            class="my-1"
           >
             <b-form-group
               class="mb-0"
               label="Per Page"
-              label-cols-sm="3"
-              label-align-sm="right"
+              label-cols-sm="auto"
+              label-align-sm="left"
             >
               <b-form-select
                 v-model="tableOptions.perPage"
