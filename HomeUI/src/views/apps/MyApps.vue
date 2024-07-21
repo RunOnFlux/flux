@@ -57,8 +57,7 @@ export default {
   },
   created() {
     this.setLoginStatus();
-    this.getActiveApps();
-    this.getExpiredApps();
+    this.getApps();
     this.getDaemonBlockCount();
   },
   methods: {
@@ -153,6 +152,10 @@ export default {
       } finally {
         this.loading.expired = false;
       }
+    },
+    async getApps() {
+      await this.getActiveApps();
+      await this.getExpiredApps();
     },
     tabChanged() {
       this.$refs.activeApps.hideTabs();
