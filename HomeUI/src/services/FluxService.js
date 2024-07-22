@@ -102,13 +102,6 @@ export default {
       },
     });
   },
-  adjustCruxID(zelidauthHeader, cruxid) {
-    return Api().get(`/flux/adjustcruxid/${cruxid}`, {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-    });
-  },
   adjustKadena(zelidauthHeader, account, chainid) {
     return Api().get(`/flux/adjustkadena/${account}/${chainid}`, {
       headers: {
@@ -147,14 +140,6 @@ export default {
       },
     };
     return Api().post('/flux/adjustblockedrepositories', data, axiosConfig);
-  },
-  getCruxID() {
-    const axiosConfig = {
-      headers: {
-        'x-apicache-bypass': true,
-      },
-    };
-    return Api().get('/flux/cruxid', axiosConfig);
   },
   getKadenaAccount() {
     const axiosConfig = {
