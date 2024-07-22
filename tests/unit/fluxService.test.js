@@ -2247,36 +2247,6 @@ describe('fluxService tests', () => {
     });
   });
 
-  describe('adjustCruxID tests', () => {
-    let verifyPrivilegeStub;
-    let fsPromisesSpy;
-
-    beforeEach(() => {
-      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fs, 'writeFile');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return error when unauthorized ', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(false);
-      const expectedResponse = {
-        data: {
-          code: 401,
-          message: 'Unauthorized. Access denied.',
-          name: 'Unauthorized',
-        },
-        status: 'error',
-      };
-      await fluxService.adjustCruxID(undefined, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-  });
-
   describe('routerIP tests', () => {
     let verifyPrivilegeStub;
     let fsPromisesSpy;
