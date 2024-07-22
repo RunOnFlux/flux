@@ -807,11 +807,11 @@ export default {
       const chainid = this.kadenaChainIDInput;
       const zelidauth = localStorage.getItem('zelidauth');
       try {
-        const cruxIDResponse = await FluxService.adjustKadena(zelidauth, account, chainid);
-        if (cruxIDResponse.data.status === 'error') {
-          this.showToast('danger', cruxIDResponse.data.data.message || cruxIDResponse.data.data);
+        const response = await FluxService.adjustKadena(zelidauth, account, chainid);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
         } else {
-          this.showToast('success', cruxIDResponse.data.data.message || cruxIDResponse.data.data);
+          this.showToast('success', response.data.data.message || response.data.data);
         }
       } catch (error) {
         this.showToast('danger', error.message || error);

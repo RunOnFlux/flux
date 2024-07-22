@@ -1103,33 +1103,6 @@ describe('fluxService tests', () => {
     });
   });
 
-  describe('getFluxCruxID tests', () => {
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should trigger rpc, no response passed', async () => {
-      const result = await fluxService.getFluxCruxID();
-
-      expect(result.status).to.equal('success');
-      expect(result.data).to.be.a('string');
-      expect(result.data).to.equal(adminConfig.initial.cruxid);
-    });
-
-    it('should trigger rpc, response passed', async () => {
-      const res = generateResponse();
-      const expectedResponse = {
-        status: 'success',
-        data: adminConfig.initial.cruxid,
-      };
-
-      const result = await fluxService.getFluxCruxID(undefined, res);
-
-      expect(result).to.equal(`Response: ${expectedResponse}`);
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-  });
-
   describe('getFluxKadena tests', () => {
     afterEach(() => {
       sinon.restore();
@@ -2302,135 +2275,6 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
-
-    it('should return a message when cruxid is proper and is adjusted ', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        params: {
-          cruxid: 'testing@testing.crux',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: undefined,
-          message: 'CruxID adjusted',
-          name: undefined,
-        },
-        status: 'success',
-      };
-      const expectedData = `module.exports = {
-        initial: {
-          ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${adminConfig.initial.zelid}',
-          kadena: '${adminConfig.initial.kadena || ''}',
-          testnet: ${adminConfig.initial.testnet || false},
-          development: ${adminConfig.initial.development || false},
-          apiport: ${Number(adminConfig.initial.apiport)},
-          routerIP: '${adminConfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
-          pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-          blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-        }
-      }`;
-      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
-
-      await fluxService.adjustCruxID(req, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
-    });
-
-    it('should return a message when cruxid is proper, passed in queryand is adjusted', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          cruxid: 'testing@testing.crux',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: undefined,
-          message: 'CruxID adjusted',
-          name: undefined,
-        },
-        status: 'success',
-      };
-      await fluxService.adjustCruxID(req, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-
-    it('should return error if there is no @ symbol', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        params: {
-          cruxid: 'testingtesting.crux',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: undefined,
-          message: 'Invalid Crux ID provided',
-          name: 'Error',
-        },
-        status: 'error',
-      };
-      await fluxService.adjustCruxID(req, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-
-    it('should return error if there is no .crux in the id', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        params: {
-          cruxid: 'testing@testing',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: undefined,
-          message: 'Invalid Crux ID provided',
-          name: 'Error',
-        },
-        status: 'error',
-      };
-      await fluxService.adjustCruxID(req, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
-
-    it('should return error if no crux id is provided', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          test: 'test',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: undefined,
-          message: 'No Crux ID provided',
-          name: 'Error',
-        },
-        status: 'error',
-      };
-      await fluxService.adjustCruxID(req, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-    });
   });
 
   describe('routerIP tests', () => {
@@ -2849,31 +2693,6 @@ describe('fluxService tests', () => {
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
       sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
-    });
-
-    it('should return a message when cruxid is proper, passed in query and is adjusted', async () => {
-      const res = generateResponse();
-      verifyPrivilegeStub.returns(true);
-      const req = {
-        params: {
-          test: 'test',
-        },
-        query: {
-          account: 'testing',
-          chainid: '5',
-        },
-      };
-      const expectedResponse = {
-        data: {
-          code: undefined,
-          message: 'Kadena account adjusted',
-          name: undefined,
-        },
-        status: 'success',
-      };
-      await fluxService.adjustKadenaAccount(req, res);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
     });
 
     it('should return error if chain id > 20', async () => {
