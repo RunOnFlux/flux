@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "5.17.0",
+  "version": "5.18.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -87,7 +87,6 @@
     "apicache": "~1.6.3",
     "archiver": "~6.0.1",
     "axios": "~1.7.2",
-    "bitcoin": "~3.0.3",
     "bitcoinjs-message": "~2.2.0",
     "cacheable-lookup": "~7.0.0",
     "compression": "~1.7.4",
@@ -99,7 +98,6 @@
     "express": "~4.19.2",
     "fast-xml-parser": "~4.3.2",
     "formidable": "~2.1.2",
-    "fullnode": "file:lib/fullnode",
     "http-shutdown": "~1.2.2",
     "inquirer": "~8.2.6",
     "js-yaml": "~4.1.0",
@@ -122,7 +120,8 @@
     "tar-fs": "~3.0.6",
     "ws": "~7.5.9",
     "xterm": "~5.1.0",
-    "zeltrezjs": "~2.12.0"
+    "zeltrezjs": "~2.12.0",
+    "zeromq": "~5.3.1"
   },
   "devDependencies": {
     "@babel/core": "~7.23.6",

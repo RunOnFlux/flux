@@ -4,7 +4,6 @@ const os = require('node:os');
 const { promisify } = require('node:util');
 
 const config = require('config');
-const fullnode = require('fullnode');
 
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
@@ -646,18 +645,6 @@ function getFluxPGPidentity(req, res) {
 }
 
 /**
- * To show the current CruxID that is being used with FluxOS.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-function getFluxCruxID(req, res) {
-  const cruxID = userconfig.initial.cruxid || null;
-  const message = messageHelper.createDataMessage(cruxID);
-  return res ? res.json(message) : message;
-}
-
-/**
  * To show the current user's Kadena address (public key) that is being used with FluxOS.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -746,7 +733,7 @@ async function daemonDebug(req, res) {
     return res.json(errMessage);
   }
   // check daemon datadir
-  const defaultDir = new fullnode.Config().defaultFolder();
+  const defaultDir = daemonServiceUtils.getFluxdDir();
   const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
@@ -791,7 +778,7 @@ async function tailDaemonDebug(req, res) {
     return;
   }
 
-  const defaultDir = new fullnode.Config().defaultFolder();
+  const defaultDir = daemonServiceUtils.getFluxdDir();
   const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
   const filepath = path.join(datadir, 'debug.log');
 
@@ -1113,11 +1100,6 @@ async function getFluxInfo(req, res) {
     if (pgp.status === 'error') {
       throw pgp.data;
     }
-    const cruxidRes = await getFluxCruxID();
-    if (cruxidRes.status === 'error') {
-      throw cruxidRes.data;
-    }
-    info.flux.cruxid = cruxidRes.data;
     const timeResult = await getFluxTimezone();
     if (timeResult.status === 'error') {
       throw timeResult.data;
@@ -1209,58 +1191,6 @@ async function getFluxInfo(req, res) {
       error.code,
     );
     return res ? res.json(errorResponse) : errorResponse;
-  }
-}
-
-/**
- * To adjust the current CruxID that is being used with FluxOS. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function adjustCruxID(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized === true) {
-      let { cruxid } = req.params;
-      cruxid = cruxid || req.query.cruxid;
-      if (!cruxid) {
-        throw new Error('No Crux ID provided');
-      }
-      if (!cruxid.includes('@')) {
-        throw new Error('Invalid Crux ID provided');
-      }
-      if (!cruxid.includes('.crux')) {
-        throw new Error('Invalid Crux ID provided');
-      }
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
-          kadena: '${userconfig.initial.kadena || ''}',
-          testnet: ${userconfig.initial.testnet || false},
-          development: ${userconfig.initial.development || false},
-          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-          routerIP: '${userconfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-          blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-        }
-      }`;
-
-      await fs.writeFile(fluxDirPath, dataToWrite);
-
-      const successMessage = messageHelper.createSuccessMessage('CruxID adjusted');
-      res.json(successMessage);
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
   }
 }
 
@@ -1780,7 +1710,6 @@ module.exports = {
   adjustAPIPort,
   adjustBlockedPorts,
   adjustBlockedRepositories,
-  adjustCruxID,
   adjustKadenaAccount,
   adjustRouterIP,
   benchmarkDebug,
@@ -1798,7 +1727,6 @@ module.exports = {
   getBlockedRepositories,
   getCurrentBranch,
   getCurrentCommitId,
-  getFluxCruxID,
   getFluxGeolocation,
   getFluxInfo,
   getFluxIP,

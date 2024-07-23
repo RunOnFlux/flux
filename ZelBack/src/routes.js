@@ -255,9 +255,6 @@ module.exports = (app) => {
   app.get('/flux/pgp', cache('30 seconds'), (req, res) => {
     fluxService.getFluxPGPidentity(req, res);
   });
-  app.get('/flux/cruxid', cache('30 seconds'), (req, res) => {
-    fluxService.getFluxCruxID(req, res);
-  });
   app.get('/flux/kadena', cache('30 seconds'), (req, res) => {
     fluxService.getFluxKadena(req, res);
   });
@@ -880,9 +877,6 @@ module.exports = (app) => {
     idService.logoutAllUsers(req, res);
   });
 
-  app.get('/flux/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
-    fluxService.adjustCruxID(req, res);
-  });
   app.get('/flux/adjustkadena/:account?/:chainid?', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustKadenaAccount(req, res);
   });

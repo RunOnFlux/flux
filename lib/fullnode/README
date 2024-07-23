@@ -1,0 +1,8 @@
+**This Folder MUST exist**
+
+Until all nodes remove the `fullnode` package. Once this happens, we can remove
+this folder.
+
+The reason for this is that when using `file:` in `package.json`, it symlinks the
+package into `node_modules`. If we then delete the source folder, npm has a bad
+time and `fluxOS` won't start.

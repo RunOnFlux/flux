@@ -388,6 +388,15 @@ describe('imageVerifier tests', () => {
       expect(result.service).to.eql('registry.docker.io');
       expect(result.scope).to.eql('repository:runonflux/secretwebsite:pull');
     });
+    it('should parse auth header with underscores correctly', async () => {
+      const authHeader = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:jeffvaderflux/helloworld_params:pull"';
+
+      const result = ImageVerifier.parseAuthHeader(authHeader);
+
+      expect(result.realm).to.eql('https://auth.docker.io/token');
+      expect(result.service).to.eql('registry.docker.io');
+      expect(result.scope).to.eql('repository:jeffvaderflux/helloworld_params:pull');
+    });
   });
 
   describe('verifyImage tests', async () => {
