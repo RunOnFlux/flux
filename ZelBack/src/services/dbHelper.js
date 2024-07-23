@@ -23,7 +23,7 @@ function databaseConnection() {
  *
  * @param {string} [url]
  *
- * @returns {object} mongodb.MongoClient
+ * @returns {object} MongoClient
  */
 async function connectMongoDb(url) {
   const connectUrl = url || mongoUrl;
@@ -32,17 +32,17 @@ async function connectMongoDb(url) {
     useUnifiedTopology: true,
     maxPoolSize: 100,
   };
-  const db = await MongoClient.connect(connectUrl, mongoSettings);
-  return db;
+  const client = await MongoClient.connect(connectUrl, mongoSettings);
+  return client;
 }
 
 /**
  * Initiates default db connection.
- * @returns true
+ * @returns mongodb.MongoClient
  */
 async function initiateDB() {
   if (!openDBConnection) openDBConnection = await connectMongoDb();
-  return true;
+  return openDBConnection;
 }
 
 /**
