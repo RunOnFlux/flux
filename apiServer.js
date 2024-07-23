@@ -115,7 +115,7 @@ async function getPreProdState(client) {
  * @returns {Promise<void>}
  */
 async function setProductionBranch(client, repoDir) {
-  const { userconfig: { initial: { development } } } = userconfig;
+  const { initial: { development } } = userconfig;
   const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
   if (development) return;
