@@ -83,9 +83,12 @@ module.exports = {
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   fluxSupportTeamFluxID: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
   deterministicNodesStart: 558000,
-  preprodProbability: 0.07,
-  fluxRepoUrl: 'https://github.com/RunOnFlux/flux.git',
-  preprodBranchName: 'preprod',
+  preProd: {
+    probability: 0.07,
+    remote: 'https://github.com/RunOnFlux/flux.git',
+    branch: 'preprod',
+    daysToNextEval: 30,
+  },
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [

@@ -33,7 +33,7 @@ class FluxRepository {
 
   async switchBranch(branch, options = {}) {
     const forceClean = options.forceClean || false;
-    const reset = options.reset ?? true;
+    const reset = options.reset || false;
     const remote = options.remote || 'origin';
 
     try {

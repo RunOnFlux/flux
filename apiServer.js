@@ -51,7 +51,7 @@ let cacheable = null;
  */
 function isPreProdNode() {
   const chance = Math.random();
-  return chance <= config.preprodProbability;
+  return chance <= config.preProd.probability;
 }
 
 /**
@@ -86,7 +86,7 @@ async function getPreProdNode(col) {
 
   const timestamp = new Date(id.getTimestamp());
 
-  timestamp.setDate(timestamp.getDate() + 30);
+  timestamp.setDate(timestamp.getDate() + config.preProd.daysToNextEval);
 
   if (timestamp < new Date()) return null;
 
@@ -98,8 +98,6 @@ async function getPreProdNode(col) {
  * @returns {Promise<boolean>}
  */
 async function getPreProdState(client) {
-  console.log('getting preprod state');
-
   const db = client.db('zelfluxlocal');
   const col = db.collection('state');
   col.createIndex({ key: 1 }, { unique: true });
@@ -115,49 +113,54 @@ async function getPreProdState(client) {
  * @returns {Promise<void>}
  */
 async function setProductionBranch(client, repoDir) {
-  const { initial: { development } } = userconfig;
-  const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+  const { initial: { development, disablePreProd } } = userconfig;
+  // Develop nodes take priority over preProd nodes.
+  if (development || disablePreProd) return;
 
-  if (development) return;
+  const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
   const preprodNode = await getPreProdState(client);
 
-  const { preprodBranchName, fluxRepoUrl } = config;
+  const { preProd: { branch, remote } } = config;
 
-  const targetBranch = preprodNode ? preprodBranchName : 'master';
+  const targetBranch = preprodNode ? branch : 'master';
 
   const repo = new fluxRepository.FluxRepository({ repoDir });
   const remotes = await repo.remotes();
-  const branch = await repo.currentBranch();
+  const currentBranch = await repo.currentBranch();
 
   const origin = remotes.find(
-    (r) => r.refs.fetch === fluxRepoUrl,
+    (r) => r.refs.fetch === remote,
   );
 
   // if we don't find the origin, something is fishy. Maybe git:// scheme, maybe a
   // different origin. Either way, we let it go and continue on whatever branch is set.
   if (!origin) return;
 
-  if (branch === targetBranch) return;
+  if (currentBranch === targetBranch) return;
 
-  await repo.switchBranch(targetBranch, { remote: origin.name, forceClean: true });
+  await repo.switchBranch(targetBranch, {
+    remote: origin.name,
+    forceClean: true,
+    reset: true,
+  });
 
-  // nodemon should kill this process as we've changed files.
+  // nodemon should kill this process within 5 seconds as we've changed files.
 
   await sleep(10_000);
 
-  // We're still here. Maybe no backend files changed. Lets trigger a restart.
-  // We're just updating the file access / modified times - which nodemon sees
-  // as files changed.
+  // We're still here. Maybe no backend files changed with the branch switch.
+  // Lets trigger a restart. We're just updating the file access / modified
+  // times - which nodemon sees as files changed.
 
   const time = new Date();
-  const testFile = path.join(this.repoPath, 'ZelBack/config/default.js');
+  const testFile = path.join(repoDir, 'ZelBack/config/default.js');
   await fs.utimes(testFile, time, time).catch(() => { });
 
   await sleep(10_000);
 
-  // Without knowing for sure what the supervisor is, this just feels too risky.
-  // We just let it go, and continue running on our current branch.
+  // Without knowing for sure what the supervisor is, forking the current process
+  // just feels too risky. We just let it go, and continue running on our current branch.
 
   // We're still here. Doesn't seem like nodemon is running. Lets just fork
   // ourselves then.
@@ -353,9 +356,11 @@ async function initiate() {
     process.exit(1);
   });
 
+  const appRoot = process.cwd();
+
   const dbClient = await dbHelper.initiateDB().catch(() => null);
 
-  if (dbClient) await setProductionBranch(dbClient);
+  if (dbClient) await setProductionBranch(dbClient, appRoot);
 
   await createDnsCache();
 
@@ -365,7 +370,6 @@ async function initiate() {
     configReload();
   }, 2 * 1000);
 
-  const appRoot = process.cwd();
   // ToDo: move this to async
   const certExists = fs.existsSync(path.join(appRoot, 'certs/v1.key'));
 
