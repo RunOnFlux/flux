@@ -114,6 +114,7 @@
     "path": "~0.12.7",
     "path-to-regexp": "~6.2.2",
     "qs": "~6.11.2",
+    "simple-git": "~3.25.0",
     "socket.io": "~4.7.2",
     "splitargs": "~0.0.7",
     "store": "~2.0.12",
