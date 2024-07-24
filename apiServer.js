@@ -114,6 +114,21 @@ async function getPreProdState(client) {
 }
 
 /**
+ * Determines if this is a preprod node or production node.
+ * @param {MongoClient} client
+ * @returns {Promise<boolean>}
+ */
+async function getPreProdState(client) {
+  const db = client.db('zelfluxlocal');
+  const col = db.collection('state');
+  col.createIndex({ key: 1 }, { unique: true });
+
+  const preprodNode = await getPreProdNode(col) ?? await setPreProdNode(col);
+
+  return preprodNode;
+}
+
+/**
  * Chooses either preprod or production branches. Except if the node is on deveop,
  * then nothing happens. If the branch is changed, fluxOS is restarted by Nodemon,
  * if it is running.
@@ -130,6 +145,9 @@ async function setProductionBranch(client, repoDir) {
 
   const preprodNode = await getPreProdState(client);
 
+  const logText = preprodNode ? 'pre-production' : 'production';
+  log.info(`Fluxnode running in ${logText} mode`);
+
   const { preProd: { branch, remote } } = config;
 
   const targetBranch = preprodNode ? branch : 'master';
@@ -138,15 +156,22 @@ async function setProductionBranch(client, repoDir) {
   const remotes = await repo.remotes();
   const currentBranch = await repo.currentBranch();
 
+  log.info(`Fluxnode on branch: ${currentBranch}`);
+
   const origin = remotes.find(
     (r) => r.refs.fetch === remote,
   );
 
   // if we don't find the origin, something is fishy. Maybe git:// scheme, maybe a
   // different origin. Either way, we let it go and continue on whatever branch is set.
-  if (!origin) return;
+  if (!origin) {
+    log.warn(`Unable to find remote ref: ${remote} in remotes... skipping preprod setup`);
+    return;
+  }
 
   if (currentBranch === targetBranch) return;
+
+  log.info(`Switching from branch: ${currentBranch} to: ${targetBranch}`);
 
   await repo.switchBranch(targetBranch, {
     remote: origin.name,
