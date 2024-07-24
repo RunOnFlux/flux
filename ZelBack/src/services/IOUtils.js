@@ -457,6 +457,7 @@ async function fileUpload(req, res) {
       .on('progress', (bytesReceived, bytesExpected) => {
         try {
           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+          res.flush();
         } catch (error) {
           log.error(error);
         }
@@ -469,6 +470,7 @@ async function fileUpload(req, res) {
       .on('file', (name, file) => {
         try {
           res.write(serviceHelper.ensureString(name));
+          res.flush();
         } catch (error) {
           log.error(error);
         }
@@ -485,6 +487,7 @@ async function fileUpload(req, res) {
         );
         try {
           res.write(serviceHelper.ensureString(errorResponse));
+          res.flush();
         } catch (e) {
           log.error(e);
         }

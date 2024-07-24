@@ -216,6 +216,7 @@ async function dockerContainerStatsStream(idOrName, req, res, callback) {
     function onProgress(event) {
       if (res) {
         res.write(serviceHelper.ensureString(event));
+        res.flush();
       }
       log.info(event);
     }
@@ -281,6 +282,7 @@ function dockerPullStream(pullConfig, res, callback) {
     function onProgress(event) {
       if (res) {
         res.write(serviceHelper.ensureString(event));
+        res.flush();
       }
       log.info(event);
     }
@@ -324,6 +326,7 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       mystream.on('data', (data) => {
         resultString = serviceHelper.dockerBufferToString(data);
         res.write(resultString);
+        res.flush();
       });
       mystream.on('end', () => callback(null));
     });
@@ -348,6 +351,7 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
     const logStream = new stream.PassThrough();
     logStream.on('data', (chunk) => {
       res.write(serviceHelper.ensureString(chunk.toString('utf8')));
+      res.flush();
     });
 
     dockerContainer.logs(
