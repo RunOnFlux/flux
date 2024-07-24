@@ -126,8 +126,9 @@ async function getCurrentBranch(req, res) {
  * @returns {Promise<boolean>}
  */
 async function isPreProdNode() {
-  const currentBranch = await getCurrentBranch();
+  const currentBranch = await fluxRepo.currentBranch();
   const { preProd: { branch: preProdBranch } } = config;
+
   return currentBranch === preProdBranch;
 }
 
@@ -1078,8 +1079,6 @@ async function getFluxInfo(req, res) {
     if (nodeJsVersionsRes.status === 'error') {
       throw nodeJsVersionsRes.data;
     }
-    const preProdNode = await isPreProdNode();
-    info.flux.preProdNode = preProdNode;
     info.flux.nodeJsVersion = nodeJsVersionsRes.data.node;
     const syncthingVersion = await syncthingService.systemVersion();
     if (syncthingVersion.status === 'error') {
@@ -1094,6 +1093,8 @@ async function getFluxInfo(req, res) {
     }
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
+    const preProdNode = await isPreProdNode();
+    info.flux.preProdNode = preProdNode;
     info.flux.maxNumberOfIpChanges = fluxNetworkHelper.getMaxNumberOfIpChanges();
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
