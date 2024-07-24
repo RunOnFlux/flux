@@ -177,7 +177,7 @@ async function setProductionBranch(client, repoDir) {
     remote: origin.name,
     forceClean: true,
     reset: true,
-  });
+  }).catch((err) => log.info(err));
 
   // nodemon should kill this process within 5 seconds as we've changed files.
 

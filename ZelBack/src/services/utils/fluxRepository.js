@@ -36,22 +36,17 @@ class FluxRepository {
     const reset = options.reset || false;
     const remote = options.remote || 'origin';
 
-    try {
-      if (forceClean) {
-        await this.git.clean(CleanOptions.FORCE + CleanOptions.RECURSIVE);
-      }
-
-      if (reset) {
-        await this.git.reset(ResetMode.HARD);
-      }
-
-      await this.git.fetch(remote, branch);
-
-      await this.git.checkout(branch);
-    } catch {
-      return false;
+    if (forceClean) {
+      await this.git.clean(CleanOptions.FORCE + CleanOptions.RECURSIVE);
     }
-    return true;
+
+    if (reset) {
+      await this.git.reset(ResetMode.HARD);
+    }
+
+    await this.git.fetch(remote, branch);
+
+    await this.git.checkout(branch);
   }
 }
 
