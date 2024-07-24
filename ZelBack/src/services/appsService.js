@@ -1809,7 +1809,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   log.info(searchSpace);
   if (res) {
     res.write(serviceHelper.ensureString(searchSpace));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   // we want whole numbers in GB
@@ -1880,7 +1880,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   log.info(searchSpace2);
   if (res) {
     res.write(serviceHelper.ensureString(searchSpace2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   try {
@@ -1890,7 +1890,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(allocateSpace);
     if (res) {
       res.write(serviceHelper.ensureString(allocateSpace));
-      res.flush();
+      if (res.flush) res.flush();
     }
 
     let execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted
@@ -1905,7 +1905,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(allocateSpace2);
     if (res) {
       res.write(serviceHelper.ensureString(allocateSpace2));
-      res.flush();
+      if (res.flush) res.flush();
     }
 
     const makeFilesystem = {
@@ -1914,7 +1914,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(makeFilesystem);
     if (res) {
       res.write(serviceHelper.ensureString(makeFilesystem));
-      res.flush();
+      if (res.flush) res.flush();
     }
     let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
     if (useThisVolume.mount === '/') {
@@ -1927,7 +1927,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(makeFilesystem2);
     if (res) {
       res.write(serviceHelper.ensureString(makeFilesystem2));
-      res.flush();
+      if (res.flush) res.flush();
     }
 
     const makeDirectory = {
@@ -1936,7 +1936,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(makeDirectory);
     if (res) {
       res.write(serviceHelper.ensureString(makeDirectory));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
     await cmdAsync(execDIR);
@@ -1946,7 +1946,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(makeDirectory2);
     if (res) {
       res.write(serviceHelper.ensureString(makeDirectory2));
-      res.flush();
+      if (res.flush) res.flush();
     }
 
     const mountingStatus = {
@@ -1955,7 +1955,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(mountingStatus);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus));
-      res.flush();
+      if (res.flush) res.flush();
     }
     let execMount = `sudo mount -o loop ${useThisVolume.mount}/${appId}FLUXFSVOL ${appsFolder + appId}`;
     if (useThisVolume.mount === '/') {
@@ -1968,7 +1968,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(mountingStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
-      res.flush();
+      if (res.flush) res.flush();
     }
 
     const permissionsDirectory = {
@@ -1977,7 +1977,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(permissionsDirectory);
     if (res) {
       res.write(serviceHelper.ensureString(permissionsDirectory));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
     await cmdAsync(execPERM);
@@ -1987,7 +1987,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(permissionsDirectory2);
     if (res) {
       res.write(serviceHelper.ensureString(permissionsDirectory2));
-      res.flush();
+      if (res.flush) res.flush();
     }
 
     // if s flag create .stfolder
@@ -2004,7 +2004,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         log.info(stFolderCreation);
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation));
-          res.flush();
+          if (res.flush) res.flush();
         }
         const execDIRst = `sudo mkdir -p ${appsFolder + appId + containerFolder}/.stfolder`;
         // eslint-disable-next-line no-await-in-loop
@@ -2015,7 +2015,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         log.info(stFolderCreation2);
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
-          res.flush();
+          if (res.flush) res.flush();
         }
         if (i === 0) {
           const stignore = `sudo echo '/backup' >| ${appsFolder + appId + containerFolder}/.stignore`;
@@ -2028,7 +2028,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           log.info(stiFileCreation);
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
-            res.flush();
+            if (res.flush) res.flush();
           }
         }
       }
@@ -2040,7 +2040,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(cronStatus);
     if (res) {
       res.write(serviceHelper.ensureString(cronStatus));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const crontab = await crontabLoad();
     const jobs = crontab.jobs();
@@ -2072,7 +2072,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(cronStatusB);
     if (res) {
       res.write(serviceHelper.ensureString(cronStatusB));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const message = messageHelper.createSuccessMessage('Flux App volume creation completed.');
     return message;
@@ -2086,7 +2086,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(cleaningRemoval);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningRemoval));
-      res.flush();
+      if (res.flush) res.flush();
     }
     let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${appId}FLUXFSVOL`;
     if (useThisVolume.mount === '/') {
@@ -2101,7 +2101,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(aloocationRemoval2);
     if (res) {
       res.write(serviceHelper.ensureString(aloocationRemoval2));
-      res.flush();
+      if (res.flush) res.flush();
     }
     throw error;
   }
@@ -2122,7 +2122,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(stopStatus);
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   let monitoredName = appName;
   if (isComponent) {
@@ -2137,7 +2137,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
   });
   const stopStatus2 = {
@@ -2146,7 +2146,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(stopStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   // eslint-disable-next-line no-use-before-define
@@ -2158,7 +2158,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(removeStatus);
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   await dockerService.appDockerRemove(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
@@ -2169,7 +2169,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
   });
   const removeStatus2 = {
@@ -2178,7 +2178,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(removeStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   const imageStatus = {
@@ -2187,7 +2187,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
@@ -2198,7 +2198,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
   });
   const imageStatus2 = {
@@ -2207,7 +2207,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   const portStatus = {
@@ -2216,7 +2216,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(portStatus);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   if (appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -2252,7 +2252,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(portStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   const unmuontStatus = {
@@ -2261,7 +2261,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(unmuontStatus);
   if (res) {
     res.write(serviceHelper.ensureString(unmuontStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   const execUnmount = `sudo umount ${appsFolder + appId}`;
   await cmdAsync(execUnmount).then(() => {
@@ -2271,7 +2271,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(unmuontStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(unmuontStatus2));
-      res.flush();
+      if (res.flush) res.flush();
     }
   }).catch((e) => {
     log.error(e);
@@ -2281,7 +2281,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(unmuontStatus3);
     if (res) {
       res.write(serviceHelper.ensureString(unmuontStatus3));
-      res.flush();
+      if (res.flush) res.flush();
     }
   });
 
@@ -2291,7 +2291,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(cleaningStatus);
   if (res) {
     res.write(serviceHelper.ensureString(cleaningStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   const execDelete = `sudo rm -rf ${appsFolder + appId}`;
   await cmdAsync(execDelete).catch((e) => {
@@ -2302,7 +2302,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(cleaningStatusE);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningStatusE));
-      res.flush();
+      if (res.flush) res.flush();
     }
   });
   const cleaningStatus2 = {
@@ -2311,7 +2311,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(cleaningStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(cleaningStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   let volumepath;
@@ -2322,7 +2322,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(cronStatus);
   if (res) {
     res.write(serviceHelper.ensureString(cronStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   const crontab = await crontabLoad().catch((e) => {
@@ -2333,7 +2333,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(cronE);
     if (res) {
       res.write(serviceHelper.ensureString(cronE));
-      res.flush();
+      if (res.flush) res.flush();
     }
   });
   if (crontab) {
@@ -2368,7 +2368,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
         log.info(cronE);
         if (res) {
           res.write(serviceHelper.ensureString(cronE));
-          res.flush();
+          if (res.flush) res.flush();
         }
       }
       const cronStatusDone = {
@@ -2377,7 +2377,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       log.info(cronStatusDone);
       if (res) {
         res.write(serviceHelper.ensureString(cronStatusDone));
-        res.flush();
+        if (res.flush) res.flush();
       }
     } else {
       const cronStatusNotFound = {
@@ -2386,7 +2386,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       log.info(cronStatusNotFound);
       if (res) {
         res.write(serviceHelper.ensureString(cronStatusNotFound));
-        res.flush();
+        if (res.flush) res.flush();
       }
     }
   }
@@ -2398,7 +2398,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(cleaningVolumeStatus);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningVolumeStatus));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const execVolumeDelete = `sudo rm -rf ${volumepath}`;
     await cmdAsync(execVolumeDelete).catch((e) => {
@@ -2409,7 +2409,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       log.info(cleaningVolumeStatusE);
       if (res) {
         res.write(serviceHelper.ensureString(cleaningVolumeStatusE));
-        res.flush();
+        if (res.flush) res.flush();
       }
     });
     const cleaningVolumeStatus2 = {
@@ -2418,7 +2418,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(cleaningVolumeStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
-      res.flush();
+      if (res.flush) res.flush();
     }
   }
   const appRemovalResponse = {
@@ -2427,7 +2427,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(appRemovalResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appRemovalResponse));
-    res.flush();
+    if (res.flush) res.flush();
   }
 }
 
@@ -2451,7 +2451,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         log.warn(warnResponse);
         if (res) {
           res.write(serviceHelper.ensureString(warnResponse));
-          res.flush();
+          if (res.flush) res.flush();
           if (endResponse) {
             res.end();
           }
@@ -2463,7 +2463,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         log.warn(warnResponse);
         if (res) {
           res.write(serviceHelper.ensureString(warnResponse));
-          res.flush();
+          if (res.flush) res.flush();
           if (endResponse) {
             res.end();
           }
@@ -2575,7 +2575,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       log.info(dockerNetworkStatus);
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworkStatus));
-        res.flush();
+        if (res.flush) res.flush();
       }
       await dockerService.removeFluxAppDockerNetwork(appName).catch((error) => log.error(error));
       const dockerNetworkStatus2 = {
@@ -2584,7 +2584,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       log.info(dockerNetworkStatus2);
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworkStatus2));
-        res.flush();
+        if (res.flush) res.flush();
       }
       const databaseStatus = {
         status: 'Cleaning up database...',
@@ -2592,7 +2592,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       log.info(databaseStatus);
       if (res) {
         res.write(serviceHelper.ensureString(databaseStatus));
-        res.flush();
+        if (res.flush) res.flush();
       }
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
       const databaseStatus2 = {
@@ -2601,7 +2601,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       log.info(databaseStatus2);
       if (res) {
         res.write(serviceHelper.ensureString(databaseStatus2));
-        res.flush();
+        if (res.flush) res.flush();
       }
     }
     const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was successfuly removed`);
@@ -2609,7 +2609,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     if (res) {
       res.write(serviceHelper.ensureString(appRemovalResponseDone));
-      res.flush();
+      if (res.flush) res.flush();
     }
     if (res && endResponse) {
       res.end();
@@ -2625,7 +2625,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.flush();
+      if (res.flush) res.flush();
       if (endResponse) {
         res.end();
       }
@@ -2648,7 +2648,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(stopStatus);
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   let monitoredName = appName;
   if (isComponent) {
@@ -2663,7 +2663,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
   });
 
@@ -2673,7 +2673,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(stopStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   const removeStatus = {
@@ -2682,7 +2682,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(removeStatus);
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   await dockerService.appDockerRemove(appId);
@@ -2693,7 +2693,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(removeStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   const imageStatus = {
@@ -2702,7 +2702,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
@@ -2713,7 +2713,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
   });
   const imageStatus2 = {
@@ -2722,7 +2722,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   const portStatus = {
@@ -2731,7 +2731,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(portStatus);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   if (appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -2767,7 +2767,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(portStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
-    res.flush();
+    if (res.flush) res.flush();
   }
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
@@ -2775,7 +2775,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(appRemovalResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appRemovalResponse));
-    res.flush();
+    if (res.flush) res.flush();
   }
 }
 
@@ -2844,7 +2844,7 @@ async function softRemoveAppLocally(app, res) {
     log.info(databaseStatus);
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus));
-      res.flush();
+      if (res.flush) res.flush();
     }
     await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     const databaseStatus2 = {
@@ -2853,13 +2853,13 @@ async function softRemoveAppLocally(app, res) {
     log.info(databaseStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus2));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
     log.info(appRemovalResponseDone);
     if (res) {
       res.write(serviceHelper.ensureString(appRemovalResponseDone));
-      res.flush();
+      if (res.flush) res.flush();
     }
   }
 
@@ -3213,7 +3213,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   if (res) {
     res.write(serviceHelper.ensureString(pullStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   await createAppVolume(appSpecifications, appName, isComponent, res);
@@ -3224,7 +3224,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   log.info(createApp);
   if (res) {
     res.write(serviceHelper.ensureString(createApp));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
@@ -3235,7 +3235,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   log.info(portStatusInitial);
   if (res) {
     res.write(serviceHelper.ensureString(portStatusInitial));
-    res.flush();
+    if (res.flush) res.flush();
   }
   if (!test && appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -3251,7 +3251,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
           log.info(portStatus);
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
-            res.flush();
+            if (res.flush) res.flush();
           }
         } else {
           throw new Error(`Error: Port ${port} FAILed to open.`);
@@ -3274,7 +3274,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
           log.info(portStatus);
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
-            res.flush();
+            if (res.flush) res.flush();
           }
         } else {
           throw new Error(`Error: Port ${port} FAILed to map.`);
@@ -3293,7 +3293,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
-          res.flush();
+          if (res.flush) res.flush();
         }
       } else {
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
@@ -3312,7 +3312,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
-          res.flush();
+          if (res.flush) res.flush();
         }
       } else {
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
@@ -3325,7 +3325,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   log.info(startStatus);
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   if (test || (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:'))) {
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
@@ -3340,7 +3340,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     log.info(appResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
   }
 }
@@ -3416,7 +3416,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     log.info(precheckForInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(precheckForInstallation));
-      res.flush();
+      if (res.flush) res.flush();
     }
     // connect to mongodb
     const dbOpenTest = {
@@ -3425,7 +3425,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     log.info(dbOpenTest);
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const dbopen = dbHelper.databaseConnection();
 
@@ -3445,7 +3445,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     log.info(checkDb);
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
@@ -3496,7 +3496,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       log.info(dockerContainers);
       if (res) {
         res.write(serviceHelper.ensureString(dockerContainers));
-        res.flush();
+        if (res.flush) res.flush();
       }
       await dockerService.pruneContainers();
       const dockerContainers2 = {
@@ -3504,7 +3504,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(dockerContainers2));
-        res.flush();
+        if (res.flush) res.flush();
       }
 
       const dockerNetworks = {
@@ -3513,7 +3513,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       log.info(dockerNetworks);
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworks));
-        res.flush();
+        if (res.flush) res.flush();
       }
       await dockerService.pruneNetworks();
       const dockerNetworks2 = {
@@ -3521,7 +3521,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworks2));
-        res.flush();
+        if (res.flush) res.flush();
       }
 
       const dockerVolumes = {
@@ -3530,7 +3530,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       log.info(dockerVolumes);
       if (res) {
         res.write(serviceHelper.ensureString(dockerVolumes));
-        res.flush();
+        if (res.flush) res.flush();
       }
       await dockerService.pruneVolumes();
       const dockerVolumes2 = {
@@ -3538,7 +3538,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(dockerVolumes2));
-        res.flush();
+        if (res.flush) res.flush();
       }
 
       const dockerImages = {
@@ -3547,7 +3547,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       log.info(dockerImages);
       if (res) {
         res.write(serviceHelper.ensureString(dockerImages));
-        res.flush();
+        if (res.flush) res.flush();
       }
       await dockerService.pruneImages();
       const dockerImages2 = {
@@ -3555,7 +3555,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(dockerImages2));
-        res.flush();
+        if (res.flush) res.flush();
       }
     }
 
@@ -3570,7 +3570,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       log.info(fluxNetworkStatus);
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetworkStatus));
-        res.flush();
+        if (res.flush) res.flush();
       }
       let fluxNet = null;
       for (let i = 0; i <= 20; i += 1) {
@@ -3592,14 +3592,14 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(accessRemovedRes));
-        res.flush();
+        if (res.flush) res.flush();
       }
       const fluxNetResponse = {
         status: `Docker network of ${appName} initiated.`,
       };
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetResponse));
-        res.flush();
+        if (res.flush) res.flush();
       }
     }
 
@@ -3609,7 +3609,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     log.info(appInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(appInstallation));
-      res.flush();
+      if (res.flush) res.flush();
     }
     if (!isComponent) {
       // register the app
@@ -3687,14 +3687,14 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
     if (!test) {
       const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
       log.info(removeStatus);
       if (res) {
         res.write(serviceHelper.ensureString(removeStatus));
-        res.flush();
+        if (res.flush) res.flush();
       }
       removeAppLocally(appSpecs.name, res, true, true, false);
     }
@@ -3762,7 +3762,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   };
   if (res) {
     res.write(serviceHelper.ensureString(pullStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   const createApp = {
@@ -3771,7 +3771,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   log.info(createApp);
   if (res) {
     res.write(serviceHelper.ensureString(createApp));
-    res.flush();
+    if (res.flush) res.flush();
   }
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
@@ -3782,7 +3782,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   log.info(portStatusInitial);
   if (res) {
     res.write(serviceHelper.ensureString(portStatusInitial));
-    res.flush();
+    if (res.flush) res.flush();
   }
   if (appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -3798,7 +3798,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
           log.info(portStatus);
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
-            res.flush();
+            if (res.flush) res.flush();
           }
         } else {
           throw new Error(`Error: Port ${port} FAILed to open.`);
@@ -3821,7 +3821,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
           log.info(portStatus);
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
-            res.flush();
+            if (res.flush) res.flush();
           }
         } else {
           throw new Error(`Error: Port ${port} FAILed to map.`);
@@ -3840,7 +3840,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
-          res.flush();
+          if (res.flush) res.flush();
         }
       } else {
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
@@ -3859,7 +3859,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
-          res.flush();
+          if (res.flush) res.flush();
         }
       } else {
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
@@ -3872,7 +3872,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   log.info(startStatus);
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
-    res.flush();
+    if (res.flush) res.flush();
   }
   if (!appSpecifications.containerData.includes('g:')) {
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
@@ -3885,7 +3885,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     log.info(appResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
   }
 }
@@ -3943,7 +3943,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.info(precheckForInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(precheckForInstallation));
-      res.flush();
+      if (res.flush) res.flush();
     }
     // connect to mongodb
     const dbOpenTest = {
@@ -3952,7 +3952,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.info(dbOpenTest);
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const dbopen = dbHelper.databaseConnection();
 
@@ -3972,7 +3972,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.info(checkDb);
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
@@ -3997,7 +3997,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       log.info(fluxNetworkStatus);
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetworkStatus));
-        res.flush();
+        if (res.flush) res.flush();
       }
       let fluxNet = null;
       for (let i = 0; i <= 20; i += 1) {
@@ -4019,14 +4019,14 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(accessRemovedRes));
-        res.flush();
+        if (res.flush) res.flush();
       }
       const fluxNetResponse = {
         status: `Docker network of ${appName} initiated.`,
       };
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetResponse));
-        res.flush();
+        if (res.flush) res.flush();
       }
     }
 
@@ -4036,7 +4036,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.info(appInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(appInstallation));
-      res.flush();
+      if (res.flush) res.flush();
     }
     if (!isComponent) {
       // register the app
@@ -4092,13 +4092,13 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
     const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
-      res.flush();
+      if (res.flush) res.flush();
     }
     removeAppLocally(appSpecs.name, res, true);
   }
@@ -9574,7 +9574,7 @@ async function softRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        res.flush();
+        if (res.flush) res.flush();
       }
       return;
     }
@@ -9583,7 +9583,7 @@ async function softRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
-        res.flush();
+        if (res.flush) res.flush();
       }
       return;
     }
@@ -9599,7 +9599,7 @@ async function softRedeploy(appSpecs, res) {
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
@@ -9626,7 +9626,7 @@ async function hardRedeploy(appSpecs, res) {
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
-      res.flush();
+      if (res.flush) res.flush();
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
@@ -10616,11 +10616,11 @@ async function stopSyncthingApp(appComponentName, res, isBackRestore) {
         log.info(adjustSyncthingA);
         if (res) {
           res.write(serviceHelper.ensureString(adjustSyncthingA));
-          res.flush();
+          if (res.flush) res.flush();
         }
         if (res) {
           res.write(serviceHelper.ensureString(adjustSyncthingB));
-          res.flush();
+          if (res.flush) res.flush();
         }
       }
       folderId = null;
@@ -12237,7 +12237,7 @@ async function sendChunk(res, chunk) {
   return new Promise((resolve) => {
     setTimeout(() => {
       res.write(`${chunk}\n`);
-      res.flush();
+      if (res.flush) res.flush();
       resolve();
     }, 3000); // Adjust the delay as needed
   });
