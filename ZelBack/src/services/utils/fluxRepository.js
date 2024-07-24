@@ -47,7 +47,7 @@ class FluxRepository {
       await this.git.reset(ResetMode.HARD);
     }
 
-    const exists = this.git.revparse(['--verify', branch]).catch(() => false);
+    const exists = await this.git.revparse(['--verify', branch]).catch(() => false);
 
     if (exists) {
       await this.git.checkout(branch);
