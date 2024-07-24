@@ -114,21 +114,6 @@ async function getPreProdState(client) {
 }
 
 /**
- * Determines if this is a preprod node or production node.
- * @param {MongoClient} client
- * @returns {Promise<boolean>}
- */
-async function getPreProdState(client) {
-  const db = client.db('zelfluxlocal');
-  const col = db.collection('state');
-  col.createIndex({ key: 1 }, { unique: true });
-
-  const preprodNode = await getPreProdNode(col) ?? await setPreProdNode(col);
-
-  return preprodNode;
-}
-
-/**
  * Chooses either preprod or production branches. Except if the node is on deveop,
  * then nothing happens. If the branch is changed, fluxOS is restarted by Nodemon,
  * if it is running.
