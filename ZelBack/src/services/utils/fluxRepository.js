@@ -47,18 +47,15 @@ class FluxRepository {
       await this.git.reset(ResetMode.HARD);
     }
 
-    await this.git.checkout(branch);
+    const exists = this.git.revparse(['--verify', branch]).catch(() => false);
 
-    // we clean / reset again as we don't know the state of the local branch
-    if (forceClean) {
-      await this.git.clean(CleanOptions.FORCE + CleanOptions.RECURSIVE);
+    if (exists) {
+      await this.git.checkout(branch);
+      await this.git.merge(['--ff-only']);
+      return;
     }
 
-    if (reset) {
-      await this.git.reset(ResetMode.HARD);
-    }
-
-    await this.git.merge(['--ff-only']);
+    await this.git.checkout(['--track', `${remote}/${branch}`]);
   }
 }
 
