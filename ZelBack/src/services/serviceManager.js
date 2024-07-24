@@ -256,6 +256,11 @@ async function startFluxFunctions() {
     setInterval(() => {
       backupRestoreService.cleanLocalBackup();
     }, 25 * 60 * 1000); // every 25 minutes
+    setTimeout(() => {
+      setInterval(() => {
+        fluxService.monitorAppsRunningOnNodes();
+      }, 5 * 60 * 1000); //  every 5 minutes
+    }, 5 * 60 * 1000);
     if (development) { // just on development branch
       setInterval(async () => {
         await fluxService.enterDevelopment().catch((error) => log.error(error));
