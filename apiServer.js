@@ -47,6 +47,7 @@ let axiosDefaultsSet = false;
 let cacheable = null;
 
 /**
+ * A fairly random way of determining if a node is on the preprod branch or master
  * @returns {boolean}
  */
 function isPreProdNode() {
@@ -55,6 +56,8 @@ function isPreProdNode() {
 }
 
 /**
+ * Throws the dice to see if this node is a preprod node, and stores it in the
+ * local mongo state database
  * @param {Collection} col
  * @returns {Promise<boolean>}
  */
@@ -71,6 +74,8 @@ async function setPreProdNode(col) {
 }
 
 /**
+ * Checks the local mongo state database to see if this node has thrown the dice
+ * to see if it is a preprod node within the last daysToNextEval time period.
  * @param {Collection} col
  * @returns {Promise<boolean>}
  */
@@ -94,6 +99,7 @@ async function getPreProdNode(col) {
 }
 
 /**
+ * Determines if this is a preprod node or production node.
  * @param {MongoClient} client
  * @returns {Promise<boolean>}
  */
@@ -108,6 +114,9 @@ async function getPreProdState(client) {
 }
 
 /**
+ * Chooses either preprod or production branches. Except if the node is on deveop,
+ * then nothing happens. If the branch is changed, fluxOS is restarted by Nodemon,
+ * if it is running.
  * @param {MongoClient} client
  * @param {string} repoDir
  * @returns {Promise<void>}
