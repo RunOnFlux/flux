@@ -49,6 +49,7 @@ class FluxRepository {
     const forceClean = options.forceClean || false;
     const reset = options.reset || false;
     const remote = options.remote || 'origin';
+    const remoteBranch = `${remote}/${branch}`;
 
     // fetch first incase there are errors.
     await this.git.fetch(remote, branch);
@@ -58,7 +59,7 @@ class FluxRepository {
     }
 
     if (reset) {
-      await this.git.reset(sg.ResetMode.HARD);
+      await this.git.reset(sg.ResetMode.HARD, [remoteBranch]);
     }
 
     const exists = await this.git.revparse(['--verify', branch]).catch(() => false);
@@ -70,7 +71,7 @@ class FluxRepository {
       return;
     }
 
-    await this.git.checkout(['--track', `${remote}/${branch}`]);
+    await this.git.checkout(['--track', remoteBranch]);
   }
 }
 
