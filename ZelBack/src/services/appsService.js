@@ -9314,7 +9314,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessage)}`);
         }
       }
-      if (installedAndRunning.length > 1) {
+      if (installedAndRunning.length > 1 || installedAndRunning.length === 0) {
         // send v2 unique message instead
         const newAppRunningMessageV2 = {
           type: 'fluxapprunning',
