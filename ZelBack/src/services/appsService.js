@@ -6355,7 +6355,7 @@ async function storeAppRunningMessage(message) {
       hash: app.hash, // hash of application specifics that are running
       ip: message.ip,
       broadcastedAt: new Date(message.broadcastedAt),
-      expireAt: new Date(validTill),
+      expireAt: null,
       removedBroadcastedAt: null,
     };
 
@@ -6484,7 +6484,9 @@ async function storeAppRemovedMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const query = { ip: message.ip, name: message.appName };
-  const update = { $set: { removedBroadcastedAt: new Date(message.broadcastedAt) } };
+  const receivedAt = Date.now();
+  const expire = receivedAt + (10 * 24 * 60 * 60 * 1000); // 10 days
+  const update = { $set: { removedBroadcastedAt: new Date(message.broadcastedAt), expireAt: new Date(expire) } };
   await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
   // all stored, rebroadcast
@@ -12970,7 +12972,9 @@ async function removeAppsRunningOnNodeIP(ip) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const queryUpdate = { ip: fixedIp };
-  const update = { $set: { removedBroadcastedAt: new Date() } };
+  const receivedAt = Date.now();
+  const validTill = receivedAt + (10 * 24 * 60 * 60 * 1000); // 10 days
+  const update = { $set: { removedBroadcastedAt: new Date(receivedAt), expireAt: new Date(validTill) } };
   // eslint-disable-next-line no-await-in-loop
   await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
 }
