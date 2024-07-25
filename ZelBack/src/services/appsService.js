@@ -12185,47 +12185,6 @@ async function checkStorageSpaceForApps() {
   }
 }
 
-/**
- * Method called by sentinel to update appsLocation database with new information provided by the node.
- * @param {ip} req ip port bomcination of the node.
- * @param {appsRunning} req applications that the node is running.
- */
-async function updateAppsRunningOnNodeIP(ip, appsRunning) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const removedQuery = [];
-  for (let i = 0; i < appsRunning.length; i += 1) {
-    const app = appsRunning[i];
-    const nameSearch = {
-      name: { $ne: app.name },
-    };
-    removedQuery.push(nameSearch);
-    const newAppRunningMessage = {
-      name: app.name,
-      hash: app.hash, // hash of application specifics that are running
-      ip,
-      broadcastedAt: new Date(),
-      runningSince: new Date(),
-      removedBroadcastedAt: null,
-    };
-    const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-    const update = { $set: newAppRunningMessage };
-    const options = {
-      upsert: true,
-    };
-    // eslint-disable-next-line no-await-in-loop
-    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-  }
-  const ipSearch = {
-    ip,
-  };
-  removedQuery.push(ipSearch);
-  const queryUpdate = { $and: removedQuery };
-  const update = { $set: { removedBroadcastedAt: new Date() } };
-  // eslint-disable-next-line no-await-in-loop
-  await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
-}
-
 function removalInProgressReset() {
   removalInProgress = false;
 }
@@ -13151,6 +13110,5 @@ module.exports = {
   getAppSpecsUSDPrice,
   nodeAndAppsStatusCheck,
   appsRunningOnNodeIp,
-  updateAppsRunningOnNodeIP,
   broadcastAppsRunning,
 };

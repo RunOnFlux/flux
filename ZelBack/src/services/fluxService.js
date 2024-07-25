@@ -1821,7 +1821,6 @@ async function monitorAppsRunningOnNodesDoubleCheck(urlToConnect) {
       const appsReturned = resMyAppAvailability.data.data;
       if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
         log.info(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} apps doesnt match local database information`);
-        await appsService.updateAppsRunningOnNodeIP(urlToConnect, appsReturned);
         await axios.get(`http://${urlToConnect}/apps/broadcastAppsRunning`, axiosConfig).catch((error) => {
           log.error(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
           log.error(error);
@@ -1902,7 +1901,6 @@ async function monitorAppsRunningOnNodes() {
       const appsReturned = resMyAppAvailability.data.data;
       if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
         log.info(`monitorAppsRunningOnNodes - ${urlToConnect} apps doesnt match local database information`);
-        await appsService.updateAppsRunningOnNodeIP(urlToConnect, appsReturned);
         await axios.get(`http://${urlToConnect}/apps/broadcastAppsRunning`, axiosConfig).catch((error) => {
           log.error(`sentinel - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
           log.error(error);
