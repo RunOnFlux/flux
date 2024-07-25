@@ -12901,10 +12901,12 @@ async function getAppSpecsUSDPrice(req, res) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
+let broadcastAppsRunningInExecution = false;
 async function broadcastAppsRunning(req, res) {
   try {
+    broadcastAppsRunningInExecution = true;
     const response = 'Running apps broadcasted to the network';
-    if (broadCastAppsRunningCache.has(1)) {
+    if (broadCastAppsRunningCache.has(1) || broadcastAppsRunningInExecution) {
       const resultsResponse = messageHelper.createDataMessage(response);
       res.json(resultsResponse);
       return;
@@ -12929,45 +12931,24 @@ async function broadcastAppsRunning(req, res) {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    const runningAppsRes = await listRunningApps();
-    if (runningAppsRes.status !== 'success') {
-      throw new Error('Unable to check running Apps');
-    }
+
     const appsInstalled = installedAppsRes.data;
-    const runningApps = runningAppsRes.data;
-    // kadena and folding is old naming scheme having /zel.  all global application start with /flux
-    const runningAppsNames = runningApps.map((app) => {
-      if (app.Names[0].startsWith('/zel')) {
-        return app.Names[0].slice(4);
-      }
-      return app.Names[0].slice(5);
-    });
-
-    const installedAndRunning = [];
-    appsInstalled.forEach((app) => {
-      if (app.version >= 4) {
-        let appRunningWell = true;
-        app.compose.forEach((appComponent) => {
-          if (!runningAppsNames.includes(`${appComponent.name}_${app.name}`)) {
-            appRunningWell = false;
-          }
-        });
-        if (appRunningWell) {
-          installedAndRunning.push(app);
-        }
-      } else if (runningAppsNames.includes(app.name)) {
-        installedAndRunning.push(app);
-      }
-    });
-
-    if (installedAndRunning.length === 0) {
-      return;
-    }
-
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
     const apps = [];
     try {
       // eslint-disable-next-line no-restricted-syntax
-      for (const application of installedAndRunning) {
+      for (const application of appsInstalled) {
+        const queryFind = { name: application.name, ip: myIP };
+        const projection = { _id: 0, runningSince: 1 };
+        let runningOnMyNodeSince = Date.now();
+        // we already have the exact same data
+        // eslint-disable-next-line no-await-in-loop
+        const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+        if (result && result.runningSince) {
+          runningOnMyNodeSince = result.runningSince;
+        }
+        log.info(`${application.name} is running/installed properly. Broadcasting status.`);
         // eslint-disable-next-line no-await-in-loop
         // we can distinguish pure local apps from global with hash and height
         const newAppRunningMessage = {
@@ -12976,38 +12957,52 @@ async function broadcastAppsRunning(req, res) {
           name: application.name,
           hash: application.hash, // hash of application specifics that are running
           ip: myIP,
-          broadcastedAt: new Date().getTime(),
+          broadcastedAt: Date.now(),
+          runningSince: runningOnMyNodeSince,
         };
         const app = {
           name: application.name,
           hash: application.hash,
+          runningSince: runningOnMyNodeSince,
         };
         apps.push(app);
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
+        if (appsInstalled.length === 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+          // broadcast messages about running apps to all peers
+          log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessage)}`);
+        }
+      }
+      if (appsInstalled.length > 1 || appsInstalled.length === 0) {
+        // send v2 unique message instead
+        const newAppRunningMessageV2 = {
+          type: 'fluxapprunning',
+          version: 2,
+          apps,
+          ip: myIP,
+          broadcastedAt: Date.now(),
+        };
+        // eslint-disable-next-line no-await-in-loop
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(500);
+        // eslint-disable-next-line no-await-in-loop
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
+        // broadcast messages about running apps to all peers
+        log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
       }
     } catch (err) {
       log.error(err);
     }
-
-    // send v2 unique message instead
-    const newAppRunningMessageV2 = {
-      type: 'fluxapprunning',
-      version: 2,
-      apps,
-      ip: myIP,
-      broadcastedAt: new Date().getTime(),
-    };
-      // eslint-disable-next-line no-await-in-loop
-    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
-    // eslint-disable-next-line no-await-in-loop
-    await serviceHelper.delay(500);
-    // eslint-disable-next-line no-await-in-loop
-    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
-    // broadcast messages about running apps to all peers
-    const resultsResponse = messageHelper.createDataMessage(response);
     log.info('Running Apps broadcasted');
+    const resultsResponse = messageHelper.createSuccessMessage(response);
     res.json(resultsResponse);
     broadCastAppsRunningCache.set(1, 1);
   } catch (error) {
