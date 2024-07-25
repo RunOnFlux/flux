@@ -259,7 +259,7 @@ async function handleNodeDownMessage(message, fromIP) {
     const askingIP = splittedIP[0];
     const askingIpPort = splittedIP[1];
     const isNodeRunning = await fluxNetworkHelper.isPortOpen(askingIP, askingIpPort);
-    const appsRunningOnTheSelectedNode = await appsService.appsRunningOnNodeIp(message.ip);
+    const appsRunningOnTheSelectedNode = await appsService.getRunningAppIpList(message.ip);
     if (!isNodeRunning && appsRunningOnTheSelectedNode.length > 0) {
       await appsService.removeAppsRunningOnNodeIP(message.ip);
     }

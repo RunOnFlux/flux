@@ -2449,7 +2449,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const database = dbopen.db(config.database.appsglobal.database);
 
-    const appsQuery = { name: appName };
+    const appsQuery = { name: appName, removedBroadcastedAt: null };
     const appsProjection = {};
     let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
@@ -6356,6 +6356,7 @@ async function storeAppRunningMessage(message) {
       ip: message.ip,
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(validTill),
+      removedBroadcastedAt: null,
     };
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
@@ -6483,8 +6484,8 @@ async function storeAppRemovedMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const query = { ip: message.ip, name: message.appName };
-  const projection = {};
-  await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
+  const update = { $set: { removedBroadcastedAt: new Date(message.broadcastedAt) } };
+  await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
   // all stored, rebroadcast
   return true;
@@ -8422,25 +8423,6 @@ async function appLocation(appname) {
 }
 
 /**
- * To get known apps running on a node ip
- * @param {string} nodeIp Node IP.
- */
-async function appsRunningOnNodeIp(nodeIp) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.appsglobal.database);
-  const query = { ip: nodeIp };
-  const projection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      hash: 1,
-    },
-  };
-  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-  return results;
-}
-
-/**
  * To get app locations.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -8520,7 +8502,7 @@ async function getAllGlobalApplications(proj = []) {
 async function getRunningAppIpList(ip) { // returns all apps running on this ip
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
-  const query = { ip: new RegExp(`^${ip}`) };
+  const query = { ip: new RegExp(`^${ip}`), removedBroadcastedAt: null };
   const projection = {
     projection: {
       _id: 0,
@@ -13128,7 +13110,6 @@ module.exports = {
   masterSlaveApps,
   getAppSpecsUSDPrice,
   nodeAndAppsStatusCheck,
-  appsRunningOnNodeIp,
   broadcastAppsRunning,
   removeAppsRunningOnNodeIP,
 };
