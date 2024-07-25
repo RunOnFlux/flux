@@ -8400,10 +8400,12 @@ async function getAppHashes(req, res) {
 async function appLocation(appname) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
-  let query = {};
+  const query = [];
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    query.push({ name: new RegExp(`^${appname}$`, 'i') }); // case insensitive
   }
+  query.push({ removedBroadcastedAt: null });
+  const querySearch = { $and: [query] };
   const projection = {
     projection: {
       _id: 0,
@@ -8415,7 +8417,7 @@ async function appLocation(appname) {
       runningSince: 1,
     },
   };
-  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, querySearch, projection);
   return results;
 }
 
