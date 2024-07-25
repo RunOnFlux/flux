@@ -3414,8 +3414,8 @@ export default {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response);
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          console.log(progressEvent.event.target.response);
+          self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
         },
       };
       let response;
