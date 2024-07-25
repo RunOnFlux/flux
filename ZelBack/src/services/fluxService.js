@@ -782,6 +782,7 @@ async function tailDaemonDebug(req, res) {
   }
 
   const defaultDir = daemonServiceUtils.getFluxdDir();
+
   const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
   const filepath = path.join(datadir, 'debug.log');
 
