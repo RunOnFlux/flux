@@ -12974,6 +12974,23 @@ async function broadcastAppsRunning(req, res) {
   }
 }
 
+/**
+ * To remove from DB that the IP is running any app.
+ * @param {object} ip Node ip and port of the running app.
+ */
+async function removeAppsRunningOnNodeIP(ip) {
+  let fixedIp = ip;
+  if (fixedIp.endsWith(':16127')) {
+    fixedIp = fixedIp.split(':')[0];
+  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const queryUpdate = { ip: fixedIp };
+  const update = { $set: { removedBroadcastedAt: new Date() } };
+  // eslint-disable-next-line no-await-in-loop
+  await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -13111,4 +13128,5 @@ module.exports = {
   nodeAndAppsStatusCheck,
   appsRunningOnNodeIp,
   broadcastAppsRunning,
+  removeAppsRunningOnNodeIP,
 };
