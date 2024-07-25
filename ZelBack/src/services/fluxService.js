@@ -28,6 +28,7 @@ const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
 const dbHelper = require('./dbHelper');
 const { LRUCache } = require('lru-cache');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 
@@ -1793,6 +1794,11 @@ async function streamChain(req, res) {
  */
 async function monitorAppsRunningOnNodes() {
   try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
+    if (daemonHeight < config.apprunningRefactorActivation) {
+      return;
+    }
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
@@ -1838,6 +1844,7 @@ async function monitorAppsRunningOnNodes() {
       timeout,
     };
 
+    log.info(`monitorAppsRunningOnNodes - checking ${urlToConnect} apps running`);
     const appsRunningOnTheSelectedNode = await appsService.appsRunningOnNodeIp(urlToConnect);
     const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch((error) => {
       log.error(`sentinel - ${urlToConnect} for app installedappsnames is not reachable`);
@@ -1846,6 +1853,7 @@ async function monitorAppsRunningOnNodes() {
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
       const appsReturned = resMyAppAvailability.data.data;
       if (resMyAppAvailability.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
+        log.info(`monitorAppsRunningOnNodes - ${urlToConnect} apps doesnt match local database information`);
         await appsService.updateAppsRunningOnNodeIP(urlToConnect, appsReturned);
         await axios.get(`http://${urlToConnect}/apps/broadcastAppsRunning`, axiosConfig).catch((error) => {
           log.error(`sentinel - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
