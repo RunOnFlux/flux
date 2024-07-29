@@ -24,6 +24,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
+const fluxRepository = require('./utils/fluxRepository');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
@@ -31,6 +32,8 @@ const tar = require('tar-fs');
 // use non promises stream for node 14.x compatibility
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
+
+const fluxRepo = new fluxRepository.FluxRepository({ repoDir: process.cwd() });
 
 /**
  * Stream chain lock, so only one request at a time
@@ -103,7 +106,6 @@ async function getCurrentCommitId(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function getCurrentBranch(req, res) {
-  // ToDo: Fix - this breaks if head in detached state (or something similar)
   if (req) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized !== true) {
@@ -112,21 +114,22 @@ async function getCurrentBranch(req, res) {
     }
   }
 
-  const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
-    logError: false, params: ['rev-parse', '--abbrev-ref', 'HEAD'],
-  });
+  // null branch is detached HEAD, or error
+  const branch = await fluxRepo.currentBranch();
 
-  if (error) {
-    const errMsg = messageHelper.createErrorMessage(
-      `Error getting current branch of Flux: ${error.message}`,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errMsg) : errMsg;
-  }
-
-  const successMsg = messageHelper.createSuccessMessage(commitId.trim());
+  const successMsg = messageHelper.createSuccessMessage(branch);
   return res ? res.json(successMsg) : successMsg;
+}
+
+/**
+ * If this node is on the preprod branch
+ * @returns {Promise<boolean>}
+ */
+async function isPreProdNode() {
+  const currentBranch = await fluxRepo.currentBranch();
+  const { preProd: { branch: preProdBranch } } = config;
+
+  return currentBranch === preProdBranch;
 }
 
 /**
@@ -779,6 +782,7 @@ async function tailDaemonDebug(req, res) {
   }
 
   const defaultDir = daemonServiceUtils.getFluxdDir();
+
   const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
   const filepath = path.join(datadir, 'debug.log');
 
@@ -1090,6 +1094,8 @@ async function getFluxInfo(req, res) {
     }
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
+    const preProdNode = await isPreProdNode();
+    info.flux.preProdNode = preProdNode;
     info.flux.maxNumberOfIpChanges = fluxNetworkHelper.getMaxNumberOfIpChanges();
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
@@ -1743,6 +1749,7 @@ module.exports = {
   getRouterIP,
   hardUpdateFlux,
   installFluxWatchTower,
+  isPreProdNode,
   isStaticIPapi,
   lockStreamLock,
   rebuildHome,

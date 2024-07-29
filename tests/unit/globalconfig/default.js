@@ -77,6 +77,12 @@ module.exports = {
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   deterministicNodesStart: 558000,
+  preProd: {
+    probability: 0.07,
+    remote: 'https://github.com/RunOnFlux/flux.git',
+    branch: 'preprod',
+    daysToNextEval: 30,
+  },
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [

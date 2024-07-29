@@ -27,14 +27,19 @@ const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
 const adminConfig = require('../../config/userconfig');
 
+const FluxRepository = function TestClass() {
+  this.currentBranch = sinon.stub().resolves('master');
+};
+
 const fluxService = proxyquire(
   '../../ZelBack/src/services/fluxService',
-  { '../../../config/userconfig': adminConfig },
+  { '../../../config/userconfig': adminConfig, './utils/fluxRepository': { FluxRepository } },
 );
 
 const generateResponse = () => {
@@ -47,6 +52,10 @@ const generateResponse = () => {
 };
 
 describe('fluxService tests', () => {
+  before(async () => {
+    await daemonServiceUtils.readDaemonConfig();
+  });
+
   describe('fluxBackendFolder tests', () => {
     afterEach(() => {
       sinon.restore();
