@@ -11333,7 +11333,7 @@ async function masterSlaveApps() {
         }
         let ip = null;
         // eslint-disable-next-line no-await-in-loop
-        let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio_tcp_backend;json;norefresh`, axiosOptions).catch((error) => {
+        let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
           log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
           fdmOk = false;
         });
@@ -11342,7 +11342,7 @@ async function masterSlaveApps() {
           if (fdmEUData && fdmEUData.length > 0) {
             // eslint-disable-next-line no-restricted-syntax
             for (const fdmData of fdmEUData) {
-              const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio_tcp_backend`));
+              const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
               if (serviceName) {
                 const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                 if (ipElement) {
@@ -11356,7 +11356,7 @@ async function masterSlaveApps() {
         if (!ip) {
           fdmOk = true;
           // eslint-disable-next-line no-await-in-loop
-          let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio_tcp_backend;json;norefresh`, axiosOptions).catch((error) => {
+          let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
             log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
             fdmOk = false;
           });
@@ -11365,7 +11365,7 @@ async function masterSlaveApps() {
             if (fdmUSAData && fdmUSAData.length > 0) {
               // eslint-disable-next-line no-restricted-syntax
               for (const fdmData of fdmUSAData) {
-                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio_tcp_backend`));
+                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
                 if (serviceName) {
                   const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                   if (ipElement) {
@@ -11380,7 +11380,7 @@ async function masterSlaveApps() {
         if (!ip) {
           fdmOk = true;
           // eslint-disable-next-line no-await-in-loop
-          let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio_tcp_backend;json;norefresh`, axiosOptions).catch((error) => {
+          let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
             log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
             fdmOk = false;
           });
@@ -11389,7 +11389,7 @@ async function masterSlaveApps() {
             if (fdmASIAData && fdmASIAData.length > 0) {
               // eslint-disable-next-line no-restricted-syntax
               for (const fdmData of fdmASIAData) {
-                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio_tcp_backend`));
+                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
                 if (serviceName) {
                   const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                   if (ipElement) {
