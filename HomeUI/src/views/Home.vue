@@ -617,8 +617,9 @@ export default {
     },
     async daemonWelcomeGetFluxNodeStatus() {
       const response = await DaemonService.getFluxNodeStatus().catch(() => null);
+      const blockchainInfo = await DaemonService.getBlockchainInfo().catch(() => null);
 
-      if (!response) {
+      if (!response || !blockchainInfo) {
         this.getNodeStatusResponse.status = 'UNKNOWN';
         this.getNodeStatusResponse.nodeStatus = 'Unable to connect to Flux Blockchain Daemon.';
         this.getNodeStatusResponse.class = 'danger';
@@ -627,8 +628,11 @@ export default {
 
       this.getNodeStatusResponse.status = response.data.status;
       this.getNodeStatusResponse.data = response.data.data;
-      if (this.getNodeStatusResponse.data) {
-        if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
+      if (this.getNodeStatusResponse.data && blockchainInfo.data.data) {
+        if (blockchainInfo.data.data.blocks + 3 < blockchainInfo.data.data.headers) {
+          this.getNodeStatusResponse.nodeStatus = 'Blockchain not synced, check administration/daemon/blockchain info section';
+          this.getNodeStatusResponse.class = 'warning';
+        } else if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
           this.getNodeStatusResponse.nodeStatus = 'Connected to the network';
           this.getNodeStatusResponse.class = 'success';
         } else if (this.getNodeStatusResponse.data.status === 'STARTED' || this.getNodeStatusResponse.data.location === 'STARTED') {
