@@ -3006,8 +3006,8 @@ export default {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response);
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          console.log(progressEvent.event.target.response);
+          self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
         },
       };
       const response = await AppsService.justAPI().get(`/apps/redeploy/${app}/${force}`, axiosConfig);
@@ -3035,8 +3035,8 @@ export default {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response);
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          console.log(progressEvent.event.target.response);
+          self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
         },
       };
       const response = await AppsService.justAPI().get(`/apps/appremove/${app}`, axiosConfig);
@@ -3073,8 +3073,8 @@ export default {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response);
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          console.log(progressEvent.event.target.response);
+          self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
         },
       };
       const response = await AppsService.justAPI().get(`/apps/installapplocally/${app}`, axiosConfig);

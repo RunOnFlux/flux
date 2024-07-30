@@ -510,8 +510,8 @@ export default {
             self.$set(self.downloaded, name, progressEvent.loaded);
             if (progressEvent.total) {
               self.$set(self.total, name, progressEvent.total);
-            } else if (progressEvent.target && progressEvent.target.response && progressEvent.target.response.size) {
-              self.$set(self.total, name, progressEvent.target.response.size);
+            } else if (progressEvent.target && progressEvent.event.target.response && progressEvent.event.target.response.size) {
+              self.$set(self.total, name, progressEvent.event.target.response.size);
             } else {
               self.$set(self.total, name, maxTotalSize);
             }

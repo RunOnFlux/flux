@@ -1894,7 +1894,7 @@ describe('fluxService tests', () => {
 
       expect(result).to.be.an('object');
       expect(result.status).to.equal('success');
-      expect(result.data.daemon).to.eql({ info: 'info data' });
+      expect(result.data.daemon).to.eql({ info: 'info data', zmqEnabled: false });
       expect(result.data.node).to.eql({ status: 'status data' });
       expect(result.data.flux).to.be.an('object');
       expect(result.data.apps).to.be.an('object');

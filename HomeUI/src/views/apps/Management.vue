@@ -8601,8 +8601,8 @@ export default {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response);
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          console.log(progressEvent.event.target.response);
+          self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
         },
       };
       let response;
@@ -9081,7 +9081,7 @@ export default {
               zelidauth,
             },
             onDownloadProgress(progressEvent) {
-              self.monitoringStream[`${component.name}_${self.appSpecification.name}`] = JSON.parse(`[${progressEvent.target.response.replace(/}{"read/g, '},{"read')}]`);
+              self.monitoringStream[`${component.name}_${self.appSpecification.name}`] = JSON.parse(`[${progressEvent.event.target.response.replace(/}{"read/g, '},{"read')}]`);
             },
           };
           // eslint-disable-next-line no-await-in-loop
@@ -9096,8 +9096,8 @@ export default {
             zelidauth,
           },
           onDownloadProgress(progressEvent) {
-            console.log(progressEvent.target.response);
-            self.monitoringStream[self.appName] = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+            console.log(progressEvent.event.target.response);
+            self.monitoringStream[self.appName] = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
           },
         };
         // eslint-disable-next-line no-await-in-loop
@@ -9504,8 +9504,8 @@ export default {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response);
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          console.log(progressEvent.event.target.response);
+          self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
         },
       };
       const response = await this.executeLocalCommand(`/apps/redeploy/${app}/${force}`, null, axiosConfig);
@@ -9534,8 +9534,8 @@ export default {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response);
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          console.log(progressEvent.event.target.response);
+          self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
         },
       };
       const response = await this.executeLocalCommand(`/apps/appremove/${app}`, null, axiosConfig);

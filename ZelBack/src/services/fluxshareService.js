@@ -838,6 +838,7 @@ async function fluxShareUpload(req, res) {
       .on('progress', (bytesReceived, bytesExpected) => {
         try {
           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+          if (res.flush) res.flush();
         } catch (error) {
           log.error(error);
         }
@@ -850,6 +851,7 @@ async function fluxShareUpload(req, res) {
       .on('file', (name, file) => {
         try {
           res.write(serviceHelper.ensureString(name));
+          if (res.flush) res.flush();
         } catch (error) {
           log.error(error);
         }
@@ -866,6 +868,7 @@ async function fluxShareUpload(req, res) {
         );
         try {
           res.write(serviceHelper.ensureString(errorResponse));
+          if (res.flush) res.flush();
         } catch (e) {
           log.error(e);
         }
