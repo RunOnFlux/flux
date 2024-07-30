@@ -630,7 +630,7 @@ export default {
       this.getNodeStatusResponse.data = response.data.data;
       if (this.getNodeStatusResponse.data && blockchainInfo.data.data) {
         if (blockchainInfo.data.data.blocks + 3 < blockchainInfo.data.data.headers) {
-          this.getNodeStatusResponse.nodeStatus = 'Blockchain not synced, check administration/daemon/blockchain info section.';
+          this.getNodeStatusResponse.nodeStatus = 'Blockchain not synced, check Administration/Daemon/Blockchain info section.';
           this.getNodeStatusResponse.class = 'warning';
         } else if (this.getNodeStatusResponse.data.status === 'CONFIRMED' || this.getNodeStatusResponse.data.location === 'CONFIRMED') {
           this.getNodeStatusResponse.nodeStatus = 'Connected to the network';
