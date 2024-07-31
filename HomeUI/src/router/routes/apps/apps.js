@@ -76,14 +76,14 @@ export default [
       else next({ name: 'error-404' });
     },
   },
-  {
-    path: 'https://titan.runonflux.io',
-    name: 'apps-marketplace-sharednodes',
-    component: () => import('@/views/apps/marketplace/Marketplace.vue'),
-    meta: {
-      contentRenderer: 'sidebar-left',
-      contentClass: 'marketplace-application',
-      navActiveLink: 'apps-marketplace',
-    },
-  },
+  // {
+  //   path: 'https://titan.runonflux.io',
+  //   name: 'apps-marketplace-sharednodes',
+  //   component: () => import('@/views/apps/marketplace/Marketplace.vue'),
+  //   meta: {
+  //     contentRenderer: 'sidebar-left',
+  //     contentClass: 'marketplace-application',
+  //     navActiveLink: 'apps-marketplace',
+  //   },
+  // },
 ];

@@ -115,8 +115,9 @@ export default {
     this.getNodes();
   },
   methods: {
-    click: (e) => console.log('clusterclick', e),
-    ready: (e) => console.log('ready', e),
+    noop() {},
+    click(e) { this.noop(e); },
+    ready(e) { this.noop(e); },
     /**
      * @param {string} endpoint The ip[:port] of the node
      * @param {{urlType?: "home"|"api"}} options The optional parameters
@@ -139,7 +140,6 @@ export default {
     },
     buildGeoJson(nodes) {
       const { features } = this.geoJson[0];
-
       nodes.forEach((node) => {
         const feature = {
           type: 'Feature',
@@ -158,8 +158,7 @@ export default {
     },
     async getNodesViaApi() {
       const url = 'https://stats.runonflux.io/fluxinfo?projection=geolocation,ip,tier';
-
-      const res = await axios.get(url).catch(() => {});
+      const res = await axios.get(url).catch(() => ({ status: 503 }));
 
       const {
         status: httpStatus,
@@ -170,11 +169,11 @@ export default {
         return [];
       }
 
+      this.$emit('nodes-updated', nodes);
       return nodes;
     },
     async getNodes() {
       const nodes = this.nodes.length ? this.nodes : await this.getNodesViaApi();
-
       if (!nodes.length) {
         this.nodesLoadedError = true;
         return;
