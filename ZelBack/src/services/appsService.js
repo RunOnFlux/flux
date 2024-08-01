@@ -4771,9 +4771,9 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
       for (const component of app.compose) {
         if (component.secrets.length > 0 && component.secrets === appComponentSpecs.secrets) {
           if (registration) {
-            throw new Error('Provided component secrets are not valid');
+            throw new Error(`Provided component ${component.name} secrets are not valid`);
           } else if (app.name !== appName) {
-            throw new Error('Provided component secrets are not valid');
+            throw new Error(`Provided component ${component.name} secrets are not valid`);
           }
         }
       }
