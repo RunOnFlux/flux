@@ -4764,7 +4764,7 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-  log.info(`checkAppSecrets: ${appName} lets search on db for the secrets: ${appComponentSpecs.secrets.replace('\\', '')}`);
+  log.info(`checkAppSecrets: ${appName} lets search on db for the secrets: ${appComponentSpecs.secrets.replace(/\\/g, '')}`);
   // eslint-disable-next-line no-restricted-syntax
   for (const app of results) {
     if (app.version >= 7 && app.nodes.length > 0) {
@@ -4772,9 +4772,9 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
       for (const component of app.compose) {
         if (component.secrets.length > 0) {
           if (app.name === 'BrokerNode1677472532536') {
-            log.info(`checkAppSecrets: component ${component.name} of appName same secrets on app: ${app.name} secrets: ${component.secrets}`);
+            log.info(`checkAppSecrets: component ${component.name} of appName same secrets on app: ${app.name} secrets: ${component.secrets.replace(/\\/g, '')}`);
           }
-          if (component.secrets.replace('\\', '').trim() === appComponentSpecs.secrets.replace('\\', '').trim()) {
+          if (component.secrets.replace(/\\/g, '').trim() === appComponentSpecs.secrets.replace(/\\/g, '').trim()) {
             log.info(`checkAppSecrets: ${appName} Found same secrets on app: ${app.name} registration: ${registration}`);
             if (registration) {
               throw new Error(`Provided component ${component.name} secrets are not valid`);
