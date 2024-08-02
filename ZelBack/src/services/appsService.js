@@ -4764,7 +4764,7 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-  log.info(`checkAppSecrets: ${appName} lets search on db for the secrets: ${JSON.stringify(appComponentSpecs.secrets.replace(/\\/g, ''))}`);
+  log.info(`checkAppSecrets: ${appName} lets search on db for the secrets: ${JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))}`);
   // eslint-disable-next-line no-restricted-syntax
   for (const app of results) {
     if (app.version >= 7 && app.nodes.length > 0) {
@@ -4772,9 +4772,9 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
       for (const component of app.compose) {
         if (component.secrets.length > 0) {
           if (app.name === 'BrokerNode1677472532536') {
-            log.info(`checkAppSecrets: component ${component.name} of appName same secrets on app: ${app.name} secrets: ${JSON.stringify(component.secrets.replace(/\\/g, ''))}`);
+            log.info(`checkAppSecrets: component ${component.name} of appName same secrets on app: ${app.name} secrets: ${JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))}`);
           }
-          if (JSON.stringify(component.secrets.replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/\\/g, ''))) {
+          if (JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))) {
             log.info(`checkAppSecrets: ${appName} Found same secrets on app: ${app.name} registration: ${registration}`);
             if (registration) {
               throw new Error(`Provided component ${component.name} secrets are not valid`);
