@@ -4764,6 +4764,7 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+  log.info(`checkAppSecrets: ${appName} lets search on db for the secrets: ${appComponentSpecs.secrets}`);
   // eslint-disable-next-line no-restricted-syntax
   for (const app of results) {
     if (app.version >= 7 && app.nodes.length > 0) {
@@ -10415,9 +10416,11 @@ async function verifyAppUpdateParameters(req, res) {
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        log.info(`verifyAppUpdateParameters: ${appSpecFormatted.name} is enterprise app.`);
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets.length > 0) {
+            log.info(`verifyAppUpdateParameters: ${appSpecFormatted.name} have secrets.`);
             // eslint-disable-next-line no-await-in-loop
             await checkAppSecrets(appSpecFormatted.name, appComponent, false);
           }
