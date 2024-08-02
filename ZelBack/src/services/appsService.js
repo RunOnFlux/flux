@@ -4770,12 +4770,15 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
     if (app.version >= 7 && app.nodes.length > 0) {
       // eslint-disable-next-line no-restricted-syntax
       for (const component of app.compose) {
-        if (component.secrets.length > 0 && component.secrets === appComponentSpecs.secrets.replace(/\\\\/g, '\\')) {
-          log.info(`checkAppSecrets: ${appName} Found same secrets on app: ${app.name} registration: ${registration}`);
-          if (registration) {
-            throw new Error(`Provided component ${component.name} secrets are not valid`);
-          } else if (app.name !== appName) {
-            throw new Error(`Provided component ${component.name} secrets are not valid`);
+        if (component.secrets.length > 0) {
+          log.info(`checkAppSecrets: component ${component.name} of appName same secrets on app: ${app.name} secrets: ${component.secrets}`);
+          if (component.secrets.trim() === appComponentSpecs.secrets.trim()) {
+            log.info(`checkAppSecrets: ${appName} Found same secrets on app: ${app.name} registration: ${registration}`);
+            if (registration) {
+              throw new Error(`Provided component ${component.name} secrets are not valid`);
+            } else if (app.name !== appName) {
+              throw new Error(`Provided component ${component.name} secrets are not valid`);
+            }
           }
         }
       }
