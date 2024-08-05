@@ -4764,6 +4764,8 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+  let foundSecretsWithSameAppName = false;
+  let foundSecretsWithDifferentAppName = false;
   // eslint-disable-next-line no-restricted-syntax
   for (const app of results) {
     if (app.version >= 7 && app.nodes.length > 0) {
@@ -4773,11 +4775,16 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
           if (registration) {
             throw new Error(`Provided component ${component.name} secrets are not valid`);
           } else if (app.name !== appName) {
-            throw new Error(`Provided component ${component.name} secrets are not valid`);
+            foundSecretsWithDifferentAppName = true;
+          } else if (app.name === appName) {
+            foundSecretsWithSameAppName = true;
           }
         }
       }
     }
+  }
+  if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
+    throw new Error('Provided component(s) secrets are not valid');
   }
 }
 
