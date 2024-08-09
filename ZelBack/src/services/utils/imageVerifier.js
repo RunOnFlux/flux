@@ -190,6 +190,11 @@ class ImageVerifier {
       return;
     }
 
+    if (this.rawImageTag.startsWith('/') || this.rawImageTag.endsWith('/')) {
+      this.#parseErrorDetail = `Image tag: "${this.rawImageTag}" cannot start or end with a backslash.`;
+      return;
+    }
+
     const match = ImageVerifier.imagePattern.exec(this.rawImageTag);
 
     if (match === null) {
