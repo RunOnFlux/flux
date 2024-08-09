@@ -221,6 +221,10 @@ async function initiate() {
       log.error('Flux api server port in use, shutting down.');
       // if shutting down clean, nodemon won't restart
       process.exit();
+    } else if (err.code === 'ENOTFOUND' && err.hostname) {
+      log.error('Uncaught DNS Lookup Error!!, swallowing.');
+      log.error(err);
+      return;
     }
 
     log.error(err);

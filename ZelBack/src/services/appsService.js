@@ -4753,6 +4753,42 @@ async function getUserBlockedRepositores() {
 }
 
 /**
+ * Check secrets, if they are being used return exception
+ * @param {string} appName App name.
+ * @param {object} appSpecs App specifications.
+ * @param {boolean} registration informs if it's an app registration or not.
+ */
+async function checkAppSecrets(appName, appComponentSpecs, registration = false) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = {};
+  const projection = { projection: { _id: 0 } };
+  const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+  let foundSecretsWithSameAppName = false;
+  let foundSecretsWithDifferentAppName = false;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const app of results) {
+    if (app.version >= 7 && app.nodes.length > 0) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of app.compose) {
+        if (component.secrets.length > 0 && JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))) {
+          if (registration) {
+            throw new Error(`Provided component ${component.name} secrets are not valid`);
+          } else if (app.name !== appName) {
+            foundSecretsWithDifferentAppName = true;
+          } else if (app.name === appName) {
+            foundSecretsWithSameAppName = true;
+          }
+        }
+      }
+    }
+  }
+  if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
+    throw new Error('Provided component(s) secrets are not valid');
+  }
+}
+
+/**
  * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
  * @param {object} appSpecs App specifications.
  * @returns {Promise<boolean>} True if no errors are thrown.
@@ -5827,10 +5863,6 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     checkHWParameters(appSpecifications);
   } else {
     checkComposeHWParameters(appSpecifications);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appComponent of appSpecifications.compose) {
-      checkHWParameters(appComponent);
-    }
   }
 
   // Whitelist, repository checks
@@ -7191,6 +7223,16 @@ async function registerAppGlobalyApi(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
+      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets.length > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, true);
+          }
+        }
+      }
+
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
@@ -7312,6 +7354,16 @@ async function updateAppGlobalyApi(req, res) {
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets.length > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, false);
+          }
+        }
+      }
 
       // verify that app exists, does not change repotag and is signed by app owner.
       const db = dbHelper.databaseConnection();
@@ -10311,6 +10363,16 @@ async function verifyAppRegistrationParameters(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
+      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets.length > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, true);
+          }
+        }
+      }
+
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
@@ -10357,6 +10419,16 @@ async function verifyAppUpdateParameters(req, res) {
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets.length > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, false);
+          }
+        }
+      }
 
       // check if name is not yet registered
       const timestamp = Date.now();
