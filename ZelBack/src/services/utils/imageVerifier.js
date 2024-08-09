@@ -194,6 +194,7 @@ class ImageVerifier {
 
     if (match === null) {
       this.#parseErrorDetail = `Image tag: ${this.rawImageTag} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY[:TAG]`;
+      return;
     }
 
     const {
