@@ -376,6 +376,54 @@ describe('imageVerifier tests', () => {
       expect(verifier.repository).to.eql('mongo');
       expect(verifier.tag).to.eql('latest');
     });
+
+    it('should handle leading backslahes correctly', async () => {
+      const repotag = '/nginx:latest';
+
+      const verifier = new ImageVerifier(repotag);
+      console.log(verifier);
+
+      expect(
+        () => verifier.throwIfError(),
+      ).to.throw('Image tag: "/nginx:latest" cannot start or end with a backslash.');
+
+      expect(verifier.provider).to.eql(null);
+      expect(verifier.namespace).to.eql(null);
+      expect(verifier.repository).to.eql(null);
+      expect(verifier.tag).to.eql(null);
+    });
+
+    it('should handle trailing backslahes correctly', async () => {
+      const repotag = 'nginx:latest/';
+
+      const verifier = new ImageVerifier(repotag);
+      console.log(verifier);
+
+      expect(
+        () => verifier.throwIfError(),
+      ).to.throw('Image tag: "nginx:latest/" cannot start or end with a backslash.');
+
+      expect(verifier.provider).to.eql(null);
+      expect(verifier.namespace).to.eql(null);
+      expect(verifier.repository).to.eql(null);
+      expect(verifier.tag).to.eql(null);
+    });
+
+    it('should handle unparseable repotags correctly', async () => {
+      const repotags = ['@nginx:latest'];
+
+      repotags.forEach((tag) => {
+        const verifier = new ImageVerifier(tag);
+        expect(
+          () => verifier.throwIfError(),
+        ).to.throw(`Image tag: ${tag} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY[:TAG]`);
+
+        expect(verifier.provider).to.eql(null);
+        expect(verifier.namespace).to.eql(null);
+        expect(verifier.repository).to.eql(null);
+        expect(verifier.tag).to.eql(null);
+      });
+    });
   });
 
   describe('parseAuthHeader tests', () => {
