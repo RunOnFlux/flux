@@ -215,13 +215,14 @@ async function initiate() {
   }
 
   process.on('uncaughtException', (err) => {
+    const dnsErrors = ['ENOTFOUND', 'EAI_AGAIN', 'ESERVFAIL'];
     // the express server port in use is uncatchable for some reason
     // remove this in future
     if (err.code === 'EADDRINUSE') {
       log.error('Flux api server port in use, shutting down.');
       // if shutting down clean, nodemon won't restart
       process.exit();
-    } else if (err.code === 'ENOTFOUND' && err.hostname) {
+    } else if (dnsErrors.includes(err.code) && err.hostname) {
       log.error('Uncaught DNS Lookup Error!!, swallowing.');
       log.error(err);
       return;
