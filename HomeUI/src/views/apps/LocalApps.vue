@@ -2694,7 +2694,7 @@ export default {
     },
     getServiceUsageValue(index, name, compose) {
       if (typeof compose?.compose === 'undefined') {
-        this.usage = [+compose.cpu, +compose.ram, +compose.hdd];
+        this.usage = [+compose.ram, +compose.cpu, +compose.hdd];
         return this.usage[index];
       }
       const serviceUsage = this.getServiceUsage(name, compose.compose);
