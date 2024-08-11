@@ -11514,9 +11514,10 @@ async function masterSlaveApps() {
                   appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else {
-                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip === mastersRunningGSyncthingApps.get(identifier));
+                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier));
                   let timetoStartApp = Date.now();
                   if (previousMasterIndex >= 0) {
+                    log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
                     if (index > previousMasterIndex) {
                       timetoStartApp += (index - 1) * 2 * 60 * 1000;
                     } else {
