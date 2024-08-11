@@ -11479,6 +11479,7 @@ async function masterSlaveApps() {
           // eslint-disable-next-line no-await-in-loop
           const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
           if ((!ip)) {
+            log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
             if (!runningAppsNames.includes(identifier)) {
               // eslint-disable-next-line no-await-in-loop
               const runningAppList = await getRunningAppList(installedApp.name);
@@ -11534,7 +11535,7 @@ async function masterSlaveApps() {
                 }
               } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
                 appDockerRestart(installedApp.name);
-                log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
               }
             }
           } else {
