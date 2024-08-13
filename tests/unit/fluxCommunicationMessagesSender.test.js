@@ -2131,7 +2131,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
       sinon.assert.notCalled(websocketOut.send);
     });
 
-    it('should throw an error if the message.singature is not a string', async () => {
+    it('should throw an error if the message.signature is not a string', async () => {
       const temporaryAppMessage = { // specification of temp message, these are not verified in this function
         type: 'fluxapp',
         version: 3,

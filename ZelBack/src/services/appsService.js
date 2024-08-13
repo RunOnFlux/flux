@@ -5542,7 +5542,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       }
       // check wheter shared Folder is not root
       if (appComponent.containerData.length < 2) {
-        throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
+        throw new Error(`Flux App container data folder not specified in ${appComponent.name}. If no data folder is whished, use /tmp`);
       }
 
       if (appSpecifications.version >= 7) {

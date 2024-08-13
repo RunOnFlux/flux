@@ -290,7 +290,7 @@ describe('benchmarkService tests', () => {
 
   describe.skip('signFluxTransactionPost tests', () => {
     // TODO: These tests are going to be altered when we're switching all requests from streams to body.parse.
-    // As they are right now - it's almost impossible to test without actually starting the deamon or without using hacky workarounds
+    // As they are right now - it's almost impossible to test without actually starting the daemon or without using hacky workarounds
 
     beforeEach(async () => {
       sinon.stub(fs, 'stat').resolves(true);

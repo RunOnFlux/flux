@@ -1340,7 +1340,7 @@ describe('fluxCommunication tests', () => {
       sinon.restore();
     });
 
-    it('should send warning if deamon is not synced', async () => {
+    it('should send warning if daemon is not synced', async () => {
       daemonServiceStub.returns({
         data: {
           synced: false,

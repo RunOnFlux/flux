@@ -37,7 +37,7 @@ describe('FluxSocketServer tests', () => {
     expect(ioServer.io.opts.transports).to.deep.equal(['websocket']);
     expect(ioServer.io.opts.cors).to.deep.equal({ origin: '/test', methods: ['GET'] });
 
-    // this would be a lot easier to test if the error event called the handler direclty
+    // this would be a lot easier to test if the error event called the handler directly
     errorHandlers[0]();
     expect(logged).to.equal(true);
   });
