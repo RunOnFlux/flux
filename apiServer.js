@@ -1,4 +1,8 @@
-global.userconfig = require('./config/userconfig');
+/**
+ * @import { MongoClient, Collection } from "mongodb"
+ */
+
+globalThis.userconfig = require('./config/userconfig');
 
 if (typeof AbortController === 'undefined') {
   // polyfill for nodeJS 14.18.1 - without having to use experimental features
@@ -23,10 +27,12 @@ const fluxServer = require('./ZelBack/src/lib/fluxServer');
 
 const log = require('./ZelBack/src/lib/log');
 
+const dbHelper = require('./ZelBack/src/services/dbHelper');
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
+const fluxRepository = require('./ZelBack/src/services/utils/fluxRepository');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -39,6 +45,148 @@ let axiosDefaultsSet = false;
  * The Cacheable. So we only instantiate it once (and for testing)
  */
 let cacheable = null;
+
+/**
+ * A fairly random way of determining if a node is on the preprod branch or master
+ * @returns {boolean}
+ */
+function isPreProdNode() {
+  const chance = Math.random();
+  return chance <= config.preProd.probability;
+}
+
+/**
+ * Throws the dice to see if this node is a preprod node, and stores it in the
+ * local mongo state database
+ * @param {Collection} col
+ * @returns {Promise<boolean>}
+ */
+async function setPreProdNode(col) {
+  const preprodNode = isPreProdNode();
+
+  await col.updateOne(
+    { key: 'isPreProd' },
+    { $set: { key: 'isPreProd', value: preprodNode } },
+    { upsert: true },
+  );
+
+  return preprodNode;
+}
+
+/**
+ * Checks the local mongo state database to see if this node has thrown the dice
+ * to see if it is a preprod node within the last daysToNextEval time period.
+ * @param {Collection} col
+ * @returns {Promise<boolean>}
+ */
+async function getPreProdNode(col) {
+  const result = await col.findOne(
+    { key: 'isPreProd' },
+    { projection: { value: 1 } },
+  );
+
+  if (!result) return null;
+
+  const { value: isPreprod, _id: id } = result;
+
+  const timestamp = new Date(id.getTimestamp());
+
+  timestamp.setDate(timestamp.getDate() + config.preProd.daysToNextEval);
+
+  if (timestamp < new Date()) return null;
+
+  return isPreprod;
+}
+
+/**
+ * Determines if this is a preprod node or production node.
+ * @param {MongoClient} client
+ * @returns {Promise<boolean>}
+ */
+async function getPreProdState(client) {
+  const db = client.db('zelfluxlocal');
+  const col = db.collection('state');
+  col.createIndex({ key: 1 }, { unique: true });
+
+  const preprodNode = await getPreProdNode(col) ?? await setPreProdNode(col);
+
+  return preprodNode;
+}
+
+/**
+ * Chooses either preprod or production branches. Except if the node is on deveop,
+ * then nothing happens. If the branch is changed, fluxOS is restarted by Nodemon,
+ * if it is running.
+ * @param {MongoClient} client
+ * @param {string} repoDir
+ * @returns {Promise<void>}
+ */
+async function setProductionBranch(client, repoDir) {
+  const { initial: { development, disablePreProd } } = userconfig;
+  // Develop nodes take priority over preProd nodes.
+  if (development || disablePreProd) return;
+
+  const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
+
+  const preprodNode = await getPreProdState(client);
+
+  const logText = preprodNode ? 'pre-production' : 'production';
+  log.info(`Fluxnode running in ${logText} mode`);
+
+  const { preProd: { branch, remote } } = config;
+
+  const targetBranch = preprodNode ? branch : 'master';
+
+  const repo = new fluxRepository.FluxRepository({ repoDir });
+  const remotes = await repo.remotes();
+  const currentBranch = await repo.currentBranch();
+
+  log.info(`Fluxnode on branch: ${currentBranch}`);
+
+  const origin = remotes.find(
+    (r) => r.refs.fetch === remote,
+  );
+
+  // if we don't find the origin, something is fishy. Maybe git:// scheme, maybe a
+  // different origin. Either way, we let it go and continue on whatever branch is set.
+  if (!origin) {
+    log.warn(`Unable to find remote ref: ${remote} in remotes... skipping preprod setup`);
+    return;
+  }
+
+  if (currentBranch === targetBranch) return;
+
+  log.info(`Switching from branch: ${currentBranch} to: ${targetBranch}`);
+
+  await repo.switchBranch(targetBranch, {
+    remote: origin.name,
+    forceClean: true,
+    reset: true,
+  }).catch((err) => log.info(err));
+
+  // nodemon should kill this process within 5 seconds as we've changed files.
+
+  await sleep(10_000);
+
+  // We're still here. Maybe no backend files changed with the branch switch.
+  // Lets trigger a restart. We're just updating the file access / modified
+  // times - which nodemon sees as files changed.
+
+  const time = new Date();
+  const testFile = path.join(repoDir, 'ZelBack/config/default.js');
+  await fs.utimes(testFile, time, time).catch(() => { });
+
+  await sleep(10_000);
+
+  // Without knowing for sure what the supervisor is, forking the current process
+  // just feels too risky. We just let it go, and continue running on our current branch.
+
+  // We're still here. Doesn't seem like nodemon is running. Lets just fork
+  // ourselves then.
+
+  // fork(process.argv[1], { detached: true }).unref();
+  // process.exit();
+}
 
 function getrequestHistory() {
   return requestHistory;
@@ -232,6 +380,12 @@ async function initiate() {
     process.exit(1);
   });
 
+  const appRoot = process.cwd();
+
+  const dbClient = await dbHelper.initiateDB().catch(() => null);
+
+  if (dbClient) await setProductionBranch(dbClient, appRoot);
+
   await createDnsCache();
 
   await loadUpnpIfRequired();
@@ -240,7 +394,6 @@ async function initiate() {
     configReload();
   }, 2 * 1000);
 
-  const appRoot = process.cwd();
   // ToDo: move this to async
   const certExists = fs.existsSync(path.join(appRoot, 'certs/v1.key'));
 
