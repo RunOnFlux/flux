@@ -8472,6 +8472,47 @@ async function getAppsLocation(req, res) {
 }
 
 /**
+ * To get apps locations information received since
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsLocationsBroadcastedSince(req, res) {
+  try {
+    let { broadcastedsince } = req.broadcastedsince;
+    broadcastedsince = broadcastedsince || req.query.broadcastedsince;
+    let query = {};
+    if (broadcastedsince) {
+      query = { broadcatedAt: { $gte: broadcastedsince }, removedBroadcastedAt: { $gte: broadcastedsince } };
+    }
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.appsglobal.database);
+    const projection = {
+      projection: {
+        _id: 0,
+        name: 1,
+        hash: 1,
+        ip: 1,
+        broadcastedAt: 1,
+        removedBroadcastedAt: 1,
+        expireAt: 1,
+        runningSince: 1,
+      },
+    };
+    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    const resultsResponse = messageHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
  * To get all global app names.
  * @param {array} proj Array of wanted projection to get, If not submitted, all fields.
  * @returns {string[]} Array of app specifications or an empty array if an error is caught.
@@ -13116,4 +13157,5 @@ module.exports = {
   nodeAndAppsStatusCheck,
   broadcastAppsRunning,
   removeAppsRunningOnNodeIP,
+  getAppsLocationsBroadcastedSince,
 };
