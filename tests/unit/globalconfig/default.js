@@ -155,7 +155,7 @@ module.exports = {
       staticip: 2, // additional price per application for targetting nodes that have static ip address
       fluxmultiplier: 0.9, // discount given if payed with flux 1 would be 0%
       multiplier: 1, // multiplier in case we want to increase prices globaly
-      minUSDPrice: 0.50, // min. usd price that can be paid with stripe/paypal.
+      minUSDPrice: 0.99, // min. usd price that can be paid with stripe/paypal.
     },
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
