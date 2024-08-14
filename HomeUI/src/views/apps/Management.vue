@@ -8659,7 +8659,6 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      // this.showToast('info', 'Propagating message accross Flux network...');
       this.progressVisable = true;
       this.operationTitle = "Propagating message accross Flux network...";
       const response = await AppsService.updateApp(zelidauth, data).catch((error) => {

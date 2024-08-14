@@ -1,5 +1,26 @@
 <template>
   <div>
+    <b-modal
+      v-model="progressVisable"
+      hide-footer
+      centered
+      hide-header-close
+      no-close-on-backdrop
+      no-close-on-esc
+      size="lg"
+      header-bg-variant="primary"
+      :title="operationTitle"
+      title-tag="h5"
+    >
+      <div class="d-flex flex-column justify-content-center align-items-center" style="height: 100%;">
+        <div class="d-flex align-items-center mb-2">
+          <b-spinner label="Loading..." />
+          <div class="ml-1">
+            Waiting for the operation to be completed...
+          </div>
+        </div>
+      </div>
+    </b-modal>
     <b-card>
       <b-card-sub-title>
         Note: Mining of any sort including bandwidth mining is prohibited as well as any illegal activites. Please read through
@@ -2193,6 +2214,8 @@ export default {
   },
   data() {
     return {
+      progressVisable: false,
+      operationTitle: '',
       isDragging: false,
       reader: new FileReader(),
       tooltipText: 'Copy to clipboard',
@@ -2815,6 +2838,8 @@ export default {
           throw new Error('This application is configured and needs to be bought directly from marketplace.');
         }
         // formation, pre verificaiton
+        this.operationTitle = ' Compute registration message...';
+        this.progressVisable = true;
         const appSpecification = this.appRegistrationSpecification;
         let secretsPresent = false;
         if (appSpecification.version >= 7) {
@@ -2923,6 +2948,7 @@ export default {
           this.applicationPrice = +response.data.data.flux;
           this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount;
         }
+        this.progressVisable = false;
         this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
@@ -2932,6 +2958,7 @@ export default {
           }
         });
       } catch (error) {
+        this.progressVisable = false;
         console.log(error);
         this.showToast('danger', error.message || error);
       }
@@ -3104,7 +3131,8 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      this.showToast('info', 'Propagating message accross Flux network...');
+      this.progressVisable = true;
+      this.operationTitle = 'Propagating message accross Flux network...';
       const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
         this.showToast('danger', error.message || error);
       });
@@ -3120,6 +3148,7 @@ export default {
         this.stripeEnabled = fiatGateways.stripe;
         this.paypalEnabled = fiatGateways.paypal;
       }
+      this.progressVisable = false;
     },
 
     async appsDeploymentInformation() {
