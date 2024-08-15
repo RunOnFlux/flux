@@ -8816,7 +8816,7 @@ export default {
         }
         this.appPricePerSpecsUSD = +response.data.data.usd;
         console.log(response.data.data);
-        if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.50) {
+        if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.99) {
           this.freeUpdate = true;
         } else if (Number.isNaN(+response.data.data.fluxDiscount)) {
           this.applicationPriceFluxError = true;
