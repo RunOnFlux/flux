@@ -8659,7 +8659,6 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      // this.showToast('info', 'Propagating message accross Flux network...');
       this.progressVisable = true;
       this.operationTitle = "Propagating message accross Flux network...";
       const response = await AppsService.updateApp(zelidauth, data).catch((error) => {
@@ -8817,7 +8816,7 @@ export default {
         }
         this.appPricePerSpecsUSD = +response.data.data.usd;
         console.log(response.data.data);
-        if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.50) {
+        if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.99) {
           this.freeUpdate = true;
         } else if (Number.isNaN(+response.data.data.fluxDiscount)) {
           this.applicationPriceFluxError = true;
