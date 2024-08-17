@@ -1942,12 +1942,12 @@ async function prepareAppsLocationsDB() {
         timestampForSearchs = results[0].broadcastedAt - (60 * 60 * 1000); // lets put 1 hour before latest app running message received;
       }
     } else {
-      const maxQuery = { broadcastedAt: -1 };
+      query = { broadcastedAt: -1 };
       projection = {
         _id: 0,
         broadcastedAt: 1,
       };
-      results = await dbHelper.limitFromCollection(database, globalAppsLocations, maxQuery, projection);
+      results = await dbHelper.limitFromCollection(database, globalAppsLocations, query, projection);
       if (results && results.length > 0) {
         log.info(`prepareAppsLocationsDB - maxBroadcastedAt: ${results[0].broadcastedAt}`);
         if (results[0].broadcastedAt < 24 * 60 * 60 * 1000) { // last message received over one day we delete entire db and insert the info from a new node
@@ -1972,12 +1972,12 @@ async function prepareAppsLocationsDB() {
       // eslint-disable-next-line no-await-in-loop
       let askingIP = await fluxNetworkHelper.getRandomConnection();
       if (!askingIP) {
-        prepareAppsLocationsDB();
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(10 * 1000);
         // eslint-disable-next-line no-continue
         continue;
       }
       if (myIP === askingIP) {
-        prepareAppsLocationsDB();
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1994,7 +1994,7 @@ async function prepareAppsLocationsDB() {
       // eslint-disable-next-line no-await-in-loop
       const uptimeResponse = await axios.get(`http://${askingIP}:${askingIpPort}/flux/uptime`, axiosConfig).catch((error) => log.error(error));
       if (uptimeResponse && uptimeResponse.data && uptimeResponse.data.status === 'success' && uptimeResponse.data.data > 60 * 5) {
-        log.info(`prepareAppsLocationsDB - ${askingIP}:${askingIpPort} have uptime higher than 5 minutes`);
+        log.info(`prepareAppsLocationsDB - ${askingIP}:${askingIpPort} have uptime higher than 5 minutes: ${uptimeResponse}`);
         let url = `http://${askingIP}:${askingIpPort}/apps/locationscompressed`;
         if (timestampForSearchs) {
           url += `/${timestampForSearchs}`;
@@ -2036,7 +2036,7 @@ async function prepareAppsLocationsDB() {
     }
   } catch (error) {
     log.error(`prepareAppsLocationsDB - Error: ${error}`);
-    if (otherNodesChecks === 0) {
+    if (otherNodesChecks === 0) { // this means it did not finish any processing
       await serviceHelper.delay(5 * 60 * 1000);
       prepareAppsLocationsDB();
     }
