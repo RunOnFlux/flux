@@ -33,6 +33,7 @@ module.exports = {
       database: 'localzelappstest',
       collections: {
         appsInformation: 'zelappsinformation',
+        appsRunningTimestampRestore: 'appsRunningTimestampRestore',
       },
     },
     appsglobal: {

@@ -3,6 +3,7 @@ const https = require('https');
 const axios = require('axios');
 const express = require('express');
 const http = require('http');
+const LZString = require('lz-string');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const os = require('os');
 const path = require('path');
@@ -8472,20 +8473,15 @@ async function getAppsLocation(req, res) {
 }
 
 /**
- * To get apps locations information received since
+ * To get apps locations db compressed this method is called when fluxos startups on nodes to get information from other nodes on the network
  * @param {object} req Request.
  * @param {object} res Response.
  */
-async function getAppsLocationsBroadcastedSince(req, res) {
+async function getAppsLocationsDB(req, res) {
   try {
-    let { broadcastedsince } = req.broadcastedsince;
-    broadcastedsince = broadcastedsince || req.query.broadcastedsince;
-    let query = {};
-    if (broadcastedsince) {
-      query = { broadcatedAt: { $gte: broadcastedsince }, removedBroadcastedAt: { $gte: broadcastedsince } };
-    }
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.appsglobal.database);
+    const query = {};
     const projection = {
       projection: {
         _id: 0,
@@ -8499,7 +8495,8 @@ async function getAppsLocationsBroadcastedSince(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-    const resultsResponse = messageHelper.createDataMessage(results);
+    const compressedResult = LZString.compress(JSON.stringify(results));
+    const resultsResponse = messageHelper.createDataMessage(compressedResult);
     res.json(resultsResponse);
   } catch (error) {
     log.error(error);
@@ -13157,5 +13154,5 @@ module.exports = {
   nodeAndAppsStatusCheck,
   broadcastAppsRunning,
   removeAppsRunningOnNodeIP,
-  getAppsLocationsBroadcastedSince,
+  getAppsLocationsDB,
 };

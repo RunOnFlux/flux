@@ -87,6 +87,8 @@ async function startFluxFunctions() {
     // removed from database records that removedBroadcastedAt was sent 10 days ago
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ removedBroadcastedAt: 1 }, { expireAfterSeconds: 864000 });
     log.info('Flux Apps locations prepared');
+    fluxService.prepareAppsLocationsDB();
+    log.info('Flux Apps locations restore process started');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();

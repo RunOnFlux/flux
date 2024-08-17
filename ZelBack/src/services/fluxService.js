@@ -2,6 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const axios = require('axios');
+const LZString = require('lz-string');
 const { promisify } = require('node:util');
 
 const config = require('config');
@@ -32,6 +33,8 @@ const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
+const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+const appsRunningTimetstampRestoreCollection = config.database.appslocal.collections.appsRunningTimestampRestore;
 
 const monitorAppsCache = {
   max: 80,
@@ -1908,7 +1911,135 @@ async function monitorAppsRunningOnNodes() {
       }
     }
   } catch (error) {
-    log.error(`sentinel - Error: ${error}`);
+    log.error(`monitorAppsRunningOnNodes - Error: ${error}`);
+  }
+}
+
+/**
+ * Function responsable for clearing appslocations db and get information from other nodes on FluxOS launch
+ */
+let otherNodesChecks = 0;
+async function prepareAppsLocationsDB() {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.daemon.database);
+    let query;
+    let timestampForSearchs;
+    let projection;
+    log.info('prepareAppsLocationsDB - First run');
+    query = {};
+    projection = {
+      _id: 0,
+      broadcastedAt: 1,
+    };
+    let results = await dbHelper.findInDatabase(database, appsRunningTimetstampRestoreCollection, query, projection);
+    if (results && results.length > 0) {
+      log.info(`prepareAppsLocationsDB - maxBroadcastedAt found in database to be processed: ${JSON.stringify(results)}`);
+      if (results[0].broadcastedAt < 24 * 60 * 60 * 1000) { // timestamp to search over one day we delete entire db and insert the entire info from a new node
+        await dbHelper.removeDocumentsFromCollection(database, appsRunningTimetstampRestoreCollection, query);
+        await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
+      } else {
+        timestampForSearchs = results[0].broadcastedAt - (60 * 60 * 1000); // lets put 1 hour before latest app running message received;
+      }
+    } else {
+      const maxQuery = { broadcastedAt: -1 };
+      projection = {
+        _id: 0,
+        broadcastedAt: 1,
+      };
+      results = await dbHelper.limitFromCollection(database, globalAppsLocations, maxQuery, projection);
+      if (results && results.length > 0) {
+        log.info(`prepareAppsLocationsDB - maxBroadcastedAt: ${results[0].broadcastedAt}`);
+        if (results[0].broadcastedAt < 24 * 60 * 60 * 1000) { // last message received over one day we delete entire db and insert the info from a new node
+          await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
+        } else {
+          const insert = {
+            broadcastedAt: results[0].broadcastedAt,
+          };
+          await dbHelper.insertOneToDatabase(database, appsRunningTimetstampRestoreCollection, insert);
+          timestampForSearchs = results[0].broadcastedAt - (60 * 60 * 1000); // lets put 1 hour before latest app running message received;
+        }
+      } else {
+        log.info('prepareAppsLocationsDB - maxBroadcastedAt not present, will get all DB');
+      }
+    }
+
+    // now let's get the list from two random nodes on the network that have uptime higher than 2 minutes;
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    let run = 0;
+    while (otherNodesChecks < 2 && run < 10) {
+      run += 1;
+      // eslint-disable-next-line no-await-in-loop
+      let askingIP = await fluxNetworkHelper.getRandomConnection();
+      if (!askingIP) {
+        prepareAppsLocationsDB();
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      if (myIP === askingIP) {
+        prepareAppsLocationsDB();
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      let askingIpPort = config.server.apiport;
+      if (askingIP.includes(':')) { // has port specification
+      // it has port specification
+        const splittedIP = askingIP.split(':');
+        askingIP = splittedIP[0];
+        askingIpPort = splittedIP[1];
+      }
+      const axiosConfig = {
+        timeout: 5000,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      const uptimeResponse = await axios.get(`http://${askingIP}:${askingIpPort}/flux/uptime`, axiosConfig).catch((error) => log.error(error));
+      if (uptimeResponse && uptimeResponse.data && uptimeResponse.data.status === 'success' && uptimeResponse.data.data > 60 * 5) {
+        log.info(`prepareAppsLocationsDB - ${askingIP}:${askingIpPort} have uptime higher than 5 minutes`);
+        let url = `http://${askingIP}:${askingIpPort}/apps/locationscompressed`;
+        if (timestampForSearchs) {
+          url += `/${timestampForSearchs}`;
+        }
+        log.info(`prepareAppsLocationsDB - ${url}`);
+        // eslint-disable-next-line no-await-in-loop
+        const appsLocationsResponse = await axios.get(url, axiosConfig).catch((error) => log.error(error));
+        if (appsLocationsResponse && appsLocationsResponse.data && appsLocationsResponse.data.status === 'success') {
+          const appsLocationsDBString = LZString.decompress(appsLocationsResponse.data.data);
+          const appsLocations = JSON.parse(appsLocationsDBString);
+          log.info(`prepareAppsLocationsDB - received ${appsLocations.length} locations from ${askingIP}:${askingIpPort} will update now DB`);
+          if (timestampForSearchs) {
+            // eslint-disable-next-line no-restricted-syntax
+            for (const location of appsLocations) {
+              const queryUpdate = { name: location.name, ip: location.ip };
+              const update = { $set: location };
+              const options = {
+                upsert: true,
+              };
+              // eslint-disable-next-line no-await-in-loop
+              await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+            }
+            otherNodesChecks += 1;
+            log.info(`prepareAppsLocationsDB - DB updated with locations received from ${askingIP}:${askingIpPort}`);
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.insertManyToDatabase(database, globalAppsLocations, appsLocations);
+            otherNodesChecks += 1;
+            log.info(`prepareAppsLocationsDB - DB updated with full locations received from ${askingIP}:${askingIpPort}`);
+            break; // we break because we will only get information from two other nodes if we are updating db and not fully recovering;
+          }
+        }
+      }
+    }
+    log.info(`prepareAppsLocationsDB - otherNodesChecks: ${otherNodesChecks}`);
+    if (otherNodesChecks > 0 && timestampForSearchs) {
+      query = {};
+      await dbHelper.removeDocumentsFromCollection(database, appsRunningTimetstampRestoreCollection, query);
+    }
+  } catch (error) {
+    log.error(`prepareAppsLocationsDB - Error: ${error}`);
+    if (otherNodesChecks === 0) {
+      await serviceHelper.delay(5 * 60 * 1000);
+      prepareAppsLocationsDB();
+    }
   }
 }
 
@@ -1975,4 +2106,5 @@ module.exports = {
   fluxLog,
   tailFluxLog,
   monitorAppsRunningOnNodes,
+  prepareAppsLocationsDB,
 };
