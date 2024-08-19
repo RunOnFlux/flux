@@ -132,6 +132,8 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
+const appsExtendingSubscriptionExpirations = [5000, 11000, 22000, 66000, 132000, 264000];
+
 const appsMonitored = {
   // appsMonitored Object Examples:
   // component1_appname2: { // >= 4 or name for <= 3
@@ -6180,21 +6182,19 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
 /**
  * To check for any conflicts with the latest permenent app registration message and any app update messages.
  * @param {object} specifications App specifications.
- * @param {number} verificationTimestamp Verifiaction time stamp.
+ * @param {object} previousAppSpecs previous App specifications.
  * @returns {boolean} True if no errors are thrown.
  */
-async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
-  // eslint-disable-next-line no-use-before-define
-  const appSpecs = await getPreviousAppSpecifications(specifications, verificationTimestamp);
+async function checkApplicationUpdateNameRepositoryConflicts(specifications, previousAppSpecs) {
   if (specifications.version >= 4) {
-    if (appSpecs.version >= 4) {
+    if (previousAppSpecs.version >= 4) {
       // update and current are both v4 compositions
       // must be same amount of copmositions
       // must be same names
-      if (specifications.compose.length !== appSpecs.compose.length) {
+      if (specifications.compose.length !== previousAppSpecs.compose.length) {
         throw new Error(`Flux App ${specifications.name} change of components is not allowed`);
       }
-      appSpecs.compose.forEach((appComponent) => {
+      previousAppSpecs.compose.forEach((appComponent) => {
         const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
         if (!newSpecComponentFound) {
           throw new Error(`Flux App ${specifications.name} change of component name is not allowed`);
@@ -6204,11 +6204,11 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
     } else { // update is v4+ and current app have v1,2,3
       throw new Error(`Flux App ${specifications.name} on update to different specifications is not possible`);
     }
-  } else if (appSpecs.version >= 4) {
+  } else if (previousAppSpecs.version >= 4) {
     throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
   } else { // bot update and current app have v1,2,3
     // eslint-disable-next-line no-lonely-if
-    if (appSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
+    if (previousAppSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
       throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
     }
   }
@@ -6391,10 +6391,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       // stadard verifications
       await verifyAppSpecifications(appSpecFormatted, daemonHeight);
       await verifyAppHash(message);
-      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       // get previousAppSpecifications as we need previous owner
       const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
+      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, previousAppSpecs);
       const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner);
@@ -7400,8 +7400,9 @@ async function updateAppGlobalyApi(req, res) {
         timestamp,
         signature,
       };
+      const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, temporaryAppMessage.timestamp);
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, previousAppSpecs);
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
@@ -10432,7 +10433,16 @@ async function verifyAppUpdateParameters(req, res) {
 
       // check if name is not yet registered
       const timestamp = Date.now();
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+      const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, timestamp);
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, previousAppSpecs);
+      if (appSpecFormatted.expire && !appsExtendingSubscriptionExpirations.includes(appSpecFormatted.expire)) {
+        const auxAppSpecs = JSON.parse(JSON.stringify(appSpecFormatted));
+        auxAppSpecs.expire = null;
+        previousAppSpecs.expire = null;
+        if (JSON.stringify(auxAppSpecs) === JSON.stringify(previousAppSpecs)) {
+          throw new Error('Invalid Flux App Update Specifications - Extend subscription or update specifications is required');
+        }
+      }
 
       // app is valid and can be registered
       // respond with formatted specifications
