@@ -10393,6 +10393,38 @@ async function verifyAppRegistrationParameters(req, res) {
 }
 
 /**
+ * To verify app if app update is not spamming the network with false updates
+ * @param {object} appSpecifications App specifications.
+ * @param {number} height Block height.
+ */
+async function verifyAppUpdateIsNotSpammingNetwork(appSpecifications, height) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  log.info(`Searching permanent messages for ${appSpecifications.name}`);
+  const appsQuery = {
+    'appSpecifications.name': appSpecifications.name,
+  };
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  const messagesInLastWeek = permanentAppMessage.filter((message) => message.height > height - 5000);
+  if (messagesInLastWeek && messagesInLastWeek.length > 1) {
+    const lastMessageAppSpecs = messagesInLastWeek[messagesInLastWeek.length - 1].appSpecifications;
+    if (lastMessageAppSpecs.expire && appSpecifications.expire - lastMessageAppSpecs.expire < 5000) { // update with less than one week extension let's check specs
+      lastMessageAppSpecs.expire = null;
+      // eslint-disable-next-line no-param-reassign
+      appSpecifications.expire = null;
+      if (JSON.stringify(lastMessageAppSpecs) === JSON.stringify(appSpecifications)) {
+        throw new Error('Update App Specs not valid. Specs needs to be updated or expire period extended');
+      }
+    }
+  }
+}
+
+/**
  * To verify app update parameters. Checks for correct format, specs and non-duplication of values/resources.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -10416,6 +10448,10 @@ async function verifyAppUpdateParameters(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+
+      if (appSpecFormatted.expire) {
+        await verifyAppUpdateIsNotSpammingNetwork(appSpecFormatted, daemonHeight);
+      }
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
