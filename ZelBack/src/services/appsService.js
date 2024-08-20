@@ -10410,14 +10410,14 @@ async function verifyAppUpdateIsNotSpammingNetwork(appSpecifications, height) {
     'appSpecifications.name': appSpecifications.name,
   };
   const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-  const messagesInLastWeek = permanentAppMessage.filter((message) => message.height > height - 5000);
+  const messagesInLastWeek = permanentAppMessage.filter((message) => message.height > height - 1440);
   if (messagesInLastWeek && messagesInLastWeek.length > 1) {
-    const lastMessageAppSpecs = messagesInLastWeek[messagesInLastWeek.length - 1].appSpecifications;
-    if (lastMessageAppSpecs.expire && appSpecifications.expire - lastMessageAppSpecs.expire < 5000) { // update with less than one week extension let's check specs
-      lastMessageAppSpecs.expire = null;
+    const lastMessage = messagesInLastWeek[messagesInLastWeek.length - 1];
+    if (lastMessage.appSpecifications.expire && (appSpecifications.expire + height) - (lastMessage.appSpecifications.expire + lastMessage.height) < 1440) { // update with less than two days extension let's check specs
+      lastMessage.appSpecifications.expire = null;
       // eslint-disable-next-line no-param-reassign
       appSpecifications.expire = null;
-      if (JSON.stringify(lastMessageAppSpecs) === JSON.stringify(appSpecifications)) {
+      if (JSON.stringify(lastMessage.appSpecifications) === JSON.stringify(appSpecifications)) {
         throw new Error('Update App Specs not valid. Specs needs to be updated or expire period extended');
       }
     }
