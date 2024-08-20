@@ -9874,23 +9874,48 @@ export default {
         return [];
       }
       const statsItems = [];
-      statsData.forEach((entry) => {
+      statsData.forEach((entry, index) => {
+        console.log(`Processing entry ${index}:`, entry);
         const cpuMultiplier = entry.data.cpu_stats.online_cpus / specifications.cpu;
-        const cpu = `${(((entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage) / (entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage)) * 100 * cpuMultiplier).toFixed(2)}%`;
-        const memory = `${(entry.data.memory_stats.usage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((entry.data.memory_stats.usage / (specifications.ram * 1e6)) * 100).toFixed(2)}%`;
+        // Calculate CPU usage
+        const cpuUsage = entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage;
+        const systemCpuUsage = entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage;
+        const cpu = `${(((cpuUsage / systemCpuUsage) * 100 * cpuMultiplier) || 0).toFixed(2)}%`;
+        // Calculate memory usage
+        const memoryUsage = entry.data.memory_stats.usage;
+        const memory = `${(memoryUsage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((memoryUsage / (specifications.ram * 1e6)) * 100 || 0).toFixed(2)}%`;
+        // Safely access network data
+        const networks = entry.data && entry.data.networks;
+        const eth0 = networks && networks.eth0;
         let net = '0 / 0 GB';
-        if (entry.data.networks.eth0) {
-          net = `${(entry.data.networks.eth0.rx_bytes / 1e9).toFixed(2)} / ${(entry.data.networks.eth0.tx_bytes / 1e9).toFixed(2)} GB`;
+        if (eth0) {
+          const rxBytes = eth0.rx_bytes / 1e9;
+          const txBytes = eth0.tx_bytes / 1e9;
+          net = `${rxBytes.toFixed(2)} / ${txBytes.toFixed(2)} GB`;
+        } else {
+          console.error(`Network data for entry ${index} is missing or undefined.`);
+          return;
         }
+        // Safely access block I/O data
+        const blkioStats = entry.data && entry.data.blkio_stats;
         let block = '0.00 / 0.00 GB';
-        if (Array.isArray(entry.data.blkio_stats.io_service_bytes_recursive) && entry.data.blkio_stats.io_service_bytes_recursive.length !== 0) {
-          block = `${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read').value / 1e9).toFixed(2)} / ${(entry.data.blkio_stats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write').value / 1e9).toFixed(2)} GB`;
+        if (blkioStats && Array.isArray(blkioStats.io_service_bytes_recursive)) {
+          const read = blkioStats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read');
+          const write = blkioStats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write');
+          const readValue = (read ? read.value : 0) / 1e9;
+          const writeValue = (write ? write.value : 0) / 1e9;
+          block = `${readValue.toFixed(2)} / ${writeValue.toFixed(2)} GB`;
         }
+        // Safely access disk data
+        const diskStats = entry.data && entry.data.disk_stats;
         let disk = '0 / 0 GB';
-        if (entry.data.disk_stats) {
-          disk = `${(entry.data.disk_stats.used / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((entry.data.disk_stats.used / (specifications.hdd * 1e9)) * 100).toFixed(2)}%`;
+        if (diskStats) {
+          const diskUsed = diskStats.used;
+          disk = `${(diskUsed / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((diskUsed / (specifications.hdd * 1e9)) * 100 || 0).toFixed(2)}%`;
         }
-        const pids = entry.data.pids_stats.current;
+        // Get PIDs count
+        const pids = entry.data && entry.data.pids_stats ? entry.data.pids_stats.current : 0;
+        // Create point object and push to statsItems
         const point = {
           timestamp: new Date(entry.timestamp).toLocaleString('en-GB', timeoptions.shortDate),
           cpu,
