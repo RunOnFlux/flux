@@ -10397,7 +10397,8 @@ async function verifyAppRegistrationParameters(req, res) {
  * @param {object} appSpecifications App specifications.
  * @param {number} height Block height.
  */
-async function verifyAppUpdateIsNotSpammingNetwork(appSpecifications, height) {
+async function verifyAppUpdateIsNotSpammingNetwork(appSpecs, height) {
+  const appSpecifications = JSON.parse(JSON.stringify(appSpecs));
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const projection = {
