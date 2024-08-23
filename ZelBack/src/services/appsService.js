@@ -10153,15 +10153,13 @@ async function getAppFiatAndFluxPrice(req, res) {
       // check if it's a free app update offered by the network
       let freeAppUpdate = false;
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      log.info(JSON.stringify(appSpecFormatted));
-      log.info(JSON.stringify(appInfo));
-      if (appInfo && appInfo.appSpecifications.expire && appSpecFormatted.expire) {
-        if (appSpecFormatted.instances === appInfo.appSpecifications.instances && (appSpecFormatted.expire + daemonHeight) - (appInfo.appSpecifications.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
-          if (appSpecFormatted.compose.length === appInfo.appSpecifications.compose.length) {
+      if (appInfo && appInfo.expire && appSpecFormatted.expire) {
+        if (appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
+          if (appSpecFormatted.compose.length === appInfo.compose.length) {
             let changes = false;
             for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
               const compA = appSpecFormatted.compose[i];
-              const compB = appInfo.appSpecifications.compose[i];
+              const compB = appInfo.compose[i];
               if (compA.cpu !== compB.cpu || compA.ram !== compB.ram || compA.hdd !== compB.hdd) {
                 changes = true;
                 break;
