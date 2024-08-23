@@ -10154,7 +10154,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       let freeAppUpdate = false;
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo && appInfo.appSpecifications.expire && appSpecFormatted.expire) {
-        if (appSpecFormatted.instances === appInfo.appSpecifications.instances && (appSpecFormatted.expire + daemonHeight) - (appInfo.appSpecifications.expire + appInfo.height) < 130) { // free updates can only have maximum 100 blocks added for now
+        if (appSpecFormatted.instances === appInfo.appSpecifications.instances && (appSpecFormatted.expire + daemonHeight) - (appInfo.appSpecifications.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
           if (appSpecFormatted.compose.length === appInfo.appSpecifications.compose.length) {
             let changes = false;
             for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
