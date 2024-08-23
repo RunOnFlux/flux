@@ -10153,6 +10153,8 @@ async function getAppFiatAndFluxPrice(req, res) {
       // check if it's a free app update offered by the network
       let freeAppUpdate = false;
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      log.info(JSON.stringify(appSpecFormatted));
+      log.info(JSON.stringify(appInfo));
       if (appInfo && appInfo.appSpecifications.expire && appSpecFormatted.expire) {
         if (appSpecFormatted.instances === appInfo.appSpecifications.instances && (appSpecFormatted.expire + daemonHeight) - (appInfo.appSpecifications.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
           if (appSpecFormatted.compose.length === appInfo.appSpecifications.compose.length) {
