@@ -10149,6 +10149,32 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+
+      // check if it's a free app update offered by the network
+      let freeAppUpdate = false;
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      if (appInfo && appInfo.appSpecifications.expire && appSpecFormatted.expire) {
+        if (appSpecFormatted.instances === appInfo.appSpecifications.instances && (appSpecFormatted.expire + daemonHeight) - (appInfo.appSpecifications.expire + appInfo.height) < 130) { // free updates can only have maximum 100 blocks added for now
+          if (appSpecFormatted.compose.length === appInfo.appSpecifications.compose.length) {
+            let changes = false;
+            for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
+              const compA = appSpecFormatted.compose[i];
+              const compB = appInfo.appSpecifications.compose[i];
+              if (compA.cpu !== compB.cpu || compA.ram !== compB.ram || compA.hdd !== compB.hdd) {
+                changes = true;
+                break;
+              }
+            }
+            if (!changes) {
+              const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+              const messagesInLasDay = permanentAppMessage.filter((message) => message.type === 'fluxappupdate' && message.height > daemonHeight - 720);
+              if (!messagesInLasDay || messagesInLasDay.length < 5) {
+                freeAppUpdate = true;
+              }
+            }
+          }
+        }
+      }
       const axiosConfig = {
         timeout: 5000,
       };
@@ -10167,7 +10193,6 @@ async function getAppFiatAndFluxPrice(req, res) {
         }
       }
       let actualPriceToPay = 0;
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
       actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
       const expireIn = appSpecFormatted.expire || defaultExpire;
@@ -10251,6 +10276,7 @@ async function getAppFiatAndFluxPrice(req, res) {
         usd: Number(actualPriceToPay),
         flux: fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2)),
         fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : Number(100 - (appPrices[0].fluxmultiplier * 100)),
+        freeNetworkUpdate: freeAppUpdate,
       };
       const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
