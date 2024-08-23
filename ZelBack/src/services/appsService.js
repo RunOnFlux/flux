@@ -10149,6 +10149,32 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+
+      // check if it's a free app update offered by the network
+      let freeAppUpdate = false;
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      if (appInfo && appInfo.appSpecifications.expire && appSpecFormatted.expire) {
+        if (appSpecFormatted.instances === appInfo.appSpecifications.instances && (appSpecFormatted.expire + daemonHeight) - (appInfo.appSpecifications.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
+          if (appSpecFormatted.compose.length === appInfo.appSpecifications.compose.length) {
+            let changes = false;
+            for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
+              const compA = appSpecFormatted.compose[i];
+              const compB = appInfo.appSpecifications.compose[i];
+              if (compA.cpu !== compB.cpu || compA.ram !== compB.ram || compA.hdd !== compB.hdd) {
+                changes = true;
+                break;
+              }
+            }
+            if (!changes) {
+              const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+              const messagesInLasDay = permanentAppMessage.filter((message) => message.type === 'fluxappupdate' && message.height > daemonHeight - 720);
+              if (!messagesInLasDay || messagesInLasDay.length < 5) {
+                freeAppUpdate = true;
+              }
+            }
+          }
+        }
+      }
       const axiosConfig = {
         timeout: 5000,
       };
@@ -10167,7 +10193,6 @@ async function getAppFiatAndFluxPrice(req, res) {
         }
       }
       let actualPriceToPay = 0;
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
       actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
       const expireIn = appSpecFormatted.expire || defaultExpire;
@@ -10251,6 +10276,7 @@ async function getAppFiatAndFluxPrice(req, res) {
         usd: Number(actualPriceToPay),
         flux: fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2)),
         fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : Number(100 - (appPrices[0].fluxmultiplier * 100)),
+        freeNetworkUpdate: freeAppUpdate,
       };
       const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
@@ -10393,39 +10419,6 @@ async function verifyAppRegistrationParameters(req, res) {
 }
 
 /**
- * To verify app if app update is not spamming the network with false updates
- * @param {object} appSpecifications App specifications.
- * @param {number} height Block height.
- */
-async function verifyAppUpdateIsNotSpammingNetwork(appSpecs, height) {
-  const appSpecifications = JSON.parse(JSON.stringify(appSpecs));
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  log.info(`Searching permanent messages for ${appSpecifications.name}`);
-  const appsQuery = {
-    'appSpecifications.name': appSpecifications.name,
-  };
-  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-  const messagesInLastWeek = permanentAppMessage.filter((message) => message.height > height - 1440);
-  if (messagesInLastWeek && messagesInLastWeek.length > 1) {
-    const lastMessage = messagesInLastWeek[messagesInLastWeek.length - 1];
-    if (lastMessage.appSpecifications.expire && (appSpecifications.expire + height) - (lastMessage.appSpecifications.expire + lastMessage.height) < 1440) { // update with less than two days extension let's check specs
-      lastMessage.appSpecifications.expire = null;
-      // eslint-disable-next-line no-param-reassign
-      appSpecifications.expire = null;
-      if (JSON.stringify(lastMessage.appSpecifications) === JSON.stringify(appSpecifications)) {
-        throw new Error('Update App Specs not valid. Specs needs to be updated or expire period extended');
-      }
-    }
-  }
-}
-
-/**
  * To verify app update parameters. Checks for correct format, specs and non-duplication of values/resources.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -10449,10 +10442,6 @@ async function verifyAppUpdateParameters(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
-
-      if (appSpecFormatted.expire) {
-        await verifyAppUpdateIsNotSpammingNetwork(appSpecFormatted, daemonHeight);
-      }
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
