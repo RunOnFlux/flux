@@ -10433,11 +10433,15 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
         if (!changes) {
           const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           let messagesInLasDays = permanentAppMessage.filter((message) => message.type === 'fluxappupdate' && message.height > daemonHeight - 2160);
-          if (!messagesInLasDays || messagesInLasDays.length < 11) {
+          // we will give a maximum of 10 free updates in 3 days, 8 in two days, 5 in one day
+          if (!messagesInLasDays) {
+            // eslint-disable-next-line no-param-reassign
+            appSpecFormatted.freeNetworkUpdate = true;
+          } else if (messagesInLasDays.length < 11) {
             messagesInLasDays = permanentAppMessage.filter((message) => message.height > daemonHeight - 1440);
-            if (!messagesInLasDays || messagesInLasDays.length < 9) {
+            if (messagesInLasDays.length < 9) {
               messagesInLasDays = permanentAppMessage.filter((message) => message.height > daemonHeight - 720);
-              if (!messagesInLasDays || messagesInLasDays.length < 6) {
+              if (messagesInLasDays.length < 6) {
                 // eslint-disable-next-line no-param-reassign
                 appSpecFormatted.freeNetworkUpdate = true;
               }
