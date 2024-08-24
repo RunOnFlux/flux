@@ -7361,13 +7361,6 @@ async function updateAppGlobalyApi(req, res) {
           _id: 0,
         },
       };
-      if (appSpecFormatted.freeNetworkUpdate) {
-        // if it's a free network update we will not extend the app subscription
-        const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-        const blockDiference = (appSpecFormatted.expire + daemonHeight) - appInfo.expire + appInfo.height;
-        appSpecFormatted.expire -= blockDiference;
-        delete appSpecFormatted.freeNetworkUpdate;
-      }
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
