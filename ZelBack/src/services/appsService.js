@@ -7387,6 +7387,11 @@ async function updateAppGlobalyApi(req, res) {
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner);
 
+      if (appSpecFormatted.freeNetworkUpdate) {
+        const blockDiference = (appSpecFormatted.expire + daemonHeight) - appInfo.expire + appInfo.height;
+        appSpecFormatted.expire -= blockDiference;
+        delete appSpecFormatted.freeNetworkUpdate;
+      }
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
       // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
