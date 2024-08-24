@@ -7352,6 +7352,23 @@ async function updateAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      // may throw
+      const query = { name: appSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      if (appSpecFormatted.freeNetworkUpdate) {
+        // if it's a free network update we will not extend the app subscription
+        const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+        const blockDiference = (appSpecFormatted.expire + daemonHeight) - appInfo.expire + appInfo.height;
+        appSpecFormatted.expire -= blockDiference;
+        delete appSpecFormatted.freeNetworkUpdate;
+      }
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
@@ -7366,15 +7383,6 @@ async function updateAppGlobalyApi(req, res) {
       }
 
       // verify that app exists, does not change repotag and is signed by app owner.
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      // may throw
-      const query = { name: appSpecFormatted.name };
-      const projection = {
-        projection: {
-          _id: 0,
-        },
-      };
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (!appInfo) {
         throw new Error('Flux App update received but application to update does not exist!');
@@ -10150,31 +10158,6 @@ async function getAppFiatAndFluxPrice(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      // check if it's a free app update offered by the network
-      let freeAppUpdate = false;
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      if (appInfo && appInfo.expire && appSpecFormatted.expire) {
-        if (appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
-          if (appSpecFormatted.compose.length === appInfo.compose.length) {
-            let changes = false;
-            for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
-              const compA = appSpecFormatted.compose[i];
-              const compB = appInfo.compose[i];
-              if (compA.cpu !== compB.cpu || compA.ram !== compB.ram || compA.hdd !== compB.hdd) {
-                changes = true;
-                break;
-              }
-            }
-            if (!changes) {
-              const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-              const messagesInLasDay = permanentAppMessage.filter((message) => message.type === 'fluxappupdate' && message.height > daemonHeight - 720);
-              if (!messagesInLasDay || messagesInLasDay.length < 5) {
-                freeAppUpdate = true;
-              }
-            }
-          }
-        }
-      }
       const axiosConfig = {
         timeout: 5000,
       };
@@ -10200,6 +10183,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       const multiplier = expireIn / defaultExpire;
       actualPriceToPay *= multiplier;
       actualPriceToPay = Number(actualPriceToPay).toFixed(2);
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo) {
         let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
         let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
@@ -10276,7 +10260,6 @@ async function getAppFiatAndFluxPrice(req, res) {
         usd: Number(actualPriceToPay),
         flux: fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2)),
         fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : Number(100 - (appPrices[0].fluxmultiplier * 100)),
-        freeNetworkUpdate: freeAppUpdate,
       };
       const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
@@ -10419,6 +10402,54 @@ async function verifyAppRegistrationParameters(req, res) {
 }
 
 /**
+ * To verify if app update have free network update
+ * @param {object} appSpecFormatted appSpecFormatted.
+ * @param {number} daemonHeight daemonHeight.
+ */
+async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
+  // check if it's a free app update offered by the network
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  // may throw
+  const query = { name: appSpecFormatted.name };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (appInfo && appInfo.expire && appSpecFormatted.expire) {
+    if (appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
+      if (appSpecFormatted.compose.length === appInfo.compose.length) {
+        let changes = false;
+        for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
+          const compA = appSpecFormatted.compose[i];
+          const compB = appInfo.compose[i];
+          if (compA.cpu > compB.cpu || compA.ram > compB.ram || compA.hdd > compB.hdd) {
+            changes = true;
+            break;
+          }
+        }
+        if (!changes) {
+          const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          let messagesInLasDays = permanentAppMessage.filter((message) => message.type === 'fluxappupdate' && message.height > daemonHeight - 2160);
+          if (!messagesInLasDays || messagesInLasDays.length < 11) {
+            messagesInLasDays = permanentAppMessage.filter((message) => message.height > daemonHeight - 1440);
+            if (!messagesInLasDays || messagesInLasDays.length < 9) {
+              messagesInLasDays = permanentAppMessage.filter((message) => message.height > daemonHeight - 720);
+              if (!messagesInLasDays || messagesInLasDays.length < 6) {
+                // eslint-disable-next-line no-param-reassign
+                appSpecFormatted.freeNetworkUpdate = true;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
  * To verify app update parameters. Checks for correct format, specs and non-duplication of values/resources.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -10460,6 +10491,7 @@ async function verifyAppUpdateParameters(req, res) {
       const timestamp = Date.now();
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
+      await checkFreeAppUpdate(appSpecFormatted, daemonHeight);
       // app is valid and can be registered
       // respond with formatted specifications
       const respondPrice = messageHelper.createDataMessage(appSpecFormatted);

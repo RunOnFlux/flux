@@ -5079,12 +5079,6 @@
                     </h4>
                   </div>
                 </b-card-text>
-                <b-card-text v-if="freeUpdate">
-                  <br>
-                  <div class="text-center my-3">
-                    This update will have no cost. We offer up to 5 of these updates per day.
-                  </div>
-                </b-card-text>
                 <br>
                 <b-button
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -8815,14 +8809,17 @@ export default {
         this.applicationPriceFluxDiscount = '';
         this.applicationPriceFluxError = false;
         this.freeUpdate = false;
-
-        const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
-        if (response.data.status === 'error') {
-          throw new Error(response.data.data.message || response.data.data);
+        let response;
+        if (!appSpecFormatted.freeNetworkUpdate) {
+          response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
+          if (response.data.status === 'error') {
+            throw new Error(response.data.data.message || response.data.data);
+          }
+          this.appPricePerSpecsUSD = +response.data.data.usd;
+          console.log(response.data.data);
         }
-        this.appPricePerSpecsUSD = +response.data.data.usd;
-        console.log(response.data.data);
-        if (!this.extendSubscription && response.data.data.freeNetworkUpdate) {
+
+        if (!this.extendSubscription && appSpecFormatted.freeNetworkUpdate) {
           this.freeUpdate = true;
         } else if (Number.isNaN(+response.data.data.fluxDiscount)) {
           this.applicationPriceFluxError = true;
