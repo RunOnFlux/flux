@@ -10438,9 +10438,9 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
             // eslint-disable-next-line no-param-reassign
             appSpecFormatted.freeNetworkUpdate = true;
           } else if (messagesInLasDays.length < 11) {
-            messagesInLasDays = permanentAppMessage.filter((message) => message.height > daemonHeight - 1440);
+            messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 1440);
             if (messagesInLasDays.length < 9) {
-              messagesInLasDays = permanentAppMessage.filter((message) => message.height > daemonHeight - 720);
+              messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 720);
               if (messagesInLasDays.length < 6) {
                 // eslint-disable-next-line no-param-reassign
                 appSpecFormatted.freeNetworkUpdate = true;
