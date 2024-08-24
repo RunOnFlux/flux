@@ -7387,11 +7387,6 @@ async function updateAppGlobalyApi(req, res) {
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner);
 
-      if (appSpecFormatted.freeNetworkUpdate) {
-        const blockDiference = (appSpecFormatted.expire + daemonHeight) - appInfo.expire + appInfo.height;
-        appSpecFormatted.expire -= blockDiference;
-        delete appSpecFormatted.freeNetworkUpdate;
-      }
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
       // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
@@ -9971,152 +9966,56 @@ async function getAppFluxOnChainPrice(appSpecification) {
 }
 
 /**
- * DEPRECATED: To get app price. Should be used getAppFiatAndFluxPrice method instead
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
+ * To verify if app update have free network update
+ * @param {object} appSpecFormatted appSpecFormatted.
+ * @param {number} daemonHeight daemonHeight.
+ * @returns {boolean} yes if update message is network free.
  */
-async function getAppPrice(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
-
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
-
-      // verifications skipped. This endpoint is only for price evaluation
-
-      // check if app exists or its a new registration price
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      // may throw
-      const query = { name: appSpecFormatted.name };
-      const projection = {
-        projection: {
-          _id: 0,
-        },
-      };
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-      const axiosConfig = {
-        timeout: 5000,
-      };
-      const appPrices = [];
-      if (myLongCache.has('appPrices')) {
-        appPrices.push(myLongCache.get('appPrices'));
-      } else {
-        let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
-        if (response && response.data && response.data.status === 'success') {
-          myLongCache.set('appPrices', response.data.data);
-          appPrices.push(response.data.data);
-        } else {
-          response = config.fluxapps.usdprice;
-          myLongCache.set('appPrices', response);
-          appPrices.push(response);
-        }
-      }
-      let actualPriceToPay = 0;
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
-      const expireIn = appSpecFormatted.expire || defaultExpire;
-      // app prices are ceiled to highest 0.01
-      const multiplier = expireIn / defaultExpire;
-      actualPriceToPay *= multiplier;
-      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
-      if (appInfo) {
-        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
-        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
-        if (daemonHeight > 1315000) {
-          previousExpireIn = appInfo.expire || defaultExpire;
-        }
-        const multiplierPrevious = previousExpireIn / defaultExpire;
-        previousSpecsPrice *= multiplierPrevious;
-        previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
-        // what is the height difference
-        const heightDifference = daemonHeight - appInfo.height;
-        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
-        if (perc > 0) {
-          actualPriceToPay -= (perc * previousSpecsPrice);
-        }
-      }
-      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
-      let marketPlaceApps = [];
-      if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
-        marketPlaceApps = marketplaceResponse.data.data;
-      } else {
-        log.error('Unable to get marketplace information');
-      }
-
-      if (appSpecification.priceUSD) {
-        if (appSpecification.priceUSD < actualPriceToPay) {
-          throw new Error('USD price is not valid');
-        }
-        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
-      } else {
-        const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
-        if (marketPlaceApp) {
-          if (marketPlaceApp.multiplier > 1) {
-            actualPriceToPay *= marketPlaceApp.multiplier;
+async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
+  // check if it's a free app update offered by the network
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  // may throw
+  const query = { name: appSpecFormatted.name };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (appInfo && appInfo.expire && appSpecFormatted.expire) {
+    if (appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
+      if (appSpecFormatted.compose.length === appInfo.compose.length) {
+        let changes = false;
+        for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
+          const compA = appSpecFormatted.compose[i];
+          const compB = appInfo.compose[i];
+          if (compA.cpu > compB.cpu || compA.ram > compB.ram || compA.hdd > compB.hdd) {
+            changes = true;
+            break;
           }
         }
-        actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
-        if (actualPriceToPay < appPrices[0].minUSDPrice) {
-          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
-        }
-      }
-      let fiatRates;
-      let fluxUSDRate;
-      if (myShortCache.has('fluxRates')) {
-        fluxUSDRate = myShortCache.get('fluxRates');
-      } else {
-        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
-        if (fiatRates && fiatRates.data) {
-          const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
-          if (!rateObj) {
-            throw new Error('Unable to get USD rate.');
+        if (!changes) {
+          const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          let messagesInLasDays = permanentAppMessage.filter((message) => (message.type === 'fluxappupdate' || message.type === 'zelappupdate') && message.height > daemonHeight - 3600);
+          // we will give a maximum of 10 free updates in 5 days, 8 in two days, 5 in one day
+          if (!messagesInLasDays) {
+            return true;
           }
-          const btcRateforFlux = fiatRates.data[1].FLUX;
-          if (btcRateforFlux === undefined) {
-            throw new Error('Unable to get Flux USD Price.');
-          }
-          fluxUSDRate = rateObj.rate * btcRateforFlux;
-          myShortCache.set('fluxRates', fluxUSDRate);
-        } else {
-          fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
-          if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
-            fluxUSDRate = fiatRates.data.zelcash.usd;
-            myShortCache.set('fluxRates', fluxUSDRate);
-          } else {
-            // eslint-disable-next-line prefer-destructuring
-            fluxUSDRate = config.fluxapps.fluxUSDRate;
-            myShortCache.set('fluxRates', fluxUSDRate);
+          if (messagesInLasDays.length < 11) {
+            messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 1440);
+            if (messagesInLasDays.length < 9) {
+              messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 720);
+              if (messagesInLasDays.length < 6) {
+                return true;
+              }
+            }
           }
         }
       }
-      const fluxPrice = Number(((actualPriceToPay / fluxUSDRate) * appPrices[0].fluxmultiplier));
-      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
-      const price = fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2));
-      const respondPrice = messageHelper.createDataMessage(price);
-      return res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
     }
-  });
+  }
+  return false;
 }
 
 /**
@@ -10155,6 +10054,17 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+
+      if (await checkFreeAppUpdate(appSpecFormatted, daemonHeight)) {
+        const price = {
+          usd: 0,
+          flux: 0,
+          fluxDiscount: 0,
+          freeNetworkUpdate: true,
+        };
+        const respondPrice = messageHelper.createDataMessage(price);
+        return res.json(respondPrice);
+      }
 
       const axiosConfig = {
         timeout: 5000,
@@ -10271,6 +10181,16 @@ async function getAppFiatAndFluxPrice(req, res) {
       return res.json(errorResponse);
     }
   });
+}
+
+/**
+ * DEPRECATED: To get app price. Should be used getAppFiatAndFluxPrice method instead
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getAppPrice(req, res) {
+  return getAppFiatAndFluxPrice(req, res);
 }
 
 /**
@@ -10400,58 +10320,6 @@ async function verifyAppRegistrationParameters(req, res) {
 }
 
 /**
- * To verify if app update have free network update
- * @param {object} appSpecFormatted appSpecFormatted.
- * @param {number} daemonHeight daemonHeight.
- */
-async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
-  // check if it's a free app update offered by the network
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  // may throw
-  const query = { name: appSpecFormatted.name };
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (appInfo && appInfo.expire && appSpecFormatted.expire) {
-    if (appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
-      if (appSpecFormatted.compose.length === appInfo.compose.length) {
-        let changes = false;
-        for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
-          const compA = appSpecFormatted.compose[i];
-          const compB = appInfo.compose[i];
-          if (compA.cpu > compB.cpu || compA.ram > compB.ram || compA.hdd > compB.hdd) {
-            changes = true;
-            break;
-          }
-        }
-        if (!changes) {
-          const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
-          let messagesInLasDays = permanentAppMessage.filter((message) => message.type === 'fluxappupdate' && message.height > daemonHeight - 2160);
-          // we will give a maximum of 10 free updates in 3 days, 8 in two days, 5 in one day
-          if (!messagesInLasDays) {
-            // eslint-disable-next-line no-param-reassign
-            appSpecFormatted.freeNetworkUpdate = true;
-          } else if (messagesInLasDays.length < 11) {
-            messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 1440);
-            if (messagesInLasDays.length < 9) {
-              messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 720);
-              if (messagesInLasDays.length < 6) {
-                // eslint-disable-next-line no-param-reassign
-                appSpecFormatted.freeNetworkUpdate = true;
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-/**
  * To verify app update parameters. Checks for correct format, specs and non-duplication of values/resources.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -10493,7 +10361,6 @@ async function verifyAppUpdateParameters(req, res) {
       const timestamp = Date.now();
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
-      await checkFreeAppUpdate(appSpecFormatted, daemonHeight);
       // app is valid and can be registered
       // respond with formatted specifications
       const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
