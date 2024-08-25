@@ -225,7 +225,7 @@ sudo ufw allow 16128
 sudo ufw allow 16129
 ```
 
-Install Flux dependancies (Ubuntu/CentOS/Redhat):
+Install Flux dependencies (Ubuntu/CentOS/Redhat):
 
 ```bash
 cd flux
