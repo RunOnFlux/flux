@@ -9985,7 +9985,8 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appInfo && appInfo.expire && appSpecFormatted.expire) {
     const blocksToExtend = (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height);
-    if (appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 2) { // free updates should not extend app subscription
+    if (((!appSpecFormatted.nodes && !appInfo.nodes) || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length))
+      && appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 2) { // free updates should not extend app subscription
       if (appSpecFormatted.compose.length === appInfo.compose.length) {
         let changes = false;
         for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
