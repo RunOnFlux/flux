@@ -6930,15 +6930,21 @@ export default {
           headers: this.zelidHeader,
           responseType: 'blob',
           onDownloadProgress(progressEvent) {
-            const { loaded, total } = progressEvent;
-            // const decodedUrl = decodeURIComponent(target.responseURL);
-            const currentFileProgress = (loaded / total) * 100;
-            console.log(progressEvent);
-            // const currentFileName = decodedUrl.split('/').pop();
-            if (isFolder) {
-              self.updateFileProgressVolume(`${name}.zip`, currentFileProgress);
+            const { loaded, total, lengthComputable } = progressEvent;
+            if (lengthComputable) {
+              const currentFileProgress = (loaded / total) * 100;
+              if (isFolder) {
+                self.updateFileProgressVolume(`${name}.zip`, currentFileProgress);
+              } else {
+                self.updateFileProgressVolume(name, currentFileProgress);
+              }
             } else {
-              self.updateFileProgressVolume(name, currentFileProgress);
+              console.log('Total file size is unknown. Cannot compute progress percentage.');
+              if (isFolder) {
+                self.updateFileProgressVolume(`${name}.zip`, 'Downloading...');
+              } else {
+                self.updateFileProgressVolume(name, 'Downloading...');
+              }
             }
           },
         };
@@ -6950,6 +6956,10 @@ export default {
           response = await this.executeLocalCommand(`/apps/downloadfile/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
         }
         console.log(response);
+        if (!isFolder && response.data && response.status === 200) {
+          self.updateFileProgressVolume(name, 100);
+        }
+
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -6961,7 +6971,6 @@ export default {
           } else {
             link.setAttribute('download', name);
           }
-
           document.body.appendChild(link);
           link.click();
         }
