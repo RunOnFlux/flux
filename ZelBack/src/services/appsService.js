@@ -10003,7 +10003,7 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
           // we will give a maximum of 10 free updates in 5 days, 8 in two days, 5 in one day
           if (!messagesInLasDays) {
             // eslint-disable-next-line no-param-reassign
-            appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension. 
+            appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
             return true;
           }
           if (messagesInLasDays.length < 11) {
@@ -10012,7 +10012,7 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
               messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 720);
               if (messagesInLasDays.length < 6) {
                 // eslint-disable-next-line no-param-reassign
-                appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension. 
+                appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
                 return true;
               }
             }
