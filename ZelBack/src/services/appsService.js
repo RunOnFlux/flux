@@ -9984,7 +9984,8 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   };
   const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appInfo && appInfo.expire && appSpecFormatted.expire) {
-    if (appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height) <= 2) { // free updates should not extend app subscription
+    const blocksToExtend = (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height);
+    if (appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 2) { // free updates should not extend app subscription
       if (appSpecFormatted.compose.length === appInfo.compose.length) {
         let changes = false;
         for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
@@ -10007,6 +10008,8 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
             if (messagesInLasDays.length < 9) {
               messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 720);
               if (messagesInLasDays.length < 6) {
+                // eslint-disable-next-line no-param-reassign
+                appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension. 
                 return true;
               }
             }
@@ -10060,7 +10063,6 @@ async function getAppFiatAndFluxPrice(req, res) {
           usd: 0,
           flux: 0,
           fluxDiscount: 0,
-          freeNetworkUpdate: true,
         };
         const respondPrice = messageHelper.createDataMessage(price);
         return res.json(respondPrice);
