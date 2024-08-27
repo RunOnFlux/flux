@@ -9965,152 +9965,62 @@ async function getAppFluxOnChainPrice(appSpecification) {
 }
 
 /**
- * DEPRECATED: To get app price. Should be used getAppFiatAndFluxPrice method instead
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
+ * To verify if app update have free network update
+ * @param {object} appSpecFormatted appSpecFormatted.
+ * @param {number} daemonHeight daemonHeight.
+ * @returns {boolean} yes if update message is network free.
  */
-async function getAppPrice(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
-
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
-
-      // verifications skipped. This endpoint is only for price evaluation
-
-      // check if app exists or its a new registration price
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      // may throw
-      const query = { name: appSpecFormatted.name };
-      const projection = {
-        projection: {
-          _id: 0,
-        },
-      };
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-      const axiosConfig = {
-        timeout: 5000,
-      };
-      const appPrices = [];
-      if (myLongCache.has('appPrices')) {
-        appPrices.push(myLongCache.get('appPrices'));
-      } else {
-        let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
-        if (response && response.data && response.data.status === 'success') {
-          myLongCache.set('appPrices', response.data.data);
-          appPrices.push(response.data.data);
-        } else {
-          response = config.fluxapps.usdprice;
-          myLongCache.set('appPrices', response);
-          appPrices.push(response);
-        }
-      }
-      let actualPriceToPay = 0;
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
-      const expireIn = appSpecFormatted.expire || defaultExpire;
-      // app prices are ceiled to highest 0.01
-      const multiplier = expireIn / defaultExpire;
-      actualPriceToPay *= multiplier;
-      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
-      if (appInfo) {
-        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
-        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
-        if (daemonHeight > 1315000) {
-          previousExpireIn = appInfo.expire || defaultExpire;
-        }
-        const multiplierPrevious = previousExpireIn / defaultExpire;
-        previousSpecsPrice *= multiplierPrevious;
-        previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
-        // what is the height difference
-        const heightDifference = daemonHeight - appInfo.height;
-        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
-        if (perc > 0) {
-          actualPriceToPay -= (perc * previousSpecsPrice);
-        }
-      }
-      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
-      let marketPlaceApps = [];
-      if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
-        marketPlaceApps = marketplaceResponse.data.data;
-      } else {
-        log.error('Unable to get marketplace information');
-      }
-
-      if (appSpecification.priceUSD) {
-        if (appSpecification.priceUSD < actualPriceToPay) {
-          throw new Error('USD price is not valid');
-        }
-        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
-      } else {
-        const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
-        if (marketPlaceApp) {
-          if (marketPlaceApp.multiplier > 1) {
-            actualPriceToPay *= marketPlaceApp.multiplier;
+async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
+  // check if it's a free app update offered by the network
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  // may throw
+  const query = { name: appSpecFormatted.name };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (appInfo && appInfo.expire && appSpecFormatted.expire) {
+    const blocksToExtend = (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height);
+    if (((!appSpecFormatted.nodes && !appInfo.nodes) || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length))
+      && appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 2) { // free updates should not extend app subscription
+      if (appSpecFormatted.compose.length === appInfo.compose.length) {
+        let changes = false;
+        for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
+          const compA = appSpecFormatted.compose[i];
+          const compB = appInfo.compose[i];
+          if (compA.cpu > compB.cpu || compA.ram > compB.ram || compA.hdd > compB.hdd) {
+            changes = true;
+            break;
           }
         }
-        actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
-        if (actualPriceToPay < appPrices[0].minUSDPrice) {
-          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
-        }
-      }
-      let fiatRates;
-      let fluxUSDRate;
-      if (myShortCache.has('fluxRates')) {
-        fluxUSDRate = myShortCache.get('fluxRates');
-      } else {
-        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
-        if (fiatRates && fiatRates.data) {
-          const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
-          if (!rateObj) {
-            throw new Error('Unable to get USD rate.');
+        if (!changes) {
+          const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          let messagesInLasDays = permanentAppMessage.filter((message) => (message.type === 'fluxappupdate' || message.type === 'zelappupdate') && message.height > daemonHeight - 3600);
+          // we will give a maximum of 10 free updates in 5 days, 8 in two days, 5 in one day
+          if (!messagesInLasDays) {
+            // eslint-disable-next-line no-param-reassign
+            appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
+            return true;
           }
-          const btcRateforFlux = fiatRates.data[1].FLUX;
-          if (btcRateforFlux === undefined) {
-            throw new Error('Unable to get Flux USD Price.');
-          }
-          fluxUSDRate = rateObj.rate * btcRateforFlux;
-          myShortCache.set('fluxRates', fluxUSDRate);
-        } else {
-          fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
-          if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
-            fluxUSDRate = fiatRates.data.zelcash.usd;
-            myShortCache.set('fluxRates', fluxUSDRate);
-          } else {
-            // eslint-disable-next-line prefer-destructuring
-            fluxUSDRate = config.fluxapps.fluxUSDRate;
-            myShortCache.set('fluxRates', fluxUSDRate);
+          if (messagesInLasDays.length < 11) {
+            messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 1440);
+            if (messagesInLasDays.length < 9) {
+              messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 720);
+              if (messagesInLasDays.length < 6) {
+                // eslint-disable-next-line no-param-reassign
+                appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
+                return true;
+              }
+            }
           }
         }
       }
-      const fluxPrice = Number(((actualPriceToPay / fluxUSDRate) * appPrices[0].fluxmultiplier));
-      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
-      const price = fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2));
-      const respondPrice = messageHelper.createDataMessage(price);
-      return res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
     }
-  });
+  }
+  return false;
 }
 
 /**
@@ -10149,6 +10059,17 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+
+      if (await checkFreeAppUpdate(appSpecFormatted, daemonHeight)) {
+        const price = {
+          usd: 0,
+          flux: 0,
+          fluxDiscount: 0,
+        };
+        const respondPrice = messageHelper.createDataMessage(price);
+        return res.json(respondPrice);
+      }
+
       const axiosConfig = {
         timeout: 5000,
       };
@@ -10167,7 +10088,6 @@ async function getAppFiatAndFluxPrice(req, res) {
         }
       }
       let actualPriceToPay = 0;
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
       actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
       const expireIn = appSpecFormatted.expire || defaultExpire;
@@ -10175,6 +10095,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       const multiplier = expireIn / defaultExpire;
       actualPriceToPay *= multiplier;
       actualPriceToPay = Number(actualPriceToPay).toFixed(2);
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo) {
         let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
         let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
@@ -10264,6 +10185,16 @@ async function getAppFiatAndFluxPrice(req, res) {
       return res.json(errorResponse);
     }
   });
+}
+
+/**
+ * DEPRECATED: To get app price. Should be used getAppFiatAndFluxPrice method instead
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getAppPrice(req, res) {
+  return getAppFiatAndFluxPrice(req, res);
 }
 
 /**
@@ -10393,39 +10324,6 @@ async function verifyAppRegistrationParameters(req, res) {
 }
 
 /**
- * To verify app if app update is not spamming the network with false updates
- * @param {object} appSpecifications App specifications.
- * @param {number} height Block height.
- */
-async function verifyAppUpdateIsNotSpammingNetwork(appSpecs, height) {
-  const appSpecifications = JSON.parse(JSON.stringify(appSpecs));
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  log.info(`Searching permanent messages for ${appSpecifications.name}`);
-  const appsQuery = {
-    'appSpecifications.name': appSpecifications.name,
-  };
-  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-  const messagesInLastWeek = permanentAppMessage.filter((message) => message.height > height - 1440);
-  if (messagesInLastWeek && messagesInLastWeek.length > 1) {
-    const lastMessage = messagesInLastWeek[messagesInLastWeek.length - 1];
-    if (lastMessage.appSpecifications.expire && (appSpecifications.expire + height) - (lastMessage.appSpecifications.expire + lastMessage.height) < 1440) { // update with less than two days extension let's check specs
-      lastMessage.appSpecifications.expire = null;
-      // eslint-disable-next-line no-param-reassign
-      appSpecifications.expire = null;
-      if (JSON.stringify(lastMessage.appSpecifications) === JSON.stringify(appSpecifications)) {
-        throw new Error('Update App Specs not valid. Specs needs to be updated or expire period extended');
-      }
-    }
-  }
-}
-
-/**
  * To verify app update parameters. Checks for correct format, specs and non-duplication of values/resources.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -10449,10 +10347,6 @@ async function verifyAppUpdateParameters(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
-
-      if (appSpecFormatted.expire) {
-        await verifyAppUpdateIsNotSpammingNetwork(appSpecFormatted, daemonHeight);
-      }
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -11514,7 +11408,10 @@ async function masterSlaveApps() {
           // no ip means there was no row with ip on fdm
           // down means there was a row ip with status down
           // eslint-disable-next-line no-await-in-loop
-          const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          if (myIP.indexOf(':') < 0) {
+            myIP += ':16127';
+          }
           if ((!ip)) {
             log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
             if (!runningAppsNames.includes(identifier)) {
@@ -11541,27 +11438,47 @@ async function masterSlaveApps() {
                 }
                 return 0;
               });
-              const index = runningAppList.findIndex((x) => x.ip === myIP);
+              const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
               if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
-              } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP.split(':')[0]) {
+              } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
+                const { CancelToken } = axios;
+                const source = CancelToken.source();
+                let isResolved = false;
+                const timeout = 5 * 1000; // 5 seconds
+                setTimeout(() => {
+                  if (!isResolved) {
+                    source.cancel('Operation canceled by the user.');
+                  }
+                }, timeout * 2);
+                const url = mastersRunningGSyncthingApps.get(identifier);
+                const ipToCheckAppRunning = url.split(':')[0];
+                const portToCheckAppRunning = url.split(':')[1] || 16127;
+                // eslint-disable-next-line no-await-in-loop
+                const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
+                isResolved = true;
+                const appsRunning = response.data.data;
+                if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
+                  log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                  return;
+                }
                 // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
                 if (index === 0) {
                   appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else {
-                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier));
+                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier).split(':')[0]);
                   let timetoStartApp = Date.now();
                   if (previousMasterIndex >= 0) {
                     log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
                     if (index > previousMasterIndex) {
-                      timetoStartApp += (index - 1) * 2 * 60 * 1000;
+                      timetoStartApp += (index - 1) * 3 * 60 * 1000;
                     } else {
-                      timetoStartApp += index * 2 * 60 * 1000;
+                      timetoStartApp += index * 3 * 60 * 1000;
                     }
                   } else {
-                    timetoStartApp += index * 2 * 60 * 1000;
+                    timetoStartApp += index * 3 * 60 * 1000;
                   }
                   if (timetoStartApp <= Date.now()) {
                     appDockerRestart(installedApp.name);
@@ -11574,18 +11491,20 @@ async function masterSlaveApps() {
               } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+              } else {
+                appDockerRestart(installedApp.name);
+                log.info(`masterSlaveApps: no previous information about primary, starting docker app:${installedApp.name}`);
               }
             }
           } else {
-            ip = ip.split(':')[0];
             mastersRunningGSyncthingApps.set(identifier, ip);
             if (timeTostartNewMasterApp.has(identifier)) {
               log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
               timeTostartNewMasterApp.delete(identifier);
             }
-            if (myIP.split(':')[0] !== ip && runningAppsNames.includes(identifier)) {
+            if (myIP !== ip && runningAppsNames.includes(identifier)) {
               appDockerStop(installedApp.name);
-              log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
+              log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and myIP is: ${myIP}`);
             } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
               appDockerRestart(installedApp.name);
               log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);

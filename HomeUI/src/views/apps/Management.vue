@@ -2673,7 +2673,7 @@
                   </div>
                   <b-button
                     v-if="!isVisible && !isConnecting"
-                    class="col-2"
+                    class="col-2 no-wrap-limit"
                     href="#"
                     variant="outline-primary"
                     @click="connectTerminal(selectedApp ? `${selectedApp}_${appSpecification.name}` : appSpecification.name)"
@@ -2682,7 +2682,7 @@
                   </b-button>
                   <b-button
                     v-if="!!isVisible"
-                    class="col-2"
+                    class="col-2 no-wrap-limit"
                     variant="outline-danger"
                     @click="disconnectTerminal"
                   >
@@ -6930,15 +6930,21 @@ export default {
           headers: this.zelidHeader,
           responseType: 'blob',
           onDownloadProgress(progressEvent) {
-            const { loaded, total } = progressEvent;
-            // const decodedUrl = decodeURIComponent(target.responseURL);
-            const currentFileProgress = (loaded / total) * 100;
-            console.log(progressEvent);
-            // const currentFileName = decodedUrl.split('/').pop();
-            if (isFolder) {
-              self.updateFileProgressVolume(`${name}.zip`, currentFileProgress);
+            const { loaded, total, lengthComputable } = progressEvent;
+            if (lengthComputable) {
+              const currentFileProgress = (loaded / total) * 100;
+              if (isFolder) {
+                self.updateFileProgressVolume(`${name}.zip`, currentFileProgress);
+              } else {
+                self.updateFileProgressVolume(name, currentFileProgress);
+              }
             } else {
-              self.updateFileProgressVolume(name, currentFileProgress);
+              console.log('Total file size is unknown. Cannot compute progress percentage.');
+              if (isFolder) {
+                self.updateFileProgressVolume(`${name}.zip`, 'Downloading...');
+              } else {
+                self.updateFileProgressVolume(name, 'Downloading...');
+              }
             }
           },
         };
@@ -6950,6 +6956,10 @@ export default {
           response = await this.executeLocalCommand(`/apps/downloadfile/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
         }
         console.log(response);
+        if (!isFolder && response.data && response.status === 200) {
+          self.updateFileProgressVolume(name, 100);
+        }
+
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -6961,7 +6971,6 @@ export default {
           } else {
             link.setAttribute('download', name);
           }
-
           document.body.appendChild(link);
           link.click();
         }
@@ -8694,7 +8703,7 @@ export default {
         if (blocksToExpire < 5000) {
           throw new Error('Your application will expire in less than one week, you need to extend subscription to be able to update specifications');
         } else {
-          return Math.ceil(blocksToExpire / 100) * 100;
+          return blocksToExpire;
         }
       }
       if (this.expireOptions[this.expirePosition]) {
@@ -8809,14 +8818,14 @@ export default {
         this.applicationPriceFluxDiscount = '';
         this.applicationPriceFluxError = false;
         this.freeUpdate = false;
-
         const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
         this.appPricePerSpecsUSD = +response.data.data.usd;
         console.log(response.data.data);
-        if (!this.extendSubscription && this.appPricePerSpecsUSD <= 0.99) {
+
+        if (this.appPricePerSpecsUSD === 0) {
           this.freeUpdate = true;
         } else if (Number.isNaN(+response.data.data.fluxDiscount)) {
           this.applicationPriceFluxError = true;
@@ -9876,11 +9885,10 @@ export default {
       const statsItems = [];
       statsData.forEach((entry, index) => {
         console.log(`Processing entry ${index}:`, entry);
-        const cpuMultiplier = entry.data.cpu_stats.online_cpus / specifications.cpu;
         // Calculate CPU usage
         const cpuUsage = entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage;
         const systemCpuUsage = entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage;
-        const cpu = `${(((cpuUsage / systemCpuUsage) * 100 * cpuMultiplier) || 0).toFixed(2)}%`;
+        const cpu = `${(((cpuUsage / systemCpuUsage) * 1.2 * entry.data.cpu_stats.online_cpus * 100) || 0).toFixed(2)}%`;
         // Calculate memory usage
         const memoryUsage = entry.data.memory_stats.usage;
         const memory = `${(memoryUsage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((memoryUsage / (specifications.ram * 1e6)) * 100 || 0).toFixed(2)}%`;
@@ -10737,6 +10745,11 @@ export default {
 }
 .no-wrap {
   white-space: nowrap !important;
+}
+.no-wrap-limit {
+  white-space: nowrap !important;
+  min-width: 150px;
+  text-align: center;;
 }
 .custom-button {
   width: 15px !important;
