@@ -11499,7 +11499,7 @@ async function masterSlaveApps() {
             }
             if (myIP !== ip && runningAppsNames.includes(identifier)) {
               appDockerStop(installedApp.name);
-              log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
+              log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and myIP is: ${myIP}`);
             } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
               appDockerRestart(installedApp.name);
               log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
