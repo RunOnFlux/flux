@@ -11409,7 +11409,10 @@ async function masterSlaveApps() {
           // no ip means there was no row with ip on fdm
           // down means there was a row ip with status down
           // eslint-disable-next-line no-await-in-loop
-          const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          if (myIP.indexOf(':') < 0) {
+            myIP += ':16127';
+          }
           if ((!ip)) {
             log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
             if (!runningAppsNames.includes(identifier)) {
