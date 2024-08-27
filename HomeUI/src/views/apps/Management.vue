@@ -2673,7 +2673,7 @@
                   </div>
                   <b-button
                     v-if="!isVisible && !isConnecting"
-                    class="col-2"
+                    class="col-2 no-wrap-limit"
                     href="#"
                     variant="outline-primary"
                     @click="connectTerminal(selectedApp ? `${selectedApp}_${appSpecification.name}` : appSpecification.name)"
@@ -2682,7 +2682,7 @@
                   </b-button>
                   <b-button
                     v-if="!!isVisible"
-                    class="col-2"
+                    class="col-2 no-wrap-limit"
                     variant="outline-danger"
                     @click="disconnectTerminal"
                   >
@@ -10746,6 +10746,11 @@ export default {
 }
 .no-wrap {
   white-space: nowrap !important;
+}
+.no-wrap-limit {
+  white-space: nowrap !important;
+  min-width: 150px;
+  text-align: center;;
 }
 .custom-button {
   width: 15px !important;
