@@ -11439,7 +11439,7 @@ async function masterSlaveApps() {
                 }
                 return 0;
               });
-              const index = runningAppList.findIndex((x) => x.ip === myIP);
+              const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
               if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
@@ -11469,17 +11469,17 @@ async function masterSlaveApps() {
                   appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else {
-                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip === mastersRunningGSyncthingApps.get(identifier));
+                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier).split(':')[0]);
                   let timetoStartApp = Date.now();
                   if (previousMasterIndex >= 0) {
                     log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
                     if (index > previousMasterIndex) {
-                      timetoStartApp += (index - 1) * 2 * 60 * 1000;
+                      timetoStartApp += (index - 1) * 3 * 60 * 1000;
                     } else {
-                      timetoStartApp += index * 2 * 60 * 1000;
+                      timetoStartApp += index * 3 * 60 * 1000;
                     }
                   } else {
-                    timetoStartApp += index * 2 * 60 * 1000;
+                    timetoStartApp += index * 3 * 60 * 1000;
                   }
                   if (timetoStartApp <= Date.now()) {
                     appDockerRestart(installedApp.name);
