@@ -11489,6 +11489,9 @@ async function masterSlaveApps() {
               } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+              } else {
+                appDockerRestart(installedApp.name);
+                log.info(`masterSlaveApps: no previous information about primary, starting docker app:${installedApp.name}`);
               }
             }
           } else {
