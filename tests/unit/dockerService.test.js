@@ -697,7 +697,7 @@ describe('dockerService tests', () => {
           '9944/udp': {},
         },
         HostConfig: {
-          NanoCPUs: 800000000,
+          NanoCPUs: 800000000 * 0.8,
           Memory: 1887436800,
           MemorySwap: 3984588800,
           // StorageOpt: { size: '12G' },
@@ -756,7 +756,7 @@ describe('dockerService tests', () => {
           '9944/udp': {},
         },
         HostConfig: {
-          NanoCPUs: 800000000,
+          NanoCPUs: 800000000 * 0.8,
           Memory: 1887436800,
           MemorySwap: 3984588800,
           // StorageOpt: { size: '12G' },
@@ -796,7 +796,7 @@ describe('dockerService tests', () => {
           '31112/tcp': {}, '9933/tcp': {}, '31112/udp': {}, '9933/udp': {},
         },
         HostConfig: {
-          NanoCPUs: 800000000,
+          NanoCPUs: 800000000 * 0.8,
           Memory: 1887436800,
           MemorySwap: 3984588800,
           // StorageOpt: { size: '12G' },
