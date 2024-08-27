@@ -11440,13 +11440,33 @@ async function masterSlaveApps() {
               if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
-              } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP.split(':')[0]) {
+              } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
+                const { CancelToken } = axios;
+                const source = CancelToken.source();
+                let isResolved = false;
+                const timeout = 5 * 1000; // 5 seconds
+                setTimeout(() => {
+                  if (!isResolved) {
+                    source.cancel('Operation canceled by the user.');
+                  }
+                }, timeout * 2);
+                const url = mastersRunningGSyncthingApps.get(identifier);
+                const ipToCheckAppRunning = url.split(':')[0];
+                const portToCheckAppRunning = url.split(':')[1] || 16127;
+                // eslint-disable-next-line no-await-in-loop
+                const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
+                isResolved = true;
+                const appsRunning = response.data.data;
+                if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
+                  log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                  return;
+                }
                 // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
                 if (index === 0) {
                   appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else {
-                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier));
+                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip === mastersRunningGSyncthingApps.get(identifier));
                   let timetoStartApp = Date.now();
                   if (previousMasterIndex >= 0) {
                     log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
@@ -11472,13 +11492,12 @@ async function masterSlaveApps() {
               }
             }
           } else {
-            ip = ip.split(':')[0];
             mastersRunningGSyncthingApps.set(identifier, ip);
             if (timeTostartNewMasterApp.has(identifier)) {
               log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
               timeTostartNewMasterApp.delete(identifier);
             }
-            if (myIP.split(':')[0] !== ip && runningAppsNames.includes(identifier)) {
+            if (myIP !== ip && runningAppsNames.includes(identifier)) {
               appDockerStop(installedApp.name);
               log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
             } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
