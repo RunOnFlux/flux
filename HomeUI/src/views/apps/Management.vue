@@ -9889,7 +9889,7 @@ export default {
         // Calculate CPU usage
         const cpuUsage = entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage;
         const systemCpuUsage = entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage;
-        const cpu = `${(((cpuUsage / systemCpuUsage) * 100 * cpuMultiplier) || 0).toFixed(2)}%`;
+        const cpu = `${(((cpuUsage / systemCpuUsage) * 120 * cpuMultiplier) || 0).toFixed(2)}%`;
         // Calculate memory usage
         const memoryUsage = entry.data.memory_stats.usage;
         const memory = `${(memoryUsage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((memoryUsage / (specifications.ram * 1e6)) * 100 || 0).toFixed(2)}%`;
