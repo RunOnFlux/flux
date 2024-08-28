@@ -566,6 +566,10 @@ async function processBlock(blockHeight, isInsightExplorer) {
           log.error(error);
         }
       }
+      if (blockDataVerbose.height === config.apprunningRefactorActivation) {
+        await database.collection(config.database.appsglobal.collections.appsLocations).dropIndex({ broadcastedAt: 1 }).catch(() => { console.log('Welcome to FluxOS'); }); // drop old index
+        await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 });
+      }
     }
     const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection
