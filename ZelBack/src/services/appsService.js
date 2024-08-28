@@ -6494,7 +6494,7 @@ async function storeAppRemovedMessage(message) {
   if (FluxService.canProcessAppsRunningMessages()) {
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
   }
-   
+
   // all stored, rebroadcast
   return true;
 }
