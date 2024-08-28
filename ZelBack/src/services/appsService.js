@@ -9207,15 +9207,15 @@ async function nodeAndAppsStatusCheck() {
 /**
  * To check and notify peers of running apps. Checks if apps are installed, stopped or running.
  */
-let checkAndNotifyPeersOfRunningAppsRun = 0;
+let lastPeersNotification;
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
-    if (daemonHeight >= config.apprunningRefactorActivation && checkAndNotifyPeersOfRunningAppsRun > 0) {
+    if (daemonHeight >= config.apprunningRefactorActivation && (!lastPeersNotification || lastPeersNotification + 47.5 * 60 * 60 * 1000 > Date.now())) {
       return;
     }
-    checkAndNotifyPeersOfRunningAppsRun += 1;
+    lastPeersNotification = Date.now();
 
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();

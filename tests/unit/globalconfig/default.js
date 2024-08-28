@@ -78,7 +78,7 @@ module.exports = {
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   deterministicNodesStart: 558000,
-  apprunningRefactorActivation: 1709000, // daemon block height when apprynning refactor will start on nodes (August 15 2024)
+  apprunningRefactorActivation: 1740720, // daemon block height when apprunning refactor will start on nodes (September 25 2024)
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [

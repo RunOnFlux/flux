@@ -83,7 +83,7 @@ module.exports = {
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   fluxSupportTeamFluxID: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
   deterministicNodesStart: 558000,
-  apprunningRefactorActivation: 1709000, // daemon block height when apprynning refactor will start on nodes (August 15 2024)
+  apprunningRefactorActivation: 1740720, // daemon block height when apprunning refactor will start on nodes (September 25 2024)
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [

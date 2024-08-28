@@ -218,9 +218,13 @@ async function startFluxFunctions() {
     }, 3 * 60 * 1000);
     setTimeout(() => {
       appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 2m of starting fluxos
-      setInterval(() => { // every 60 mins messages stay on db for 65m
+      let timeout = 60 * 60 * 1000;
+      if (daemonHeight >= config.apprunningRefactorActivation) {
+        timeout = 48 * 60 * 60 * 1000;
+      }
+      setInterval(() => { // every 60 mins messages stay on db for 65m or every 2 days after apprunningRefactorActivation as running locations no longer expire
         appsService.checkAndNotifyPeersOfRunningApps();
-      }, 60 * 60 * 1000);
+      }, timeout);
     }, 2 * 60 * 1000);
     setTimeout(() => {
       appsService.nodeAndAppsStatusCheck(); // start node and apps monitoring check
