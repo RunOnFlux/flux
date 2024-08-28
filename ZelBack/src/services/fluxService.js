@@ -1922,6 +1922,13 @@ async function monitorAppsRunningOnNodes() {
 let otherNodesChecks = 0;
 async function prepareAppsLocationsDB() {
   try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
+    if (daemonHeight < config.apprunningRefactorActivation) {
+      enableProcessingAppsRunningMessages = true;
+      return;
+    }
+
     const auxDate = Date.now();
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
