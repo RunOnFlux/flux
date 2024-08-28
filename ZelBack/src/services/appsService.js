@@ -6350,6 +6350,8 @@ async function storeAppRunningMessage(message) {
   const database = db.db(config.database.appsglobal.database);
 
   let messageNotOk = false;
+  const queryUpdateRemovals = [];
+  queryUpdateRemovals.push({ ip: message.ip });
   for (let i = 0; i < appsMessages.length; i += 1) {
     const app = appsMessages[i];
     const newAppRunningMessage = {
@@ -6360,6 +6362,7 @@ async function storeAppRunningMessage(message) {
       expireAt: null,
       removedBroadcastedAt: null,
     };
+    queryUpdateRemovals.push({ name: { $ne: app.name } });
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
     const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
@@ -6388,6 +6391,13 @@ async function storeAppRunningMessage(message) {
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
     }
+  }
+  if (message.version === 2 && FluxService.canProcessAppsRunningMessages()) {
+    const expire = message.broadcastedAt + (10 * 24 * 60 * 60 * 1000); // 10 days
+    const queryUpdate = { $and: queryUpdateRemovals };
+    const update = { $set: { removedBroadcastedAt: new Date(message.broadcastedAt), expireAt: new Date(expire) } };
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.updateInDatabase(database, globalAppsLocations, queryUpdate, update);
   }
   if (messageNotOk) {
     return false;
@@ -9332,19 +9342,9 @@ async function checkAndNotifyPeersOfRunningApps() {
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
-        if (installedAndRunning.length === 1) {
-          // eslint-disable-next-line no-await-in-loop
-          await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
-          // eslint-disable-next-line no-await-in-loop
-          await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
-          // broadcast messages about running apps to all peers
-          log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessage)}`);
-        }
       }
-      if (installedAndRunning.length > 1 || installedAndRunning.length === 0) {
-        // send v2 unique message instead
+      if (installedAndRunning.length > 0 || daemonHeight >= config.apprunningRefactorActivation) {
+        // send v2 unique message instead even if there is no app running after apprunningRefactorActivation
         const newAppRunningMessageV2 = {
           type: 'fluxapprunning',
           version: 2,
@@ -12957,35 +12957,23 @@ async function broadcastAppsRunning(req, res) {
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
-        if (appsInstalled.length === 1) {
-          // eslint-disable-next-line no-await-in-loop
-          await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(500);
-          // eslint-disable-next-line no-await-in-loop
-          await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
-          // broadcast messages about running apps to all peers
-          log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessage)}`);
-        }
       }
-      if (appsInstalled.length > 1 || appsInstalled.length === 0) {
-        // send v2 unique message instead
-        const newAppRunningMessageV2 = {
-          type: 'fluxapprunning',
-          version: 2,
-          apps,
-          ip: myIP,
-          broadcastedAt: Date.now(),
-        };
-        // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(500);
-        // eslint-disable-next-line no-await-in-loop
-        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
-        // broadcast messages about running apps to all peers
-        log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
-      }
+      // send v2 unique message instead even if there is no app running
+      const newAppRunningMessageV2 = {
+        type: 'fluxapprunning',
+        version: 2,
+        apps,
+        ip: myIP,
+        broadcastedAt: Date.now(),
+      };
+      // eslint-disable-next-line no-await-in-loop
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
+      // eslint-disable-next-line no-await-in-loop
+      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
+      // broadcast messages about running apps to all peers
+      log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
     } catch (err) {
       log.error(err);
     }
