@@ -6384,19 +6384,10 @@ async function storeAppRunningMessage(message) {
     const options = {
       upsert: true,
     };
-    if (!FluxService.canProcessAppsRunningMessages()) {
-      let countRuns = 0;
-      while (countRuns < 30) { // we will give a maximum of 5 minutes for the prepareAppsLocationsDB complete
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(10 * 1000);
-        if (FluxService.canProcessAppsRunningMessages()) {
-          break;
-        }
-        countRuns += 1;
-      }
+    if (FluxService.canProcessAppsRunningMessages()) {
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
     }
-    // eslint-disable-next-line no-await-in-loop
-    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
   }
   if (messageNotOk) {
     return false;
@@ -6500,19 +6491,10 @@ async function storeAppRemovedMessage(message) {
   const receivedAt = Date.now();
   const expire = receivedAt + (10 * 24 * 60 * 60 * 1000); // 10 days
   const update = { $set: { removedBroadcastedAt: new Date(message.broadcastedAt), expireAt: new Date(expire) } };
-  if (!FluxService.canProcessAppsRunningMessages()) {
-    let countRuns = 0;
-    while (countRuns < 30) { // we will give a maximum of 5 minutes for the prepareAppsLocationsDB complete
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(10 * 1000);
-      if (FluxService.canProcessAppsRunningMessages()) {
-        break;
-      }
-      countRuns += 1;
-    }
+  if (FluxService.canProcessAppsRunningMessages()) {
+    await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
   }
-  await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
-
+   
   // all stored, rebroadcast
   return true;
 }

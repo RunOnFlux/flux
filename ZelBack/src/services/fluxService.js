@@ -1928,7 +1928,7 @@ async function prepareAppsLocationsDB() {
     let query;
     let timestampForSearchs;
     let projection;
-    log.info('prepareAppsLocationsDB - First run');
+    log.info('prepareAppsLocationsDB - Running');
     query = {};
     projection = {
       _id: 0,
@@ -2032,14 +2032,14 @@ async function prepareAppsLocationsDB() {
       }
     }
     enableProcessingAppsRunningMessages = true; // after this we are already receiving and storing messages received from other nodes
-    log.info(`prepareAppsLocationsDB - otherNodesChecks: ${otherNodesChecks}`);
+    log.info(`prepareAppsLocationsDB - Number of nodes used: ${otherNodesChecks}`);
     if (otherNodesChecks > 0 && timestampForSearchs) {
       query = {};
       await dbHelper.removeDocumentsFromCollection(database, appsRunningTimetstampRestoreCollection, query);
     }
     run = 0;
     let auxOtherNodesChecks = 0;
-    await serviceHelper.delay(30 * 60 * 1000);
+    await serviceHelper.delay(30 * 60 * 1000); // we are delaying to make sure we don't hit a cache
     // now we do a second run, jut to grab the messages since this method started so there are no lost messages.
     while (auxOtherNodesChecks < 2 && run < 10) {
       run += 1;
