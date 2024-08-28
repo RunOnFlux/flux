@@ -6372,19 +6372,19 @@ async function storeAppRunningMessage(message) {
       messageNotOk = true;
       break;
     }
-    if (message.runningSince) {
-      newAppRunningMessage.runningSince = new Date(message.runningSince);
-    } else if (app.runningSince) {
-      newAppRunningMessage.runningSince = new Date(app.runningSince);
-    } else if (result && result.runningSince) {
-      newAppRunningMessage.runningSince = result.runningSince;
-    }
-    const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-    const update = { $set: newAppRunningMessage };
-    const options = {
-      upsert: true,
-    };
     if (FluxService.canProcessAppsRunningMessages()) {
+      if (message.runningSince) {
+        newAppRunningMessage.runningSince = new Date(message.runningSince);
+      } else if (app.runningSince) {
+        newAppRunningMessage.runningSince = new Date(app.runningSince);
+      } else if (result && result.runningSince) {
+        newAppRunningMessage.runningSince = result.runningSince;
+      }
+      const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+      const update = { $set: newAppRunningMessage };
+      const options = {
+        upsert: true,
+      };
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
     }
@@ -6485,13 +6485,13 @@ async function storeAppRemovedMessage(message) {
     return false;
   }
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const query = { ip: message.ip, name: message.appName };
-  const receivedAt = Date.now();
-  const expire = receivedAt + (10 * 24 * 60 * 60 * 1000); // 10 days
-  const update = { $set: { removedBroadcastedAt: new Date(message.broadcastedAt), expireAt: new Date(expire) } };
   if (FluxService.canProcessAppsRunningMessages()) {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const query = { ip: message.ip, name: message.appName };
+    const receivedAt = Date.now();
+    const expire = receivedAt + (10 * 24 * 60 * 60 * 1000); // 10 days
+    const update = { $set: { removedBroadcastedAt: new Date(message.broadcastedAt), expireAt: new Date(expire) } };
     await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
   }
 
