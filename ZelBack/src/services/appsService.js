@@ -8794,6 +8794,12 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function?
     // we have globalapplication specifics list
     // check if we are synced
+    if (!FluxService.canProcessAppsRunningMessages()) {
+      log.info('Flux app locations not yet ready');
+      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
     const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Flux not yet synced');

@@ -246,7 +246,7 @@ async function startFluxFunctions() {
       // 125 minutes should give enough time for node receive currently two times the apprunning messages
       log.info('Starting to spawn applications');
       appsService.trySpawningGlobalApplication();
-    }, 125 * 60 * 1000);
+    }, 20 * 60 * 1000);
     setInterval(() => {
       appsService.checkApplicationsCompliance();
     }, 60 * 60 * 1000); //  every hour
