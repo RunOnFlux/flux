@@ -42,6 +42,7 @@ const monitorAppsCache = {
   maxAge: 1000 * 60 * 60 * 6, // 6 hours
 };
 const monitorAppsOnNodesCache = new LRUCache(monitorAppsCache);
+let enableProcessingAppsRunningMessages = false;
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
@@ -1921,6 +1922,7 @@ async function monitorAppsRunningOnNodes() {
 let otherNodesChecks = 0;
 async function prepareAppsLocationsDB() {
   try {
+    const auxDate = Date.now();
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     let query;
@@ -2029,10 +2031,66 @@ async function prepareAppsLocationsDB() {
         }
       }
     }
+    enableProcessingAppsRunningMessages = true; // after this we are already receiving and storing messages received from other nodes
     log.info(`prepareAppsLocationsDB - otherNodesChecks: ${otherNodesChecks}`);
     if (otherNodesChecks > 0 && timestampForSearchs) {
       query = {};
       await dbHelper.removeDocumentsFromCollection(database, appsRunningTimetstampRestoreCollection, query);
+    }
+    run = 0;
+    let auxOtherNodesChecks = 0;
+    await serviceHelper.delay(30 * 60 * 1000);
+    // now we do a second run, jut to grab the messages since this method started so there are no lost messages.
+    while (auxOtherNodesChecks < 2 && run < 10) {
+      run += 1;
+      // eslint-disable-next-line no-await-in-loop
+      let askingIP = await fluxNetworkHelper.getRandomConnection();
+      if (!askingIP) {
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(10 * 1000);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      if (myIP === askingIP) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      let askingIpPort = config.server.apiport;
+      if (askingIP.includes(':')) { // has port specification
+      // it has port specification
+        const splittedIP = askingIP.split(':');
+        askingIP = splittedIP[0];
+        askingIpPort = splittedIP[1];
+      }
+      const axiosConfig = {
+        timeout: 5000,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      const uptimeResponse = await axios.get(`http://${askingIP}:${askingIpPort}/flux/uptime`, axiosConfig).catch((error) => log.error(error));
+      if (uptimeResponse && uptimeResponse.data && uptimeResponse.data.status === 'success' && uptimeResponse.data.data > 60 * 5) {
+        log.info(`prepareAppsLocationsDB - ${askingIP}:${askingIpPort} have uptime higher than 5 minutes: ${uptimeResponse}`);
+        const url = `http://${askingIP}:${askingIpPort}/apps/locationscompressed/${auxDate}`;
+        log.info(`prepareAppsLocationsDB - ${url}`);
+        // eslint-disable-next-line no-await-in-loop
+        const appsLocationsResponse = await axios.get(url, axiosConfig).catch((error) => log.error(error));
+        if (appsLocationsResponse && appsLocationsResponse.data && appsLocationsResponse.data.status === 'success') {
+          const appsLocationsDBString = LZString.decompress(appsLocationsResponse.data.data);
+          const appsLocations = JSON.parse(appsLocationsDBString);
+          log.info(`prepareAppsLocationsDB - received ${appsLocations.length} locations from ${askingIP}:${askingIpPort} will update now DB`);
+          // eslint-disable-next-line no-restricted-syntax
+          for (const location of appsLocations) {
+            const queryUpdate = { name: location.name, ip: location.ip };
+            const update = { $set: location };
+            const options = {
+              upsert: true,
+            };
+              // eslint-disable-next-line no-await-in-loop
+            await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+          }
+          auxOtherNodesChecks += 1;
+          log.info(`prepareAppsLocationsDB - DB updated with locations received from ${askingIP}:${askingIpPort}`);
+        }
+      }
     }
   } catch (error) {
     log.error(`prepareAppsLocationsDB - Error: ${error}`);
@@ -2041,6 +2099,10 @@ async function prepareAppsLocationsDB() {
       prepareAppsLocationsDB();
     }
   }
+}
+
+function canProcessAppsRunningMessages() {
+  return enableProcessingAppsRunningMessages;
 }
 
 module.exports = {
@@ -2107,4 +2169,5 @@ module.exports = {
   tailFluxLog,
   monitorAppsRunningOnNodes,
   prepareAppsLocationsDB,
+  canProcessAppsRunningMessages,
 };
