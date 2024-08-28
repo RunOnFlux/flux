@@ -259,8 +259,7 @@ async function handleNodeDownMessage(message, fromIP) {
     const askingIP = splittedIP[0];
     const askingIpPort = splittedIP[1];
     const isNodeRunning = await fluxNetworkHelper.isPortOpen(askingIP, askingIpPort);
-    const appsRunningOnTheSelectedNode = await appsService.getRunningAppIpList(message.ip);
-    if (!isNodeRunning && appsRunningOnTheSelectedNode.length > 0) {
+    if (!isNodeRunning) { // we double check that node is down
       await appsService.removeAppsRunningOnNodeIP(message.ip);
     }
     const currentTimeStamp = new Date().getTime();
