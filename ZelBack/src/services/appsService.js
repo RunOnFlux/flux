@@ -12890,17 +12890,17 @@ async function getAppSpecsUSDPrice(req, res) {
 }
 
 /**
- * Method called by other nodes that had different information of apps running on this node,
- * this node will brodcast new message to the network with the information of the apps that are running
+ * Method called by other nodes that had different information of apps installed on this node,
+ * this node will brodcast new message to the network with the information of the apps that are installed
  * @param {object} req Request.
  * @param {object} res Response.
  */
-let broadcastAppsRunningInExecution = false;
-async function broadcastAppsRunning(req, res) {
+let broadcastAppsInstalledInExecution = false;
+async function broadcastAppsInstalled(req, res) {
   try {
-    broadcastAppsRunningInExecution = true;
+    broadcastAppsInstalledInExecution = true;
     const response = 'Running apps broadcasted to the network';
-    if (broadCastAppsRunningCache.has(1) || broadcastAppsRunningInExecution) {
+    if (broadCastAppsRunningCache.has(1) || broadcastAppsInstalledInExecution) {
       const resultsResponse = messageHelper.createDataMessage(response);
       res.json(resultsResponse);
       return;
@@ -13151,7 +13151,7 @@ module.exports = {
   masterSlaveApps,
   getAppSpecsUSDPrice,
   nodeAndAppsStatusCheck,
-  broadcastAppsRunning,
+  broadcastAppsInstalled,
   removeAppsRunningOnNodeIP,
   getAppsLocationsDB,
 };

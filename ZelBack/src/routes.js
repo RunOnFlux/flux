@@ -313,7 +313,7 @@ module.exports = (app) => {
   app.get('/apps/installedapps/:appname?', cache('30 seconds'), (req, res) => {
     appsService.installedApps(req, res);
   });
-  app.get('/apps/broadcastappsrunning', cache('10 minutes'), (req, res) => {
+  app.get('/apps/broadcastappsinstalled', cache('10 minutes'), (req, res) => {
     appsService.broadcastAppsRunning(req, res);
   });
   app.get('/apps/availableapps', cache('30 seconds'), (req, res) => {
