@@ -9975,7 +9975,7 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   // may throw
-  const query = { name: appSpecFormatted.name };
+  let query = { name: appSpecFormatted.name };
   const projection = {
     projection: {
       _id: 0,
@@ -9997,6 +9997,7 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
           }
         }
         if (!changes) {
+          query = { 'appSpecifications.name': appSpecFormatted.name };
           const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           let messagesInLasDays = permanentAppMessage.filter((message) => (message.type === 'fluxappupdate' || message.type === 'zelappupdate') && message.height > daemonHeight - 3600);
           // we will give a maximum of 10 free updates in 5 days, 8 in two days, 5 in one day
