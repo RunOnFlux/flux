@@ -9233,7 +9233,7 @@ async function checkAndNotifyPeersOfRunningApps() {
   try {
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const daemonHeight = syncStatus.data.height || 0;
-    if (daemonHeight >= config.apprunningRefactorActivation && (!lastPeersNotification || lastPeersNotification + 47.5 * 60 * 60 * 1000 > Date.now())) {
+    if (daemonHeight >= config.apprunningRefactorActivation && lastPeersNotification && lastPeersNotification + 47.5 * 60 * 60 * 1000 > Date.now()) {
       return;
     }
     lastPeersNotification = Date.now();
