@@ -352,7 +352,7 @@ module.exports = (app) => {
   app.get('/apps/locations', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocations(req, res);
   });
-  app.get('/apps/locationscompressed', cache('30 seconds'), (req, res) => {
+  app.get('/apps/locationscompressed/:sincewhen?', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocationsDB(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app

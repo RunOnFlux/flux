@@ -2451,7 +2451,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const database = dbopen.db(config.database.appsglobal.database);
 
-    const appsQuery = { name: appName, removedBroadcastedAt: null };
+    const appsQuery = { name: appName };
     const appsProjection = {};
     let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
@@ -8080,7 +8080,7 @@ async function reindexGlobalAppsLocation() {
     await database.collection(globalAppsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
     await database.collection(globalAppsLocations).createIndex({
       name: 1, ip: 1, broadcastedAt: 1, removedBroadcastedAt: 1,
-    }, { name: 'query for getting all apps, including the ones that were removed from nodes in the last 30 days' });
+    }, { name: 'query for getting all apps, including the ones that were removed from nodes in the last 10 days' });
     return true;
   } catch (error) {
     log.error(error);
@@ -8496,7 +8496,12 @@ async function getAppsLocationsDB(req, res) {
   try {
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.appsglobal.database);
-    const query = {};
+    let query = {};
+    let { sincewhen } = req.params;
+    sincewhen = sincewhen || req.query.appname;
+    if (sincewhen) {
+      query = { $and: [{ broadcastedAt: { $gt: sincewhen } }, { removedBroadcastedAt: { $gt: sincewhen } }] };
+    }
     const projection = {
       projection: {
         _id: 0,
