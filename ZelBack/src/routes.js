@@ -314,7 +314,7 @@ module.exports = (app) => {
     appsService.installedApps(req, res);
   });
   app.get('/apps/broadcastappsinstalled', cache('10 minutes'), (req, res) => {
-    appsService.broadcastAppsRunning(req, res);
+    appsService.broadcastAppsInstalled(req, res);
   });
   app.get('/apps/availableapps', cache('30 seconds'), (req, res) => {
     appsService.availableApps(req, res);
