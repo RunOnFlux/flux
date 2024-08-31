@@ -373,7 +373,15 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
       if (paramA) {
         url += `/${paramA}`;
       }
-      axios.get(url, axiosConfig);// do not wait, we do not care of the response
+      // axios.get(url, axiosConfig);// do not wait, we do not care of the response
+      axios.get(url, axiosConfig)
+        .then((response) => {
+          log.info(`Successfully sent command to ${url}: ${response.status}`);
+        })
+        .catch((error) => {
+          log.error(`Axios request failed for ${url}`, error);
+        });
+
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(500);
       if (command === 'redeploy' && !paramA && i < 4) {
