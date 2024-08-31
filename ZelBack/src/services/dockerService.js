@@ -664,6 +664,30 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
 }
 
 /**
+ * Updates the CPU limits of a Docker container.
+ *
+ * @param {string} idOrName - The ID or name of the Docker container.
+ * @param {number} nanoCpus - The CPU limit in nanoCPUs (1 CPU = 1,000,000,000 nanoCPUs).
+ * @returns {Promise<string>} message
+ */
+async function appDockerUpdateCpu(idOrName, nanoCpus) {
+  try {
+    // Get the Docker container by ID or name
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+    // Update the container's CPU resources
+    await dockerContainer.update({
+      NanoCpus: nanoCpus,
+    });
+
+    return `Flux App ${idOrName} successfully updated with ${nanoCpus / 1e9} CPUs.`;
+  } catch (error) {
+    log.error(error);
+    throw new Error(`Failed to update CPU resources for ${idOrName}: ${error.message}`);
+  }
+}
+
+/**
  * Starts app's docker.
  *
  * @param {string} idOrName
@@ -1009,6 +1033,7 @@ async function dockerLogsFix() {
 
 module.exports = {
   appDockerCreate,
+  appDockerUpdateCpu,
   appDockerImageRemove,
   appDockerKill,
   appDockerPause,
