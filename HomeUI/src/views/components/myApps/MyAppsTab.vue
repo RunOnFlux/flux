@@ -90,7 +90,7 @@
                       &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
                       <b-icon scale="1.2" icon="geo-alt" />&nbsp;<kbd class="alert-warning" style="border-radius: 15px;">&nbsp;<b>{{ row.item.instances }}</b>&nbsp;</kbd>
                     </div>
-                    <expiry-label :expire-time="labelForExpire(row.item.expire, row.item.height)" />
+                    <expiry-label v-if="activeAppsTab" :expire-time="labelForExpire(row.item.expire, row.item.height)" />
                   </small>
                 </div>
               </template>
