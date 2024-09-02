@@ -9300,7 +9300,7 @@ export default {
         this.instances.data = [];
         this.instances.data = response.data.data;
         if (this.masterSlaveApp) {
-          const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
+          const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName}apprunonfluxio;json;norefresh`;
           let errorFdm = false;
           let fdmData = await axios.get(url).catch((error) => {
             errorFdm = true;
