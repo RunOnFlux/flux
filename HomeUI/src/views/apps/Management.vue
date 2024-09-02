@@ -6359,8 +6359,7 @@ export default {
     appRunningTill() {
       const blockTime = 2 * 60 * 1000;
       const expires = this.callBResponse.data.expire || 22000;
-      const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
-      const currentExpire = Math.ceil(blocksToExpire / 1000) * 1000;
+      const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
       let newExpire = currentExpire;
       if (this.extendSubscription) {
         newExpire = this.expireOptions[this.expirePosition].value;
