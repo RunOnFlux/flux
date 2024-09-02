@@ -354,7 +354,6 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     const myUrl = myIP.split(':')[0];
     const myUrlPort = myIP.split(':')[1] || 16127;
-    let i = 1;
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
@@ -382,11 +381,6 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
         });
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(500);
-      if (command === 'redeploy' && !paramA && i < 4) {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(i * 60 * 1000);
-      }
-      i += 1;
     }
   } catch (error) {
     log.error(error);
