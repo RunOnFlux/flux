@@ -6367,19 +6367,8 @@ export default {
 
       const now = this.timestamp || Date.now();
 
-      let currentExpireTime = Math.floor((currentExpire * blockTime + now) / 1000000) * 1000000;
-      const timeFoundA = this.expireOptions.find((option) => option.value === currentExpire);
-      if (timeFoundA) {
-        const expTime = Math.floor((now + timeFoundA.time) / 1000000) * 1000000;
-        currentExpireTime = expTime;
-      }
-
-      let newExpireTime = Math.floor((newExpire * blockTime + now) / 1000000) * 1000000;
-      const timeFoundB = this.expireOptions.find((option) => option.value === newExpire);
-      if (timeFoundB) {
-        const expTime = Math.floor((now + timeFoundB.time) / 1000000) * 1000000;
-        newExpireTime = expTime;
-      }
+      const currentExpireTime = currentExpire * blockTime + now;
+      const newExpireTime = newExpire * blockTime + now;
 
       const runningTill = {
         current: currentExpireTime,
