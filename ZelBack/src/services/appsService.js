@@ -9560,8 +9560,8 @@ async function checkApplicationsCpuUSage() {
         stats = appsMonitored[app.name].oneMinuteStatsStore;
         if (stats.length > 1) {
           let cpuThrottling = true;
-          // eslint-disable-next-line no-restricted-syntax
-          for (const stat of stats) {
+          for (let y = stats.length - 1; y >= 0; y -= 1) {
+            const stat = stats[y];
             const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
             const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
             const cpu = Number((((cpuUsage / systemCpuUsage) * 100) || 0).toFixed(2));
@@ -9593,8 +9593,8 @@ async function checkApplicationsCpuUSage() {
           stats = appsMonitored[`${appComponent.name}_${app.name}`].oneMinuteStatsStore;
           if (stats.length > 1) {
             let cpuThrottling = true;
-            // eslint-disable-next-line no-restricted-syntax
-            for (const stat of stats) {
+            for (let y = stats.length - 1; y >= 0; y -= 1) {
+              const stat = stats[y];
               const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
               const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
               const cpu = Number((((cpuUsage / systemCpuUsage) * 100) || 0).toFixed(2));
@@ -9604,7 +9604,7 @@ async function checkApplicationsCpuUSage() {
                 break;
               }
             }
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu is throttling: : ${cpuThrottling}`);
+            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu is throttling: ${cpuThrottling}`);
             // eslint-disable-next-line no-await-in-loop
             const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
             const nanoCpus = inspect.HostConfig.NanoCpus;
