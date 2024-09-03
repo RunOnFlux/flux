@@ -9565,21 +9565,21 @@ async function checkApplicationsCpuUSage() {
             const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
             const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
             const cpu = `${((cpuUsage / systemCpuUsage) || 0).toFixed(2)}%`;
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu: ${cpu}`);
+            log.info(`checkApplicationsCpuUSage ${app.name} cpu: ${cpu}`);
             if (cpu < 92) {
               cpuThrottling = false;
               break;
             }
           }
-          log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu is throttling: : ${cpuThrottling}`);
-          if (cpuThrottling && appComponent.cpu > 1) {
+          log.info(`checkApplicationsCpuUSage ${app.name} cpu is throttling: : ${cpuThrottling}`);
+          if (cpuThrottling && app.cpu > 1) {
             // eslint-disable-next-line no-await-in-loop
-            const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} docker inspect: ${JSON.stringify(inspect)}`);
+            const inspect = await dockerService.dockerContainerInspect(app.name);
+            log.info(`checkApplicationsCpuUSage ${app.name} docker inspect: ${JSON.stringify(inspect)}`);
           } else {
             // eslint-disable-next-line no-await-in-loop
-            const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} docker inspect: ${JSON.stringify(inspect)}`);
+            const inspect = await dockerService.dockerContainerInspect(app.name);
+            log.info(`checkApplicationsCpuUSage ${app.name} docker inspect: ${JSON.stringify(inspect)}`);
           }
         }
       } else {
