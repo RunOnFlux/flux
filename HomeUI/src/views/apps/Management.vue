@@ -681,9 +681,17 @@
       </b-tab>
       <b-tab title="Information">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
+        <div v-if="commandExecutingInspect">
+          <div style="display: flex; align-items: center;">
+            <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
+            <h5 style="margin: 0;">
+              Loading...
+            </h5>
+          </div>
+        </div>
         <div v-if="appSpecification.version >= 4">
           <div
-            v-for="(component, index) in callResponse.data"
+            v-for="(component, index) in callResponseInspect.data"
             :key="index"
           >
             <h4>Component: {{ component.name }}</h4>
@@ -699,9 +707,9 @@
           </div>
         </div>
         <div v-else>
-          <div v-if="callResponse.data && callResponse.data[0]">
+          <div v-if="callResponseInspect.data && callResponseInspect.data[0]">
             <json-viewer
-              :value="callResponse.data[0].callData"
+              :value="callResponseInspect.data[0].callData"
               :expand-depth="5"
               copyable
               boxed
@@ -712,15 +720,17 @@
       </b-tab>
       <b-tab title="Resources">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting">
-          <v-icon
-            class="spin-icon"
-            name="spinner"
-          />
+        <div v-if="commandExecutingStats">
+          <div style="display: flex; align-items: center;">
+            <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
+            <h5 style="margin: 0;">
+              Loading...
+            </h5>
+          </div>
         </div>
         <div v-if="appSpecification.version >= 4">
           <div
-            v-for="(component, index) in callResponse.data"
+            v-for="(component, index) in callResponseStats.data"
             :key="index"
           >
             <h4>Component: {{ component.name }}</h4>
@@ -736,9 +746,9 @@
           </div>
         </div>
         <div v-else>
-          <div v-if="callResponse.data && callResponse.data[0]">
+          <div v-if="callResponseStats.data && callResponseStats.data[0]">
             <json-viewer
-              :value="callResponse.data[0].callData"
+              :value="callResponseStats.data[0].callData"
               :expand-depth="5"
               copyable
               boxed
@@ -751,57 +761,67 @@
         <h3>History Statistics 1 hour</h3>
         <div v-if="appSpecification.version >= 4">
           <div
-            v-for="(component, index) in callResponse.data"
+            v-for="(component, index) in callResponseMonitoring.data"
             :key="index"
           >
             <h4>Component: {{ component.name }}</h4>
             <b-table
-              v-if="component.callData"
               class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastHour, appSpecification.compose.find((c) => c.name === component.name))"
+              :items="generateStatsTableItems(component.callData.lastHour, component.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
               :fields="statsFields"
+              show-empty
+              bordered
+              small
+              empty-text="No records available."
             />
-            <div v-else>
-              Loading...
-            </div>
           </div>
         </div>
         <div v-else>
           <b-table
-            v-if="callResponse.data && callResponse.data[0]"
+            v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
             class="stats-table"
-            :items="generateStatsTableItems(callResponse.data[0].callData.lastHour, appSpecification)"
+            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastHour, callResponseMonitoring.data[0].nanoCpus, appSpecification)"
             :fields="statsFields"
+            show-empty
+            bordered
+            small
+            empty-text="No records available."
           />
           <div v-else>
             Loading...
           </div>
         </div>
+
         <br><br>
+
         <h3>History Statistics 24 hours</h3>
         <div v-if="appSpecification.version >= 4">
           <div
-            v-for="(component, index) in callResponse.data"
+            v-for="(component, index) in callResponseMonitoring.data"
             :key="index"
           >
             <h4>Component: {{ component.name }}</h4>
             <b-table
-              v-if="component.callData"
               class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastDay, appSpecification.compose.find((c) => c.name === component.name))"
+              :items="generateStatsTableItems(component.callData.lastDay, component.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
               :fields="statsFields"
+              show-empty
+              bordered
+              small
+              empty-text="No records available."
             />
-            <div v-else>
-              Loading...
-            </div>
           </div>
         </div>
         <div v-else>
           <b-table
-            v-if="callResponse.data && callResponse.data[0]"
+            v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
             class="stats-table"
-            :items="generateStatsTableItems(callResponse.data[0].callData.lastDay, appSpecification)"
+            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastDay, callResponseMonitoring.data[0].nanoCpus, appSpecification)"
             :fields="statsFields"
+            show-empty
+            bordered
+            small
+            empty-text="No records available."
           />
           <div v-else>
             Loading...
@@ -810,15 +830,17 @@
       </b-tab>
       <b-tab title="File Changes">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting">
-          <v-icon
-            class="spin-icon"
-            name="spinner"
-          />
+        <div v-if="commandExecutingChanges">
+          <div style="display: flex; align-items: center;">
+            <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
+            <h5 style="margin: 0;">
+              Loading...
+            </h5>
+          </div>
         </div>
         <div v-if="appSpecification.version >= 4">
           <div
-            v-for="(component, index) in callResponse.data"
+            v-for="(component, index) in callResponseChanges.data"
             :key="index"
           >
             <h4>Component: {{ component.name }}</h4>
@@ -838,13 +860,13 @@
           </div>
         </div>
         <div v-else>
-          <div v-if="callResponse.data && callResponse.data[0]">
+          <div v-if="callResponseChanges.data && callResponseChanges.data[0]">
             <kbd class="bg-primary mr-1">Kind: 0 = Modified</kbd>
             <kbd class="bg-success mr-1">Kind: 1 = Added </kbd>
             <kbd class="bg-danger">Kind: 2 = Deleted</kbd>
             <json-viewer
               class="mt-1"
-              :value="callResponse.data[0].callData"
+              :value="callResponseChanges.data[0].callData"
               :expand-depth="5"
               copyable
               boxed
@@ -855,15 +877,17 @@
       </b-tab>
       <b-tab title="Processes">
         <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <div v-if="commandExecuting">
-          <v-icon
-            class="spin-icon"
-            name="spinner"
-          />
+        <div v-if="commandExecutingProcesses">
+          <div style="display: flex; align-items: center;">
+            <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
+            <h5 style="margin: 0;">
+              Loading...
+            </h5>
+          </div>
         </div>
         <div v-if="appSpecification.version >= 4">
           <div
-            v-for="(component, index) in callResponse.data"
+            v-for="(component, index) in callResponseProcesses.data"
             :key="index"
           >
             <h4>Component: {{ component.name }}</h4>
@@ -879,9 +903,9 @@
           </div>
         </div>
         <div v-else>
-          <div v-if="callResponse.data && callResponse.data[0]">
+          <div v-if="callResponseProcesses.data && callResponseProcesses.data[0]">
             <json-viewer
-              :value="callResponse.data[0].callData"
+              :value="callResponseProcesses.data[0].callData"
               :expand-depth="5"
               copyable
               boxed
@@ -6105,6 +6129,11 @@ export default {
       downloadOutputReturned: false,
       fluxCommunication: false,
       commandExecuting: false,
+      commandExecutingMonitoring: false,
+      commandExecutingStats: false,
+      commandExecutingProcesses: false,
+      commandExecutingChanges: false,
+      commandExecutingInspect: false,
       getAllAppsResponse: {
         status: '',
         data: [],
@@ -6120,6 +6149,26 @@ export default {
       websocket: null,
       selectedAppOwner: '',
       appSpecification: {},
+      callResponseMonitoring: {
+        status: '',
+        data: '',
+      },
+      callResponseStats: {
+        status: '',
+        data: '',
+      },
+      callResponseProcesses: {
+        status: '',
+        data: '',
+      },
+      callResponseChanges: {
+        status: '',
+        data: '',
+      },
+      callResponseInspect: {
+        status: '',
+        data: '',
+      },
       callResponse: { // general
         status: '',
         data: '',
@@ -6310,8 +6359,7 @@ export default {
     appRunningTill() {
       const blockTime = 2 * 60 * 1000;
       const expires = this.callBResponse.data.expire || 22000;
-      const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
-      const currentExpire = Math.ceil(blocksToExpire / 1000) * 1000;
+      const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
       let newExpire = currentExpire;
       if (this.extendSubscription) {
         newExpire = this.expireOptions[this.expirePosition].value;
@@ -6319,19 +6367,8 @@ export default {
 
       const now = this.timestamp || Date.now();
 
-      let currentExpireTime = Math.floor((currentExpire * blockTime + now) / 1000000) * 1000000;
-      const timeFoundA = this.expireOptions.find((option) => option.value === currentExpire);
-      if (timeFoundA) {
-        const expTime = Math.floor((now + timeFoundA.time) / 1000000) * 1000000;
-        currentExpireTime = expTime;
-      }
-
-      let newExpireTime = Math.floor((newExpire * blockTime + now) / 1000000) * 1000000;
-      const timeFoundB = this.expireOptions.find((option) => option.value === newExpire);
-      if (timeFoundB) {
-        const expTime = Math.floor((now + timeFoundB.time) / 1000000) * 1000000;
-        newExpireTime = expTime;
-      }
+      const currentExpireTime = currentExpire * blockTime + now;
+      const newExpireTime = newExpire * blockTime + now;
 
       const runningTill = {
         current: currentExpireTime,
@@ -8311,9 +8348,11 @@ export default {
           this.getGlobalApplicationSpecifics();
           break;
         case 2:
+          this.callResponseInspect.data = '';
           this.getApplicationInspect();
           break;
         case 3:
+          this.callResponseStats.data = '';
           this.getApplicationStats();
           break;
         case 4:
@@ -8321,9 +8360,11 @@ export default {
           // this.getApplicationMonitoringStream(); // TODO UI with graphs
           break;
         case 5:
+          this.callResponseChanges.data = '';
           this.getApplicationChanges();
           break;
         case 6:
+          this.callResponseProcesses.data = '';
           this.getApplicationProcesses();
           break;
         case 7:
@@ -8973,7 +9014,7 @@ export default {
 
     async getApplicationInspect() {
       const callData = [];
-      this.commandExecuting = true;
+      this.commandExecutingInspect = true;
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
@@ -9003,13 +9044,13 @@ export default {
         }
         console.log(response);
       }
-      this.commandExecuting = false;
-      this.callResponse.status = 'success';
-      this.callResponse.data = callData;
+      this.commandExecutingInspect = false;
+      this.callResponseInspect.status = 'success';
+      this.callResponseInspect.data = callData;
     },
     async getApplicationStats() {
       const callData = [];
-      this.commandExecuting = true;
+      this.commandExecutingStats = true;
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
@@ -9039,9 +9080,9 @@ export default {
         }
         console.log(response);
       }
-      this.commandExecuting = false;
-      this.callResponse.status = 'success';
-      this.callResponse.data = callData;
+      this.commandExecutingStats = false;
+      this.callResponseStats.status = 'success';
+      this.callResponseStats.data = callData;
     },
     async getApplicationMonitoring() {
       const callData = [];
@@ -9051,31 +9092,40 @@ export default {
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
           const response = await this.executeLocalCommand(`/apps/appmonitor/${component.name}_${this.appSpecification.name}`);
+          // eslint-disable-next-line no-await-in-loop
+          const responseB = await this.executeLocalCommand(`/apps/appinspect/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
+          } else if (responseB.data.status === 'error') {
+            this.showToast('danger', responseB.data.data.message || responseB.data.data);
           } else {
             const appComponentInspect = {
               name: component.name,
               callData: response.data.data,
+              nanoCpus: responseB.data.data.HostConfig.NanoCpus,
             };
             callData.push(appComponentInspect);
           }
         }
       } else {
         const response = await this.executeLocalCommand(`/apps/appmonitor/${this.appName}`);
+        const responseB = await this.executeLocalCommand(`/apps/appinspect/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
+        } else if (responseB.data.status === 'error') {
+          this.showToast('danger', responseB.data.data.message || responseB.data.data);
         } else {
           const appComponentInspect = {
             name: this.appSpecification.name,
             callData: response.data.data,
+            nanoCpus: responseB.data.data.HostConfig.NanoCpus,
           };
           callData.push(appComponentInspect);
         }
         console.log(response);
       }
-      this.callResponse.status = 'success';
-      this.callResponse.data = callData;
+      this.callResponseMonitoring.status = 'success';
+      this.callResponseMonitoring.data = callData;
     },
     async getApplicationMonitoringStream() {
       const self = this;
@@ -9144,7 +9194,7 @@ export default {
     },
     async getApplicationChanges() {
       const callData = [];
-      this.commandExecuting = true;
+      this.commandExecutingChanges = true;
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
@@ -9174,13 +9224,13 @@ export default {
         }
         console.log(response);
       }
-      this.commandExecuting = false;
-      this.callResponse.status = 'success';
-      this.callResponse.data = callData;
+      this.commandExecutingChanges = false;
+      this.callResponseChanges.status = 'success';
+      this.callResponseChanges.data = callData;
     },
     async getApplicationProcesses() {
       const callData = [];
-      this.commandExecuting = true;
+      this.commandExecutingProcesses = true;
       if (this.appSpecification.version >= 4) {
         // compose
         // eslint-disable-next-line no-restricted-syntax
@@ -9210,9 +9260,9 @@ export default {
         }
         console.log(response);
       }
-      this.commandExecuting = false;
-      this.callResponse.status = 'success';
-      this.callResponse.data = callData;
+      this.commandExecutingProcesses = false;
+      this.callResponseProcesses.status = 'success';
+      this.callResponseProcesses.data = callData;
     },
     async getApplicationLogs() {
       const callData = [];
@@ -9259,7 +9309,7 @@ export default {
         this.instances.data = [];
         this.instances.data = response.data.data;
         if (this.masterSlaveApp) {
-          const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName};json;norefresh`;
+          const url = `https://${this.appName}.app.runonflux.io/fluxstatistics?scope=${this.appName}apprunonfluxio;json;norefresh`;
           let errorFdm = false;
           let fdmData = await axios.get(url).catch((error) => {
             errorFdm = true;
@@ -9870,7 +9920,7 @@ export default {
         this.maxInstances = this.appUpdateSpecification.instances;
       }
     },
-    generateStatsTableItems(statsData, specifications) {
+    generateStatsTableItems(statsData, nanoCpus, specifications) {
       // { key: 'timestamp', label: 'DATE' },
       // { key: 'cpu', label: 'CPU' },
       // { key: 'memory', label: 'RAM' },
@@ -9879,6 +9929,7 @@ export default {
       // { key: 'block', label: 'BLOCK I/O' },
       // { key: 'pids', label: 'PIDS' },
       console.log(statsData);
+      console.log(nanoCpus);
       if (!statsData || !Array.isArray(statsData)) {
         return [];
       }
@@ -9888,7 +9939,7 @@ export default {
         // Calculate CPU usage
         const cpuUsage = entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage;
         const systemCpuUsage = entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage;
-        const cpu = `${(((cpuUsage / systemCpuUsage) * 1.2 * entry.data.cpu_stats.online_cpus * 100) || 0).toFixed(2)}%`;
+        const cpu = `${(((cpuUsage / systemCpuUsage) * entry.data.cpu_stats.online_cpus * 100) / (nanoCpus / specifications.cpu / 1e9) || 0).toFixed(2)}%`;
         // Calculate memory usage
         const memoryUsage = entry.data.memory_stats.usage;
         const memory = `${(memoryUsage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((memoryUsage / (specifications.ram * 1e6)) * 100 || 0).toFixed(2)}%`;

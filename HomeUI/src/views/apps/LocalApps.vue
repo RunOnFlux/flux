@@ -2364,6 +2364,7 @@
         <b-row>
           <b-col cols="9">
             <b-form-textarea
+              ref="outputTextarea"
               plaintext
               no-resize
               :rows="output.length + 1"
@@ -2515,7 +2516,7 @@ export default {
               key: 'state', label: 'State', class: 'text-center', thStyle: { width: '2%' },
             },
             {
-              key: 'description', label: 'Description', class: 'text-center',
+              key: 'description', label: 'Description', class: 'text-left',
             },
             { key: 'actions', label: '', thStyle: { width: '12%' } },
             // eslint-disable-next-line object-curly-newline
@@ -2673,6 +2674,9 @@ export default {
         this.$set(item, '_showDetails', false);
       });
       this.appLocations = [];
+      if (this.downloading === false) {
+        this.output = [];
+      }
     },
     isLessThanTwoDays(timeString) {
       const parts = timeString?.split(',').map((str) => str.trim());

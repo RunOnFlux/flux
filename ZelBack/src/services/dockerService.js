@@ -567,7 +567,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Tty: false,
     ExposedPorts: exposedPorts,
     HostConfig: {
-      NanoCPUs: Math.round(appSpecifications.cpu * 1e9 * 0.8),
+      NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
@@ -661,6 +661,30 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     throw error;
   });
   return app;
+}
+
+/**
+ * Updates the CPU limits of a Docker container.
+ *
+ * @param {string} idOrName - The ID or name of the Docker container.
+ * @param {number} nanoCpus - The CPU limit in nanoCPUs (1 CPU = 1,000,000,000 nanoCPUs).
+ * @returns {Promise<string>} message
+ */
+async function appDockerUpdateCpu(idOrName, nanoCpus) {
+  try {
+    // Get the Docker container by ID or name
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+    // Update the container's CPU resources
+    await dockerContainer.update({
+      NanoCpus: nanoCpus,
+    });
+
+    return `Flux App ${idOrName} successfully updated with ${nanoCpus / 1e9} CPUs.`;
+  } catch (error) {
+    log.error(error);
+    throw new Error(`Failed to update CPU resources for ${idOrName}: ${error.message}`);
+  }
 }
 
 /**
@@ -1009,6 +1033,7 @@ async function dockerLogsFix() {
 
 module.exports = {
   appDockerCreate,
+  appDockerUpdateCpu,
   appDockerImageRemove,
   appDockerKill,
   appDockerPause,

@@ -354,7 +354,6 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     const myUrl = myIP.split(':')[0];
     const myUrlPort = myIP.split(':')[1] || 16127;
-    let i = 1;
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
@@ -373,14 +372,15 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
       if (paramA) {
         url += `/${paramA}`;
       }
-      axios.get(url, axiosConfig);// do not wait, we do not care of the response
+      axios.get(url, axiosConfig)
+        .then((response) => {
+          log.info(`Successfully sent command to ${url}: ${response.status}`);
+        })
+        .catch((error) => {
+          log.error(`Axios request failed for ${url}`, error);
+        });
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(500);
-      if (command === 'redeploy' && !paramA && i < 4) {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(i * 60 * 1000);
-      }
-      i += 1;
     }
   } catch (error) {
     log.error(error);
@@ -9543,6 +9543,102 @@ async function checkApplicationsCompliance() {
 }
 
 /**
+ * check if app cpu is throttling
+ */
+async function checkApplicationsCpuUSage() {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    let stats;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      if (app.version <= 3) {
+        stats = appsMonitored[app.name].oneMinuteStatsStore;
+        // eslint-disable-next-line no-await-in-loop
+        const inspect = await dockerService.dockerContainerInspect(app.name);
+        if (inspect && stats.length > 55) {
+          const nanoCpus = inspect.HostConfig.NanoCpus;
+          let cpuThrottling = true;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const stat of stats) {
+            const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
+            const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
+            const cpu = ((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / app.cpu || 0;
+            const realCpu = cpu / (nanoCpus / app.cpu / 1e9);
+            if (realCpu < 92) {
+              cpuThrottling = false;
+              break;
+            }
+          }
+          log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: : ${cpuThrottling}`);
+          if (cpuThrottling && app.cpu > 1) {
+            if (nanoCpus / app.cpu / 1e9 === 1) {
+              if (cpuThrottling && app.cpu > 2) {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.8));
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
+              }
+              log.info(`checkApplicationsCpuUSage ${app.name} lowering cpu.`);
+            }
+          } else if (nanoCpus / app.cpu / 1e9 < 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu.`);
+          }
+        }
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of app.compose) {
+          stats = appsMonitored[`${appComponent.name}_${app.name}`].oneMinuteStatsStore;
+          // eslint-disable-next-line no-await-in-loop
+          const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
+          if (inspect && stats.length > 55) {
+            const nanoCpus = inspect.HostConfig.NanoCpus;
+            let cpuThrottling = true;
+            // eslint-disable-next-line no-restricted-syntax
+            for (const stat of stats) {
+              const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
+              const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
+              const cpu = ((cpuUsage / systemCpuUsage) * 100 * stat.data.cpu_stats.online_cpus) / appComponent.cpu || 0;
+              const realCpu = cpu / (nanoCpus / appComponent.cpu / 1e9);
+              if (realCpu < 92) {
+                cpuThrottling = false;
+                break;
+              }
+            }
+            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: : ${cpuThrottling}`);
+            if (cpuThrottling && appComponent.cpu > 1) {
+              if (nanoCpus / appComponent.cpu / 1e9 === 1) {
+                if (cpuThrottling && appComponent.cpu > 2) {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.8));
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
+                }
+                log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} lowering cpu.`);
+              }
+            } else if (nanoCpus / appComponent.cpu / 1e9 < 1) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu.`);
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To find and remove apps that are spawned more than maximum number of instances allowed locally.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
@@ -9975,7 +10071,7 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   // may throw
-  const query = { name: appSpecFormatted.name };
+  let query = { name: appSpecFormatted.name };
   const projection = {
     projection: {
       _id: 0,
@@ -9997,6 +10093,7 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
           }
         }
         if (!changes) {
+          query = { 'appSpecifications.name': appSpecFormatted.name };
           const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           let messagesInLasDays = permanentAppMessage.filter((message) => (message.type === 'fluxappupdate' || message.type === 'zelappupdate') && message.height > daemonHeight - 3600);
           // we will give a maximum of 10 free updates in 5 days, 8 in two days, 5 in one day
@@ -13044,4 +13141,5 @@ module.exports = {
   triggerAppHashesCheckAPI,
   masterSlaveApps,
   getAppSpecsUSDPrice,
+  checkApplicationsCpuUSage,
 };
