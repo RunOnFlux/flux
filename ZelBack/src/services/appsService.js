@@ -9560,15 +9560,14 @@ async function checkApplicationsCpuUSage() {
         stats = appsMonitored[app.name].oneMinuteStatsStore;
         if (stats.length > 1) {
           let cpuThrottling = true;
-          for (let y = stats.length - 1; y >= 0; y -= 1) {
-            const stat = stats[y];
+          // eslint-disable-next-line no-restricted-syntax
+          for (const stat of stats) {
             const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
             const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
             const cpu = Number((((cpuUsage / systemCpuUsage) * 100) || 0).toFixed(2));
             log.info(`checkApplicationsCpuUSage ${app.name} cpu: ${cpu}`);
             if (cpu < 92) {
               cpuThrottling = false;
-              break;
             }
           }
           log.info(`checkApplicationsCpuUSage ${app.name} cpu is throttling: : ${cpuThrottling}`);
@@ -9593,15 +9592,14 @@ async function checkApplicationsCpuUSage() {
           stats = appsMonitored[`${appComponent.name}_${app.name}`].oneMinuteStatsStore;
           if (stats.length > 1) {
             let cpuThrottling = true;
-            for (let y = stats.length - 1; y >= 0; y -= 1) {
-              const stat = stats[y];
+            // eslint-disable-next-line no-restricted-syntax
+            for (const stat of stats) {
               const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
               const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
               const cpu = Number((((cpuUsage / systemCpuUsage) * 100) || 0).toFixed(2));
               log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu: ${cpu}`);
               if (cpu < 92) {
                 cpuThrottling = false;
-                break;
               }
             }
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu is throttling: ${cpuThrottling}`);
