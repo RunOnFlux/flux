@@ -9564,7 +9564,7 @@ async function checkApplicationsCpuUSage() {
           for (const stat of stats) {
             const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
             const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
-            const cpu = Number((((cpuUsage / systemCpuUsage) * 100) || 0).toFixed(2));
+            const cpu = Number((((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / app.cpu || 0).toFixed(2));
             log.info(`checkApplicationsCpuUSage ${app.name} cpu: ${cpu}`);
             if (cpu < 92) {
               cpuThrottling = false;
@@ -9594,16 +9594,9 @@ async function checkApplicationsCpuUSage() {
             let cpuThrottling = true;
             // eslint-disable-next-line no-restricted-syntax
             for (const stat of stats) {
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu total_usage: ${stat.data.cpu_stats.cpu_usage.total_usage}`);
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu precpu total_usage: ${stat.data.precpu_stats.cpu_usage.total_usage}`);
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} system total_usage: ${stat.data.cpu_stats.system_cpu_usage}`);
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} system precpu total_usage: ${stat.data.precpu_stats.system_cpu_usage}`);
               const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
               const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpuUsage: ${cpuUsage}`);
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} systemCpuUsage: ${systemCpuUsage}`);
-              const cpu = Number((((cpuUsage / systemCpuUsage) * 100) || 0).toFixed(2));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu: ${cpu}`);
+              const cpu = Number((((cpuUsage / systemCpuUsage) * 100 * stat.data.cpu_stats.online_cpus) / app.cpu || 0).toFixed(2));
               if (cpu < 92) {
                 cpuThrottling = false;
               }
