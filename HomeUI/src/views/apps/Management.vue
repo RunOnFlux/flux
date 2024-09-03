@@ -767,7 +767,7 @@
             <h4>Component: {{ component.name }}</h4>
             <b-table
               class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastHour, component.callData.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
+              :items="generateStatsTableItems(component.callData.lastHour, component.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
               :fields="statsFields"
               show-empty
               bordered
@@ -780,7 +780,7 @@
           <b-table
             v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
             class="stats-table"
-            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastHour, callResponseMonitoring.data[0].callData.nanoCpus, appSpecification)"
+            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastHour, callResponseMonitoring.data[0].nanoCpus, appSpecification)"
             :fields="statsFields"
             show-empty
             bordered
@@ -803,7 +803,7 @@
             <h4>Component: {{ component.name }}</h4>
             <b-table
               class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastDay, component.callData.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
+              :items="generateStatsTableItems(component.callData.lastDay, component.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
               :fields="statsFields"
               show-empty
               bordered
@@ -816,7 +816,7 @@
           <b-table
             v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
             class="stats-table"
-            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastDay, callResponseMonitoring.data[0].callData.nanoCpus, appSpecification)"
+            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastDay, callResponseMonitoring.data[0].nanoCpus, appSpecification)"
             :fields="statsFields"
             show-empty
             bordered
@@ -9929,6 +9929,7 @@ export default {
       // { key: 'block', label: 'BLOCK I/O' },
       // { key: 'pids', label: 'PIDS' },
       console.log(statsData);
+      console.log(nanoCpus);
       if (!statsData || !Array.isArray(statsData)) {
         return [];
       }
