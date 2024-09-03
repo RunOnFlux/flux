@@ -767,7 +767,7 @@
             <h4>Component: {{ component.name }}</h4>
             <b-table
               class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastHour, appSpecification.compose.find((c) => c.name === component.name))"
+              :items="generateStatsTableItems(component.callData.lastHour, component.callData.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
               :fields="statsFields"
               show-empty
               bordered
@@ -780,7 +780,7 @@
           <b-table
             v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
             class="stats-table"
-            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastHour, appSpecification)"
+            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastHour, callResponseMonitoring.data[0].callData.nanoCpus, appSpecification)"
             :fields="statsFields"
             show-empty
             bordered
@@ -803,7 +803,7 @@
             <h4>Component: {{ component.name }}</h4>
             <b-table
               class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastDay, appSpecification.compose.find((c) => c.name === component.name))"
+              :items="generateStatsTableItems(component.callData.lastDay, component.callData.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
               :fields="statsFields"
               show-empty
               bordered
@@ -816,7 +816,7 @@
           <b-table
             v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
             class="stats-table"
-            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastDay, appSpecification)"
+            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastDay, callResponseMonitoring.data[0].callData.nanoCpus, appSpecification)"
             :fields="statsFields"
             show-empty
             bordered
@@ -9092,24 +9092,33 @@ export default {
         for (const component of this.appSpecification.compose) {
           // eslint-disable-next-line no-await-in-loop
           const response = await this.executeLocalCommand(`/apps/appmonitor/${component.name}_${this.appSpecification.name}`);
+          // eslint-disable-next-line no-await-in-loop
+          const responseB = await this.executeLocalCommand(`/apps/appinspect/${component.name}_${this.appSpecification.name}`);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
+          } else if (responseB.data.status === 'error') {
+            this.showToast('danger', responseB.data.data.message || responseB.data.data);
           } else {
             const appComponentInspect = {
               name: component.name,
               callData: response.data.data,
+              nanoCpus: responseB.data.data.HostConfig.NanoCpus,
             };
             callData.push(appComponentInspect);
           }
         }
       } else {
         const response = await this.executeLocalCommand(`/apps/appmonitor/${this.appName}`);
+        const responseB = await this.executeLocalCommand(`/apps/appinspect/${this.appName}`);
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
+        } else if (responseB.data.status === 'error') {
+          this.showToast('danger', responseB.data.data.message || responseB.data.data);
         } else {
           const appComponentInspect = {
             name: this.appSpecification.name,
             callData: response.data.data,
+            nanoCpus: responseB.data.data.HostConfig.NanoCpus,
           };
           callData.push(appComponentInspect);
         }
@@ -9911,7 +9920,7 @@ export default {
         this.maxInstances = this.appUpdateSpecification.instances;
       }
     },
-    generateStatsTableItems(statsData, specifications) {
+    generateStatsTableItems(statsData, nanoCpus, specifications) {
       // { key: 'timestamp', label: 'DATE' },
       // { key: 'cpu', label: 'CPU' },
       // { key: 'memory', label: 'RAM' },
@@ -9929,7 +9938,7 @@ export default {
         // Calculate CPU usage
         const cpuUsage = entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage;
         const systemCpuUsage = entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage;
-        const cpu = `${(((cpuUsage / systemCpuUsage) * 1.2 * entry.data.cpu_stats.online_cpus * 100) || 0).toFixed(2)}%`;
+        const cpu = `${(((cpuUsage / systemCpuUsage) * entry.data.cpu_stats.online_cpus * 100) / (nanoCpus / specifications.cpu / 1e9) || 0).toFixed(2)}%`;
         // Calculate memory usage
         const memoryUsage = entry.data.memory_stats.usage;
         const memory = `${(memoryUsage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((memoryUsage / (specifications.ram * 1e6)) * 100 || 0).toFixed(2)}%`;
