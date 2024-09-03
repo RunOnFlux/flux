@@ -9543,6 +9543,38 @@ async function checkApplicationsCompliance() {
 }
 
 /**
+ * check if app cpu is throttling
+ */
+async function checkApplicationsCpuUSage() {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    let stats;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      if (app.version <= 3) {
+        stats = appsMonitored[app.name].oneMinuteStatsStore;
+        log.info(`checkApplicationsCpuUSage ${app.name}: ${JSON.stringify(stats)}`);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of app.compose) {
+          stats = appsMonitored[`${appComponent.name}_${app.name}`].oneMinuteStatsStore;
+          log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name}: ${JSON.stringify(stats)}`);
+        }
+      }
+      // eslint-disable-next-line no-await-in-loop
+      // await dockerService.appDockerUpdateCpu(app.name, Math.round(appSpecifications.cpu * 1e9 * 0.8));
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To find and remove apps that are spawned more than maximum number of instances allowed locally.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
@@ -13045,4 +13077,5 @@ module.exports = {
   triggerAppHashesCheckAPI,
   masterSlaveApps,
   getAppSpecsUSDPrice,
+  checkApplicationsCpuUSage,
 };
