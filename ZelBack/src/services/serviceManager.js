@@ -216,8 +216,8 @@ async function startFluxFunctions() {
       appsService.checkApplicationsCpuUSage();
       setInterval(() => {
         appsService.checkApplicationsCpuUSage();
-      }, 2 * 60 * 1000);
-    }, 2 * 60 * 1000);
+      }, 60 * 60 * 1000);
+    }, 65 * 60 * 1000);
     setTimeout(() => {
       // appsService.checkForNonAllowedAppsOnLocalNetwork();
       appsService.checkMyAppsAvailability(); // periodically checks
