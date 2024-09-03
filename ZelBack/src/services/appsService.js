@@ -9558,64 +9558,77 @@ async function checkApplicationsCpuUSage() {
     for (const app of appsInstalled) {
       if (app.version <= 3) {
         stats = appsMonitored[app.name].oneMinuteStatsStore;
-        if (stats.length > 1) {
+        // eslint-disable-next-line no-await-in-loop
+        const inspect = await dockerService.dockerContainerInspect(app.name);
+        if (inspect && stats.length > 55) {
+          const nanoCpus = inspect.HostConfig.NanoCpus;
           let cpuThrottling = true;
           // eslint-disable-next-line no-restricted-syntax
           for (const stat of stats) {
             const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
             const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
-            const cpu = Number((((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / app.cpu || 0).toFixed(2));
-            log.info(`checkApplicationsCpuUSage ${app.name} cpu: ${cpu}`);
-            if (cpu < 92) {
+            const cpu = ((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / app.cpu || 0;
+            const realCpu = cpu / nanoCpus / app.cpu / 1e9;
+            if (realCpu < 92) {
               cpuThrottling = false;
+              break;
             }
           }
-          log.info(`checkApplicationsCpuUSage ${app.name} cpu is throttling: : ${cpuThrottling}`);
-          // eslint-disable-next-line no-await-in-loop
-          const inspect = await dockerService.dockerContainerInspect(app.name);
-          const nanoCpus = inspect.HostConfig.NanoCpus;
-          log.info(`checkApplicationsCpuUSage ${app.name} docker inspect cpu nanos: ${nanoCpus}`);
-          log.info(`checkApplicationsCpuUSage ${app.name} app cpu percentage: ${nanoCpus / app.cpu / 1e9}`);
+          log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: : ${cpuThrottling}`);
           if (cpuThrottling && app.cpu > 1) {
             if (nanoCpus / app.cpu / 1e9 === 1) {
-              // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
+              if (cpuThrottling && app.cpu > 2) {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.8));
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
+              }
+              log.info(`checkApplicationsCpuUSage ${app.name} lowering cpu.`);
             }
           } else if (nanoCpus / app.cpu / 1e9 < 1) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu.`);
           }
         }
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of app.compose) {
           stats = appsMonitored[`${appComponent.name}_${app.name}`].oneMinuteStatsStore;
-          if (stats.length > 1) {
+          // eslint-disable-next-line no-await-in-loop
+          const inspect = await dockerService.dockerContainerInspect(app.name);
+          if (inspect && stats.length > 55) {
+            const nanoCpus = inspect.HostConfig.NanoCpus;
             let cpuThrottling = true;
             // eslint-disable-next-line no-restricted-syntax
             for (const stat of stats) {
               const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
               const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
-              const cpu = Number((((cpuUsage / systemCpuUsage) * 100 * stat.data.cpu_stats.online_cpus) / appComponent.cpu || 0).toFixed(2));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu: ${cpu}`);
-              if (cpu < 92) {
+              const cpu = ((cpuUsage / systemCpuUsage) * 100 * stat.data.cpu_stats.online_cpus) / appComponent.cpu || 0;
+              const realCpu = cpu / nanoCpus / appComponent.cpu / 1e9;
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} realCpu: : ${realCpu}`);
+              if (realCpu < 92) {
                 cpuThrottling = false;
+                break;
               }
             }
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu is throttling: ${cpuThrottling}`);
-            // eslint-disable-next-line no-await-in-loop
-            const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
-            const nanoCpus = inspect.HostConfig.NanoCpus;
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} docker inspect cpu nanos: ${nanoCpus}`);
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} app cpu percentage: ${nanoCpus / appComponent.cpu / 1e9}`);
+            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: : ${cpuThrottling}`);
             if (cpuThrottling && appComponent.cpu > 1) {
               if (nanoCpus / appComponent.cpu / 1e9 === 1) {
-                // eslint-disable-next-line no-await-in-loop
-                await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.85));
+                if (cpuThrottling && appComponent.cpu > 2) {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.8));
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
+                }
+                log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} lowering cpu.`);
               }
             } else if (nanoCpus / appComponent.cpu / 1e9 < 1) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu.`);
             }
           }
         }
