@@ -9597,7 +9597,7 @@ async function checkApplicationsCpuUSage() {
         for (const appComponent of app.compose) {
           stats = appsMonitored[`${appComponent.name}_${app.name}`].oneMinuteStatsStore;
           // eslint-disable-next-line no-await-in-loop
-          const inspect = await dockerService.dockerContainerInspect(app.name);
+          const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
           if (inspect && stats.length > 1) {
             const nanoCpus = inspect.HostConfig.NanoCpus;
             let cpuThrottling = true;
