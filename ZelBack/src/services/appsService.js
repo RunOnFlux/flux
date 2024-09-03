@@ -9606,7 +9606,7 @@ async function checkApplicationsCpuUSage() {
               const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
               const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
               const cpu = ((cpuUsage / systemCpuUsage) * 100 * stat.data.cpu_stats.online_cpus) / appComponent.cpu || 0;
-              const realCpu = cpu / nanoCpus / appComponent.cpu / 1e9;
+              const realCpu = cpu / (nanoCpus / appComponent.cpu / 1e9);
               log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} realCpu: : ${realCpu}`);
               if (realCpu < 92) {
                 cpuThrottling = false;
