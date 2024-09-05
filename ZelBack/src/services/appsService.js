@@ -256,6 +256,53 @@ async function installedApps(req, res) {
 }
 
 /**
+ * To get a list of installed apps Names. Where req can be url to get this information from another node.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function installedAppsNames(req, res) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const appsQuery = {};
+    let url;
+    if (req && req.params && req.query) {
+      // eslint-disable-next-line prefer-destructuring
+      url = req.params.url; // we accept both help/command and help?command=getinfo
+      url = url || req.query.url;
+    } else if (req && typeof req === 'string') {
+      url = req;
+    }
+    if (url) {
+      const timeout = 10000;
+      const axiosConfig = {
+        timeout,
+      };
+      return axios.get(`http://${url}/apps/installedappsnames`, axiosConfig);
+    }
+    const appsProjection = {
+      projection: {
+        _id: 0,
+        name: 1,
+      },
+    };
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const dataResponse = messageHelper.createDataMessage(apps);
+    return res ? res.json(dataResponse) : dataResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
  * To list running apps.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -13159,4 +13206,5 @@ module.exports = {
   broadcastAppsInstalled,
   removeAppsRunningOnNodeIP,
   getAppsLocationsDB,
+  installedAppsNames,
 };

@@ -1886,7 +1886,7 @@ async function monitorAppsRunningOnNodes() {
       return;
     }
     monitorAppsOnNodesCache.set(urlToConnect, urlToConnect);
-    const timeout = 30000;
+    const timeout = 10000;
     const axiosConfig = {
       timeout,
     };
@@ -1906,7 +1906,7 @@ async function monitorAppsRunningOnNodes() {
       if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
         log.info(`monitorAppsRunningOnNodes - ${urlToConnect} apps doesnt match local database information`);
         await axios.get(`http://${urlToConnect}/apps/broadcastappsinstalled`, axiosConfig).catch((error) => {
-          log.error(`sentinel - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
+          log.error(`monitorAppsRunningOnNodes - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
           log.error(error);
         });
       }
