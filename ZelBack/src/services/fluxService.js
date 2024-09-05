@@ -1800,15 +1800,64 @@ async function streamChain(req, res) {
  */
 async function monitorAppsRunningOnNodesDoubleCheck(urlToConnect) {
   try {
-    const timeout = 30000;
+    const timeout = 10000;
     const axiosConfig = {
       timeout,
     };
     log.info(`monitorAppsRunningOnNodesDoubleCheck - checking ${urlToConnect} apps running`);
     const appsRunningOnTheSelectedNode = await appsService.getRunningAppIpList(urlToConnect);
-    const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
+    let errorOnCall = false;
+    let resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
       log.error(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} for app installedappsnames is not reachable`);
       log.error(error);
+      errorOnCall = true;
+    });
+    if (errorOnCall) {
+      // let's use another note just to make sure it's not a network issue between our node and the one we are trying to connect;
+      let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+      myIP = myIP.split(':')[0];
+      let runs = 0;
+      while (!resMyAppAvailability || runs <= 10) {
+        runs += 1;
+        // eslint-disable-next-line no-await-in-loop
+        let askingIP = await fluxNetworkHelper.getRandomConnection();
+        if (!askingIP) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        let askingIpPort = config.server.apiport;
+        if (askingIP.includes(':')) { // has port specification
+          // it has port specification
+          const splittedIP = askingIP.split(':');
+          askingIP = splittedIP[0];
+          askingIpPort = splittedIP[1];
+        }
+        if (myIP === askingIP) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        const urlAux = `${askingIP}:${askingIpPort}`;
+        // eslint-disable-next-line no-await-in-loop
+        resMyAppAvailability = await axios.get(`http://${urlAux}/apps/installedappsnames/${urlToConnect}`, axiosConfig).catch(async (error) => {
+          log.error(`monitorAppsRunningOnNodes - ${urlAux} for getting app installedappsnames on ${urlToConnect} is not reachable`);
+          log.error(error);
+        });
+      }
+      if (!resMyAppAvailability) {
+        return;
+      }
+    }
+    if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+      const appsReturned = resMyAppAvailability.data.data;
+      if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
+        log.info(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} apps doesnt match local database information`);
+        await axios.get(`http://${urlToConnect}/apps/broadcastappsinstalled`, axiosConfig).catch((error) => {
+          log.error(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
+          log.error(error);
+        });
+      }
+    } else {
+      // let's use another note just to make sure it's not a network issue between our node and the one we are trying to connect;
       const broadcastedAt = new Date().getTime();
       const nodeDownMessage = {
         type: 'fluxnodedown',
@@ -1820,16 +1869,6 @@ async function monitorAppsRunningOnNodesDoubleCheck(urlToConnect) {
       await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(nodeDownMessage);
       await serviceHelper.delay(500);
       await fluxCommunicationMessagesSender.broadcastMessageToIncoming(nodeDownMessage);
-    });
-    if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-      const appsReturned = resMyAppAvailability.data.data;
-      if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
-        log.info(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} apps doesnt match local database information`);
-        await axios.get(`http://${urlToConnect}/apps/broadcastappsinstalled`, axiosConfig).catch((error) => {
-          log.error(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
-          log.error(error);
-        });
-      }
     }
   } catch (error) {
     log.error(`monitorAppsRunningOnNodesDoubleCheck - Error: ${error}`);
@@ -1894,7 +1933,7 @@ async function monitorAppsRunningOnNodes() {
     log.info(`monitorAppsRunningOnNodes - checking ${urlToConnect} apps running`);
     const appsRunningOnTheSelectedNode = await appsService.getRunningAppIpList(urlToConnect);
     const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
-      log.error(`sentinel - ${urlToConnect} for app installedappsnames is not reachable`);
+      log.error(`monitorAppsRunningOnNodes - ${urlToConnect} for app installedappsnames is not reachable`);
       log.error(error);
       if (appsRunningOnTheSelectedNode.length > 0) {
         await serviceHelper.delay(5 * 60 * 1000);
