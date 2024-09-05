@@ -1800,6 +1800,13 @@ async function streamChain(req, res) {
  */
 async function monitorAppsRunningOnNodesDoubleCheck(urlToConnect) {
   try {
+    const zl = await appsService.deterministicFluxList();
+    const nodeIP = urlToConnect.split(':')[1] === '16127' ? urlToConnect.split(':')[0] : urlToConnect;
+    const node = zl.find((key) => nodeIP === key.ip); // check ip is on the network and belongs to broadcasted public key
+    if (!node) {
+      log.info(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} is no longer on flux node list`);
+      return;
+    }
     const timeout = 10000;
     const axiosConfig = {
       timeout,
