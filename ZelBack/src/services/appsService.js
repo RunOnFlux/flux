@@ -44,7 +44,7 @@ const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
-const { default: FluxService } = require('../../../HomeUI/src/services/FluxService');
+const fluxService = require('./fluxService');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -6422,7 +6422,7 @@ async function storeAppRunningMessage(message) {
       messageNotOk = true;
       break;
     }
-    if (FluxService.canProcessAppsRunningMessages()) {
+    if (fluxService.canProcessAppsRunningMessages()) {
       if (message.runningSince) {
         newAppRunningMessage.runningSince = new Date(message.runningSince);
       } else if (app.runningSince) {
@@ -6439,7 +6439,7 @@ async function storeAppRunningMessage(message) {
       await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
     }
   }
-  if (message.version === 2 && FluxService.canProcessAppsRunningMessages()) {
+  if (message.version === 2 && fluxService.canProcessAppsRunningMessages()) {
     const expire = message.broadcastedAt + (10 * 24 * 60 * 60 * 1000); // 10 days
     const queryUpdate = { $and: queryUpdateRemovals };
     const update = { $set: { removedBroadcastedAt: new Date(message.broadcastedAt), expireAt: new Date(expire) } };
@@ -6542,7 +6542,7 @@ async function storeAppRemovedMessage(message) {
     return false;
   }
 
-  if (FluxService.canProcessAppsRunningMessages()) {
+  if (fluxService.canProcessAppsRunningMessages()) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = { ip: message.ip, name: message.appName };
@@ -8846,7 +8846,7 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function?
     // we have globalapplication specifics list
     // check if we are synced
-    if (!FluxService.canProcessAppsRunningMessages()) {
+    if (!fluxService.canProcessAppsRunningMessages()) {
       log.info('Flux app locations not yet ready');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
