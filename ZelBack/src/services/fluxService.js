@@ -1820,7 +1820,7 @@ async function monitorAppsRunningOnNodesDoubleCheck(urlToConnect) {
       errorOnCall = true;
     });
     if (errorOnCall) {
-      // let's use another note just to make sure it's not a network issue between our node and the one we are trying to connect;
+      // let's use another node just to make sure it's not a network issue between our node and the one we are trying to connect;
       let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
       myIP = myIP.split(':')[0];
       let runs = 0;
@@ -1859,12 +1859,11 @@ async function monitorAppsRunningOnNodesDoubleCheck(urlToConnect) {
       if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
         log.info(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} apps doesnt match local database information`);
         await axios.get(`http://${urlToConnect}/apps/broadcastappsinstalled`, axiosConfig).catch((error) => {
-          log.error(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
+          log.error(`monitorAppsRunningOnNodesDoubleCheck - ${urlToConnect} for apps broadcastappsinstalled is not reachable`);
           log.error(error);
         });
       }
     } else {
-      // let's use another note just to make sure it's not a network issue between our node and the one we are trying to connect;
       const broadcastedAt = new Date().getTime();
       const nodeDownMessage = {
         type: 'fluxnodedown',
@@ -1952,7 +1951,7 @@ async function monitorAppsRunningOnNodes() {
       if (appsRunningOnTheSelectedNode.length !== appsReturned.length || !appsRunningOnTheSelectedNode.every((appA) => appsReturned.includes((appB) => appB.name === appA.name))) {
         log.info(`monitorAppsRunningOnNodes - ${urlToConnect} apps doesnt match local database information`);
         await axios.get(`http://${urlToConnect}/apps/broadcastappsinstalled`, axiosConfig).catch((error) => {
-          log.error(`monitorAppsRunningOnNodes - ${urlToConnect} for apps broadcastAppsRunning is not reachable`);
+          log.error(`monitorAppsRunningOnNodes - ${urlToConnect} for apps broadcastappsinstalled is not reachable`);
           log.error(error);
         });
       }
