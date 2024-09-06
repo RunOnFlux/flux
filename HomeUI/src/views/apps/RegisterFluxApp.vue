@@ -3883,6 +3883,13 @@ export default {
           });
           if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
             clientIP = clientIPResponse.data.ip;
+          } else {
+            clientIPResponse = await axios.get('https://api.ip2location.io').catch(() => {
+              console.log('Error geting clientIp from api.ip2location.io from');
+            });
+            if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+              clientIP = clientIPResponse.data.ip;
+            }
           }
         }
         const zelidauth = localStorage.getItem('zelidauth');
