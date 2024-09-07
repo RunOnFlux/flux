@@ -397,9 +397,10 @@ export default {
             filteredApps.value = filteredApps.value.filter((appData) => appData.extraDetail.name.toLowerCase() === router.currentRoute.params.filter.toLowerCase());
           }
           if (searchQuery.value) {
+            const normalizedSearchQuery = searchQuery.value.toLowerCase();
             filteredApps.value = filteredApps.value.filter((appData) => {
-              if (appData.name.toLowerCase().includes(searchQuery.value)) return true;
-              if (appData.description.toLowerCase().includes(searchQuery.value)) return true;
+              if (appData.name.toLowerCase().includes(normalizedSearchQuery)) return true;
+              if (appData.description.toLowerCase().includes(normalizedSearchQuery)) return true;
               return false;
             });
           }
