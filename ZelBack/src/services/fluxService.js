@@ -1996,12 +1996,12 @@ async function prepareAppsLocationsDB() {
         timestampForSearchs = results[0].broadcastedAt - (60 * 60 * 1000); // lets put 1 hour before latest app running message received;
       }
     } else {
-      query = { broadcastedAt: -1 };
+      const sort = { broadcastedAt: -1 };
       projection = {
         _id: 0,
         broadcastedAt: 1,
       };
-      results = await dbHelper.limitFromCollection(database, globalAppsLocations, query, projection);
+      results = await dbHelper.limitFromCollection(database, globalAppsLocations, sort, projection);
       if (results && results.length > 0) {
         log.info(`prepareAppsLocationsDB - maxBroadcastedAt: ${results[0].broadcastedAt}`);
         if (results[0].broadcastedAt < 24 * 60 * 60 * 1000) { // last message received over one day we delete entire db and insert the info from a new node
