@@ -35,7 +35,6 @@ const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
-const fluxService = require('./fluxService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
 const imageVerifier = require('./utils/imageVerifier');
@@ -6422,6 +6421,8 @@ async function storeAppRunningMessage(message) {
       messageNotOk = true;
       break;
     }
+    // eslint-disable-next-line global-require
+    const fluxService = require('./fluxService');
     if (fluxService.canProcessAppsRunningMessages()) {
       if (message.runningSince) {
         newAppRunningMessage.runningSince = new Date(message.runningSince);
@@ -6439,6 +6440,8 @@ async function storeAppRunningMessage(message) {
       await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
     }
   }
+  // eslint-disable-next-line global-require
+  const fluxService = require('./fluxService');
   if (message.version === 2 && fluxService.canProcessAppsRunningMessages()) {
     const expire = message.broadcastedAt + (10 * 24 * 60 * 60 * 1000); // 10 days
     const queryUpdate = { $and: queryUpdateRemovals };
@@ -6541,7 +6544,8 @@ async function storeAppRemovedMessage(message) {
     // reject old message
     return false;
   }
-
+  // eslint-disable-next-line global-require
+  const fluxService = require('./fluxService');
   if (fluxService.canProcessAppsRunningMessages()) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -8846,6 +8850,8 @@ async function trySpawningGlobalApplication() {
     // how do we continue with this function?
     // we have globalapplication specifics list
     // check if we are synced
+    // eslint-disable-next-line global-require
+    const fluxService = require('./fluxService');
     if (!fluxService.canProcessAppsRunningMessages()) {
       log.info('Flux app locations not yet ready');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
