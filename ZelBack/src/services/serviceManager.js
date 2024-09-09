@@ -241,12 +241,21 @@ async function startFluxFunctions() {
       }, 30 * 60 * 1000);
       appsService.continuousFluxAppHashesCheck();
     }, (Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000); // start between 15m and 30m after fluxOs start
-    setTimeout(() => {
-      // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
-      // 125 minutes should give enough time for node receive currently two times the apprunning messages
-      log.info('Starting to spawn applications');
-      appsService.trySpawningGlobalApplication();
-    }, 20 * 60 * 1000);
+    if (daemonHeight >= config.apprunningRefactorActivation) {
+      setTimeout(() => {
+        // after 20 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
+        // 20 minutes should give enough time for node to sync the apps location DB
+        log.info('Starting to spawn applications');
+        appsService.trySpawningGlobalApplication();
+      }, 20 * 60 * 1000);
+    } else {
+      setTimeout(() => {
+        // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
+        // 125 minutes should give enough time for node receive currently two times the apprunning messages
+        log.info('Starting to spawn applications');
+        appsService.trySpawningGlobalApplication();
+      }, 125 * 60 * 1000);
+    }
     setInterval(() => {
       appsService.checkApplicationsCompliance();
     }, 60 * 60 * 1000); //  every hour
