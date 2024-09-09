@@ -720,4 +720,53 @@ describe('dbHelper tests', () => {
       expect(collectionStatsResponse.avgObjSize).to.be.undefined;
     });
   });
+
+  describe('limitFromCollection tests', () => {
+    let database;
+    let collection;
+    beforeEach(async () => {
+      await dbHelper.initiateDB();
+      const db = dbHelper.databaseConnection();
+      database = db.db(config.database.appsglobal.database);
+      collection = config.database.appsglobal.collections.appsInformation;
+
+      try {
+        await database.collection(collection).drop();
+      } catch (err) {
+        console.log('Collection not found.');
+      }
+
+      await database.collection(collection).insertMany(testInsert);
+    });
+
+    it('should return max element of name', async () => {
+      const query = { name: -1 };
+      const projection = {
+        _id: 0,
+        broadcastedAt: 1,
+      };
+      const expectedResult = [{
+        name: 'App3',
+      }];
+
+      const findOneInDatabaseResult = await dbHelper.limitFromCollection(database, collection, query, projection);
+
+      expect(findOneInDatabaseResult).to.eql(expectedResult);
+    });
+
+    it('should return min element of name', async () => {
+      const query = { name: 1 };
+      const projection = {
+        _id: 0,
+        broadcastedAt: 1,
+      };
+      const expectedResult = [{
+        name: 'App1',
+      }];
+
+      const findOneInDatabaseResult = await dbHelper.limitFromCollection(database, collection, query, projection);
+
+      expect(findOneInDatabaseResult).to.eql(expectedResult);
+    });
+  });
 });
