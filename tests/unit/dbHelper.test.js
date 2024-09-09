@@ -751,7 +751,7 @@ describe('dbHelper tests', () => {
 
       const findOneInDatabaseResult = await dbHelper.limitFromCollection(database, collection, query, projection);
 
-      expect(findOneInDatabaseResult).to.eql(expectedResult);
+      expect(JSON.stringify(findOneInDatabaseResult)).to.eql(JSON.stringify(expectedResult));
     });
 
     it('should return min element of name', async () => {
@@ -766,7 +766,7 @@ describe('dbHelper tests', () => {
 
       const findOneInDatabaseResult = await dbHelper.limitFromCollection(database, collection, query, projection);
 
-      expect(findOneInDatabaseResult).to.eql(expectedResult);
+      expect(JSON.stringify(findOneInDatabaseResult)).to.eql(JSON.stringify(expectedResult));
     });
   });
 });
