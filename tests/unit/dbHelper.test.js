@@ -755,7 +755,7 @@ describe('dbHelper tests', () => {
     });
 
     it('should return min element of name', async () => {
-      const query = { name: 1 };
+      const query = { name: +1 };
       const projection = {
         _id: 0,
         name: 1,
