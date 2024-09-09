@@ -19,7 +19,6 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
-const appsService = require('./appsService');
 const generalService = require('./generalService');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
@@ -1146,6 +1145,8 @@ async function getFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.flux.dos = dosResult.data;
+    // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
     const dosAppsResult = await appsService.getAppsDOSState();
     if (dosResult.status === 'error') {
       throw dosAppsResult.data;
@@ -1800,6 +1801,8 @@ async function streamChain(req, res) {
  */
 async function monitorAppsRunningOnNodesDoubleCheck(urlToConnect) {
   try {
+    // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
     const zl = await appsService.deterministicFluxList();
     const nodeIP = urlToConnect.split(':')[1] === '16127' ? urlToConnect.split(':')[0] : urlToConnect;
     const node = zl.find((key) => nodeIP === key.ip); // check ip is on the network and belongs to broadcasted public key
@@ -1937,6 +1940,8 @@ async function monitorAppsRunningOnNodes() {
     };
 
     log.info(`monitorAppsRunningOnNodes - checking ${urlToConnect} apps running`);
+    // eslint-disable-next-line global-require
+    const appsService = require('./appsService');
     const appsRunningOnTheSelectedNode = await appsService.getRunningAppIpList(urlToConnect);
     const resMyAppAvailability = await axios.get(`http://${urlToConnect}/apps/installedappsnames`, axiosConfig).catch(async (error) => {
       log.error(`monitorAppsRunningOnNodes - ${urlToConnect} for app installedappsnames is not reachable`);

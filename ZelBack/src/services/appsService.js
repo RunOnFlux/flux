@@ -35,6 +35,7 @@ const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
+const fluxService = require('./fluxService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
 const imageVerifier = require('./utils/imageVerifier');
@@ -44,7 +45,6 @@ const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
-const fluxService = require('./fluxService');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
