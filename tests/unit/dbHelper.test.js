@@ -743,7 +743,7 @@ describe('dbHelper tests', () => {
       const query = { name: -1 };
       const projection = {
         _id: 0,
-        broadcastedAt: 1,
+        name: 1,
       };
       const expectedResult = [{
         name: 'App3',
@@ -758,7 +758,7 @@ describe('dbHelper tests', () => {
       const query = { name: 1 };
       const projection = {
         _id: 0,
-        broadcastedAt: 1,
+        name: 1,
       };
       const expectedResult = [{
         name: 'App1',
