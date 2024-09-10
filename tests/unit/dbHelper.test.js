@@ -741,30 +741,34 @@ describe('dbHelper tests', () => {
 
     it('should return max element of name', async () => {
       const sort = { name: -1 };
-      const projection = {
-        _id: 0,
-        name: 1,
+      const queryProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
       };
       const expectedResult = [{
         name: 'App3',
       }];
 
-      const findOneInDatabaseResult = await dbHelper.limitFromCollection(database, collection, sort, projection);
+      const findOneInDatabaseResult = await dbHelper.limitFromCollection(database, collection, sort, queryProjection);
 
       expect(JSON.stringify(findOneInDatabaseResult)).to.eql(JSON.stringify(expectedResult));
     });
 
     it('should return min element of name', async () => {
       const sort = { name: +1 };
-      const projection = {
-        _id: 0,
-        name: 1,
+      const queryProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
       };
       const expectedResult = [{
         name: 'App1',
       }];
 
-      const findOneInDatabaseResult = await dbHelper.limitFromCollection(database, collection, sort, projection);
+      const findOneInDatabaseResult = await dbHelper.limitFromCollection(database, collection, sort, queryProjection);
 
       expect(JSON.stringify(findOneInDatabaseResult)).to.eql(JSON.stringify(expectedResult));
     });

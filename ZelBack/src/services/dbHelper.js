@@ -229,12 +229,13 @@ async function removeDocumentsFromCollection(database, collection, query) {
  * @param {string} database
  * @param {string} collection
  * @param {object} sort
- * @param {object} [projection]
+ * @param {object} [options]
  *
  * @returns object
  */
-async function limitFromCollection(database, collection, sort, projection) {
-  const results = await database.collection(collection).find({}, projection).sort(sort).limit(1);
+async function limitFromCollection(database, collection, sort, options) {
+  const results = await database.collection(collection).find({}, options).sort(sort).limit(1)
+    .toArray();
   return results;
 }
 
