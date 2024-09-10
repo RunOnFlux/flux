@@ -3863,6 +3863,7 @@ export default {
         this.checkoutLoading = false;
         this.openSite(checkoutURL.data.data);
       } catch (error) {
+        console.log(error);
         this.showToast('error', 'Failed to create stripe checkout');
         this.checkoutLoading = false;
       }

@@ -1149,6 +1149,7 @@ export default {
         checkoutLoading.value = false;
         openSite(checkoutURL.data.data);
       } catch (error) {
+        console.log(error);
         showToast('error', 'Failed to create stripe checkout');
         checkoutLoading.value = false;
       }
