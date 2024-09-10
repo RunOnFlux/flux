@@ -229,8 +229,9 @@ async function handleAppRemovedMessage(message, fromIP, port) {
  * To handle node down message.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address and port.
+ * @param {string} port Sender's node Api port.
  */
-async function handleNodeDownMessage(message, fromIP) {
+async function handleNodeDownMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, delete that information
     // rebroadcast message to the network if it's valid
@@ -266,10 +267,24 @@ async function handleNodeDownMessage(message, fromIP) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (!isNodeRunning && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIP);
+      const wsListOut = [];
+      outgoingConnections.forEach((client) => {
+        if (client.ip === fromIP && client.port === port) {
+          // do not broadcast to this peer
+        } else {
+          wsListOut.push(client);
+        }
+      });
       fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
       await serviceHelper.delay(500);
-      const wsList = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIP);
+      const wsList = [];
+      incomingConnections.forEach((client) => {
+        if (client.ip === fromIP && client.port === port) {
+          // do not broadcast to this peer
+        } else {
+          wsList.push(client);
+        }
+      });
       fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
     }
   } catch (error) {
@@ -409,7 +424,7 @@ function handleIncomingConnection(websocket, optionalPort) {
             } else if (msgObj.data.type === 'fluxappremoved') {
               handleAppRemovedMessage(msgObj, peer.ip, peer.port);
             } else if (msgObj.data.type === 'fluxnodedown') {
-              handleNodeDownMessage(msgObj, peer.ip.replace('::ffff:', ''));
+              handleNodeDownMessage(msgObj, peer.ip, peer.port);
             } else {
               log.warn(`Unrecognised message type of ${msgObj.data.type}`);
             }
@@ -718,7 +733,7 @@ async function initiateAndHandleConnection(connection) {
         } else if (msgObj.data.type === 'fluxappremoved') {
           handleAppRemovedMessage(msgObj, ip, port);
         } else if (msgObj.data.type === 'fluxnodedown') {
-          handleNodeDownMessage(msgObj, ip);
+          handleNodeDownMessage(msgObj, ip, port);
         } else {
           log.warn(`Unrecognised message type of ${msgObj.data.type}`);
         }
