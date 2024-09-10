@@ -239,15 +239,15 @@ async function handleNodeDownMessage(message, fromIP, port) {
     const appsService = require('./appsService');
     if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
       || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
-      throw new Error('Invalid Flux App Removed message for storing');
+      throw new Error('Invalid Flux Node Down message for storing');
     }
 
     if (message.version !== 1) {
-      throw new Error(`Invalid Flux App Removed message for storing version ${message.version} not supported`);
+      throw new Error(`Invalid Flux Node Down message for storing version ${message.version} not supported`);
     }
 
     if (!message.ip) {
-      throw new Error('Invalid Flux App Removed message ip cannot be empty');
+      throw new Error('Invalid Flux Node Down message ip cannot be empty');
     }
 
     log.info('New Flux Node Down message received.');
