@@ -355,6 +355,238 @@ describe('fluxCommunication tests', () => {
     }).timeout(5000);
   });
 
+  describe('handleAppRemovedMessage tests', () => {
+    let sendToAllPeersSpy;
+    let sendToAllIncomingConnectionsSpy;
+
+    beforeEach(async () => {
+      outgoingConnections.length = 0;
+      incomingConnections.length = 0;
+      await dbHelper.initiateDB();
+      sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
+      sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast the app message if a proper data is given', async () => {
+      sinon.stub(appsService, 'storeAppTemporaryMessage').returns(true);
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const type = 'fluxappregister';
+      const name = 'myApp';
+      const version = 1;
+      const timestamp = Date.now();
+      const broadcastedAt = Date.now();
+      const messageToHash = type + version + name + timestamp;
+      const hash = await generalService.messageHash(messageToHash);
+      const message = {
+        data:
+        {
+          type,
+          name,
+          broadcastedAt,
+          version,
+          hash,
+          ip: fromIp,
+        },
+        timestamp,
+      };
+
+      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+      const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
+
+      const wsOutgoing = await connectWs(wsuri);
+      wsOutgoing.port = port;
+      wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
+      outgoingConnections.push(wsOutgoing);
+
+      const wsIncoming = await connectWs(wsuri2);
+      wsIncoming.port = port;
+      wsIncoming.ip = '127.8.8.1';
+      wsIncoming._socket = { remoteAddress: '::ffff:127.8.8.1' };
+      incomingConnections.push(wsIncoming);
+
+      const messageString = JSON.stringify(message);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp);
+      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp);
+
+      await fluxCommunication.handleAppRemovedMessage(message, fromIp, port);
+
+      sinon.assert.calledOnceWithExactly(sendToAllPeersSpy, messageString, wsListOut);
+      sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
+    }).timeout(10000);
+
+    it('should not send broadcast if message is older than 3900 seconds', async () => {
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const type = 'fluxappregister';
+      const name = 'myApp';
+      const version = 1;
+      const timestamp = 1592988806887;
+      const broadcastedAt = Date.now() - (80 * 60 * 1000);
+      const messageToHash = type + version + name + timestamp;
+      const hash = await generalService.messageHash(messageToHash);
+      const message = {
+        data:
+        {
+          type,
+          name,
+          broadcastedAt,
+          version,
+          timestamp,
+          hash,
+          ip: fromIp,
+        },
+      };
+
+      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+      const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
+
+      const wsOutgoing = await connectWs(wsuri);
+      wsOutgoing.port = port;
+      wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing._socket = {
+        remoteAddress: '127.8.8.1',
+        end: sinon.fake(() => true),
+      };
+      outgoingConnections.push(wsOutgoing);
+
+      const wsIncoming = await connectWs(wsuri2);
+      wsIncoming.port = port;
+      wsIncoming.ip = '127.8.8.1';
+      wsIncoming._socket = {
+        remoteAddress: '::ffff:127.8.8.1',
+        end: sinon.fake(() => true),
+      };
+      incomingConnections.push(wsIncoming);
+
+      await fluxCommunication.handleAppRemovedMessage(message, fromIp, port);
+
+      sinon.assert.notCalled(sendToAllPeersSpy);
+      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+    }).timeout(5000);
+  });
+
+  describe('handleNodeDownMessage tests', () => {
+    let sendToAllPeersSpy;
+    let sendToAllIncomingConnectionsSpy;
+
+    beforeEach(async () => {
+      outgoingConnections.length = 0;
+      incomingConnections.length = 0;
+      await dbHelper.initiateDB();
+      sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
+      sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should broadcast the app message if a proper data is given', async () => {
+      sinon.stub(appsService, 'storeAppTemporaryMessage').returns(true);
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const type = 'fluxappregister';
+      const name = 'myApp';
+      const version = 1;
+      const timestamp = Date.now();
+      const broadcastedAt = Date.now();
+      const messageToHash = type + version + name + timestamp;
+      const hash = await generalService.messageHash(messageToHash);
+      const message = {
+        data:
+        {
+          type,
+          name,
+          broadcastedAt,
+          version,
+          hash,
+          ip: fromIp,
+        },
+        timestamp,
+      };
+
+      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+      const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
+
+      const wsOutgoing = await connectWs(wsuri);
+      wsOutgoing.port = port;
+      wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
+      outgoingConnections.push(wsOutgoing);
+
+      const wsIncoming = await connectWs(wsuri2);
+      wsIncoming.port = port;
+      wsIncoming.ip = '127.8.8.1';
+      wsIncoming._socket = { remoteAddress: '::ffff:127.8.8.1' };
+      incomingConnections.push(wsIncoming);
+
+      const messageString = JSON.stringify(message);
+      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp);
+      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp);
+
+      await fluxCommunication.handleNodeDownMessage(message, fromIp, port);
+
+      sinon.assert.calledOnceWithExactly(sendToAllPeersSpy, messageString, wsListOut);
+      sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
+    }).timeout(10000);
+
+    it('should not send broadcast if message is older than 3900 seconds', async () => {
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const type = 'fluxappregister';
+      const name = 'myApp';
+      const version = 1;
+      const timestamp = 1592988806887;
+      const broadcastedAt = Date.now() - (80 * 60 * 1000);
+      const messageToHash = type + version + name + timestamp;
+      const hash = await generalService.messageHash(messageToHash);
+      const message = {
+        data:
+        {
+          type,
+          name,
+          broadcastedAt,
+          version,
+          timestamp,
+          hash,
+          ip: fromIp,
+        },
+      };
+
+      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+      const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
+
+      const wsOutgoing = await connectWs(wsuri);
+      wsOutgoing.port = port;
+      wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing._socket = {
+        remoteAddress: '127.8.8.1',
+        end: sinon.fake(() => true),
+      };
+      outgoingConnections.push(wsOutgoing);
+
+      const wsIncoming = await connectWs(wsuri2);
+      wsIncoming.port = port;
+      wsIncoming.ip = '127.8.8.1';
+      wsIncoming._socket = {
+        remoteAddress: '::ffff:127.8.8.1',
+        end: sinon.fake(() => true),
+      };
+      incomingConnections.push(wsIncoming);
+
+      await fluxCommunication.handleNodeDownMessage(message, fromIp, port);
+
+      sinon.assert.notCalled(sendToAllPeersSpy);
+      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+    }).timeout(5000);
+  });
+
   describe('connectedPeers tests', () => {
     const generateResponse = () => {
       const res = { test: 'testing' };

@@ -1015,6 +1015,7 @@ module.exports = {
   handleAppRunningMessage,
   handleIPChangedMessage,
   handleAppRemovedMessage,
+  handleNodeDownMessage,
   initiateAndHandleConnection,
   getNumberOfPeers,
   addOutgoingPeer,
