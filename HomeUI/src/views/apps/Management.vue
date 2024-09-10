@@ -10660,7 +10660,12 @@ export default {
         }
         this.fiatCheckoutURL = checkoutURL.data.data;
         this.checkoutLoading = false;
-        this.openSite(checkoutURL.data.data);
+        try {
+          this.openSite(checkoutURL.data.data);
+        } catch (error) {
+          console.log(error);
+          this.showToast('error', 'Failed to open Stripe checkout, pop-up blocked?');
+        }
       } catch (error) {
         console.log(error);
         this.showToast('error', 'Failed to create stripe checkout');
@@ -10715,7 +10720,12 @@ export default {
         }
         this.fiatCheckoutURL = checkoutURL.data.data;
         this.checkoutLoading = false;
-        this.openSite(checkoutURL.data.data);
+        try {
+          this.openSite(checkoutURL.data.data);
+        } catch (error) {
+          console.log(error);
+          this.showToast('error', 'Failed to open Paypal checkout, pop-up blocked?');
+        }
       } catch (error) {
         console.log(error);
         this.showToast('error', 'Failed to create PayPal checkout');
