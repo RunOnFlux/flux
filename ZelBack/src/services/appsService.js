@@ -6561,6 +6561,44 @@ async function storeAppRemovedMessage(message) {
 }
 
 /**
+ * To remove from DB that the IP is running the app.
+ * @param {object} message Message.
+ * @returns {boolean} True if message is valid. Returns false if message is old. Throws an error if invalid/wrong properties.
+ */
+async function processNodeDownMessage(message) {
+  // check if we have it any app running on that location and if yes, delete that information
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+      || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
+    return new Error('Invalid Flux Node Down message for storing');
+  }
+
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux Node Down message for storing version ${message.version} not supported`);
+  }
+
+  if (!message.ip) {
+    return new Error('Invalid Flux Node Down message ip cannot be empty');
+  }
+
+  log.info('New Flux Node Down message received.');
+  log.info(message);
+  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+  if (validTill < new Date().getTime()) {
+    return new Error('Flux Node Down message received no longer valid');
+  }
+  const splittedIP = message.ip.split(':');
+  const askingIP = splittedIP[0];
+  const askingIpPort = splittedIP[1] || '16127';
+  const isNodeRunning = await fluxNetworkHelper.isPortOpen(askingIP, askingIpPort);
+  if (!isNodeRunning) { // we double check that node is down
+    // eslint-disable-next-line no-use-before-define
+    await removeAppsRunningOnNodeIP(message.ip);
+    return true;
+  }
+  return false;
+}
+
+/**
  * To request app message.
  * @param {string} hash Message hash.
  */
@@ -13213,4 +13251,5 @@ module.exports = {
   removeAppsRunningOnNodeIP,
   getAppsLocationsDB,
   installedAppsNames,
+  processNodeDownMessage,
 };

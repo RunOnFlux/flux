@@ -237,35 +237,10 @@ async function handleNodeDownMessage(message, fromIP, port) {
     // rebroadcast message to the network if it's valid
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
-    if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-      || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
-      throw new Error('Invalid Flux Node Down message for storing');
-    }
-
-    if (message.version !== 1) {
-      throw new Error(`Invalid Flux Node Down message for storing version ${message.version} not supported`);
-    }
-
-    if (!message.ip) {
-      throw new Error('Invalid Flux Node Down message ip cannot be empty');
-    }
-
-    log.info('New Flux Node Down message received.');
-    log.info(message);
-    const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-    if (validTill < new Date().getTime()) {
-      throw new Error('Flux Node Down message received no longer valid');
-    }
-    const splittedIP = message.ip.split(':');
-    const askingIP = splittedIP[0];
-    const askingIpPort = splittedIP[1];
-    const isNodeRunning = await fluxNetworkHelper.isPortOpen(askingIP, askingIpPort);
-    if (!isNodeRunning) { // we double check that node is down
-      await appsService.removeAppsRunningOnNodeIP(message.ip);
-    }
-    const currentTimeStamp = new Date().getTime();
+    const rebroadcastToPeers = await appsService.processNodeDownMessage(message.data);
+    const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
-    if (!isNodeRunning && timestampOK) {
+    if (rebroadcastToPeers && timestampOK) {
       const messageString = serviceHelper.ensureString(message);
       const wsListOut = [];
       outgoingConnections.forEach((client) => {
