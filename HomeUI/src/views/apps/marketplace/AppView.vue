@@ -1209,6 +1209,7 @@ export default {
         checkoutLoading.value = false;
         openSite(checkoutURL.data.data);
       } catch (error) {
+        console.log(error);
         showToast('error', 'Failed to create PayPal checkout');
         checkoutLoading.value = false;
       }
