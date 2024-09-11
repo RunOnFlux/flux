@@ -5181,8 +5181,8 @@ describe('appsService tests', () => {
     });
 
     it('should throw if installedApps errors', async () => {
-      nodeConfirmedStub.returns(false);
-      installedAppsStub.returns({
+      nodeConfirmedStub.resolves(false);
+      installedAppsStub.resolves({
         status: 'error',
       });
       await appsService.nodeAndAppsStatusCheck();
@@ -5190,20 +5190,20 @@ describe('appsService tests', () => {
     });
 
     it('should throw if runningApps errors', async () => {
-      nodeConfirmedStub.returns(false);
-      installedAppsStub.returns({
+      nodeConfirmedStub.resolves(false);
+      installedAppsStub.resolves({
         status: 'success',
         data: [],
       });
-      runningAppsStub.returns({
+      runningAppsStub.resolves({
         status: 'error',
       });
       await appsService.nodeAndAppsStatusCheck();
       sinon.assert.calledOnce(logSpy);
     });
     it('should not call running apps if node is not confirmed', async () => {
-      nodeConfirmedStub.returns(false);
-      installedAppsStub.returns({
+      nodeConfirmedStub.resolves(false);
+      installedAppsStub.resolves({
         status: 'success',
         data: [],
       });
@@ -5211,8 +5211,8 @@ describe('appsService tests', () => {
       sinon.assert.notCalled(runningAppsStub);
     });
     it('should uninstall app if node is not confirmed', async () => {
-      nodeConfirmedStub.returns(false);
-      installedAppsStub.returns({
+      nodeConfirmedStub.resolves(false);
+      installedAppsStub.resolves({
         status: 'success',
         data: [{ name: 'test' }],
       });
