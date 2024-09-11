@@ -9367,11 +9367,11 @@ async function checkAndNotifyPeersOfRunningApps() {
 async function nodeAndAppsStatusCheck() {
   try {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
     if (!isNodeConfirmed) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
       const appsInstalled = installedAppsRes.data;
       // eslint-disable-next-line no-restricted-syntax
       for (const installedApp of appsInstalled) {
@@ -9381,15 +9381,9 @@ async function nodeAndAppsStatusCheck() {
         await removeAppLocally(installedApp.name, null, false, true, true);
         log.warn(`Application ${installedApp.name} locally removed`);
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
+        await serviceHelper.delay(2 * 60 * 1000);
       }
       return;
-    }
-    // get list of locally installed apps. Store them in database as running and send info to our peers.
-    // check if they are running?
-    const installedAppsRes = await installedApps();
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('Failed to get installed Apps');
     }
     const runningAppsRes = await listRunningApps();
     if (runningAppsRes.status !== 'success') {
