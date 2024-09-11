@@ -9411,7 +9411,6 @@ async function nodeAndAppsStatusCheck() {
     // installed always is bigger array than running
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
-    const masterSlaveAppsInstalled = [];
     // check if stoppedApp is a global application present in specifics. If so, try to start it.
     if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
       // eslint-disable-next-line no-restricted-syntax
@@ -9423,9 +9422,7 @@ async function nodeAndAppsStatusCheck() {
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
           const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
-          if (appInstalledMasterSlaveCheck) {
-            masterSlaveAppsInstalled.push(appInstalledMasterSlave);
-          } else if (appDetails) {
+          if (!appInstalledMasterSlaveCheck && appDetails) {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!
