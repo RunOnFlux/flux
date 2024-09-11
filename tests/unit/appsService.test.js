@@ -5162,4 +5162,63 @@ describe('appsService tests', () => {
       sinon.assert.calledWithExactly(res.write, 'Flux App testapp already installed');
     });
   });
+
+  describe('nodeAndAppsStatusCheck tests', () => {
+    let installedAppsStub;
+    let runningAppsStub;
+    let nodeConfirmedStub;
+    let logSpy;
+
+    beforeEach(async () => {
+      installedAppsStub = sinon.stub(appsService, 'installedApps');
+      runningAppsStub = sinon.stub(appsService, 'listRunningApps');
+      nodeConfirmedStub = sinon.stub(generalService, 'isNodeStatusConfirmed');
+      logSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should throw if installedApps errors', async () => {
+      nodeConfirmedStub.returns(false);
+      installedAppsStub.returns({
+        status: 'error',
+      });
+      await appsService.nodeAndAppsStatusCheck();
+      sinon.assert.calledOnce(logSpy);
+    });
+
+    it('should throw if runningApps errors', async () => {
+      nodeConfirmedStub.returns(false);
+      installedAppsStub.returns({
+        status: 'success',
+        data: [],
+      });
+      runningAppsStub.returns({
+        status: 'error',
+      });
+      await appsService.nodeAndAppsStatusCheck();
+      sinon.assert.calledOnce(logSpy);
+    });
+    it('should not call running apps if node is not confirmed', async () => {
+      nodeConfirmedStub.returns(false);
+      installedAppsStub.returns({
+        status: 'success',
+        data: [],
+      });
+      await appsService.nodeAndAppsStatusCheck();
+      sinon.assert.notCalled(runningAppsStub);
+    });
+    it('should uninstall app if node is not confirmed', async () => {
+      nodeConfirmedStub.returns(false);
+      installedAppsStub.returns({
+        status: 'success',
+        data: [{ name: 'test' }],
+      });
+      const appRemovedStub = sinon.stub(appsService, 'removeAppLocally');
+      await appsService.nodeAndAppsStatusCheck();
+      sinon.assert.colledOnce(appRemovedStub);
+    });
+  });
 });
