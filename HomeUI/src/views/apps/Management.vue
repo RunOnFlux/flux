@@ -1029,7 +1029,7 @@
             <!-- Additional form groups for checkboxes -->
           </b-form>
           <div v-if="filteredLogs.length > 0" ref="logsContainer" class="code-container">
-            <button ref="copyButton" type="button" class="copy-button ml-2" :disabled="copied" @click="copyCode">
+            <button ref="copyButton" type="button" class="log-copy-button ml-2" :disabled="copied" @click="copyCode">
               <b-icon :icon="copied ? 'check' : 'back'" />
               {{ copied ? 'Copied!' : 'Copy' }}
             </button>
@@ -6779,9 +6779,6 @@ export default {
     fetchAllLogs() {
       this.restartPolling();
     },
-    refreshRate() {
-      this.restartPolling();
-    },
     lineCount() {
       this.restartPolling();
     },
@@ -6973,7 +6970,7 @@ export default {
         const lines = this.fetchAllLogs ? 'all' : this.lineCount;
         const response = await this.executeLocalCommand(`/apps/applogpolling/${appnama}/${lines}/${this.sinceTimestamp}`);
         if (this.selectedApp === containerName) {
-          this.logs = response.data.logs;
+          this.logs = response.data?.logs;
           if (this.logs.length > 0) {
             this.$nextTick(() => {
               if (this.autoScroll) {
@@ -11262,7 +11259,7 @@ td .ellipsis-wrapper {
 
 }
 
-.copy-button {
+.log-copy-button {
   position: sticky;
   top: 2px;
   float: right;
@@ -11277,11 +11274,11 @@ td .ellipsis-wrapper {
   z-index: 1000; /* Ensures the button is above the logs */
 }
 
-.copy-button:hover {
+.log-copy-button:hover {
   background-color: #024b8e;
 }
 
-.copy-button:disabled {
+.log-copy-button:disabled {
   background-color: #6c757d; /* Green background for the copied state */
   color: white; /* Ensure text remains readable */
 }
