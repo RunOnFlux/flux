@@ -1,3 +1,4 @@
+<!-- eslint-disable vue/no-v-html -->
 <!-- eslint-disable no-restricted-syntax -->
 <!-- eslint-disable no-restricted-syntax -->
 <!-- eslint-disable guard-for-in -->
@@ -914,81 +915,133 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Log File">
-        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <h6 class="mb-2">
-          Click the 'Download' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
-        </h6>
-        <div v-if="appSpecification.version >= 4">
+      <b-tab title="Logs">
+        <div>
           <div
-            v-for="(component, index) in callResponse.data"
-            :key="index"
+            class="mb-2"
+            style="
+                    border: 1px solid #ccc;
+                    border-radius: 8px;
+                    height: 45px;
+                    padding: 12px;
+                    text-align: left;
+                    line-height: 0px;
+                  "
           >
-            <h4>Component: {{ component.name }}</h4>
-            <div>
-              <div>
-                <div class="d-flex align-items-center">
-                  <h5 class="mt-1">
-                    <kbd class="bg-primary">Last 100 lines of the log file</kbd>
-                  </h5>
-                </div>
-                <b-form-textarea
-                  v-if="component.callData"
-                  plaintext
-                  no-resize
-                  rows="15"
-                  :value="decodeAsciiResponse(component.callData)"
-                  class="mt-1 mb-1"
-                  style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
-                />
-                <b-button
-                  :id="`start-download-log-${component.name}_${appSpecification.name}`"
-                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="outline-primary"
-                  size="md"
-                  class="w-100 mb-2"
-                >
-                  Download
-                </b-button>
-                <confirm-dialog
-                  :target="`start-download-log-${component.name}_${appSpecification.name}`"
-                  confirm-button="Download Log"
-                  @confirm="downloadApplicationLog(`${component.name}_${appSpecification.name}`)"
-                />
-              </div>
-            </div>
+            <h5>
+              <b-icon
+                class="mr-1"
+                scale="1.2"
+                icon="search"
+              /> Logs Management
+            </h5>
           </div>
-        </div>
-        <div v-else>
-          <div>
-            <div>
-              <h6 class="mb-1 mt-1">
-                <kbd class="bg-primary">Last 100 lines of the log file</kbd>
-              </h6>
-              <b-form-textarea
-                v-if="callResponse.data && callResponse.data[0]"
-                plaintext
-                no-resize
-                rows="15"
-                :value="decodeAsciiResponse(callResponse.data[0].callData)"
-                class="mt-1 mb-1"
-                style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
-              />
-              <b-button
-                id="start-download-log"
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                variant="outline-primary"
-                size="md"
-                class="w-100 mb-2"
-              >
-                Download Debug File
-              </b-button>
-              <confirm-dialog
-                target="start-download-log"
-                confirm-button="Download Log"
-                @confirm="downloadApplicationLog(appSpecification.name)"
-              />
+          <b-form class="ml-2 mr-2">
+            <!-- Flex container for "Select a container" and "Filter logs" -->
+            <div class="flex-container">
+              <b-form-group label="Component">
+                <b-form-select
+                  v-model="selectedApp"
+                  class="input_s mb-1"
+                  :options="null"
+                  :disabled="!!isVisible || isComposeSingle"
+                  size="sm"
+                  @change="handleContainerChange"
+                >
+                  <b-form-select-option
+                    value="null"
+                    disabled
+                  >
+                    -- Please select component --
+                  </b-form-select-option>
+                  <b-form-select-option
+                    v-for="component in appSpecification?.compose"
+                    :key="component.name"
+                    :value="component.name"
+                  >
+                    {{ component.name }}
+                  </b-form-select-option>
+                </b-form-select>
+                <b-form-group label="Line Count">
+                  <b-form-input v-model.number="lineCount" type="number" size="sm" placeholder="Line Count" class="input" :disabled="fetchAllLogs" />
+                </b-form-group>
+
+                <b-form-group label="Logs Since">
+                  <div class="d-flex align-items-center">
+                    <b-form-input
+                      v-model="sinceTimestamp"
+                      size="sm"
+                      type="datetime-local"
+                      placeholder="Logs Since"
+                      class="input"
+                    />
+                    <b-icon v-if="sinceTimestamp" icon="x-square" class="ml-1 x" @click="clearDateFilter" />
+                  </div>
+                </b-form-group>
+              </b-form-group>
+
+              <b-form-group label="Filter">
+                <b-input-group size="sm" class="search_input">
+                  <b-input-group-prepend is-text>
+                    <b-icon icon="funnel-fill" />
+                  </b-input-group-prepend>
+                  <b-form-input
+                    v-model="filterKeyword"
+                    type="search"
+                    placeholder="Enter keywords.."
+                  />
+                </b-input-group>
+                <b-form-checkbox
+                  v-model="pollingEnabled"
+                  class="mt-2"
+                  switch
+                  @change="togglePolling"
+                >
+                  Auto-refresh
+                  <b-icon
+                    v-b-tooltip.hover.title="'Enable or disable automatic refreshing of logs every few seconds.'"
+                    icon="info-circle"
+                    class="icon-tooltip"
+                  />
+                </b-form-checkbox>
+
+                <b-form-checkbox v-model="fetchAllLogs" switch>
+                  Fetch All Logs
+                </b-form-checkbox>
+                <b-form-checkbox v-model="displayTimestamps" switch>
+                  Display Timestamps
+                </b-form-checkbox>
+                <b-form-checkbox
+                  v-model="autoScroll"
+                  class="mb-1"
+                  switch
+                >
+                  Auto-scroll
+                  <b-icon
+                    v-b-tooltip.hover.title="'Enable or disable automatic scrolling to the latest logs.'"
+                    icon="info-circle"
+                    class="icon-tooltip"
+                  />
+                </b-form-checkbox>
+              </b-form-group>
             </div>
+            <!-- Flex container for "Line Count" and "Since Timestamp" -->
+            <!-- Additional form groups for checkboxes -->
+          </b-form>
+          <div v-if="filteredLogs.length > 0" ref="logsContainer" class="code-container">
+            <button ref="copyButton" type="button" class="copy-button ml-2" :disabled="copied" @click="copyCode">
+              <b-icon :icon="copied ? 'check' : 'back'" />
+              {{ copied ? 'Copied!' : 'Copy' }}
+            </button>
+            <button
+              type="button"
+              class="download-button"
+              @click="downloadApplicationLog(selectedApp ? `${selectedApp}_${appSpecification.name}` : appSpecification.name)"
+            >
+              <b-icon icon="download" />
+              Download
+            </button>
+            <div v-for="(log, index) in filteredLogs" :key="index" v-html="formatLog(log)" />
           </div>
         </div>
       </b-tab>
@@ -5823,6 +5876,7 @@ import { Unicode11Addon } from 'xterm-addon-unicode11';
 import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
+import AnsiToHtml from 'ansi-to-html';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -5917,6 +5971,22 @@ export default {
   },
   data() {
     return {
+      logs: [],
+      containers: [],
+      selectedContainer: '',
+      filterKeyword: '',
+      refreshRate: 4000,
+      lineCount: 100,
+      sinceTimestamp: '',
+      displayTimestamps: false,
+      pollingInterval: null,
+      pollingEnabled: false,
+      autoScroll: true,
+      fetchAllLogs: false,
+      cancelTokenSource: null,
+      requestInProgress: false,
+      copied: false,
+      debounceTimeout: null,
       progressVisable: false,
       operationTitle: '',
       appInfoObject: [],
@@ -6353,6 +6423,13 @@ export default {
     };
   },
   computed: {
+    filteredLogs() {
+      const keyword = this.filterKeyword.toLowerCase();
+      return this.logs.filter((log) => log.toLowerCase().includes(keyword));
+    },
+    formattedLogs() {
+      return this.filteredLogs.map((log) => this.formatLog(log));
+    },
     mapLocations() {
       return this.instances.data.map((i) => i.ip);
     },
@@ -6700,6 +6777,32 @@ export default {
     },
   },
   watch: {
+    fetchAllLogs() {
+      this.restartPolling();
+    },
+    refreshRate() {
+      this.restartPolling();
+    },
+    lineCount() {
+      this.restartPolling();
+    },
+    sinceTimestamp() {
+      this.restartPolling();
+    },
+    selectedApp(newValue, oldValue) {
+      if (oldValue && oldValue !== newValue) {
+        this.filterKeyword = '';
+        this.sinceTimestamp = '';
+        this.stopPolling();
+        this.clearLogs();
+      }
+      if (newValue) {
+        this.handleContainerChange(); // Debounced method call
+        if (this.pollingEnabled) {
+          this.startPolling();
+        }
+      }
+    },
     isComposeSingle(value) {
       if (value) {
         if (this.appSpecification.version >= 4) {
@@ -6802,9 +6905,168 @@ export default {
     this.getDaemonBlockCount();
   },
   beforeDestroy() {
+    this.stopPolling();
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    getTextContentWithLineBreaks(element) {
+    // Convert HTML content to plain text with proper line breaks
+      return Array.from(element.childNodes).map((node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return node.textContent;
+        // eslint-disable-next-line no-else-return
+        } else if (node.nodeType === Node.ELEMENT_NODE && node.nodeName === 'DIV') {
+        // Handle line breaks between <div> elements
+          return `${node.textContent}\n`;
+        }
+        return '';
+      }).join('');
+    },
+    async copyCode() {
+      try {
+        const codeContainer = this.$refs.logsContainer;
+        const textToCopy = this.getTextContentWithLineBreaks(codeContainer);
+
+        if (navigator.clipboard) {
+        // Use the Clipboard API for HTTPS
+          await navigator.clipboard.writeText(textToCopy);
+        } else {
+        // Fallback for HTTP
+          const textarea = document.createElement('textarea');
+          textarea.value = textToCopy;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+        this.copied = true;
+
+        // Revert button text and enable it after a delay
+        setTimeout(() => {
+          this.copied = false;
+        }, 2000); // Delay in milliseconds
+      } catch (error) {
+        console.error('Failed to copy code:', error);
+      }
+    },
+    debounce(func, delay) {
+      return (...args) => {
+        if (this.debounceTimeout) {
+          clearTimeout(this.debounceTimeout);
+        }
+        this.debounceTimeout = setTimeout(() => func(...args), delay);
+      };
+    },
+    async fetchLogsForSelectedContainer() {
+      console.log('fetchLogsForSelectedContainer in progress...');
+      if (!this.selectedApp) {
+        console.error('No container selected or containers not fetched.');
+        return;
+      }
+      if (this.requestInProgress) {
+        console.log('Request in progress, skipping this call.');
+        return;
+      }
+      const appnama = this.selectedApp ? `${this.selectedApp}_${this.appSpecification.name}` : this.appSpecification.name;
+      this.requestInProgress = true;
+      try {
+        const containerName = this.selectedApp;
+        const lines = this.fetchAllLogs ? 'all' : this.lineCount;
+        this.cancelTokenSource = axios.CancelToken.source();
+        const zelidauth = localStorage.getItem('zelidauth');
+        const axiosConfig = {
+          headers: {
+            zelidauth,
+          },
+          cancelToken: this.cancelTokenSource.token,
+        };
+        const response = await this.executeLocalCommand(`/apps/applogpolling/${appnama}/${lines}/${this.sinceTimestamp}`, null, axiosConfig);
+        if (this.selectedApp === containerName) {
+          this.logs = response.data.logs;
+          if (this.logs.length > 0) {
+            this.$nextTick(() => {
+              if (this.autoScroll) {
+                this.scrollToBottom();
+              }
+            });
+          }
+        } else {
+          console.error('Selected container has changed. Logs discarded.');
+        }
+      } catch (error) {
+        if (axios.isCancel(error)) {
+          console.log('Request canceled:', error.message);
+        } else {
+          console.error('Error fetching logs:', error.message);
+        }
+      } finally {
+        console.log('fetchLogsForSelectedContainer completed...');
+        this.requestInProgress = false;
+      }
+    },
+    startPolling() {
+      if (this.pollingInterval) {
+        clearInterval(this.pollingInterval);
+      }
+
+      this.pollingInterval = setInterval(async () => {
+        await this.fetchLogsForSelectedContainer();
+      }, this.refreshRate);
+    },
+    stopPolling() {
+      if (this.pollingInterval) {
+        clearInterval(this.pollingInterval);
+        this.pollingInterval = null;
+      }
+      if (this.cancelTokenSource) {
+        this.cancelTokenSource.cancel('Polling stopped, request canceled.');
+        this.cancelTokenSource = null;
+      }
+      this.requestInProgress = false;
+    },
+    restartPolling() {
+      this.stopPolling();
+      this.fetchLogsForSelectedContainer();
+      if (this.pollingEnabled) {
+        this.startPolling();
+      }
+    },
+    togglePolling() {
+      if (this.pollingEnabled) {
+        this.startPolling();
+      } else {
+        this.stopPolling();
+      }
+    },
+    formatLog(log) {
+      const ansiToHtml = new AnsiToHtml();
+      if (this.displayTimestamps) {
+        const [timestamp, ...rest] = log.split(' ');
+        const formattedLog = rest.join(' ');
+        return `<kbd class="alert-success" style="border-radius: 10px; padding: 1px 4px; width: 179px; text-align: center; font-family: monospace;">${timestamp}</kbd> - ${ansiToHtml.toHtml(formattedLog)}`;
+      // eslint-disable-next-line no-else-return
+      } else {
+        const timestampRegex = /^[^\s]+\s*/;
+        return ansiToHtml.toHtml(log.replace(timestampRegex, ''));
+      }
+    },
+    scrollToBottom() {
+      const container = this.$refs.logsContainer;
+      container.scrollTop = container.scrollHeight;
+    },
+    clearLogs() {
+      this.logs = [];
+    },
+    clearDateFilter() {
+      this.sinceTimestamp = '';
+      if (this.pollingEnabled) {
+        this.fetchLogsForSelectedContainer();
+      }
+    },
+    handleContainerChange() {
+      const debouncedFetchLogs = this.debounce(this.fetchLogsForSelectedContainer, 300);
+      debouncedFetchLogs();
+    },
     async refreshInfo() {
       this.$refs.BackendRefresh.blur();
       await this.getInstancesForDropDown();
@@ -8332,6 +8594,10 @@ export default {
       if (index !== 11) {
         this.disconnectTerminal();
       }
+      if (index !== 7) {
+        this.stopPolling();
+        this.pollingEnabled = false;
+      }
       if (!this.selectedIp) {
         await this.getInstancesForDropDown();
         await this.getInstalledApplicationSpecifics();
@@ -8962,7 +9228,7 @@ export default {
       const self = this;
       this.downloaded = '';
       this.total = '';
-      this.abortToken = DaemonService.cancelToken();
+      // this.abortToken = DaemonService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -8981,15 +9247,35 @@ export default {
         },
         // cancelToken: self.abortToken.token,
       };
-      const response = await DaemonService.justAPI().get(`/apps/applog/${appName}`, axiosConfig);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'app.log');
-      document.body.appendChild(link);
-      link.click();
-    },
+      try {
+        const response = await this.executeLocalCommand(`/apps/applogpolling/${appName}/all`, null, axiosConfig);
+        const text = await response.data.text();
+        const responseData = JSON.parse(text);
+        const logText = responseData.logs;
+        if (!Array.isArray(logText)) {
+          throw new Error('Log data is missing or is not in the expected format.');
+        }
 
+        if (logText.length === 0) {
+          throw new Error('No logs available to download.');
+        }
+
+        const logSplit = logText.join('\n');
+        const logBlob = new Blob([logSplit], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(logBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', 'app.log');
+        document.body.appendChild(link);
+        link.click();
+
+        // Clean up the URL object
+        window.URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error('Error occurred while handling logs:', error);
+        this.showToast('danger', error);
+      }
+    },
     getAppIdentifier(appName = this.appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
       if (appName && appName.startsWith('zel')) {
@@ -10979,5 +11265,121 @@ td .ellipsis-wrapper {
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
+}
+
+.logs {
+  margin: 5px;
+  max-height: 392px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  padding: 10px;
+  background-color: #000;
+  color: #fff;
+  font-size: 12px;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+.input {
+  min-width: 150px;
+  width: 200px;
+}
+
+.input_s {
+  min-width: 300px;
+  width: 350px;
+}
+
+.clear-button {
+  height: 100%;
+}
+
+.code-container {
+  margin: 5px;
+  max-height: 398px;
+  position: relative;
+  background-color: #f6f8fa;
+  border-radius: 6px;
+  border: 1px solid #e1e4e8;
+  overflow-y: scroll;
+  padding: 16px;
+  background-color: #000;
+  color: #fff;
+  font-size: 12px;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+
+}
+
+.copy-button {
+  position: sticky;
+  top: 2px;
+  float: right;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background-color: #0366d6;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s ease;
+  z-index: 1000; /* Ensures the button is above the logs */
+}
+
+.copy-button:hover {
+  background-color: #024b8e;
+}
+
+.copy-button:disabled {
+  background-color: #6c757d; /* Green background for the copied state */
+  color: white; /* Ensure text remains readable */
+}
+
+.download-button {
+  position: sticky;
+  float: right;
+  top: 2px;
+  right: 8px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background-color: #28a745; /* Green color */
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s ease;
+  margin-left: 15px; /* Space between buttons */
+}
+
+.search_input {
+  min-width: 600px;
+}
+
+.flex-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: left;
+  flex-wrap: wrap;
+}
+
+.download-button:hover {
+  background-color: #218838; /* Darker green on hover */
+}
+
+.icon-tooltip {
+  cursor: pointer;
+  font-size: 15px; /* Adjust icon size */
+  margin-right: 10px; /* Adjust spacing */
+  color: #6c757d;
+}
+
+.x {
+  cursor: pointer; /* Adds a pointer cursor for the icon */
+  font-size: 1.5rem; /* Adjust the size of the icon if necessary */
+  vertical-align: middle; /* Aligns the icon vertically in the middle of the input */         /* Full viewport height to demonstrate vertical centering */
+  color: #ff6666; /* Light red color */
+  transition: color 0.3s ease; /* Smooth transition on hover */
+}
+
+.x:hover {
+  color: #cc0000; /* Dark red color */
 }
 </style>
