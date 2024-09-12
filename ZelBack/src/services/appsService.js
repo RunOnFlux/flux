@@ -961,7 +961,6 @@ async function appLogPolling(req, res) {
             logs.push(logLine);
           }
         });
-        setTimeout(() => resolve(), 1500);
       });
       res.json({
         logs,
