@@ -181,7 +181,7 @@ module.exports = {
     portMaxNew: 65535,
     bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444, 123, 53],
     upnpBannedPorts: ['81-442', 2189],
-    enterprisePorts: ['0-1023', 8080, 8081, 8443, 25565, 6667],
+    enterprisePorts: ['0-1023', 8080, 8081, 8443, 6667],
     maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
     maximumInstances: 100,
