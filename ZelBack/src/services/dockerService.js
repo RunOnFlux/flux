@@ -407,6 +407,102 @@ async function dockerContainerLogs(idOrName, lines) {
   return logs;
 }
 
+async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, callback) {
+  try {
+    console.log('Starting dockerContainerLogsPolling');
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+    console.log(`Retrieved container: ${idOrName}`);
+
+    const logStream = new stream.PassThrough();
+    let logBuffer = '';
+
+    logStream.on('data', (chunk) => {
+      console.log('Received chunk of data');
+      logBuffer += chunk.toString('utf8');
+      let lines = logBuffer.split('\n');
+      logBuffer = lines.pop();
+
+      for (let line of lines) {
+        if (line.trim()) {
+          if (callback) {
+            callback(null, line);
+          }
+        }
+      }
+    });
+
+    logStream.on('error', (error) => {
+      console.error('Log stream encountered an error:', error);
+      if (callback) {
+        callback(error);
+      }
+    });
+
+    logStream.on('end', () => {
+      console.log('logStream ended');
+      if (callback) {
+        callback(null, 'Stream ended'); // Notify end of logs
+      }
+    });
+
+    let logOptions = {
+      follow: true,
+      stdout: true,
+      stderr: true,
+      tail: lineCount,
+      timestamps: true,
+    };
+
+    if (sinceTimestamp) {
+      logOptions.since = new Date(sinceTimestamp).getTime() / 1000;
+    }
+    await new Promise((resolve, reject) => {
+      dockerContainer.logs(logOptions, (err, mystream) => {
+        if (err) {
+          console.error('Error fetching logs:', err);
+          if (callback) {
+            callback(err);
+          }
+          return reject(err);
+        }
+        try {
+          dockerContainer.modem.demuxStream(mystream, logStream, logStream);
+          setTimeout(() => {
+            logStream.end();
+          }, 1500); 
+          mystream.on('end', () => {
+            console.log('mystream ended');
+            logStream.end();
+            resolve();
+          });
+
+          mystream.on('error', (error) => {
+            console.error('Stream error:', error);
+            logStream.end();
+            if (callback) {
+              callback(error);
+            }
+            reject(error);
+          });
+
+        } catch (error) {
+          console.error('Error during stream processing:', error);
+          if (callback) {
+            callback(new Error('An error occurred while processing the log stream'));
+          }
+          reject(error);
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Error in dockerContainerLogsPolling:', error);
+    if (callback) {
+      callback(error);
+    }
+    throw error;
+  }
+}
+
 async function obtainPayloadFromStorage(url, appName) {
   try {
     // do a signed request in headers
@@ -1049,6 +1145,7 @@ module.exports = {
   dockerContainerExec,
   dockerContainerInspect,
   dockerContainerLogs,
+  dockerContainerLogsPolling,
   dockerContainerLogsStream,
   dockerContainerStats,
   dockerContainerStatsStream,
