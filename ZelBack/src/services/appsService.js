@@ -10246,10 +10246,12 @@ async function getAppFiatAndFluxPrice(req, res) {
       let actualPriceToPay = 0;
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
       actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      log.info(actualPriceToPay);
       const expireIn = appSpecFormatted.expire || defaultExpire;
       // app prices are ceiled to highest 0.01
       const multiplier = expireIn / defaultExpire;
       actualPriceToPay *= multiplier;
+      log.info(actualPriceToPay);
       actualPriceToPay = Number(actualPriceToPay).toFixed(2);
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo) {
