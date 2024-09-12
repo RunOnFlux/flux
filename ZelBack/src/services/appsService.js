@@ -10278,6 +10278,8 @@ async function getAppFiatAndFluxPrice(req, res) {
 
       if (appSpecification.priceUSD) {
         if (appSpecification.priceUSD < actualPriceToPay) {
+          log.info(appSpecification.priceUSD);
+          log.info(actualPriceToPay);
           throw new Error('USD price is not valid');
         }
         actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
