@@ -7057,7 +7057,9 @@ export default {
     },
     scrollToBottom() {
       const container = this.$refs.logsContainer;
-      container.scrollTop = container.scrollHeight;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
     },
     clearLogs() {
       this.logs = [];
