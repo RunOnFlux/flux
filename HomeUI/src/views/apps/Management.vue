@@ -5983,7 +5983,6 @@ export default {
       pollingEnabled: false,
       autoScroll: true,
       fetchAllLogs: false,
-      cancelTokenSource: null,
       requestInProgress: false,
       copied: false,
       debounceTimeout: null,
@@ -6972,15 +6971,7 @@ export default {
       try {
         const containerName = this.selectedApp;
         const lines = this.fetchAllLogs ? 'all' : this.lineCount;
-        this.cancelTokenSource = axios.CancelToken.source();
-        const zelidauth = localStorage.getItem('zelidauth');
-        const axiosConfig = {
-          headers: {
-            zelidauth,
-          },
-          cancelToken: this.cancelTokenSource.token,
-        };
-        const response = await this.executeLocalCommand(`/apps/applogpolling/${appnama}/${lines}/${this.sinceTimestamp}`, null, axiosConfig);
+        const response = await this.executeLocalCommand(`/apps/applogpolling/${appnama}/${lines}/${this.sinceTimestamp}`);
         if (this.selectedApp === containerName) {
           this.logs = response.data.logs;
           if (this.logs.length > 0) {
@@ -6994,15 +6985,11 @@ export default {
           console.error('Selected container has changed. Logs discarded.');
         }
       } catch (error) {
-        if (axios.isCancel(error)) {
-          console.log('Request canceled:', error.message);
-        } else {
-          console.error('Error fetching logs:', error.message);
-          this.clearLogs();
-          if (this.pollingEnabled === true) {
-            this.pollingEnabled = false;
-            this.stopPolling();
-          }
+        console.error('Error fetching logs:', error.message);
+        this.clearLogs();
+        if (this.pollingEnabled === true) {
+          this.pollingEnabled = false;
+          this.stopPolling();
         }
       } finally {
         console.log('fetchLogsForSelectedContainer completed...');
@@ -7023,11 +7010,6 @@ export default {
         clearInterval(this.pollingInterval);
         this.pollingInterval = null;
       }
-      if (this.cancelTokenSource) {
-        this.cancelTokenSource.cancel('Polling stopped, request canceled.');
-        this.cancelTokenSource = null;
-      }
-      this.requestInProgress = false;
     },
     restartPolling() {
       this.stopPolling();
@@ -7066,9 +7048,6 @@ export default {
     },
     clearDateFilter() {
       this.sinceTimestamp = '';
-      if (this.pollingEnabled) {
-        this.fetchLogsForSelectedContainer();
-      }
     },
     handleContainerChange() {
       const debouncedFetchLogs = this.debounce(this.fetchLogsForSelectedContainer, 300);
