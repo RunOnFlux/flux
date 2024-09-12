@@ -14,6 +14,7 @@ const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonSer
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+const appsServiceForStub = require('../../ZelBack/src/services/appsService');
 const log = require('../../ZelBack/src/lib/log');
 
 chai.use(chaiAsPromised);
@@ -5170,8 +5171,8 @@ describe('appsService tests', () => {
     let logSpy;
 
     beforeEach(async () => {
-      installedAppsStub = sinon.stub(appsService, 'installedApps');
-      runningAppsStub = sinon.stub(appsService, 'listRunningApps');
+      installedAppsStub = sinon.stub(appsServiceForStub, 'installedApps');
+      runningAppsStub = sinon.stub(appsServiceForStub, 'listRunningApps');
       nodeConfirmedStub = sinon.stub(generalService, 'isNodeStatusConfirmed');
       logSpy = sinon.spy(log, 'error');
     });
@@ -5216,7 +5217,7 @@ describe('appsService tests', () => {
         status: 'success',
         data: [{ name: 'test' }],
       });
-      const appRemovedStub = sinon.stub(appsService, 'removeAppLocally');
+      const appRemovedStub = sinon.stub(appsServiceForStub, 'removeAppLocally');
       await appsService.nodeAndAppsStatusCheck();
       sinon.assert.colledOnce(appRemovedStub);
     });
