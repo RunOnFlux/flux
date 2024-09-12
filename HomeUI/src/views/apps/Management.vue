@@ -6998,6 +6998,11 @@ export default {
           console.log('Request canceled:', error.message);
         } else {
           console.error('Error fetching logs:', error.message);
+          this.clearLogs();
+          if (this.pollingEnabled === true) {
+            this.pollingEnabled = false;
+            this.stopPolling();
+          }
         }
       } finally {
         console.log('fetchLogsForSelectedContainer completed...');
@@ -8634,7 +8639,8 @@ export default {
           this.getApplicationProcesses();
           break;
         case 7:
-          this.getApplicationLogs();
+          this.logs = [];
+          this.fetchLogsForSelectedContainer();
           break;
         case 10:
           this.applyFilter();
@@ -9549,40 +9555,6 @@ export default {
       this.commandExecutingProcesses = false;
       this.callResponseProcesses.status = 'success';
       this.callResponseProcesses.data = callData;
-    },
-    async getApplicationLogs() {
-      const callData = [];
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          const response = await this.executeLocalCommand(`/apps/applog/${component.name}_${this.appSpecification.name}/100`);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          } else {
-            const appComponentInspect = {
-              name: component.name,
-              callData: response.data.data,
-            };
-            callData.push(appComponentInspect);
-          }
-        }
-      } else {
-        const response = await this.executeLocalCommand(`/apps/applog/${this.appName}/100`);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        } else {
-          const appComponentInspect = {
-            name: this.appSpecification.name,
-            callData: response.data.data,
-          };
-          callData.push(appComponentInspect);
-        }
-        console.log(response);
-      }
-      this.callResponse.status = 'success';
-      this.callResponse.data = callData;
     },
     async getInstancesForDropDown() {
       const response = await AppsService.getAppLocation(this.appName);
