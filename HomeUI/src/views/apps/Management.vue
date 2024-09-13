@@ -11267,16 +11267,16 @@ td .ellipsis-wrapper {
   margin: 5px;
   height: 330px;
   position: relative;
-  background-color: #f6f8fa;
-  border-radius: 6px;
-  border: 1px solid #e1e4e8;
-  overflow-y: scroll;
-  padding: 16px;
   background-color: #000;
   color: #fff;
+  border-radius: 6px;
+  border: 1px solid #e1e4e8;
+  overflow-y: auto;
+  padding: 16px;
   font-size: 12px;
   font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
-
+  box-sizing: border-box;
+  clip-path: inset(0 round 6px);
 }
 
 .log-copy-button {
