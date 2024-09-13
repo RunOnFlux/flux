@@ -1,4 +1,3 @@
-<!-- eslint-disable vue/no-v-html -->
 <!-- eslint-disable no-restricted-syntax -->
 <!-- eslint-disable no-restricted-syntax -->
 <!-- eslint-disable guard-for-in -->
@@ -963,7 +962,7 @@
                   </b-form-select-option>
                 </b-form-select>
                 <b-form-group label="Line Count">
-                  <b-form-input v-model.number="lineCount" type="number" size="sm" placeholder="Line Count" class="input" :disabled="fetchAllLogs" />
+                  <b-form-input v-model="lineCount" type="number" size="sm" placeholder="Line Count" class="input" :disabled="fetchAllLogs" />
                 </b-form-group>
 
                 <b-form-group label="Logs Since">
@@ -1041,7 +1040,7 @@
               <b-icon icon="download" />
               Download
             </button>
-            <div v-for="(log, index) in filteredLogs" :key="index" v-html="formatLog(log)" />
+            <div v-for="(log, index) in filteredLogs" :key="index" v-sane-html="formatLog(log)" />
           </div>
         </div>
       </b-tab>
