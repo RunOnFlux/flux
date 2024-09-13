@@ -936,7 +936,6 @@
             </h5>
           </div>
           <b-form class="ml-2 mr-2">
-            <!-- Flex container for "Select a container" and "Filter logs" -->
             <div class="flex-container">
               <b-form-group>
                 <b-form-group v-if="!appSpecification?.compose" label="Component">
@@ -1034,20 +1033,20 @@
                 </b-form-checkbox>
               </b-form-group>
             </div>
-            <!-- Flex container for "Line Count" and "Since Timestamp" -->
-            <!-- Additional form groups for checkboxes -->
           </b-form>
-          <div v-if="filteredLogs.length > 0" ref="logsContainer" class="code-container">
-            <button ref="copyButton" type="button" class="log-copy-button ml-2" :disabled="copied" @click="copyCode">
+          <div ref="logsContainer" class="code-container">
+            <button v-if="filteredLogs.length > 0" ref="copyButton" type="button" class="log-copy-button ml-2" :disabled="copied" @click="copyCode">
               <b-icon :icon="copied ? 'check' : 'back'" />
               {{ copied ? 'Copied!' : 'Copy' }}
             </button>
             <button
+              v-if="filteredLogs.length > 0"
+              :disabled="downloadingLog"
               type="button"
               class="download-button"
               @click="downloadApplicationLog(selectedApp ? `${selectedApp}_${appSpecification.name}` : appSpecification.name)"
             >
-              <b-icon icon="download" />
+              <b-icon :icon="downloadingLog ? 'arrow-repeat' : 'download'" :class="{ 'spin-icon-l': downloadingLog }" />
               Download
             </button>
             <div v-for="(log, index) in filteredLogs" :key="index" v-sane-html="formatLog(log)" />
@@ -5981,6 +5980,7 @@ export default {
   data() {
     return {
       logs: [],
+      downloadingLog: false,
       containers: [],
       selectedContainer: '',
       filterKeyword: '',
@@ -9245,6 +9245,7 @@ export default {
         // cancelToken: self.abortToken.token,
       };
       try {
+        this.downloadingLog = true;
         const response = await this.executeLocalCommand(`/apps/applogpolling/${appName}/all`, null, axiosConfig);
         const text = await response.data.text();
         const responseData = JSON.parse(text);
@@ -9265,10 +9266,11 @@ export default {
         link.setAttribute('download', 'app.log');
         document.body.appendChild(link);
         link.click();
-
+        this.downloadingLog = false;
         // Clean up the URL object
         window.URL.revokeObjectURL(url);
       } catch (error) {
+        this.downloadingLog = false;
         console.error('Error occurred while handling logs:', error);
         this.showToast('danger', error);
       }
@@ -11078,6 +11080,11 @@ export default {
 .spin-icon {
   animation: spin 2s linear infinite;
 }
+.spin-icon-l {
+  animation: spin 2s linear infinite;
+  width: 12px !important;
+  height: 12px !important;
+}
 @keyframes spin {
   0% {
     transform: rotate(0deg);
@@ -11284,7 +11291,7 @@ td .ellipsis-wrapper {
   cursor: pointer;
   font-size: 12px;
   transition: background-color 0.2s ease;
-  z-index: 1000; /* Ensures the button is above the logs */
+  z-index: 1000;
 }
 
 .log-copy-button:hover {
@@ -11292,8 +11299,13 @@ td .ellipsis-wrapper {
 }
 
 .log-copy-button:disabled {
-  background-color: #6c757d; /* Green background for the copied state */
-  color: white; /* Ensure text remains readable */
+  background-color: #6c757d;
+  color: white;
+}
+
+.download-button:disabled {
+  background-color: #6c757d;
+  color: white;
 }
 
 .download-button {
@@ -11304,12 +11316,12 @@ td .ellipsis-wrapper {
   padding: 4px 8px;
   border: none;
   border-radius: 4px;
-  background-color: #28a745; /* Green color */
+  background-color: #28a745;
   color: white;
   cursor: pointer;
   font-size: 12px;
   transition: background-color 0.2s ease;
-  margin-left: 15px; /* Space between buttons */
+  margin-left: 15px;
 }
 
 .search_input {
@@ -11324,25 +11336,29 @@ td .ellipsis-wrapper {
 }
 
 .download-button:hover {
-  background-color: #218838; /* Darker green on hover */
+  background-color: #218838;
+}
+
+.download-button:disabled:hover {
+  background-color: #6c757d;
 }
 
 .icon-tooltip {
   cursor: pointer;
-  font-size: 15px; /* Adjust icon size */
-  margin-right: 10px; /* Adjust spacing */
+  font-size: 15px;
+  margin-right: 10px;
   color: #6c757d;
 }
 
 .x {
-  cursor: pointer; /* Adds a pointer cursor for the icon */
-  font-size: 1.5rem; /* Adjust the size of the icon if necessary */
-  vertical-align: middle; /* Aligns the icon vertically in the middle of the input */         /* Full viewport height to demonstrate vertical centering */
-  color: #ff6666; /* Light red color */
-  transition: color 0.3s ease; /* Smooth transition on hover */
+  cursor: pointer;
+  font-size: 1.5rem;
+  vertical-align: middle;
+  color: #ff6666;
+  transition: color 0.3s ease;
 }
 
 .x:hover {
-  color: #cc0000; /* Dark red color */
+  color: #cc0000;
 }
 </style>
