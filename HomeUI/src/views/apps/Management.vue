@@ -938,29 +938,39 @@
           <b-form class="ml-2 mr-2">
             <!-- Flex container for "Select a container" and "Filter logs" -->
             <div class="flex-container">
-              <b-form-group label="Component">
-                <b-form-select
-                  v-model="selectedApp"
-                  class="input_s mb-1"
-                  :options="null"
-                  :disabled="!!isVisible || isComposeSingle"
-                  size="sm"
-                  @change="handleContainerChange"
-                >
-                  <b-form-select-option
-                    value="null"
+              <b-form-group>
+                <b-form-group v-if="!appSpecification?.compose" label="Component">
+                  <b-form-input
+                    size="sm"
+                    :placeholder="appSpecification.name"
                     disabled
+                    class="input_s"
+                  />
+                </b-form-group>
+                <b-form-group v-if="appSpecification?.compose" label="Component">
+                  <b-form-select
+                    v-model="selectedApp"
+                    class="input_s"
+                    :options="null"
+                    :disabled="isComposeSingle"
+                    size="sm"
+                    @change="handleContainerChange"
                   >
-                    -- Please select component --
-                  </b-form-select-option>
-                  <b-form-select-option
-                    v-for="component in appSpecification?.compose"
-                    :key="component.name"
-                    :value="component.name"
-                  >
-                    {{ component.name }}
-                  </b-form-select-option>
-                </b-form-select>
+                    <b-form-select-option
+                      value="null"
+                      disabled
+                    >
+                      -- Please select component --
+                    </b-form-select-option>
+                    <b-form-select-option
+                      v-for="component in appSpecification?.compose"
+                      :key="component.name"
+                      :value="component.name"
+                    >
+                      {{ component.name }}
+                    </b-form-select-option>
+                  </b-form-select>
+                </b-form-group>
                 <b-form-group label="Line Count">
                   <b-form-input v-model="lineCount" type="number" size="sm" placeholder="Line Count" class="input" :disabled="fetchAllLogs" />
                 </b-form-group>
@@ -6954,10 +6964,14 @@ export default {
     },
     async fetchLogsForSelectedContainer() {
       console.log('fetchLogsForSelectedContainer in progress...');
-      if (!this.selectedApp) {
-        console.error('No container selected or containers not fetched.');
-        return;
+
+      if (this.appSpecification.version >= 4) {
+        if (!this.selectedApp) {
+          console.error('No container selected');
+          return;
+        }
       }
+
       if (this.requestInProgress) {
         console.log('Request in progress, skipping this call.');
         return;
@@ -11244,7 +11258,7 @@ td .ellipsis-wrapper {
 
 .code-container {
   margin: 5px;
-  max-height: 398px;
+  height: 330px;
   position: relative;
   background-color: #f6f8fa;
   border-radius: 6px;
