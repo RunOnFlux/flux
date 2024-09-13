@@ -2878,7 +2878,7 @@
             <div
               v-show="isVisible"
               ref="terminalElement"
-              style="text-align: left;"
+              style="text-align: left; border-radius: 6px; border: 1px solid #e1e4e8; overflow: hidden;"
             />
           </div>
         </div>
