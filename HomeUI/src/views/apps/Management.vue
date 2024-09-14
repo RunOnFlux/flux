@@ -971,9 +971,8 @@
                   </b-form-select>
                 </b-form-group>
                 <b-form-group label="Line Count">
-                  <b-form-input v-model="lineCount" type="number" size="sm" placeholder="Line Count" class="input" :disabled="fetchAllLogs" />
+                  <b-form-input v-model="lineCount" type="number" size="sm" class="input" :disabled="fetchAllLogs" />
                 </b-form-group>
-
                 <b-form-group label="Logs Since">
                   <div class="d-flex align-items-center">
                     <b-form-input
@@ -1046,11 +1045,23 @@
             </div>
           </b-form>
           <div ref="logsContainer" class="code-container" :class="{ 'line-by-line-mode': isLineByLineMode }">
-            <button v-if="filteredLogs.length > 0" ref="copyButton" type="button" class="log-copy-button ml-2" :disabled="copied" @click="copyCode">
+            <button
+              v-if="filteredLogs.length > 0"
+              ref="copyButton"
+              type="button"
+              class="log-copy-button ml-2"
+              :disabled="copied"
+              @click="copyCode"
+            >
               <b-icon :icon="copied ? 'check' : 'back'" />
               {{ copied ? 'Copied!' : 'Copy' }}
             </button>
-            <button v-if="selectedLogIndices.length > 0" type="button" class="log-copy-button ml-2" @click="unselectText">
+            <button
+              v-if="selectedLog.length > 0"
+              type="button"
+              class="log-copy-button ml-2"
+              @click="unselectText"
+            >
               <b-icon icon="exclude" />
               Unselect
             </button>
@@ -1064,14 +1075,19 @@
               <b-icon :icon="downloadingLog ? 'arrow-repeat' : 'download'" :class="{ 'spin-icon-l': downloadingLog }" />
               Download
             </button>
-            <div
-              v-for="(log, index) in filteredLogs"
-              :key="index"
-              v-sane-html="formatLog(log)"
-              class="log-entry"
-              :class="{ selected: selectedLogIndices.includes(index) }"
-              @click="isLineByLineMode && toggleLogSelection(index)"
-            />
+            <div v-if="filteredLogs.length > 0">
+              <div
+                v-for="(log) in filteredLogs"
+                :key="extractTimestamp(log)"
+                v-sane-html="formatLog(log)"
+                class="log-entry"
+                :class="{ selected: selectedLog.includes(extractTimestamp(log)) }"
+                @click="isLineByLineMode && toggleLogSelection(log)"
+              />
+            </div>
+            <div v-else-if="filterKeyword.trim() !== ''" class="no-matches">
+              No log line matching the '{{ filterKeyword }}' filter.
+            </div>
           </div>
         </div>
       </b-tab>
@@ -6003,7 +6019,7 @@ export default {
     return {
       logs: [],
       isLineByLineMode: false,
-      selectedLogIndices: [],
+      selectedLog: [],
       downloadingLog: false,
       containers: [],
       selectedContainer: '',
@@ -6809,22 +6825,32 @@ export default {
     },
   },
   watch: {
+    filterKeyword() {
+      this.selectedLog = [];
+      if (this.logs?.length > 0) {
+        this.$nextTick(() => {
+          this.scrollToBottom();
+        });
+      }
+    },
     isLineByLineMode() {
       if (!this.isLineByLineMode) {
-        this.selectedLogIndices = [];
+        this.selectedLog = [];
+      }
+      if (this.logs?.length > 0) {
+        this.$nextTick(() => {
+          this.scrollToBottom();
+        });
       }
     },
     fetchAllLogs() {
       this.restartPolling();
-      this.selectedLogIndices = [];
     },
     lineCount() {
-      this.restartPolling();
-      this.selectedLogIndices = [];
+      this.debounce(() => this.restartPolling(), 1000)();
     },
     sinceTimestamp() {
       this.restartPolling();
-      this.selectedLogIndices = [];
     },
     selectedApp(newValue, oldValue) {
       if (oldValue && oldValue !== newValue) {
@@ -6834,7 +6860,7 @@ export default {
         this.clearLogs();
       }
       if (newValue) {
-        this.handleContainerChange(); // Debounced method call
+        this.handleContainerChange();
         if (this.pollingEnabled) {
           this.startPolling();
         }
@@ -6946,17 +6972,28 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
-    toggleLogSelection(index) {
-      // Check if the line is already selected
-      const selectedIndex = this.selectedLogIndices.indexOf(index);
-      if (selectedIndex === -1) {
-        // Add the line if it's not selected
-        this.selectedLogIndices.push(index);
+    extractTimestamp(log) {
+      return log.split(' ')[0];
+    },
+    toggleLogSelection(log) {
+      const logTimestamp = this.extractTimestamp(log);
+      if (this.selectedLog.includes(logTimestamp)) {
+        this.selectedLog = this.selectedLog.filter((ts) => ts !== logTimestamp);
       } else {
-        // Remove the line if it's already selected
-        this.selectedLogIndices.splice(selectedIndex, 1);
+        this.selectedLog.push(logTimestamp);
       }
     },
+    // toggleLogSelection(index) {
+    //   // Check if the line is already selected
+    //   const selectedIndex = this.selectedLogIndices.indexOf(index);
+    //   if (selectedIndex === -1) {
+    //     // Add the line if it's not selected
+    //     this.selectedLogIndices.push(index);
+    //   } else {
+    //     // Remove the line if it's already selected
+    //     this.selectedLogIndices.splice(selectedIndex, 1);
+    //   }
+    // },
     getTextContentWithLineBreaks(element) {
     // Convert HTML content to plain text with proper line breaks
       return Array.from(element.childNodes).map((node) => {
@@ -6971,16 +7008,18 @@ export default {
       }).join('');
     },
     unselectText() {
-      this.selectedLogIndices = [];
+      this.selectedLog = [];
     },
     async copyCode() {
       try {
         let textToCopy = '';
 
         // If there are selected lines, copy only those
-        if (this.isLineByLineMode && this.selectedLogIndices.length > 0) {
-          const selectedLogs = this.selectedLogIndices.map((index) => this.filteredLogs[index]);
-          textToCopy = selectedLogs.join('\n');
+        if (this.isLineByLineMode && this.selectedLog.length > 0) {
+          textToCopy = this.filteredLogs
+            .filter((log) => this.selectedLog.includes(this.extractTimestamp(log)))
+            .map((log) => log)
+            .join('\n');
         } else {
           // Otherwise, copy the entire container content
           const codeContainer = this.$refs.logsContainer;
@@ -7036,7 +7075,7 @@ export default {
       this.requestInProgress = true;
       try {
         const containerName = this.selectedApp;
-        const lines = this.fetchAllLogs ? 'all' : this.lineCount;
+        const lines = this.fetchAllLogs ? 'all' : this.lineCount || 100;
         const response = await this.executeLocalCommand(`/apps/applogpolling/${appnama}/${lines}/${this.sinceTimestamp}`);
         if (this.selectedApp === containerName) {
           this.logs = response.data?.logs;
@@ -8687,7 +8726,7 @@ export default {
           break;
         case 7:
           this.logs = [];
-          this.selectedLogIndices = [];
+          this.selectedLog = [];
           this.fetchLogsForSelectedContainer();
           break;
         case 10:
@@ -11345,7 +11384,6 @@ td .ellipsis-wrapper {
 .line-by-line-mode .log-entry {
   cursor: pointer;
   user-select: none;
-  padding: 3px;
 }
 
 .line-by-line-mode .log-entry:hover {
@@ -11354,7 +11392,11 @@ td .ellipsis-wrapper {
 
 .line-by-line-mode .log-entry.selected {
   background-color: rgba(255, 255, 255, 0.3);
-  border-left: 3px solid #007bff;
+  border-left: 5px solid #007bff;
+}
+
+.line-by-line-mode .log-entry.selected:hover {
+  background-color: rgba(255, 255, 255, 0.5);
 }
 
 .log-copy-button {
