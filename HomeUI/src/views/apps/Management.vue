@@ -6983,25 +6983,13 @@ export default {
         this.selectedLog.push(logTimestamp);
       }
     },
-    // toggleLogSelection(index) {
-    //   // Check if the line is already selected
-    //   const selectedIndex = this.selectedLogIndices.indexOf(index);
-    //   if (selectedIndex === -1) {
-    //     // Add the line if it's not selected
-    //     this.selectedLogIndices.push(index);
-    //   } else {
-    //     // Remove the line if it's already selected
-    //     this.selectedLogIndices.splice(selectedIndex, 1);
-    //   }
-    // },
+
     getTextContentWithLineBreaks(element) {
-    // Convert HTML content to plain text with proper line breaks
       return Array.from(element.childNodes).map((node) => {
         if (node.nodeType === Node.TEXT_NODE) {
           return node.textContent;
         // eslint-disable-next-line no-else-return
         } else if (node.nodeType === Node.ELEMENT_NODE && node.nodeName === 'DIV') {
-        // Handle line breaks between <div> elements
           return `${node.textContent}\n`;
         }
         return '';
@@ -7013,19 +7001,15 @@ export default {
     async copyCode() {
       try {
         let textToCopy = '';
-
-        // If there are selected lines, copy only those
         if (this.isLineByLineMode && this.selectedLog.length > 0) {
           textToCopy = this.filteredLogs
             .filter((log) => this.selectedLog.includes(this.extractTimestamp(log)))
             .map((log) => log)
             .join('\n');
         } else {
-          // Otherwise, copy the entire container content
           const codeContainer = this.$refs.logsContainer;
           textToCopy = this.getTextContentWithLineBreaks(codeContainer);
         }
-
         // Use the Clipboard API for HTTPS
         if (navigator.clipboard) {
           await navigator.clipboard.writeText(textToCopy);
@@ -7038,13 +7022,10 @@ export default {
           document.execCommand('copy');
           document.body.removeChild(textarea);
         }
-
         this.copied = true;
-
-        // Revert button text and enable it after a delay
         setTimeout(() => {
           this.copied = false;
-        }, 2000); // Delay in milliseconds
+        }, 2000);
       } catch (error) {
         console.error('Failed to copy code:', error);
       }
