@@ -1045,7 +1045,7 @@
               </b-form-group>
             </div>
           </b-form>
-          <div ref="logsContainer" class="code-container">
+          <div ref="logsContainer" class="code-container" :class="{ 'line-by-line-mode': isLineByLineMode }">
             <button v-if="filteredLogs.length > 0" ref="copyButton" type="button" class="log-copy-button ml-2" :disabled="copied" @click="copyCode">
               <b-icon :icon="copied ? 'check' : 'back'" />
               {{ copied ? 'Copied!' : 'Copy' }}
