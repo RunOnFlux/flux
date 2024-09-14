@@ -1025,7 +1025,7 @@
                 >
                   Line Selection
                   <b-icon
-                    v-b-tooltip.hover.title="'Switch between normal text selection or selecting individual log lines.'"
+                    v-b-tooltip.hover.title="'Switch between normal text selection or selecting individual log lines for copying.'"
                     icon="info-circle"
                     class="icon-tooltip"
                   />
@@ -11339,26 +11339,22 @@ td .ellipsis-wrapper {
 
 .log-entry {
   user-select: text;
-  padding: 5px;
   white-space: pre-wrap;
 }
 
 .line-by-line-mode .log-entry {
   cursor: pointer;
   user-select: none;
+  padding: 3px;
 }
 
 .line-by-line-mode .log-entry:hover {
   background-color: rgba(255, 255, 255, 0.1);
 }
 
-.log-entry.selected {
+.line-by-line-mode .log-entry.selected {
   background-color: rgba(255, 255, 255, 0.3);
   border-left: 3px solid #007bff;
-}
-
-.log-entry:hover {
-  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .log-copy-button {
