@@ -1020,6 +1020,17 @@
                   Display Timestamps
                 </b-form-checkbox>
                 <b-form-checkbox
+                  v-model="isLineByLineMode"
+                  switch
+                >
+                  Line Selection
+                  <b-icon
+                    v-b-tooltip.hover.title="'Switch between normal text selection or selecting individual log lines.'"
+                    icon="info-circle"
+                    class="icon-tooltip"
+                  />
+                </b-form-checkbox>
+                <b-form-checkbox
                   v-model="autoScroll"
                   class="mb-1"
                   switch
@@ -1039,6 +1050,10 @@
               <b-icon :icon="copied ? 'check' : 'back'" />
               {{ copied ? 'Copied!' : 'Copy' }}
             </button>
+            <button v-if="selectedLogIndices.length > 0" type="button" class="log-copy-button ml-2" @click="unselectText">
+              <b-icon icon="exclude" />
+              Unselect
+            </button>
             <button
               v-if="filteredLogs.length > 0"
               :disabled="downloadingLog"
@@ -1049,7 +1064,14 @@
               <b-icon :icon="downloadingLog ? 'arrow-repeat' : 'download'" :class="{ 'spin-icon-l': downloadingLog }" />
               Download
             </button>
-            <div v-for="(log, index) in filteredLogs" :key="index" v-sane-html="formatLog(log)" />
+            <div
+              v-for="(log, index) in filteredLogs"
+              :key="index"
+              v-sane-html="formatLog(log)"
+              class="log-entry"
+              :class="{ selected: selectedLogIndices.includes(index) }"
+              @click="isLineByLineMode && toggleLogSelection(index)"
+            />
           </div>
         </div>
       </b-tab>
@@ -5980,6 +6002,8 @@ export default {
   data() {
     return {
       logs: [],
+      isLineByLineMode: false,
+      selectedLogIndices: [],
       downloadingLog: false,
       containers: [],
       selectedContainer: '',
@@ -6785,14 +6809,22 @@ export default {
     },
   },
   watch: {
+    isLineByLineMode() {
+      if (!this.isLineByLineMode) {
+        this.selectedLogIndices = [];
+      }
+    },
     fetchAllLogs() {
       this.restartPolling();
+      this.selectedLogIndices = [];
     },
     lineCount() {
       this.restartPolling();
+      this.selectedLogIndices = [];
     },
     sinceTimestamp() {
       this.restartPolling();
+      this.selectedLogIndices = [];
     },
     selectedApp(newValue, oldValue) {
       if (oldValue && oldValue !== newValue) {
@@ -6914,6 +6946,17 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    toggleLogSelection(index) {
+      // Check if the line is already selected
+      const selectedIndex = this.selectedLogIndices.indexOf(index);
+      if (selectedIndex === -1) {
+        // Add the line if it's not selected
+        this.selectedLogIndices.push(index);
+      } else {
+        // Remove the line if it's already selected
+        this.selectedLogIndices.splice(selectedIndex, 1);
+      }
+    },
     getTextContentWithLineBreaks(element) {
     // Convert HTML content to plain text with proper line breaks
       return Array.from(element.childNodes).map((node) => {
@@ -6927,16 +6970,28 @@ export default {
         return '';
       }).join('');
     },
+    unselectText() {
+      this.selectedLogIndices = [];
+    },
     async copyCode() {
       try {
-        const codeContainer = this.$refs.logsContainer;
-        const textToCopy = this.getTextContentWithLineBreaks(codeContainer);
+        let textToCopy = '';
 
-        if (navigator.clipboard) {
+        // If there are selected lines, copy only those
+        if (this.isLineByLineMode && this.selectedLogIndices.length > 0) {
+          const selectedLogs = this.selectedLogIndices.map((index) => this.filteredLogs[index]);
+          textToCopy = selectedLogs.join('\n');
+        } else {
+          // Otherwise, copy the entire container content
+          const codeContainer = this.$refs.logsContainer;
+          textToCopy = this.getTextContentWithLineBreaks(codeContainer);
+        }
+
         // Use the Clipboard API for HTTPS
+        if (navigator.clipboard) {
           await navigator.clipboard.writeText(textToCopy);
         } else {
-        // Fallback for HTTP
+          // Fallback for HTTP
           const textarea = document.createElement('textarea');
           textarea.value = textToCopy;
           document.body.appendChild(textarea);
@@ -6944,6 +6999,7 @@ export default {
           document.execCommand('copy');
           document.body.removeChild(textarea);
         }
+
         this.copied = true;
 
         // Revert button text and enable it after a delay
@@ -8631,6 +8687,7 @@ export default {
           break;
         case 7:
           this.logs = [];
+          this.selectedLogIndices = [];
           this.fetchLogsForSelectedContainer();
           break;
         case 10:
@@ -11268,6 +11325,7 @@ td .ellipsis-wrapper {
   height: 330px;
   position: relative;
   background-color: #000;
+  user-select: text;
   color: #fff;
   border-radius: 6px;
   border: 1px solid #e1e4e8;
@@ -11278,6 +11336,34 @@ td .ellipsis-wrapper {
   box-sizing: border-box;
   clip-path: inset(0 round 6px);
 }
+
+.log-entry {
+  user-select: text; /* Enable text selection in normal mode */
+  padding: 5px;
+  white-space: pre-wrap; /* Preserve log formatting */
+}
+
+.line-by-line-mode .log-entry {
+  cursor: pointer; /* Pointer cursor for clickable lines */
+  user-select: none; /* Disable text selection in line-by-line mode */
+}
+
+.line-by-line-mode .log-entry:hover {
+  background-color: rgba(255, 255, 255, 0.1); /* Hover effect for lines in line-by-line mode */
+}
+
+.log-entry.selected {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-left: 3px solid #007bff; /* Left border for additional emphasis */
+}
+
+.log-entry:hover {
+  background-color: rgba(255, 255, 255, 0.1); /* Hover effect */
+}
+
+// .log-entry.selected {
+//   background-color: rgba(255, 255, 255, 0.3); /* Highlight selected lines */
+// }
 
 .log-copy-button {
   position: sticky;
