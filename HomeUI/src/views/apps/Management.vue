@@ -11338,32 +11338,28 @@ td .ellipsis-wrapper {
 }
 
 .log-entry {
-  user-select: text; /* Enable text selection in normal mode */
+  user-select: text;
   padding: 5px;
-  white-space: pre-wrap; /* Preserve log formatting */
+  white-space: pre-wrap;
 }
 
 .line-by-line-mode .log-entry {
-  cursor: pointer; /* Pointer cursor for clickable lines */
-  user-select: none; /* Disable text selection in line-by-line mode */
+  cursor: pointer;
+  user-select: none;
 }
 
 .line-by-line-mode .log-entry:hover {
-  background-color: rgba(255, 255, 255, 0.1); /* Hover effect for lines in line-by-line mode */
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .log-entry.selected {
   background-color: rgba(255, 255, 255, 0.3);
-  border-left: 3px solid #007bff; /* Left border for additional emphasis */
+  border-left: 3px solid #007bff;
 }
 
 .log-entry:hover {
-  background-color: rgba(255, 255, 255, 0.1); /* Hover effect */
+  background-color: rgba(255, 255, 255, 0.1);
 }
-
-// .log-entry.selected {
-//   background-color: rgba(255, 255, 255, 0.3); /* Highlight selected lines */
-// }
 
 .log-copy-button {
   position: sticky;
