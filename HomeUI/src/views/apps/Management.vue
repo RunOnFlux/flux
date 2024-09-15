@@ -6990,18 +6990,6 @@ export default {
         this.selectedLog.push(logTimestamp);
       }
     },
-
-    getTextContentWithLineBreaks(element) {
-      return Array.from(element.childNodes).map((node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          return node.textContent;
-        // eslint-disable-next-line no-else-return
-        } else if (node.nodeType === Node.ELEMENT_NODE && node.nodeName === 'DIV') {
-          return `${node.textContent}\n`;
-        }
-        return '';
-      }).join('');
-    },
     unselectText() {
       this.selectedLog = [];
     },
@@ -7014,8 +7002,7 @@ export default {
             .map((log) => log)
             .join('\n');
         } else {
-          const codeContainer = this.$refs.logsContainer;
-          textToCopy = this.getTextContentWithLineBreaks(codeContainer);
+          textToCopy = this.logs.join('\n');
         }
         // Use the Clipboard API for HTTPS
         if (navigator.clipboard) {
