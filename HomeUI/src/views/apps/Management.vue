@@ -947,31 +947,34 @@
                   />
                 </b-form-group>
                 <b-form-group v-if="appSpecification?.compose" label="Component">
-                  <b-form-select
-                    v-model="selectedApp"
-                    class="input_s"
-                    :options="null"
-                    :disabled="isComposeSingle"
-                    size="sm"
-                    @change="handleContainerChange"
-                  >
-                    <b-form-select-option
-                      value="null"
-                      disabled
+                  <div class="d-flex align-items-center">
+                    <b-form-select
+                      v-model="selectedApp"
+                      class="input_s"
+                      :options="null"
+                      :disabled="isComposeSingle"
+                      size="sm"
+                      @change="handleContainerChange"
                     >
-                      -- Please select component --
-                    </b-form-select-option>
-                    <b-form-select-option
-                      v-for="component in appSpecification?.compose"
-                      :key="component.name"
-                      :value="component.name"
-                    >
-                      {{ component.name }}
-                    </b-form-select-option>
-                  </b-form-select>
+                      <b-form-select-option
+                        value="null"
+                        disabled
+                      >
+                        -- Please select component --
+                      </b-form-select-option>
+                      <b-form-select-option
+                        v-for="component in appSpecification?.compose"
+                        :key="component.name"
+                        :value="component.name"
+                      >
+                        {{ component.name }}
+                      </b-form-select-option>
+                    </b-form-select>
+                    <b-icon icon="arrow-clockwise" :class="['ml-1', 'r', { disabled: isDisabled }]" @click="manualFetchLogs" />
+                  </div>
                 </b-form-group>
                 <b-form-group label="Line Count">
-                  <b-form-input v-model="lineCount" type="number" size="sm" class="input" :disabled="fetchAllLogs" />
+                  <b-form-input v-model="lineCount" type="number" size="sm" class="input" :disabled="fetchAllLogs" step="10" min="0" />
                 </b-form-group>
                 <b-form-group label="Logs Since">
                   <div class="d-flex align-items-center">
@@ -1057,7 +1060,7 @@
               {{ copied ? 'Copied!' : 'Copy' }}
             </button>
             <button
-              v-if="selectedLog.length > 0"
+              v-if="selectedLog.length > 0 && filteredLogs.length > 0"
               type="button"
               class="log-copy-button ml-2"
               @click="unselectText"
@@ -6018,6 +6021,7 @@ export default {
   data() {
     return {
       logs: [],
+      manualInProgress: false,
       isLineByLineMode: false,
       selectedLog: [],
       downloadingLog: false,
@@ -6471,6 +6475,9 @@ export default {
     };
   },
   computed: {
+    isDisabled() {
+      return !!this.pollingEnabled || this.manualInProgress;
+    },
     filteredLogs() {
       const keyword = this.filterKeyword.toLowerCase();
       return this.logs.filter((log) => log.toLowerCase().includes(keyword));
@@ -7037,6 +7044,11 @@ export default {
         }
         this.debounceTimeout = setTimeout(() => func(...args), delay);
       };
+    },
+    async manualFetchLogs() {
+      this.manualInProgress = true;
+      await this.fetchLogsForSelectedContainer();
+      this.manualInProgress = false;
     },
     async fetchLogsForSelectedContainer() {
       console.log('fetchLogsForSelectedContainer in progress...');
@@ -11154,14 +11166,6 @@ export default {
 .xterm {
   padding: 10px;
 }
-.spin-icon {
-  animation: spin 2s linear infinite;
-}
-.spin-icon-l {
-  animation: spin 2s linear infinite;
-  width: 12px !important;
-  height: 12px !important;
-}
 @keyframes spin {
   0% {
     transform: rotate(0deg);
@@ -11170,7 +11174,14 @@ export default {
     transform: rotate(360deg);
   }
 }
-
+.spin-icon {
+  animation: spin 2s linear infinite;
+}
+.spin-icon-l {
+  animation: spin 2s linear infinite;
+  width: 12px !important;
+  height: 12px !important;
+}
 .app-instances-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
@@ -11461,5 +11472,56 @@ td .ellipsis-wrapper {
 
 .x:hover {
   color: #cc0000;
+}
+
+.r {
+  cursor: pointer;
+  font-size: 30px;
+  vertical-align: middle;
+  color: #39ff14;
+  transition: color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  border: 2px solid #4caf50;
+  padding: 4px;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.r:hover {
+  color: #39ff14;
+  border-color: #81c784;
+  box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
+}
+
+.r.disabled {
+  animation: spin 2s linear infinite;
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+  border-radius: 50%;
+  padding: 4px;
+  width: 30px !important;
+  height: 30px !important;
+  box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: auto;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  padding-right: 10px;
+  color: grey;
 }
 </style>
