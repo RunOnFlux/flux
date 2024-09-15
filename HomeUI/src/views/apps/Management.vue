@@ -7007,6 +7007,13 @@ export default {
         // eslint-disable-next-line no-control-regex
         const ansiRegex = /\u001b\[[0-9;]*[a-zA-Z]/g;
         textToCopy = textToCopy.replace(ansiRegex, '');
+        if (!this.displayTimestamps) {
+          const timestampRegex = /^[^\s]+\s*/;
+          textToCopy = textToCopy
+            .split(/\r?\n/)
+            .map((line) => line.replace(timestampRegex, ''))
+            .join('\n');
+        }
         // Use the Clipboard API for HTTPS
         if (navigator.clipboard) {
           await navigator.clipboard.writeText(textToCopy);
@@ -9340,6 +9347,10 @@ export default {
         // eslint-disable-next-line no-control-regex
         const ansiRegex = /\u001b\[[0-9;]*[a-zA-Z]/g;
         logText = logText.map((textlog) => textlog.replace(ansiRegex, ''));
+        if (!this.displayTimestamps) {
+          const timestampRegex = /^[^\s]+\s*/;
+          logText = logText.map((line) => line.replace(timestampRegex, ''));
+        }
         const logSplit = logText.join('\n');
         const logBlob = new Blob([logSplit], { type: 'text/plain' });
         const url = window.URL.createObjectURL(logBlob);
