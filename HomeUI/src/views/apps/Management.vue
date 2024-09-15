@@ -7004,6 +7004,9 @@ export default {
         } else {
           textToCopy = this.logs.join('\n');
         }
+        // eslint-disable-next-line no-control-regex
+        const ansiRegex = /\u001b\[[0-9;]*[a-zA-Z]/g;
+        textToCopy = textToCopy.replace(ansiRegex, '');
         // Use the Clipboard API for HTTPS
         if (navigator.clipboard) {
           await navigator.clipboard.writeText(textToCopy);
@@ -9325,7 +9328,7 @@ export default {
         const response = await this.executeLocalCommand(`/apps/applogpolling/${appName}/all`, null, axiosConfig);
         const text = await response.data.text();
         const responseData = JSON.parse(text);
-        const logText = responseData.logs;
+        let logText = responseData.logs;
         if (!Array.isArray(logText)) {
           throw new Error('Log data is missing or is not in the expected format.');
         }
@@ -9334,6 +9337,9 @@ export default {
           throw new Error('No logs available to download.');
         }
 
+        // eslint-disable-next-line no-control-regex
+        const ansiRegex = /\u001b\[[0-9;]*[a-zA-Z]/g;
+        logText = logText.map((textlog) => textlog.replace(ansiRegex, ''));
         const logSplit = logText.join('\n');
         const logBlob = new Blob([logSplit], { type: 'text/plain' });
         const url = window.URL.createObjectURL(logBlob);
