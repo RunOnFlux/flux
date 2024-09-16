@@ -11514,8 +11514,6 @@ td .ellipsis-wrapper {
   width: 30px !important;
   height: 30px !important;
   box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
-  transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease;
-  // transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease, opacity 0.6s ease, transform 0.6s ease;
 }
 
 input[type="number"]::-webkit-outer-spin-button,
