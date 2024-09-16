@@ -6833,7 +6833,6 @@ export default {
   },
   watch: {
     filterKeyword() {
-      this.selectedLog = [];
       if (this.logs?.length > 0) {
         this.$nextTick(() => {
           this.scrollToBottom();
