@@ -7124,7 +7124,7 @@ export default {
       if (this.displayTimestamps) {
         const [timestamp, ...rest] = log.split(' ');
         const formattedLog = rest.join(' ');
-        return `<kbd class="alert-success" style="border-radius: 10px; padding: 1px 4px; width: 179px; text-align: center; font-family: monospace;">${timestamp}</kbd> - ${ansiToHtml.toHtml(formattedLog)}`;
+        return `<kbd class="alert-success" style="border-radius: 3px; padding: 1px 4px 1px 4px; width: 179px; text-align: center; font-family: monospace;">${timestamp}</kbd> - ${ansiToHtml.toHtml(formattedLog)}`;
       // eslint-disable-next-line no-else-return
       } else {
         const timestampRegex = /^[^\s]+\s*/;
