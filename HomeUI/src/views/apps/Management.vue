@@ -11482,7 +11482,7 @@ td .ellipsis-wrapper {
   font-size: 30px;
   vertical-align: middle;
   color: #39ff14;
-  transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease;
+  transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease, opacity 0.6s ease, transform 0.6s ease;
   border: 2px solid #4caf50;
   padding: 4px;
   border-radius: 4px;
@@ -11514,7 +11514,7 @@ td .ellipsis-wrapper {
   width: 30px !important;
   height: 30px !important;
   box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
-  transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease;
+  transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease, opacity 0.6s ease, transform 0.6s ease;
 }
 
 input[type="number"]::-webkit-outer-spin-button,
