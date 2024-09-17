@@ -39,6 +39,7 @@
       {{ applicationManagementAndStatus }}
     </div>
     <b-tabs
+      ref="managementTabs"
       class="mt-2"
       pills
       style="flex-wrap: nowrap;"
@@ -7047,6 +7048,9 @@ export default {
       this.manualInProgress = false;
     },
     async fetchLogsForSelectedContainer() {
+      if (this.$refs.managementTabs.currentTab !== 7) {
+        return;
+      }
       console.log('fetchLogsForSelectedContainer in progress...');
 
       if (this.appSpecification.version >= 4) {
@@ -11502,6 +11506,9 @@ td .ellipsis-wrapper {
   cursor: pointer;
   font-size: 15px;
   margin-right: 10px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
   color: #6c757d;
 }
 
