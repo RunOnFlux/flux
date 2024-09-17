@@ -877,7 +877,6 @@ async function appLog(req, res) {
     res.json(errorResponse);
   }
 }
-
 /**
  * To show an app's Docker container log stream. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
@@ -910,6 +909,66 @@ async function appLogStream(req, res) {
         } else {
           res.end();
         }
+      });
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * Polling an app's Docker container logs. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function appLogPolling(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    let { lines } = req.params;
+    lines = lines || req.query.lineCount || 'all';
+    let { since } = req.params;
+    since = since || req.query.since || '';
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    const mainAppName = appname.split('_')[1] || appname;
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (authorized === true) {
+      let parsedLineCount;
+      if (lines === 'all') {
+        parsedLineCount = 'all';
+      } else {
+        parsedLineCount = parseInt(lines, 10) || 100;
+      }
+      const logs = [];
+      await new Promise((resolve, reject) => {
+        dockerService.dockerContainerLogsPolling(appname, parsedLineCount, since, (err, logLine) => {
+          if (err) {
+            reject(err);
+          } else if (logLine === 'Stream ended') {
+            resolve();
+          } else if (logLine) {
+            logs.push(logLine);
+          }
+        });
+      });
+      res.json({
+        logs,
+        lineCount: parsedLineCount,
+        logCount: logs.length,
+        sinceTimestamp: since,
+        truncated: parsedLineCount === 'all' ? false : logs.length >= parsedLineCount,
+        status: 'success',
       });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -10078,8 +10137,8 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
     },
   };
   const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (appInfo && appInfo.expire && appSpecFormatted.expire) {
-    const blocksToExtend = (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height);
+  if (appInfo && appInfo.expire && appInfo.height && appSpecFormatted.expire) {
+    const blocksToExtend = (appSpecFormatted.expire + Number(daemonHeight)) - appInfo.height - appInfo.expire;
     if (((!appSpecFormatted.nodes && !appInfo.nodes) || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length))
       && appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 2) { // free updates should not extend app subscription
       if (appSpecFormatted.compose.length === appInfo.compose.length) {
@@ -10219,6 +10278,8 @@ async function getAppFiatAndFluxPrice(req, res) {
 
       if (appSpecification.priceUSD) {
         if (appSpecification.priceUSD < actualPriceToPay) {
+          log.info(appSpecification.priceUSD);
+          log.info(actualPriceToPay);
           throw new Error('USD price is not valid');
         }
         actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
@@ -13019,6 +13080,7 @@ module.exports = {
   appUnpause,
   appTop,
   appLog,
+  appLogPolling,
   appLogStream,
   appInspect,
   appStats,

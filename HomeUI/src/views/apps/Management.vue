@@ -39,6 +39,7 @@
       {{ applicationManagementAndStatus }}
     </div>
     <b-tabs
+      ref="managementTabs"
       class="mt-2"
       pills
       style="flex-wrap: nowrap;"
@@ -914,80 +915,182 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Log File">
-        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <h6 class="mb-2">
-          Click the 'Download' button to download the Log file from your Application debug file. This may take a few minutes depending on file size.
-        </h6>
-        <div v-if="appSpecification.version >= 4">
+      <b-tab title="Logs">
+        <div>
           <div
-            v-for="(component, index) in callResponse.data"
-            :key="index"
+            class="mb-2"
+            style="
+                    border: 1px solid #ccc;
+                    border-radius: 8px;
+                    height: 45px;
+                    padding: 12px;
+                    text-align: left;
+                    line-height: 0px;
+                  "
           >
-            <h4>Component: {{ component.name }}</h4>
-            <div>
-              <div>
-                <div class="d-flex align-items-center">
-                  <h5 class="mt-1">
-                    <kbd class="bg-primary">Last 100 lines of the log file</kbd>
-                  </h5>
-                </div>
-                <b-form-textarea
-                  v-if="component.callData"
-                  plaintext
-                  no-resize
-                  rows="15"
-                  :value="decodeAsciiResponse(component.callData)"
-                  class="mt-1 mb-1"
-                  style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
-                />
-                <b-button
-                  :id="`start-download-log-${component.name}_${appSpecification.name}`"
-                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="outline-primary"
-                  size="md"
-                  class="w-100 mb-2"
-                >
-                  Download
-                </b-button>
-                <confirm-dialog
-                  :target="`start-download-log-${component.name}_${appSpecification.name}`"
-                  confirm-button="Download Log"
-                  @confirm="downloadApplicationLog(`${component.name}_${appSpecification.name}`)"
-                />
-              </div>
-            </div>
+            <h5>
+              <b-icon
+                class="mr-1"
+                scale="1.2"
+                icon="search"
+              /> Logs Management
+            </h5>
           </div>
-        </div>
-        <div v-else>
-          <div>
-            <div>
-              <h6 class="mb-1 mt-1">
-                <kbd class="bg-primary">Last 100 lines of the log file</kbd>
-              </h6>
-              <b-form-textarea
-                v-if="callResponse.data && callResponse.data[0]"
-                plaintext
-                no-resize
-                rows="15"
-                :value="decodeAsciiResponse(callResponse.data[0].callData)"
-                class="mt-1 mb-1"
-                style="background-color: black; color: white; padding: 20px; font-family: monospace; margin-bottom: 25px"
+          <b-form class="ml-2 mr-2">
+            <div class="flex-container">
+              <b-form-group>
+                <b-form-group v-if="!appSpecification?.compose" label="Component">
+                  <b-form-input
+                    size="sm"
+                    :placeholder="appSpecification.name"
+                    disabled
+                    class="input_s"
+                  />
+                </b-form-group>
+                <b-form-group v-if="appSpecification?.compose" label="Component">
+                  <div class="d-flex align-items-center">
+                    <b-form-select
+                      v-model="selectedApp"
+                      class="input_s"
+                      :options="null"
+                      :disabled="isComposeSingle"
+                      size="sm"
+                      @change="handleContainerChange"
+                    >
+                      <b-form-select-option
+                        value="null"
+                        disabled
+                      >
+                        -- Please select component --
+                      </b-form-select-option>
+                      <b-form-select-option
+                        v-for="component in appSpecification?.compose"
+                        :key="component.name"
+                        :value="component.name"
+                      >
+                        {{ component.name }}
+                      </b-form-select-option>
+                    </b-form-select>
+                    <b-icon icon="arrow-clockwise" :class="['ml-1', 'r', { disabled: isDisabled }]" @click="manualFetchLogs" />
+                  </div>
+                </b-form-group>
+                <b-form-group label="Line Count">
+                  <b-form-input v-model="lineCount" type="number" size="sm" class="input" :disabled="fetchAllLogs" step="10" min="0" />
+                </b-form-group>
+                <b-form-group label="Logs Since">
+                  <div class="d-flex align-items-center">
+                    <b-form-input
+                      v-model="sinceTimestamp"
+                      size="sm"
+                      type="datetime-local"
+                      placeholder="Logs Since"
+                      class="input"
+                    />
+                    <b-icon v-if="sinceTimestamp" icon="x-square" class="ml-1 x" @click="clearDateFilter" />
+                  </div>
+                </b-form-group>
+              </b-form-group>
+
+              <b-form-group label="Filter">
+                <b-input-group size="sm" class="search_input">
+                  <b-input-group-prepend is-text>
+                    <b-icon icon="funnel-fill" />
+                  </b-input-group-prepend>
+                  <b-form-input
+                    v-model="filterKeyword"
+                    type="search"
+                    placeholder="Enter keywords.."
+                  />
+                </b-input-group>
+                <b-form-checkbox
+                  v-model="pollingEnabled"
+                  class="mt-2"
+                  switch
+                  @change="togglePolling"
+                >
+                  Auto-refresh
+                  <b-icon
+                    v-b-tooltip.hover.title="'Enable or disable automatic refreshing of logs every few seconds.'"
+                    icon="info-circle"
+                    class="icon-tooltip"
+                  />
+                </b-form-checkbox>
+
+                <b-form-checkbox v-model="fetchAllLogs" switch>
+                  Fetch All Logs
+                </b-form-checkbox>
+                <b-form-checkbox v-model="displayTimestamps" switch>
+                  Display Timestamps
+                </b-form-checkbox>
+                <b-form-checkbox
+                  v-model="isLineByLineMode"
+                  switch
+                >
+                  Line Selection
+                  <b-icon
+                    v-b-tooltip.hover.title="'Switch between normal text selection or selecting individual log lines for copying.'"
+                    icon="info-circle"
+                    class="icon-tooltip"
+                  />
+                </b-form-checkbox>
+                <b-form-checkbox
+                  v-model="autoScroll"
+                  class="mb-1"
+                  switch
+                >
+                  Auto-scroll
+                  <b-icon
+                    v-b-tooltip.hover.title="'Enable or disable automatic scrolling to the latest logs.'"
+                    icon="info-circle"
+                    class="icon-tooltip"
+                  />
+                </b-form-checkbox>
+              </b-form-group>
+            </div>
+          </b-form>
+          <div ref="logsContainer" class="code-container" :class="{ 'line-by-line-mode': isLineByLineMode }">
+            <button
+              v-if="filteredLogs.length > 0"
+              ref="copyButton"
+              type="button"
+              class="log-copy-button ml-2"
+              :disabled="copied"
+              @click="copyCode"
+            >
+              <b-icon :icon="copied ? 'check' : 'back'" />
+              {{ copied ? 'Copied!' : 'Copy' }}
+            </button>
+            <button
+              v-if="selectedLog.length > 0 && filteredLogs.length > 0"
+              type="button"
+              class="log-copy-button ml-2"
+              @click="unselectText"
+            >
+              <b-icon icon="exclude" />
+              Unselect
+            </button>
+            <button
+              v-if="filteredLogs.length > 0"
+              :disabled="downloadingLog"
+              type="button"
+              class="download-button"
+              @click="downloadApplicationLog(selectedApp ? `${selectedApp}_${appSpecification.name}` : appSpecification.name)"
+            >
+              <b-icon :icon="downloadingLog ? 'arrow-repeat' : 'download'" :class="{ 'spin-icon-l': downloadingLog }" />
+              Download
+            </button>
+            <div v-if="filteredLogs.length > 0">
+              <div
+                v-for="(log) in filteredLogs"
+                :key="extractTimestamp(log)"
+                v-sane-html="formatLog(log)"
+                class="log-entry"
+                :class="{ selected: selectedLog.includes(extractTimestamp(log)) }"
+                @click="isLineByLineMode && toggleLogSelection(log)"
               />
-              <b-button
-                id="start-download-log"
-                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                variant="outline-primary"
-                size="md"
-                class="w-100 mb-2"
-              >
-                Download Debug File
-              </b-button>
-              <confirm-dialog
-                target="start-download-log"
-                confirm-button="Download Log"
-                @confirm="downloadApplicationLog(appSpecification.name)"
-              />
+            </div>
+            <div v-else-if="filterKeyword.trim() !== ''" class="no-matches">
+              No log line matching the '{{ filterKeyword }}' filter.
             </div>
           </div>
         </div>
@@ -2817,7 +2920,7 @@
             <div
               v-show="isVisible"
               ref="terminalElement"
-              style="text-align: left;"
+              style="text-align: left; border-radius: 6px; border: 1px solid #e1e4e8; overflow: hidden;"
             />
           </div>
         </div>
@@ -4974,7 +5077,7 @@
           <label class="col-form-label">
             Period
             <v-icon
-              v-b-tooltip.hover.top="'Time your application will be subscribed for from today'"
+              v-b-tooltip.hover.top="'Time your application subscription will be extended'"
               name="info-circle"
               class="mr-2"
             />
@@ -5823,6 +5926,7 @@ import { Unicode11Addon } from 'xterm-addon-unicode11';
 import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
+import AnsiToHtml from 'ansi-to-html';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -5917,6 +6021,25 @@ export default {
   },
   data() {
     return {
+      logs: [],
+      manualInProgress: false,
+      isLineByLineMode: false,
+      selectedLog: [],
+      downloadingLog: false,
+      containers: [],
+      selectedContainer: '',
+      filterKeyword: '',
+      refreshRate: 4000,
+      lineCount: 100,
+      sinceTimestamp: '',
+      displayTimestamps: false,
+      pollingInterval: null,
+      pollingEnabled: false,
+      autoScroll: true,
+      fetchAllLogs: false,
+      requestInProgress: false,
+      copied: false,
+      debounceTimeout: null,
       progressVisable: false,
       operationTitle: '',
       appInfoObject: [],
@@ -6353,6 +6476,16 @@ export default {
     };
   },
   computed: {
+    isDisabled() {
+      return !!this.pollingEnabled || this.manualInProgress;
+    },
+    filteredLogs() {
+      const keyword = this.filterKeyword.toLowerCase();
+      return this.logs.filter((log) => log.toLowerCase().includes(keyword));
+    },
+    formattedLogs() {
+      return this.filteredLogs.map((log) => this.formatLog(log));
+    },
     mapLocations() {
       return this.instances.data.map((i) => i.ip);
     },
@@ -6700,6 +6833,46 @@ export default {
     },
   },
   watch: {
+    filterKeyword() {
+      if (this.logs?.length > 0) {
+        this.$nextTick(() => {
+          this.scrollToBottom();
+        });
+      }
+    },
+    isLineByLineMode() {
+      if (!this.isLineByLineMode) {
+        this.selectedLog = [];
+      }
+      if (this.logs?.length > 0) {
+        this.$nextTick(() => {
+          this.scrollToBottom();
+        });
+      }
+    },
+    fetchAllLogs() {
+      this.restartPolling();
+    },
+    lineCount() {
+      this.debounce(() => this.restartPolling(), 1000)();
+    },
+    sinceTimestamp() {
+      this.restartPolling();
+    },
+    selectedApp(newValue, oldValue) {
+      if (oldValue && oldValue !== newValue) {
+        this.filterKeyword = '';
+        this.sinceTimestamp = '';
+        this.stopPolling();
+        this.clearLogs();
+      }
+      if (newValue) {
+        this.handleContainerChange();
+        if (this.pollingEnabled) {
+          this.startPolling();
+        }
+      }
+    },
     isComposeSingle(value) {
       if (value) {
         if (this.appSpecification.version >= 4) {
@@ -6802,9 +6975,182 @@ export default {
     this.getDaemonBlockCount();
   },
   beforeDestroy() {
+    this.stopPolling();
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    extractTimestamp(log) {
+      return log.split(' ')[0];
+    },
+    toggleLogSelection(log) {
+      const logTimestamp = this.extractTimestamp(log);
+      if (this.selectedLog.includes(logTimestamp)) {
+        this.selectedLog = this.selectedLog.filter((ts) => ts !== logTimestamp);
+      } else {
+        this.selectedLog.push(logTimestamp);
+      }
+    },
+    unselectText() {
+      this.selectedLog = [];
+    },
+    async copyCode() {
+      try {
+        let textToCopy = '';
+        if (this.isLineByLineMode && this.selectedLog.length > 0) {
+          textToCopy = this.filteredLogs
+            .filter((log) => this.selectedLog.includes(this.extractTimestamp(log)))
+            .map((log) => log)
+            .join('\n');
+        } else {
+          textToCopy = this.logs.join('\n');
+        }
+        // eslint-disable-next-line no-control-regex
+        const ansiRegex = /\u001b\[[0-9;]*[a-zA-Z]/g;
+        textToCopy = textToCopy.replace(ansiRegex, '');
+        if (!this.displayTimestamps) {
+          const timestampRegex = /^[^\s]+\s*/;
+          textToCopy = textToCopy
+            .split(/\r?\n/)
+            .map((line) => line.replace(timestampRegex, ''))
+            .join('\n');
+        }
+        // Use the Clipboard API for HTTPS
+        if (navigator.clipboard) {
+          await navigator.clipboard.writeText(textToCopy);
+        } else {
+          // Fallback for HTTP
+          const textarea = document.createElement('textarea');
+          textarea.value = textToCopy;
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+        this.copied = true;
+        setTimeout(() => {
+          this.copied = false;
+        }, 2000);
+      } catch (error) {
+        console.error('Failed to copy code:', error);
+      }
+    },
+    debounce(func, delay) {
+      return (...args) => {
+        if (this.debounceTimeout) {
+          clearTimeout(this.debounceTimeout);
+        }
+        this.debounceTimeout = setTimeout(() => func(...args), delay);
+      };
+    },
+    async manualFetchLogs() {
+      this.manualInProgress = true;
+      await this.fetchLogsForSelectedContainer();
+      this.manualInProgress = false;
+    },
+    async fetchLogsForSelectedContainer() {
+      if (this.$refs.managementTabs.currentTab !== 7) {
+        return;
+      }
+      console.log('fetchLogsForSelectedContainer in progress...');
+
+      if (this.appSpecification.version >= 4) {
+        if (!this.selectedApp) {
+          console.error('No container selected');
+          return;
+        }
+      }
+
+      if (this.requestInProgress) {
+        console.log('Request in progress, skipping this call.');
+        return;
+      }
+      const appnama = this.selectedApp ? `${this.selectedApp}_${this.appSpecification.name}` : this.appSpecification.name;
+      this.requestInProgress = true;
+      try {
+        const containerName = this.selectedApp;
+        const lines = this.fetchAllLogs ? 'all' : this.lineCount || 100;
+        const response = await this.executeLocalCommand(`/apps/applogpolling/${appnama}/${lines}/${this.sinceTimestamp}`);
+        if (this.selectedApp === containerName) {
+          this.logs = response.data?.logs;
+          if (this.logs.length > 0) {
+            this.$nextTick(() => {
+              if (this.autoScroll) {
+                this.scrollToBottom();
+              }
+            });
+          }
+        } else {
+          console.error('Selected container has changed. Logs discarded.');
+        }
+      } catch (error) {
+        console.error('Error fetching logs:', error.message);
+        this.clearLogs();
+        if (this.pollingEnabled === true) {
+          this.pollingEnabled = false;
+          this.stopPolling();
+        }
+      } finally {
+        console.log('fetchLogsForSelectedContainer completed...');
+        this.requestInProgress = false;
+      }
+    },
+    startPolling() {
+      if (this.pollingInterval) {
+        clearInterval(this.pollingInterval);
+      }
+
+      this.pollingInterval = setInterval(async () => {
+        await this.fetchLogsForSelectedContainer();
+      }, this.refreshRate);
+    },
+    stopPolling() {
+      if (this.pollingInterval) {
+        clearInterval(this.pollingInterval);
+        this.pollingInterval = null;
+      }
+    },
+    restartPolling() {
+      this.stopPolling();
+      this.fetchLogsForSelectedContainer();
+      if (this.pollingEnabled) {
+        this.startPolling();
+      }
+    },
+    togglePolling() {
+      if (this.pollingEnabled) {
+        this.startPolling();
+      } else {
+        this.stopPolling();
+      }
+    },
+    formatLog(log) {
+      const ansiToHtml = new AnsiToHtml();
+      if (this.displayTimestamps) {
+        const [timestamp, ...rest] = log.split(' ');
+        const formattedLog = rest.join(' ');
+        return `<kbd class="alert-success" style="border-radius: 3px; padding: 1px 4px 1px 4px; width: 179px; text-align: center; font-family: monospace;">${timestamp}</kbd> - ${ansiToHtml.toHtml(formattedLog)}`;
+      // eslint-disable-next-line no-else-return
+      } else {
+        const timestampRegex = /^[^\s]+\s*/;
+        return ansiToHtml.toHtml(log.replace(timestampRegex, ''));
+      }
+    },
+    scrollToBottom() {
+      const container = this.$refs.logsContainer;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    },
+    clearLogs() {
+      this.logs = [];
+    },
+    clearDateFilter() {
+      this.sinceTimestamp = '';
+    },
+    handleContainerChange() {
+      const debouncedFetchLogs = this.debounce(this.fetchLogsForSelectedContainer, 300);
+      debouncedFetchLogs();
+    },
     async refreshInfo() {
       this.$refs.BackendRefresh.blur();
       await this.getInstancesForDropDown();
@@ -8332,6 +8678,10 @@ export default {
       if (index !== 11) {
         this.disconnectTerminal();
       }
+      if (index !== 7) {
+        this.stopPolling();
+        this.pollingEnabled = false;
+      }
       if (!this.selectedIp) {
         await this.getInstancesForDropDown();
         await this.getInstalledApplicationSpecifics();
@@ -8368,7 +8718,9 @@ export default {
           this.getApplicationProcesses();
           break;
         case 7:
-          this.getApplicationLogs();
+          this.logs = [];
+          this.selectedLog = [];
+          this.fetchLogsForSelectedContainer();
           break;
         case 10:
           this.applyFilter();
@@ -8520,12 +8872,53 @@ export default {
         }
       }
     },
-    getExpirePosition(value) {
-      const position = this.expireOptions.findIndex((opt) => opt.value === value);
-      if (position || position === 0) {
-        return position;
+    getExpireOptions() {
+      this.expireOptions = [];
+      const expires = this.callBResponse.data.expire || 22000;
+      const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+      if (currentExpire + 5000 < 264000) {
+        this.expireOptions.push({
+          value: 5000 + currentExpire,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        });
       }
-      return 2;
+      this.expirePosition = 0;
+      if (currentExpire + 11000 < 264000) {
+        this.expireOptions.push({
+          value: 11000 + currentExpire,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        });
+        this.expirePosition = 1;
+      }
+      if (currentExpire + 22000 < 264000) {
+        this.expireOptions.push({
+          value: 22000 + currentExpire,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        });
+        this.expirePosition = 2;
+      }
+      if (currentExpire + 66000 < 264000) {
+        this.expireOptions.push({
+          value: 66000 + currentExpire,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        });
+      }
+      if (currentExpire + 132000 < 264000) {
+        this.expireOptions.push({
+          value: 132000 + currentExpire,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        });
+      }
+      this.expireOptions.push({
+        value: 264000,
+        label: 'Up to one year',
+        time: 365 * 24 * 60 * 60 * 1000,
+      });
     },
     async getGlobalApplicationSpecifics() {
       const response = await AppsService.getAppSpecifics(this.appName);
@@ -8586,9 +8979,8 @@ export default {
             component.repoauth = this.ensureString(component.repoauth || '');
           });
           if (this.appUpdateSpecification.version >= 6) {
-            const expireOption = this.expireOptions.find((opt) => opt.value >= (specs.expire || 22000));
-            this.appUpdateSpecification.expire = this.ensureNumber(expireOption.value);
-            this.expirePosition = this.getExpirePosition(this.appUpdateSpecification.expire);
+            this.getExpireOptions();
+            this.appUpdateSpecification.expire = this.ensureNumber(this.expireOptions[this.expirePosition].value);
           }
           if (this.appUpdateSpecification.version >= 7) {
             this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
@@ -8962,7 +9354,7 @@ export default {
       const self = this;
       this.downloaded = '';
       this.total = '';
-      this.abortToken = DaemonService.cancelToken();
+      // this.abortToken = DaemonService.cancelToken();
       const zelidauth = localStorage.getItem('zelidauth');
       const axiosConfig = {
         headers: {
@@ -8981,15 +9373,44 @@ export default {
         },
         // cancelToken: self.abortToken.token,
       };
-      const response = await DaemonService.justAPI().get(`/apps/applog/${appName}`, axiosConfig);
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'app.log');
-      document.body.appendChild(link);
-      link.click();
-    },
+      try {
+        this.downloadingLog = true;
+        const response = await this.executeLocalCommand(`/apps/applogpolling/${appName}/all`, null, axiosConfig);
+        const text = await response.data.text();
+        const responseData = JSON.parse(text);
+        let logText = responseData.logs;
+        if (!Array.isArray(logText)) {
+          throw new Error('Log data is missing or is not in the expected format.');
+        }
 
+        if (logText.length === 0) {
+          throw new Error('No logs available to download.');
+        }
+
+        // eslint-disable-next-line no-control-regex
+        const ansiRegex = /\u001b\[[0-9;]*[a-zA-Z]/g;
+        logText = logText.map((textlog) => textlog.replace(ansiRegex, ''));
+        if (!this.displayTimestamps) {
+          const timestampRegex = /^[^\s]+\s*/;
+          logText = logText.map((line) => line.replace(timestampRegex, ''));
+        }
+        const logSplit = logText.join('\n');
+        const logBlob = new Blob([logSplit], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(logBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', 'app.log');
+        document.body.appendChild(link);
+        link.click();
+        this.downloadingLog = false;
+        // Clean up the URL object
+        window.URL.revokeObjectURL(url);
+      } catch (error) {
+        this.downloadingLog = false;
+        console.error('Error occurred while handling logs:', error);
+        this.showToast('danger', error);
+      }
+    },
     getAppIdentifier(appName = this.appName) {
       // this id is used for volumes, docker names so we know it reall belongs to flux
       if (appName && appName.startsWith('zel')) {
@@ -9263,40 +9684,6 @@ export default {
       this.commandExecutingProcesses = false;
       this.callResponseProcesses.status = 'success';
       this.callResponseProcesses.data = callData;
-    },
-    async getApplicationLogs() {
-      const callData = [];
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          const response = await this.executeLocalCommand(`/apps/applog/${component.name}_${this.appSpecification.name}/100`);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          } else {
-            const appComponentInspect = {
-              name: component.name,
-              callData: response.data.data,
-            };
-            callData.push(appComponentInspect);
-          }
-        }
-      } else {
-        const response = await this.executeLocalCommand(`/apps/applog/${this.appName}/100`);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        } else {
-          const appComponentInspect = {
-            name: this.appSpecification.name,
-            callData: response.data.data,
-          };
-          callData.push(appComponentInspect);
-        }
-        console.log(response);
-      }
-      this.callResponse.status = 'success';
-      this.callResponse.data = callData;
     },
     async getInstancesForDropDown() {
       const response = await AppsService.getAppLocation(this.appName);
@@ -10826,9 +11213,6 @@ export default {
 .xterm {
   padding: 10px;
 }
-.spin-icon {
-  animation: spin 2s linear infinite;
-}
 @keyframes spin {
   0% {
     transform: rotate(0deg);
@@ -10837,7 +11221,14 @@ export default {
     transform: rotate(360deg);
   }
 }
-
+.spin-icon {
+  animation: spin 2s linear infinite;
+}
+.spin-icon-l {
+  animation: spin 2s linear infinite;
+  width: 12px !important;
+  height: 12px !important;
+}
 .app-instances-table td:nth-child(1) {
   padding: 0 0 0 5px;
 }
@@ -10979,5 +11370,209 @@ td .ellipsis-wrapper {
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;
+}
+
+.logs {
+  margin: 5px;
+  max-height: 392px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  padding: 10px;
+  background-color: #000;
+  color: #fff;
+  font-size: 12px;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+.input {
+  min-width: 150px;
+  width: 200px;
+}
+
+.input_s {
+  min-width: 300px;
+  width: 350px;
+}
+
+.clear-button {
+  height: 100%;
+}
+
+.code-container {
+  margin: 5px;
+  height: 330px;
+  position: relative;
+  background-color: #000;
+  user-select: text;
+  color: #fff;
+  border-radius: 6px;
+  border: 1px solid #e1e4e8;
+  overflow-y: auto;
+  padding: 16px;
+  font-size: 12px;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+  box-sizing: border-box;
+  clip-path: inset(0 round 6px);
+}
+
+.log-entry {
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+.line-by-line-mode .log-entry {
+  cursor: pointer;
+  user-select: none;
+}
+
+.line-by-line-mode .log-entry:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.line-by-line-mode .log-entry.selected {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-left: 5px solid #007bff;
+}
+
+.line-by-line-mode .log-entry.selected:hover {
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+.log-copy-button {
+  position: sticky;
+  top: 2px;
+  float: right;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background-color: #0366d6;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s ease;
+  z-index: 1000;
+}
+
+.log-copy-button:hover {
+  background-color: #024b8e;
+}
+
+.log-copy-button:disabled {
+  background-color: #6c757d;
+  color: white;
+}
+
+.download-button:disabled {
+  background-color: #6c757d;
+  color: white;
+}
+
+.download-button {
+  position: sticky;
+  float: right;
+  top: 2px;
+  right: 8px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background-color: #28a745;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s ease;
+  margin-left: 15px;
+}
+
+.search_input {
+  min-width: 600px;
+}
+
+.flex-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: left;
+  flex-wrap: wrap;
+}
+
+.download-button:hover {
+  background-color: #218838;
+}
+
+.download-button:disabled:hover {
+  background-color: #6c757d;
+}
+
+.icon-tooltip {
+  cursor: pointer;
+  font-size: 15px;
+  margin-right: 10px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  color: #6c757d;
+}
+
+.x {
+  cursor: pointer;
+  font-size: 1.5rem;
+  vertical-align: middle;
+  color: #ff6666;
+  transition: color 0.3s ease;
+}
+
+.x:hover {
+  color: #cc0000;
+}
+
+.r {
+  cursor: pointer;
+  font-size: 30px;
+  vertical-align: middle;
+  color: #39ff14;
+  transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease, opacity 0.6s ease, transform 0.6s ease;
+  border: 2px solid #4caf50;
+  padding: 4px;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.r:hover {
+  color: #39ff14;
+  border-color: #81c784;
+  box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
+}
+
+.r.disabled {
+  animation: spin 2s linear infinite;
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+  border-radius: 50%;
+  padding: 4px;
+  width: 30px !important;
+  height: 30px !important;
+  box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
+  transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease, opacity 0.6s ease, transform 0.6s ease;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: auto;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  padding-right: 10px;
+  color: grey;
 }
 </style>
