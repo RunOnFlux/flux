@@ -10138,6 +10138,9 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   };
   const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (appInfo && appInfo.expire && appSpecFormatted.expire) {
+    log.info(`appInfo: ${JSON.stringify(appInfo)}`);
+    log.info(`appSpecFormatted: ${JSON.stringify(appSpecFormatted)}`);
+    log.info(`daemonHeight: ${JSON.stringify(daemonHeight)}`);
     const blocksToExtend = (appSpecFormatted.expire + daemonHeight) - (appInfo.expire + appInfo.height);
     if (((!appSpecFormatted.nodes && !appInfo.nodes) || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length))
       && appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 2) { // free updates should not extend app subscription

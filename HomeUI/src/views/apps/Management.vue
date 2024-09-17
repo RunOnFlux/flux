@@ -5076,7 +5076,7 @@
           <label class="col-form-label">
             Period
             <v-icon
-              v-b-tooltip.hover.top="'Time your application will be subscribed for from today'"
+              v-b-tooltip.hover.top="'Time your application subscription will be extended'"
               name="info-circle"
               class="mr-2"
             />
@@ -8868,12 +8868,53 @@ export default {
         }
       }
     },
-    getExpirePosition(value) {
-      const position = this.expireOptions.findIndex((opt) => opt.value === value);
-      if (position || position === 0) {
-        return position;
+    getExpireOptions() {
+      this.expireOptions = [];
+      const expires = this.callBResponse.data.expire || 22000;
+      const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+      if (currentExpire + 5000 < 264000) {
+        this.expireOptions.push({
+          value: 5000 + currentExpire,
+          label: '1 week',
+          time: 7 * 24 * 60 * 60 * 1000,
+        });
       }
-      return 2;
+      this.expirePosition = 0;
+      if (currentExpire + 11000 < 264000) {
+        this.expireOptions.push({
+          value: 11000 + currentExpire,
+          label: '2 weeks',
+          time: 14 * 24 * 60 * 60 * 1000,
+        });
+        this.expirePosition = 1;
+      }
+      if (currentExpire + 22000 < 264000) {
+        this.expireOptions.push({
+          value: 22000 + currentExpire,
+          label: '1 month',
+          time: 30 * 24 * 60 * 60 * 1000,
+        });
+        this.expirePosition = 2;
+      }
+      if (currentExpire + 66000 < 264000) {
+        this.expireOptions.push({
+          value: 66000 + currentExpire,
+          label: '3 months',
+          time: 90 * 24 * 60 * 60 * 1000,
+        });
+      }
+      if (currentExpire + 132000 < 264000) {
+        this.expireOptions.push({
+          value: 132000 + currentExpire,
+          label: '6 months',
+          time: 180 * 24 * 60 * 60 * 1000,
+        });
+      }
+      this.expireOptions.push({
+        value: 264000,
+        label: 'Up to one year',
+        time: 365 * 24 * 60 * 60 * 1000,
+      });
     },
     async getGlobalApplicationSpecifics() {
       const response = await AppsService.getAppSpecifics(this.appName);
@@ -8934,9 +8975,8 @@ export default {
             component.repoauth = this.ensureString(component.repoauth || '');
           });
           if (this.appUpdateSpecification.version >= 6) {
-            const expireOption = this.expireOptions.find((opt) => opt.value >= (specs.expire || 22000));
-            this.appUpdateSpecification.expire = this.ensureNumber(expireOption.value);
-            this.expirePosition = this.getExpirePosition(this.appUpdateSpecification.expire);
+            this.getExpireOptions();
+            this.appUpdateSpecification.expire = this.ensureNumber(this.expireOptions[this.expirePosition].value);
           }
           if (this.appUpdateSpecification.version >= 7) {
             this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
