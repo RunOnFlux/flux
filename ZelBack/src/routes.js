@@ -1053,6 +1053,9 @@ module.exports = (app) => {
   app.get('/flux/getgateway', (req, res) => {
     upnpService.getGatewayApi(req, res);
   });
+  app.get('/flux/messageprocessed/:messagehash?', cache('30 minutes'), (req, res) => {
+    fluxCommunication.checkMessageAlreadyProcessed(req, res);
+  });
 
   app.get('/benchmark/start', (req, res) => {
     fluxService.startBenchmark(req, res);

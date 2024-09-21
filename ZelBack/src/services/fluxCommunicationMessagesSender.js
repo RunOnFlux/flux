@@ -82,6 +82,52 @@ async function sendToAllPeers(data, wsList) {
 }
 
 /**
+ * To send to peer.
+ * @param {object} data Data.
+ * @param {objec} client Web socket client.
+ */
+async function sendToPeer(data, client) {
+  try {
+    const removals = [];
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(25);
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      } else {
+        throw new Error(`Connection to ${client.ip} is not open`);
+      }
+    } catch (e) {
+      log.error(e);
+      removals.push(client);
+      try {
+        const { ip } = client;
+        const { port } = client;
+        // eslint-disable-next-line no-use-before-define
+        fluxNetworkHelper.closeConnection(ip, port);
+      } catch (err) {
+        log.error(err);
+      }
+    }
+
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = outgoingConnections.findIndex((ws) => removals[i].ip === ws.ip && removals[i].port === ws.port);
+      if (ocIndex > -1) {
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingConnections`);
+        outgoingConnections.splice(ocIndex, 1);
+      }
+      const peerIndex = outgoingPeers.findIndex((peer) => peer.ip === removals[i].ip && peer.port === removals[i].port);
+      if (peerIndex > -1) {
+        outgoingPeers.splice(peerIndex, 1);
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from outgoingPeers`);
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To send random peers.
  * @param {object} data Data.
  */
@@ -169,6 +215,51 @@ async function sendToAllIncomingConnections(data, wsList) {
         } catch (err) {
           log.error(err);
         }
+      }
+    }
+
+    for (let i = 0; i < removals.length; i += 1) {
+      const ocIndex = incomingConnections.findIndex((incomingCon) => removals[i].ip === incomingCon.ip && removals[i].port === incomingCon.port);
+      if (ocIndex > -1) {
+        log.info(`Connection to ${removals[i].ip}:${removals[i].port} removed from incomingConnections`);
+        incomingConnections.splice(ocIndex, 1);
+      }
+      const peerIndex = incomingPeers.findIndex((mypeer) => mypeer.ip === removals[i].ip && mypeer.port === removals[i].port);
+      if (peerIndex > -1) {
+        log.info(`Connection ${removals[i].ip}:${removals[i].port} removed from incomingPeers`);
+        incomingPeers.splice(peerIndex, 1);
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To send to incoming connection.
+ * @param {object} data Data.
+ * @param {object} client Web socket client.
+ */
+async function sendToIncomingConnection(data, client) {
+  try {
+    const removals = [];
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(25);
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(data);
+      } else {
+        throw new Error(`Connection to ${client.ip} is not open`);
+      }
+    } catch (e) {
+      removals.push(client);
+      try {
+        const { ip } = client;
+        const { port } = client;
+        fluxNetworkHelper.closeIncomingConnection(ip, port);
+      } catch (err) {
+        log.error(err);
       }
     }
 
@@ -658,4 +749,6 @@ module.exports = {
   broadcastMessageToOutgoing,
   broadcastMessageToRandomOutgoing,
   broadcastMessageToRandomIncoming,
+  sendToIncomingConnection,
+  sendToPeer,
 };
