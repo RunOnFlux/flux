@@ -299,8 +299,6 @@ describe('fluxCommunication tests', () => {
       incomingConnections.push(wsIncoming);
 
       const messageString = JSON.stringify(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp);
-      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp);
 
       const axiosGetResponse = {
         data: {
@@ -312,8 +310,8 @@ describe('fluxCommunication tests', () => {
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(sendToPeerSpy, messageString, wsListOut);
-      sinon.assert.calledOnceWithExactly(sendToIncomingConnectionSpy, messageString, wsListIn);
+      sinon.assert.calledOnceWithExactly(sendToPeerSpy, messageString, wsOutgoing);
+      sinon.assert.calledOnceWithExactly(sendToIncomingConnectionSpy, messageString, wsIncoming);
     }).timeout(10000);
 
     it('should not send broadcast if message is older than 3900 seconds', async () => {
