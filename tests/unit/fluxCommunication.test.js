@@ -242,6 +242,8 @@ describe('fluxCommunication tests', () => {
   describe('handleAppRunningMessage tests', () => {
     let sendToAllPeersSpy;
     let sendToAllIncomingConnectionsSpy;
+    let sendToPeerSpy;
+    let sendToIncomingConnectionSpy;
 
     beforeEach(async () => {
       outgoingConnections.length = 0;
@@ -249,6 +251,8 @@ describe('fluxCommunication tests', () => {
       await dbHelper.initiateDB();
       sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
       sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
+      sendToPeerSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToPeer').resolves(true);
+      sendToIncomingConnectionSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToIncomingConnection').resolves(true);
     });
 
     afterEach(() => {
@@ -298,10 +302,18 @@ describe('fluxCommunication tests', () => {
       const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp);
       const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp);
 
+      const axiosGetResponse = {
+        data: {
+          status: 'success',
+          data: false,
+        },
+      };
+      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
+
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
-      sinon.assert.calledOnceWithExactly(sendToAllPeersSpy, messageString, wsListOut);
-      sinon.assert.calledOnceWithExactly(sendToAllIncomingConnectionsSpy, messageString, wsListIn);
+      sinon.assert.calledOnceWithExactly(sendToPeerSpy, messageString, wsListOut);
+      sinon.assert.calledOnceWithExactly(sendToIncomingConnectionSpy, messageString, wsListIn);
     }).timeout(10000);
 
     it('should not send broadcast if message is older than 3900 seconds', async () => {
