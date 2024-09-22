@@ -126,7 +126,7 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port, outgoing
           fluxCommunicationMessagesSender.sendToAllPeers(dataString, wsListOut);
         }
       } else {
-        const wsList = incomingConnections.find((aux) => aux.ip === fromIP && aux.port === port);
+        const wsList = incomingConnections.filter((aux) => aux.ip === fromIP && aux.port === port);
         if (wsList && wsList.length > 0) {
           fluxCommunicationMessagesSender.sendToAllIncomingConnections(dataString, wsList);
         }
@@ -156,7 +156,7 @@ async function handleRequestMessageHash(messageHash, fromIP, port, outgoingConne
             fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
           }
         } else {
-          const wsList = incomingConnections.find((aux) => aux.ip === fromIP && aux.port === port);
+          const wsList = incomingConnections.filter((aux) => aux.ip === fromIP && aux.port === port);
           if (wsList && wsList.length > 0) {
             fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
           }
