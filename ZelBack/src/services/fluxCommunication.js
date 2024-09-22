@@ -404,10 +404,28 @@ function handleIncomingConnection(websocket, optionalPort) {
       const { messageHashPresent } = msgObj;
       const { requestMessageHash } = msgObj;
       if (messageHashPresent) {
+        if (typeof messageHashPresent !== 'string' || messageHashPresent.length !== 40) {
+          try {
+            log.info(`Invalid message of type messageHashPresentreceived from outgoing peer ${peer.ip}:${peer.port}. Closing outgoing connection`);
+            websocket.close(4016, 'Message not valid, disconnect');
+          } catch (e) {
+            log.error(e);
+          }
+          return;
+        }
         handleCheckMessageHashPresent(messageHashPresent, peer.ip, peer.port, false);
         return;
       }
       if (requestMessageHash) {
+        if (typeof requestMessageHash !== 'string' || requestMessageHash.length !== 40) {
+          try {
+            log.info(`Invalid message of type requestMessageHash from incoming peer ${peer.ip}:${peer.port}. Closing incoming connection`);
+            websocket.close(4016, 'Message not valid, disconnect');
+          } catch (e) {
+            log.error(e);
+          }
+          return;
+        }
         handleRequestMessageHash(requestMessageHash, peer.ip, peer.port, false);
         return;
       }
@@ -725,10 +743,28 @@ async function initiateAndHandleConnection(connection) {
       const { messageHashPresent } = msgObj;
       const { requestMessageHash } = msgObj;
       if (messageHashPresent) {
+        if (typeof messageHashPresent !== 'string' || messageHashPresent.length !== 40) {
+          try {
+            log.info(`Invalid message of type messageHashPresentreceived from outgoing peer ${ip}:${port}. Closing outgoing connection`);
+            websocket.close(4017, 'Message not valid, disconnect');
+          } catch (e) {
+            log.error(e);
+          }
+          return;
+        }
         handleCheckMessageHashPresent(messageHashPresent, ip, port, true);
         return;
       }
       if (requestMessageHash) {
+        if (typeof requestMessageHash !== 'string' || requestMessageHash.length !== 40) {
+          try {
+            log.info(`Invalid message of type requestMessageHash from outgoing peer ${ip}:${port}. Closing outgoing connection`);
+            websocket.close(4017, 'Message not valid, disconnect');
+          } catch (e) {
+            log.error(e);
+          }
+          return;
+        }
         handleRequestMessageHash(requestMessageHash, ip, port, true);
         return;
       }
