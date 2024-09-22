@@ -405,8 +405,11 @@ function handleIncomingConnection(websocket, optionalPort) {
       const { requestMessageHash } = msgObj;
       if (messageHashPresent) {
         handleCheckMessageHashPresent(messageHashPresent, peer.ip, peer.port, false);
-      } else if (requestMessageHash) {
+        return;
+      }
+      if (requestMessageHash) {
         handleRequestMessageHash(requestMessageHash, peer.ip, peer.port, false);
+        return;
       }
       if (!pubKey || !timestamp || !signature || !version || !data) {
         try {
@@ -723,8 +726,11 @@ async function initiateAndHandleConnection(connection) {
       const { requestMessageHash } = msgObj;
       if (messageHashPresent) {
         handleCheckMessageHashPresent(messageHashPresent, ip, port, true);
-      } else if (requestMessageHash) {
+        return;
+      }
+      if (requestMessageHash) {
         handleRequestMessageHash(requestMessageHash, ip, port, true);
+        return;
       }
       if (!pubKey || !timestamp || !signature || !version || !data) {
         try {
