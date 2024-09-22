@@ -1,5 +1,4 @@
 <!-- eslint-disable no-restricted-syntax -->
-<!-- eslint-disable no-restricted-syntax -->
 <!-- eslint-disable guard-for-in -->
 <!-- eslint-disable vue/no-use-computed-property-like-method -->
 <template>
@@ -11586,6 +11585,8 @@ input[type="number"]::-webkit-inner-spin-button {
 
 input[type="number"] {
   -moz-appearance: textfield;
+  -webkit-appearance: textfield;
+  appearance: textfield;
   padding-right: 10px;
   color: grey;
 }
