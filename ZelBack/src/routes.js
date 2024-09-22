@@ -1053,7 +1053,7 @@ module.exports = (app) => {
   app.get('/flux/getgateway', (req, res) => {
     upnpService.getGatewayApi(req, res);
   });
-  app.get('/flux/messageprocessed/:messagehash?', cache('30 minutes'), (req, res) => {
+  app.get('/flux/messageprocessed/:messagehash?', (req, res) => {
     fluxCommunication.checkMessageAlreadyProcessed(req, res);
   });
 
