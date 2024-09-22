@@ -299,6 +299,7 @@ describe('fluxCommunication tests', () => {
       incomingConnections.push(wsIncoming);
 
       const messageString = JSON.stringify(message);
+      sinon.stub(serviceHelper, 'delay').resolves(() => new Promise((resolve) => { setTimeout(resolve, 50); }));
 
       const axiosGetResponse = {
         data: {
