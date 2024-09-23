@@ -1104,6 +1104,9 @@ module.exports = (app) => {
   app.get('/apps/applog/:appname?/:lines?', (req, res) => {
     appsService.appLog(req, res);
   });
+  app.get('/apps/applogpolling/:appname?/:lines?/:since?', (req, res) => {
+    appsService.appLogPolling(req, res);
+  });
   app.get('/apps/appinspect/:appname?', (req, res) => {
     appsService.appInspect(req, res);
   });
