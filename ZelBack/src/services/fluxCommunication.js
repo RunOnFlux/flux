@@ -394,7 +394,11 @@ function handleIncomingConnection(websocket, optionalPort) {
       if (messageNumber === 100000000) {
         messageNumber = 0;
       } */
-
+      // check rate limit
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
+      if (!rateOK) {
+        return; // do not react to the message
+      }
       const msgObj = serviceHelper.ensureObject(msg.data);
       const { pubKey } = msgObj;
       const { timestamp } = msgObj;
@@ -446,11 +450,6 @@ function handleIncomingConnection(websocket, optionalPort) {
         return;
       }
       myCacheTemp.set(messageHash, msgObj);
-      // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
-      if (!rateOK) {
-        return; // do not react to the message
-      }
 
       // check blocked list
       if (blockedPubKeysCache.has(pubKey)) {
@@ -734,6 +733,11 @@ async function initiateAndHandleConnection(connection) {
       if (messageNumber === 100000000) {
         messageNumber = 0;
       } */
+      // check rate limit
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
+      if (!rateOK) {
+        return; // do not react to the message
+      }
       const msgObj = serviceHelper.ensureObject(evt.data);
       const { pubKey } = msgObj;
       const { timestamp } = msgObj;
@@ -786,11 +790,6 @@ async function initiateAndHandleConnection(connection) {
       myCacheTemp.set(messageHash, msgObj);
       // incoming messages from outgoing connections
       const currentTimeStamp = Date.now(); // ms
-      // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
-      if (!rateOK) {
-        return; // do not react to the message
-      }
       // check blocked list
       if (blockedPubKeysCache.has(pubKey)) {
         try {
