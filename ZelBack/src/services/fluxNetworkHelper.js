@@ -1318,6 +1318,23 @@ async function adjustFirewall() {
           log.info(`Failed to adjust Firewall out for port ${port}`);
         }
       }
+      const execDenyA = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 10.0.0.0/8';
+      const execDenyB = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 172.16.0.0/12';
+      const execDenyC = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 192.168.0.0/16';
+      const execDenyD = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 100.64.0.0/10';
+      const execDenyE = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 198.18.0.0/15';
+      const execDenyF = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 169.254.0.0/16';
+      await cmdAsync(execDenyA);
+      await cmdAsync(execDenyB);
+      await cmdAsync(execDenyC);
+      await cmdAsync(execDenyD);
+      await cmdAsync(execDenyE);
+      const result = await cmdAsync(execDenyF);
+      if (serviceHelper.ensureString(result).includes('updated') || serviceHelper.ensureString(result).includes('existing') || serviceHelper.ensureString(result).includes('added')) {
+        log.info('Firewall out adjusted for netscans');
+      } else {
+        log.info('Failed to adjust Firewall for netscans');
+      }
     } else {
       log.info('Firewall is not active. Adjusting not applied');
     }
