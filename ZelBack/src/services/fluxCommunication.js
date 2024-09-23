@@ -72,7 +72,15 @@ async function handleAppMessages(message, fromIP, port) {
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
-      const messageString = serviceHelper.ensureString(message);
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height || 0;
+      let messageString = serviceHelper.ensureString(message);
+      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
+        const dataObj = {
+          messageHashPresent: hash(message.data),
+        };
+        messageString = JSON.stringify(dataObj);
+      }
       const wsListOut = [];
       outgoingConnections.forEach((client) => {
         if (client.ip === fromIP && client.port === port) {
@@ -99,6 +107,68 @@ async function handleAppMessages(message, fromIP, port) {
 }
 
 /**
+ * To handle check if message hash is present, if node doesn't have that message hash will send to the client a message requesting for the message.
+ * @param {string} messageHash Message hash.
+ * @param {string} fromIP Sender's IP address.
+ * @param {string} port Sender's node Api port.
+ * @param {boolean} outgoingConnection says if ip/port is from incoming or outgoing connections.
+ */
+async function handleCheckMessageHashPresent(messageHash, fromIP, port, outgoingConnection) {
+  try {
+    if (!myCacheTemp.has(messageHash)) {
+      const dataObj = {
+        requestMessageHash: messageHash,
+      };
+      const dataString = JSON.stringify(dataObj);
+      if (outgoingConnection) {
+        const wsListOut = outgoingConnections.filter((aux) => aux.ip === fromIP && aux.port === port);
+        if (wsListOut && wsListOut.length > 0) {
+          fluxCommunicationMessagesSender.sendToAllPeers(dataString, wsListOut);
+        }
+      } else {
+        const wsList = incomingConnections.filter((aux) => aux.ip === fromIP && aux.port === port);
+        if (wsList && wsList.length > 0) {
+          fluxCommunicationMessagesSender.sendToAllIncomingConnections(dataString, wsList);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To handle a request of a message, from the message hash from one of the ws connections.
+ * @param {string} messageHash Message hash.
+ * @param {string} fromIP Sender's IP address.
+ * @param {string} port Sender's node Api port.
+ * @param {boolean} outgoingConnection says if ip/port is from incoming or outgoing connections.
+ */
+async function handleRequestMessageHash(messageHash, fromIP, port, outgoingConnection) {
+  try {
+    if (myCacheTemp.has(messageHash)) {
+      const message = myCacheTemp.get(messageHash);
+      if (message) {
+        const messageString = serviceHelper.ensureString(message);
+        if (outgoingConnection) {
+          const wsListOut = outgoingConnections.filter((aux) => aux.ip === fromIP && aux.port === port);
+          if (wsListOut && wsListOut.length > 0) {
+            fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
+          }
+        } else {
+          const wsList = incomingConnections.filter((aux) => aux.ip === fromIP && aux.port === port);
+          if (wsList && wsList.length > 0) {
+            fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To handle running app messages.
  * @param {object} message Message.
  * @param {string} fromIP Sender's IP address.
@@ -115,7 +185,15 @@ async function handleAppRunningMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers === true && timestampOK) {
-      const messageString = serviceHelper.ensureString(message);
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height || 0;
+      let messageString = serviceHelper.ensureString(message);
+      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
+        const dataObj = {
+          messageHashPresent: hash(message.data),
+        };
+        messageString = JSON.stringify(dataObj);
+      }
       const wsListOut = [];
       outgoingConnections.forEach((client) => {
         if (client.ip === fromIP && client.port === port) {
@@ -157,7 +235,15 @@ async function handleIPChangedMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
-      const messageString = serviceHelper.ensureString(message);
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height || 0;
+      let messageString = serviceHelper.ensureString(message);
+      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
+        const dataObj = {
+          messageHashPresent: hash(message.data),
+        };
+        messageString = JSON.stringify(dataObj);
+      }
       const wsListOut = [];
       outgoingConnections.forEach((client) => {
         if (client.ip === fromIP && client.port === port) {
@@ -199,7 +285,15 @@ async function handleAppRemovedMessage(message, fromIP, port) {
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
-      const messageString = serviceHelper.ensureString(message);
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      const daemonHeight = syncStatus.data.height || 0;
+      let messageString = serviceHelper.ensureString(message);
+      if (daemonHeight >= config.messagesBroadcastRefactorStart) {
+        const dataObj = {
+          messageHashPresent: hash(message.data),
+        };
+        messageString = JSON.stringify(dataObj);
+      }
       const wsListOut = [];
       outgoingConnections.forEach((client) => {
         if (client.ip === fromIP && client.port === port) {
@@ -300,13 +394,45 @@ function handleIncomingConnection(websocket, optionalPort) {
       if (messageNumber === 100000000) {
         messageNumber = 0;
       } */
-
+      // check rate limit
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
+      if (!rateOK) {
+        return; // do not react to the message
+      }
       const msgObj = serviceHelper.ensureObject(msg.data);
       const { pubKey } = msgObj;
       const { timestamp } = msgObj;
       const { signature } = msgObj;
       const { version } = msgObj;
       const { data } = msgObj;
+      const { messageHashPresent } = msgObj;
+      const { requestMessageHash } = msgObj;
+      if (messageHashPresent) {
+        if (typeof messageHashPresent !== 'string' || messageHashPresent.length !== 40) {
+          try {
+            log.info(`Invalid message of type messageHashPresentreceived from outgoing peer ${peer.ip}:${peer.port}. Closing outgoing connection`);
+            websocket.close(4016, 'Message not valid, disconnect');
+          } catch (e) {
+            log.error(e);
+          }
+          return;
+        }
+        handleCheckMessageHashPresent(messageHashPresent, peer.ip, peer.port, false);
+        return;
+      }
+      if (requestMessageHash) {
+        if (typeof requestMessageHash !== 'string' || requestMessageHash.length !== 40) {
+          try {
+            log.info(`Invalid message of type requestMessageHash from incoming peer ${peer.ip}:${peer.port}. Closing incoming connection`);
+            websocket.close(4016, 'Message not valid, disconnect');
+          } catch (e) {
+            log.error(e);
+          }
+          return;
+        }
+        handleRequestMessageHash(requestMessageHash, peer.ip, peer.port, false);
+        return;
+      }
       if (!pubKey || !timestamp || !signature || !version || !data) {
         try {
           log.info(`Invalid received from incoming peer ${peer.ip}:${peer.port}. Closing incoming connection`);
@@ -323,12 +449,7 @@ function handleIncomingConnection(websocket, optionalPort) {
       if (myCacheTemp.has(messageHash)) {
         return;
       }
-      myCacheTemp.set(messageHash, messageHash);
-      // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
-      if (!rateOK) {
-        return; // do not react to the message
-      }
+      myCacheTemp.set(messageHash, msgObj);
 
       // check blocked list
       if (blockedPubKeysCache.has(pubKey)) {
@@ -612,12 +733,45 @@ async function initiateAndHandleConnection(connection) {
       if (messageNumber === 100000000) {
         messageNumber = 0;
       } */
+      // check rate limit
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
+      if (!rateOK) {
+        return; // do not react to the message
+      }
       const msgObj = serviceHelper.ensureObject(evt.data);
       const { pubKey } = msgObj;
       const { timestamp } = msgObj;
       const { signature } = msgObj;
       const { version } = msgObj;
       const { data } = msgObj;
+      const { messageHashPresent } = msgObj;
+      const { requestMessageHash } = msgObj;
+      if (messageHashPresent) {
+        if (typeof messageHashPresent !== 'string' || messageHashPresent.length !== 40) {
+          try {
+            log.info(`Invalid message of type messageHashPresentreceived from outgoing peer ${ip}:${port}. Closing outgoing connection`);
+            websocket.close(4017, 'Message not valid, disconnect');
+          } catch (e) {
+            log.error(e);
+          }
+          return;
+        }
+        handleCheckMessageHashPresent(messageHashPresent, ip, port, true);
+        return;
+      }
+      if (requestMessageHash) {
+        if (typeof requestMessageHash !== 'string' || requestMessageHash.length !== 40) {
+          try {
+            log.info(`Invalid message of type requestMessageHash from outgoing peer ${ip}:${port}. Closing outgoing connection`);
+            websocket.close(4017, 'Message not valid, disconnect');
+          } catch (e) {
+            log.error(e);
+          }
+          return;
+        }
+        handleRequestMessageHash(requestMessageHash, ip, port, true);
+        return;
+      }
       if (!pubKey || !timestamp || !signature || !version || !data) {
         try {
           log.info(`Invalid received from outgoing peer ${ip}:${port}. Closing outgoing connection`);
@@ -633,14 +787,9 @@ async function initiateAndHandleConnection(connection) {
       if (myCacheTemp.has(messageHash)) {
         return;
       }
-      myCacheTemp.set(messageHash, messageHash);
+      myCacheTemp.set(messageHash, msgObj);
       // incoming messages from outgoing connections
       const currentTimeStamp = Date.now(); // ms
-      // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
-      if (!rateOK) {
-        return; // do not react to the message
-      }
       // check blocked list
       if (blockedPubKeysCache.has(pubKey)) {
         try {
