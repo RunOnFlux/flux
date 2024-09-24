@@ -1327,6 +1327,39 @@ async function adjustFirewall() {
 }
 
 /**
+ * To adjust a firewall to allow ports for Flux.
+ */
+async function adjustFirewallToNotAllowNetscans() {
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    const firewallActive = await isFirewallActive();
+    if (firewallActive) {
+      const execDenyA = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 10.0.0.0/8';
+      const execDenyB = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 172.16.0.0/12';
+      const execDenyC = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 192.168.0.0/16';
+      const execDenyD = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 100.64.0.0/10';
+      const execDenyE = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 198.18.0.0/15';
+      const execDenyF = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 169.254.0.0/16';
+      await cmdAsync(execDenyA);
+      await cmdAsync(execDenyB);
+      await cmdAsync(execDenyC);
+      await cmdAsync(execDenyD);
+      await cmdAsync(execDenyE);
+      const result = await cmdAsync(execDenyF);
+      if (serviceHelper.ensureString(result).includes('updated') || serviceHelper.ensureString(result).includes('existing') || serviceHelper.ensureString(result).includes('added')) {
+        log.info('Firewall out adjusted for netscans');
+      } else {
+        log.info('Failed to adjust Firewall for netscans');
+      }
+    } else {
+      log.info('Firewall is not active. Netscans adjusting not applied');
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To clean a firewall deny policies, and delete them from it.
  */
 async function purgeUFW() {
@@ -1620,6 +1653,7 @@ module.exports = {
   deleteAllowOutPortRule,
   allowPortApi,
   adjustFirewall,
+  adjustFirewallToNotAllowNetscans,
   purgeUFW,
   checkRateLimit,
   closeConnection,

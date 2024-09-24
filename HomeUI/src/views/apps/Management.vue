@@ -1,5 +1,4 @@
 <!-- eslint-disable no-restricted-syntax -->
-<!-- eslint-disable no-restricted-syntax -->
 <!-- eslint-disable guard-for-in -->
 <!-- eslint-disable vue/no-use-computed-property-like-method -->
 <template>
@@ -940,12 +939,15 @@
             <div class="flex-container">
               <b-form-group>
                 <b-form-group v-if="!appSpecification?.compose" label="Component">
-                  <b-form-input
-                    size="sm"
-                    :placeholder="appSpecification.name"
-                    disabled
-                    class="input_s"
-                  />
+                  <div class="d-flex align-items-center">
+                    <b-form-input
+                      size="sm"
+                      :placeholder="appSpecification.name"
+                      disabled
+                      class="input_s"
+                    />
+                    <b-icon icon="arrow-clockwise" :class="['ml-1', 'r', { disabled: isDisabled }]" @click="manualFetchLogs" />
+                  </div>
                 </b-form-group>
                 <b-form-group v-if="appSpecification?.compose" label="Component">
                   <div class="d-flex align-items-center">
@@ -1091,6 +1093,9 @@
             </div>
             <div v-else-if="filterKeyword.trim() !== ''" class="no-matches">
               No log line matching the '{{ filterKeyword }}' filter.
+            </div>
+            <div v-else-if="noLogs" class="no-matches">
+              No log records found.
             </div>
           </div>
         </div>
@@ -6022,6 +6027,7 @@ export default {
   data() {
     return {
       logs: [],
+      noLogs: false,
       manualInProgress: false,
       isLineByLineMode: false,
       selectedLog: [],
@@ -7066,12 +7072,16 @@ export default {
       }
       const appnama = this.selectedApp ? `${this.selectedApp}_${this.appSpecification.name}` : this.appSpecification.name;
       this.requestInProgress = true;
+      this.noLogs = false;
       try {
         const containerName = this.selectedApp;
         const lines = this.fetchAllLogs ? 'all' : this.lineCount || 100;
         const response = await this.executeLocalCommand(`/apps/applogpolling/${appnama}/${lines}/${this.sinceTimestamp}`);
         if (this.selectedApp === containerName) {
           this.logs = response.data?.logs;
+          if (response.data?.status === 'success' && this.logs?.length === 0) {
+            this.noLogs = true;
+          }
           if (this.logs.length > 0) {
             this.$nextTick(() => {
               if (this.autoScroll) {
@@ -11075,6 +11085,13 @@ export default {
           });
           if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
             clientIP = clientIPResponse.data.ip;
+          } else {
+            clientIPResponse = await axios.get('https://api.ip2location.io').catch(() => {
+              console.log('Error geting clientIp from api.ip2location.io from');
+            });
+            if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+              clientIP = clientIPResponse.data.ip;
+            }
           }
         }
         const zelidauth = localStorage.getItem('zelidauth');
@@ -11401,18 +11418,21 @@ td .ellipsis-wrapper {
 .code-container {
   margin: 5px;
   height: 330px;
+  max-width: 100vw;
   position: relative;
   background-color: #000;
   user-select: text;
   color: #fff;
   border-radius: 6px;
   border: 1px solid #e1e4e8;
-  overflow-y: auto;
+  overflow: auto;
   padding: 16px;
   font-size: 12px;
   font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
   box-sizing: border-box;
   clip-path: inset(0 round 6px);
+  word-wrap: break-word;
+  word-break: break-all;
 }
 
 .log-entry {
@@ -11572,6 +11592,8 @@ input[type="number"]::-webkit-inner-spin-button {
 
 input[type="number"] {
   -moz-appearance: textfield;
+  -webkit-appearance: textfield;
+  appearance: textfield;
   padding-right: 10px;
   color: grey;
 }

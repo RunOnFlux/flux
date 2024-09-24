@@ -31,7 +31,8 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-
+    fluxNetworkHelper.adjustFirewallToNotAllowNetscans();
+    log.info('Firewalls Netscans checked');
     // User configured UPnP node with routerIP, UPnP has already been verified and setup
     if (userconfig.initial.routerIP) {
       setInterval(() => {
