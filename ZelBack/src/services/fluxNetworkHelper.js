@@ -1318,6 +1318,22 @@ async function adjustFirewall() {
           log.info(`Failed to adjust Firewall out for port ${port}`);
         }
       }
+    } else {
+      log.info('Firewall is not active. Adjusting not applied');
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To adjust a firewall to allow ports for Flux.
+ */
+async function adjustFirewallToNotAllowNetscans() {
+  try {
+    const cmdAsync = util.promisify(nodecmd.get);
+    const firewallActive = await isFirewallActive();
+    if (firewallActive) {
       const execDenyA = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 10.0.0.0/8';
       const execDenyB = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 172.16.0.0/12';
       const execDenyC = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 192.168.0.0/16';
@@ -1336,7 +1352,7 @@ async function adjustFirewall() {
         log.info('Failed to adjust Firewall for netscans');
       }
     } else {
-      log.info('Firewall is not active. Adjusting not applied');
+      log.info('Firewall is not active. Netscans adjusting not applied');
     }
   } catch (error) {
     log.error(error);
@@ -1637,6 +1653,7 @@ module.exports = {
   deleteAllowOutPortRule,
   allowPortApi,
   adjustFirewall,
+  adjustFirewallToNotAllowNetscans,
   purgeUFW,
   checkRateLimit,
   closeConnection,
