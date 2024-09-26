@@ -1348,7 +1348,7 @@ async function adjustFirewallToNotAllowNetscans() {
       await cmdAsync(execDenyB);
       await cmdAsync(execDenyC);
       await cmdAsync(execDenyD);
-      await cmdAsync(execDenyE); 
+      await cmdAsync(execDenyE);
       const result = await cmdAsync(execDenyF);
       if (serviceHelper.ensureString(result).includes('updated') || serviceHelper.ensureString(result).includes('existing') || serviceHelper.ensureString(result).includes('added')) {
         log.info('Firewall out adjusted for netscans');
