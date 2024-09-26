@@ -1340,6 +1340,10 @@ async function adjustFirewallToNotAllowNetscans() {
       const execDenyD = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 100.64.0.0/10';
       const execDenyE = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 198.18.0.0/15';
       const execDenyF = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 169.254.0.0/16';
+      const execAllowA = 'LANG="en_US.UTF-8" && sudo ufw allow from 192.168.0.0/16 to any port 1900 proto udp';
+      const execAllowB = 'LANG="en_US.UTF-8" && sudo ufw allow from 192.168.0.0/16 to any port 2869 proto tcp';
+      await cmdAsync(execAllowA);
+      await cmdAsync(execAllowB);
       await cmdAsync(execDenyA);
       await cmdAsync(execDenyB);
       await cmdAsync(execDenyC);
