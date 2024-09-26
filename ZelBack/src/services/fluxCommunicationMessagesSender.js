@@ -279,14 +279,14 @@ async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
   const dataString = JSON.stringify(dataObj);
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height || 0;
-  if (daemonHeight >= config.compressMessages || 0) {
+  if (daemonHeight >= 0) {
     const dataObjAux = {
       compressed: true,
       dataObj: LZString.compress(dataString),
     };
     const dataStringAux = JSON.stringify(dataObjAux);
-    log.info(`Original of sample is: ${dataString}`);
-    log.info(`Original lenght of sample is: ${dataString.length}`);
+    log.info(`Original of Sample is: ${dataString}`);
+    log.info(`Original lenght of Sample is: ${dataString.length}`);
     log.info(`Sample lenght with compression is: ${dataStringAux.length}`);
     const objectAux = JSON.parse(dataStringAux);
     objectAux.dataObj = LZString.decompress(objectAux.dataObj);
