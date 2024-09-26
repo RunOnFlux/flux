@@ -1,4 +1,5 @@
 /* eslint-disable no-underscore-dangle */
+const config = require('config');
 const { LRUCache } = require('lru-cache');
 const WebSocket = require('ws');
 const LZString = require('lz-string');
@@ -7,6 +8,7 @@ const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -275,9 +277,21 @@ async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
     data: dataToBroadcast,
   };
   const dataString = JSON.stringify(dataObj);
-  log.info(`Size of sample is: ${dataString.length}`);
-  const compressed = LZString.compress(dataString);
-  log.info(`Size of compressed sample is: ${compressed.length}`);
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  const daemonHeight = syncStatus.data.height || 0;
+  if (daemonHeight >= config.compressMessages || 0) {
+    const dataObjAux = {
+      compressed: true,
+      dataObj: LZString.compress(dataString),
+    };
+    const dataStringAux = JSON.stringify(dataObjAux);
+    log.info(`Original of sample is: ${dataString}`);
+    log.info(`Original lenght of sample is: ${dataString.length}`);
+    log.info(`Sample lenght with compression is: ${dataStringAux.length}`);
+    const objectAux = JSON.parse(dataStringAux);
+    objectAux.dataObj = LZString.decompress(objectAux.dataObj);
+    log.info(`Sample after decompress is: ${objectAux.dataObj}`);
+  }
   return dataString;
 }
 
