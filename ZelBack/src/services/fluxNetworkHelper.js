@@ -1340,11 +1340,17 @@ async function adjustFirewallToNotAllowNetscans() {
       const execDenyD = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 100.64.0.0/10';
       const execDenyE = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 198.18.0.0/15';
       const execDenyF = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 169.254.0.0/16';
+      const execAllowA = 'LANG="en_US.UTF-8" && sudo ufw allow from 192.168.0.0/16 to any port 1900 proto udp';
+      const execAllowB = 'LANG="en_US.UTF-8" && sudo ufw allow from 192.168.0.0/16 to any port 2869 proto tcp';
+      const execAllowC = 'LANG="en_US.UTF-8" && sudo ufw allow from 192.168.0.0/16';
       await cmdAsync(execDenyA);
       await cmdAsync(execDenyB);
       await cmdAsync(execDenyC);
       await cmdAsync(execDenyD);
       await cmdAsync(execDenyE);
+      await cmdAsync(execAllowA);
+      await cmdAsync(execAllowB);
+      await cmdAsync(execAllowC);
       const result = await cmdAsync(execDenyF);
       if (serviceHelper.ensureString(result).includes('updated') || serviceHelper.ensureString(result).includes('existing') || serviceHelper.ensureString(result).includes('added')) {
         log.info('Firewall out adjusted for netscans');
