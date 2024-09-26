@@ -78,6 +78,7 @@ module.exports = {
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
+  messagesCompressed: 1756290, // expected block at 20th Octobor 2024
   fluxapps: {
     // in flux main chain per month (blocksLasting)
     price: [
