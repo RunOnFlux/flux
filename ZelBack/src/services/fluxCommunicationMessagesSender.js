@@ -1,6 +1,7 @@
 /* eslint-disable no-underscore-dangle */
 const { LRUCache } = require('lru-cache');
 const WebSocket = require('ws');
+const LZString = require('lz-string');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -274,6 +275,9 @@ async function serialiseAndSignFluxBroadcast(dataToBroadcast, privatekey) {
     data: dataToBroadcast,
   };
   const dataString = JSON.stringify(dataObj);
+  log.info(`Size of sample is: ${dataString.length}`);
+  const compressed = LZString.compress(dataString);
+  log.info(`Size of compressed sample is: ${compressed.length}`);
   return dataString;
 }
 
