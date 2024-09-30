@@ -1314,7 +1314,7 @@ async function adjustFirewall() {
       await cmdAsync(execAllowF);
       log.info('Firewall adjusted for DNS traffic');
 
-      const commandGetRouterIP = 'ip rout | head -n1 | awk \'{print $3}\' > /dev/null 2>&1';
+      const commandGetRouterIP = 'ip rout | head -n1 | awk \'{print $3}\'';
       const routerIP = await cmdAsync(commandGetRouterIP);
       log.info(`Router IP: ${routerIP}`);
       if (serviceHelper.validIpv4Address(routerIP)) {
