@@ -681,9 +681,9 @@ async function initiateAndHandleConnection(connection) {
       perMessageDeflate: {
         enabled: true,
         clientNoCompression: false,
-        clientMaxWindowBits: 15,
+        clientMaxWindowBits: 18,
         serverNoCompression: false,
-        serverMaxWindowBits: 15,
+        serverMaxWindowBits: 18,
       },
     };
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
