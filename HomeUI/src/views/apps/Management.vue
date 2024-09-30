@@ -8838,7 +8838,15 @@ export default {
       backendURL = backendURL.replace('http://', 'ws://');
       const signatureMessage = this.appUpdateSpecification.owner + this.timestamp;
       const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
-      const websocket = new WebSocket(wsuri);
+      const options = {
+        perMessageDeflate: {
+          clientNoCompression: false,
+          clientMaxWindowBits: 15,
+          serverNoCompression: false,
+          serverMaxWindowBits: 15,
+        },
+      };
+      const websocket = new WebSocket(wsuri, options);
       this.websocket = websocket;
 
       websocket.onopen = (evt) => { self.onOpen(evt); };

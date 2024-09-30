@@ -635,7 +635,15 @@ export default {
       backendURL = backendURL.replace('http://', 'ws://');
       const signatureMessage = userZelid.value + dataToSign.value.slice(-13);
       const wsuri = `${backendURL}/ws/sign/${signatureMessage}`;
-      const websocket = new WebSocket(wsuri);
+      const options = {
+        perMessageDeflate: {
+          clientNoCompression: false,
+          clientMaxWindowBits: 15,
+          serverNoCompression: false,
+          serverMaxWindowBits: 15,
+        },
+      };
+      const websocket = new WebSocket(wsuri, options);
       // const websocket = websocket
 
       websocket.onopen = (evt) => { onOpen(evt); };

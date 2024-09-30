@@ -677,8 +677,16 @@ async function initiateAndHandleConnection(connection) {
       }
       myPort = myIP.split(':')[1] || 16127;
     }
+    const options = {
+      perMessageDeflate: {
+        clientNoCompression: false,
+        clientMaxWindowBits: 15,
+        serverNoCompression: false,
+        serverMaxWindowBits: 15,
+      },
+    };
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
-    const websocket = new WebSocket(wsuri);
+    const websocket = new WebSocket(wsuri, options);
     websocket.port = port;
     websocket.ip = ip;
     websocket.onopen = () => {

@@ -691,7 +691,15 @@ export default {
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
       const wsuri = `${backendURL}/ws/id/${this.loginPhrase}`;
-      const websocket = new WebSocket(wsuri);
+      const options = {
+        perMessageDeflate: {
+          clientNoCompression: false,
+          clientMaxWindowBits: 15,
+          serverNoCompression: false,
+          serverMaxWindowBits: 15,
+        },
+      };
+      const websocket = new WebSocket(wsuri, options);
       this.websocket = websocket;
 
       websocket.onopen = (evt) => { self.onOpen(evt); };
