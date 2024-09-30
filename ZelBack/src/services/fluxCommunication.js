@@ -848,6 +848,7 @@ async function initiateAndHandleConnection(connection) {
 
     websocket.onerror = (evt) => {
       log.info(`Outgoing Connection to ${ip}:${port} errord with code ${evt.code}`);
+      log.info(`Outgoing Connection to ${ip}:${port} errord with code ${JSON.stringify(evt)}`);
       const ocIndex = outgoingConnections.findIndex((ws) => ip === ws.ip && port === ws.port);
       if (ocIndex > -1) {
         log.info(`Connection ${ip}:${port} removed from outgoingConnections`);
