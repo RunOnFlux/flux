@@ -1317,7 +1317,8 @@ async function adjustFirewall() {
       const commandGetRouterIP = 'ip rout | head -n1 | awk \'{print $3}\'';
       const routerIP = await cmdAsync(commandGetRouterIP);
       log.info(`Router IP: ${routerIP}`);
-      if (serviceHelper.validIpv4Address(routerIP)) {
+      if (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
+       || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.')) {
         const execRouterAllowA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
         const execRouterAllowB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
         await cmdAsync(execRouterAllowA);
