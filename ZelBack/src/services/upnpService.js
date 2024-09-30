@@ -52,10 +52,10 @@ async function adjustFirewallForUPNP() {
       const cmdAsync = util.promisify(nodecmd.get);
       const firewallActive = await isFirewallActive();
       if (firewallActive) {
-        const execA = 'LANG="en_US.UTF-8" && sudo ufw allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
-        const execB = `LANG="en_US.UTF-8" && sudo ufw allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
-        const execC = `LANG="en_US.UTF-8" && sudo ufw allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
-        const execD = `LANG="en_US.UTF-8" && sudo ufw allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
+        const execA = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
+        const execB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
+        const execC = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
+        const execD = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
         let routerIpNetwork = `${routerIP.split('.')[0]}.${routerIP.split('.')[1]}.0.0`;
         if (routerIpNetwork === '10.0.0.0') {
           routerIpNetwork += '/8';
