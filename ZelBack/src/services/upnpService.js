@@ -52,10 +52,35 @@ async function adjustFirewallForUPNP() {
       const cmdAsync = util.promisify(nodecmd.get);
       const firewallActive = await isFirewallActive();
       if (firewallActive) {
+        // standard rules for upnp
         const execA = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to 239.255.255.250 port 1900 proto udp > /dev/null 2>&1';
         const execB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} port 1900 to any proto udp > /dev/null 2>&1`;
         const execC = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
         const execD = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
+        await cmdAsync(execA);
+        await cmdAsync(execB);
+        await cmdAsync(execC);
+        await cmdAsync(execD);
+
+        const fluxCommunicationPorts = config.server.allowedPorts;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of fluxCommunicationPorts) {
+          // create rule for hone nodes ws connections
+          const execAllowHomeComsA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto tcp from any to ${routerIP} port ${port} > /dev/null 2>&1`;
+          const execAllowHomeComsB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to ${routerIP} port ${port} > /dev/null 2>&1`;
+          const execAllowHomeComsC = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto udp from any to ${routerIP} port ${port} > /dev/null 2>&1`;
+          const execAllowHomeComsD = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to ${routerIP} port ${port} > /dev/null 2>&1`;
+          // eslint-disable-next-line no-await-in-loop
+          await cmdAsync(execAllowHomeComsA);
+          // eslint-disable-next-line no-await-in-loop
+          await cmdAsync(execAllowHomeComsB);
+          // eslint-disable-next-line no-await-in-loop
+          await cmdAsync(execAllowHomeComsC);
+          // eslint-disable-next-line no-await-in-loop
+          await cmdAsync(execAllowHomeComsD);
+          log.info(`Firewall adjusted for UPNP local connections on port ${port}`);
+        }
+        // delete and recreate deny rule at end
         let routerIpNetwork = `${routerIP.split('.')[0]}.${routerIP.split('.')[1]}.0.0`;
         if (routerIpNetwork === '10.0.0.0') {
           routerIpNetwork += '/8';
@@ -72,10 +97,6 @@ async function adjustFirewallForUPNP() {
         }
         const execDelete = `LANG="en_US.UTF-8" && sudo ufw delete deny out from any to ${routerIpNetwork}`;
         const execDeny = `LANG="en_US.UTF-8" && sudo ufw deny out from any to ${routerIpNetwork}`;
-        await cmdAsync(execA);
-        await cmdAsync(execB);
-        await cmdAsync(execC);
-        await cmdAsync(execD);
         await cmdAsync(execDelete);
         await cmdAsync(execDeny);
         log.info('Firewall adjusted for UPNP');
