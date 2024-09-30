@@ -1306,9 +1306,9 @@ async function adjustFirewall() {
       await cmdAsync(execAllowB);
       await cmdAsync(execAllowC);
       // allow incoming and outgoing DNS traffic
-      const execAllowD = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto udp to 0.0.0.0 53';
-      const execAllowE = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to 0.0.0.0 53';
-      const execAllowF = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to 0.0.0.0 53';
+      const execAllowD = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto udp to any port 53';
+      const execAllowE = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to any port 53';
+      const execAllowF = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to any port 53';
       await cmdAsync(execAllowD);
       await cmdAsync(execAllowE);
       await cmdAsync(execAllowF);
