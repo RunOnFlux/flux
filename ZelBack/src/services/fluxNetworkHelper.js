@@ -1312,6 +1312,7 @@ async function adjustFirewall() {
       await cmdAsync(execAllowD);
       await cmdAsync(execAllowE);
       await cmdAsync(execAllowF);
+      log.info('Firewall adjusted for DNS traffic');
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
