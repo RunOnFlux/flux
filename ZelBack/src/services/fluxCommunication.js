@@ -679,6 +679,7 @@ async function initiateAndHandleConnection(connection) {
     }
     const options = {
       perMessageDeflate: {
+        enabled: true,
         clientNoCompression: false,
         clientMaxWindowBits: 15,
         serverNoCompression: false,
