@@ -11,9 +11,9 @@ class FluxWebsocketServer {
     perMessageDeflate: {
       zlibDeflateOptions: {
       // See zlib defaults.
-        chunkSize: 256,
-        memLevel: 2,
-        level: 1,
+        chunkSize: 1024,
+        memLevel: 3,
+        level: 2,
       },
       zlibInflateOptions: {
         chunkSize: 10 * 1024,
@@ -21,10 +21,10 @@ class FluxWebsocketServer {
       // Other options settable:
       clientNoContextTakeover: true, // Defaults to negotiated value.
       serverNoContextTakeover: true, // Defaults to negotiated value.
-      serverMaxWindowBits: 8, // Defaults to negotiated value.
-      clientMaxWindowBits: 8, // Defaults to negotiated value.
+      serverMaxWindowBits: 10, // Defaults to negotiated value.
+      clientMaxWindowBits: 10, // Defaults to negotiated value.
       // Below options specified as default values.
-      concurrencyLimit: 10, // Limits zlib concurrency for perf.
+      concurrencyLimit: 2, // Limits zlib concurrency for perf.
       threshold: 128, // Size (in bytes) below which messages
     // should not be compressed if context takeover is disabled.
     },

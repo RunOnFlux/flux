@@ -681,9 +681,9 @@ async function initiateAndHandleConnection(connection) {
       perMessageDeflate: {
         zlibDeflateOptions: {
         // See zlib defaults.
-          chunkSize: 256,
-          memLevel: 2,
-          level: 1,
+          chunkSize: 1024,
+          memLevel: 3,
+          level: 2,
         },
         zlibInflateOptions: {
           chunkSize: 10 * 1024,
@@ -691,10 +691,10 @@ async function initiateAndHandleConnection(connection) {
         // Other options settable:
         clientNoContextTakeover: true, // Defaults to negotiated value.
         serverNoContextTakeover: true, // Defaults to negotiated value.
-        serverMaxWindowBits: 8, // Defaults to negotiated value.
-        clientMaxWindowBits: 8, // Defaults to negotiated value.
+        serverMaxWindowBits: 10, // Defaults to negotiated value.
+        clientMaxWindowBits: 10, // Defaults to negotiated value.
         // Below options specified as default values.
-        concurrencyLimit: 10, // Limits zlib concurrency for perf.
+        concurrencyLimit: 2, // Limits zlib concurrency for perf.
         threshold: 128, // Size (in bytes) below which messages
       // should not be compressed if context takeover is disabled.
       },
@@ -861,7 +861,6 @@ async function initiateAndHandleConnection(connection) {
 
     websocket.onerror = (evt) => {
       log.info(`Outgoing Connection to ${ip}:${port} errord with code ${evt.code}`);
-      log.info(`Outgoing Connection to ${ip}:${port} errord with code ${JSON.stringify(evt)}`);
       const ocIndex = outgoingConnections.findIndex((ws) => ip === ws.ip && port === ws.port);
       if (ocIndex > -1) {
         log.info(`Connection ${ip}:${port} removed from outgoingConnections`);
