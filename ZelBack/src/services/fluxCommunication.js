@@ -679,6 +679,7 @@ async function initiateAndHandleConnection(connection) {
       myPort = myIP.split(':')[1] || 16127;
     }
     const options = {
+      wsUri: `ws://${ip}:${port}/ws/flux/${myPort}`,
       perMessageDeflate: {
         zlibDeflateOptions: {
           // See zlib defaults.
@@ -699,8 +700,8 @@ async function initiateAndHandleConnection(connection) {
         // should not be compressed.
       },
     };
-    const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
-    const websocket = new WebSocket(wsuri, options);
+    // const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
+    const websocket = new WebSocket.Server(options);
     websocket.port = port;
     websocket.ip = ip;
     websocket.onopen = () => {
