@@ -4,8 +4,6 @@ const WebSocketServer = require('ws').Server;
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };
 
-  compression = { };
-
   #socketServer = new WebSocketServer({
     noServer: true,
     perMessageDeflate: {
