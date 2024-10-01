@@ -680,6 +680,7 @@ async function initiateAndHandleConnection(connection) {
     }
     const options = {
       wsUri: `ws://${ip}:${port}/ws/flux/${myPort}`,
+      port: myPort,
       perMessageDeflate: {
         zlibDeflateOptions: {
           // See zlib defaults.
