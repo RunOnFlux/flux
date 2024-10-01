@@ -12,7 +12,7 @@ class FluxWebsocketServer {
       zlibDeflateOptions: {
       // See zlib defaults.
         chunkSize: 1024,
-        memLevel: 6,
+        memLevel: 8,
         level: 3,
       },
       zlibInflateOptions: {
@@ -21,8 +21,8 @@ class FluxWebsocketServer {
       // Other options settable:
       clientNoContextTakeover: true, // Defaults to negotiated value.
       serverNoContextTakeover: true, // Defaults to negotiated value.
-      serverMaxWindowBits: 11, // Defaults to negotiated value.
-      clientMaxWindowBits: 11, // Defaults to negotiated value.
+      serverMaxWindowBits: 15, // Defaults to negotiated value.
+      clientMaxWindowBits: 15, // Defaults to negotiated value.
       // Below options specified as default values.
       concurrencyLimit: 2, // Limits zlib concurrency for perf.
       threshold: 128, // Size (in bytes) below which messages
