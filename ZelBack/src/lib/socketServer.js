@@ -11,7 +11,7 @@ class FluxWebsocketServer {
     perMessageDeflate: {
       zlibDeflateOptions: {
       // See zlib defaults.
-        chunkSize: 1024,
+        chunkSize: 256,
         memLevel: 2,
         level: 1,
       },
