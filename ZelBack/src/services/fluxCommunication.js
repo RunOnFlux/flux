@@ -662,6 +662,7 @@ async function removeIncomingPeer(req, res) {
  * @param {string} connection IP address (and port if applicable).
  */
 let myPort = null;
+let websocketForTesting = null;
 async function initiateAndHandleConnection(connection) {
   let ip = connection;
   let port = config.server.apiport;
@@ -699,6 +700,10 @@ async function initiateAndHandleConnection(connection) {
         latency: null,
       };
       outgoingPeers.push(peer);
+      if (!websocketForTesting) {
+        websocketForTesting = websocket;
+        log.info(JSON.stringify(websocketForTesting));
+      }
     };
 
     // every time a ping is sent a pong as received, measure latency
