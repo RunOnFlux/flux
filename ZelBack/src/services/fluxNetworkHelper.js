@@ -1297,6 +1297,36 @@ async function adjustFirewall() {
     ports = ports.concat(fluxCommunicationPorts);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
+      // set default allow outgoing
+      const execAllowA = 'LANG="en_US.UTF-8" && sudo ufw default allow outgoing';
+      await cmdAsync(execAllowA);
+      // allow speedtests
+      const execAllowB = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 5060';
+      const execAllowC = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 8080';
+      await cmdAsync(execAllowB);
+      await cmdAsync(execAllowC);
+      // allow incoming and outgoing DNS traffic
+      const execAllowD = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto udp to any port 53';
+      const execAllowE = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to any port 53';
+      const execAllowF = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to any port 53';
+      await cmdAsync(execAllowD);
+      await cmdAsync(execAllowE);
+      await cmdAsync(execAllowF);
+      log.info('Firewall adjusted for DNS traffic');
+
+      const commandGetRouterIP = 'ip rout | head -n1 | awk \'{print $3}\'';
+      let routerIP = await cmdAsync(commandGetRouterIP);
+      routerIP = routerIP.replace(/(\r\n|\n|\r)/gm, '');
+      log.info(`Router IP: ${routerIP}`);
+      if (serviceHelper.validIpv4Address(routerIP)
+        && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
+       || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
+        const execRouterAllowA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
+        const execRouterAllowB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
+        await cmdAsync(execRouterAllowA);
+        await cmdAsync(execRouterAllowB);
+        log.info(`Firewall adjusted for comms with router on local ip ${routerIP}`);
+      }
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const execB = `LANG="en_US.UTF-8" && sudo ufw allow ${port}`;
@@ -1334,16 +1364,24 @@ async function adjustFirewallToNotAllowNetscans() {
     const cmdAsync = util.promisify(nodecmd.get);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
+      const execDelDenyA = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 10.0.0.0/8';
+      const execDelDenyB = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 172.16.0.0/12';
+      const execDelDenyC = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 192.168.0.0/16';
+      const execDelDenyD = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 100.64.0.0/10';
+      const execDelDenyE = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 198.18.0.0/15';
+      const execDelDenyF = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 169.254.0.0/16';
       const execDenyA = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 10.0.0.0/8';
       const execDenyB = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 172.16.0.0/12';
       const execDenyC = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 192.168.0.0/16';
       const execDenyD = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 100.64.0.0/10';
       const execDenyE = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 198.18.0.0/15';
       const execDenyF = 'LANG="en_US.UTF-8" && sudo ufw deny out from any to 169.254.0.0/16';
-      const execAllowA = 'LANG="en_US.UTF-8" && sudo ufw allow from 192.168.0.0/16 to any port 1900 proto udp';
-      const execAllowB = 'LANG="en_US.UTF-8" && sudo ufw allow from 192.168.0.0/16 to any port 2869 proto tcp';
-      await cmdAsync(execAllowA);
-      await cmdAsync(execAllowB);
+      await cmdAsync(execDelDenyA);
+      await cmdAsync(execDelDenyB);
+      await cmdAsync(execDelDenyC);
+      await cmdAsync(execDelDenyD);
+      await cmdAsync(execDelDenyE);
+      await cmdAsync(execDelDenyF);
       await cmdAsync(execDenyA);
       await cmdAsync(execDenyB);
       await cmdAsync(execDenyC);

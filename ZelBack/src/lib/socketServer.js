@@ -4,7 +4,29 @@ const WebSocketServer = require('ws').Server;
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };
 
-  #socketServer = new WebSocketServer({ noServer: true });
+  #socketServer = new WebSocketServer({
+    noServer: true,
+    perMessageDeflate: {
+      zlibDeflateOptions: {
+      // See zlib defaults.
+        chunkSize: 1024,
+        memLevel: 8,
+        level: 3,
+      },
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024,
+      },
+      // Other options settable:
+      clientNoContextTakeover: true, // Defaults to negotiated value.
+      serverNoContextTakeover: true, // Defaults to negotiated value.
+      serverMaxWindowBits: 15, // Defaults to negotiated value.
+      clientMaxWindowBits: 15, // Defaults to negotiated value.
+      // Below options specified as default values.
+      concurrencyLimit: 2, // Limits zlib concurrency for perf.
+      threshold: 128, // Size (in bytes) below which messages
+    // should not be compressed if context takeover is disabled.
+    },
+  });
 
   #routes = {};
 

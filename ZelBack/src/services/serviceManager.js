@@ -31,8 +31,6 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
-    fluxNetworkHelper.adjustFirewallToNotAllowNetscans();
-    log.info('Firewalls Netscans checked');
     // User configured UPnP node with routerIP, UPnP has already been verified and setup
     if (userconfig.initial.routerIP) {
       setInterval(() => {
@@ -82,6 +80,8 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
+    fluxNetworkHelper.adjustFirewallToNotAllowNetscans();
+    log.info('Firewalls Netscans checked');
     log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
     log.info('Node allowed to bind privileged ports');
