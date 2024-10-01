@@ -681,20 +681,21 @@ async function initiateAndHandleConnection(connection) {
       perMessageDeflate: {
         zlibDeflateOptions: {
         // See zlib defaults.
-          chunkSize: 1024,
-          memLevel: 7,
-          level: 3,
+          chunkSize: 2048,
+          memLevel: 9,
+          level: 6,
         },
         zlibInflateOptions: {
-          chunkSize: 10 * 1024,
+          chunkSize: 20 * 1024,
         },
         // Other options settable:
         clientNoContextTakeover: true, // Defaults to negotiated value.
         serverNoContextTakeover: true, // Defaults to negotiated value.
-        serverMaxWindowBits: 10, // Defaults to negotiated value.
+        serverMaxWindowBits: 18, // Defaults to negotiated value.
+        clientMaxWindowBits: 18, // Defaults to negotiated value.
         // Below options specified as default values.
         concurrencyLimit: 10, // Limits zlib concurrency for perf.
-        threshold: 1024, // Size (in bytes) below which messages
+        threshold: 128, // Size (in bytes) below which messages
       // should not be compressed if context takeover is disabled.
       },
     };
@@ -711,7 +712,6 @@ async function initiateAndHandleConnection(connection) {
         latency: null,
       };
       outgoingPeers.push(peer);
-      log.info(JSON.stringify(websocket));
     };
 
     // every time a ping is sent a pong as received, measure latency
