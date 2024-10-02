@@ -1989,6 +1989,25 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       if (res.flush) res.flush();
     }
 
+    const makeDirectory = {
+      status: 'Making directory...',
+    };
+    log.info(makeDirectory);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectory));
+      if (res.flush) res.flush();
+    }
+    const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
+    await cmdAsync(execDIR);
+    const makeDirectory2 = {
+      status: 'Directory made',
+    };
+    log.info(makeDirectory2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectory2));
+      if (res.flush) res.flush();
+    }
+
     const mountingStatus = {
       status: 'Mounting volume...',
     };
@@ -2008,25 +2027,6 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(mountingStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
-      if (res.flush) res.flush();
-    }
-
-    const makeDirectory = {
-      status: 'Making directory...',
-    };
-    log.info(makeDirectory);
-    if (res) {
-      res.write(serviceHelper.ensureString(makeDirectory));
-      if (res.flush) res.flush();
-    }
-    const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
-    await cmdAsync(execDIR);
-    const makeDirectory2 = {
-      status: 'Directory made',
-    };
-    log.info(makeDirectory2);
-    if (res) {
-      res.write(serviceHelper.ensureString(makeDirectory2));
       if (res.flush) res.flush();
     }
 
@@ -12237,24 +12237,16 @@ async function testAppMount() {
     const execFS = `sudo mke2fs -t ext4 ${volumePath}`;
     await cmdAsync(execFS);
     log.info('Mount Test: Filesystem created');
-
-    log.info('Mount Test: Mounting volume...');
-    const execMount = `sudo mount -o loop ${volumePath} ${appsFolder + appId}`;
-    await cmdAsync(execMount);
-    log.info('Mount Test: Volume mounted.');
-
     log.info('Mount Test: Making directory...');
+
     const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
     await cmdAsync(execDIR);
-    log.info('Mount Test: Directory made.');
+    log.info('Mount Test: Directory made');
+    log.info('Mount Test: Mounting volume...');
 
-    log.info('Mount Test: chmod directory...');
-    const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
-    await cmdAsync(execPERM);
-    const execPERMdata = `sudo chmod 777 ${appsFolder + appId}/appdata`;
-    await cmdAsync(execPERMdata);
-    log.info('Mount Test: chmod made. Test completed');
-
+    const execMount = `sudo mount -o loop ${volumePath} ${appsFolder + appId}`;
+    await cmdAsync(execMount);
+    log.info('Mount Test: Volume mounted. Test completed.');
     dosMountMessage = '';
     // run removal
     removeTestAppMount(volumePath);
