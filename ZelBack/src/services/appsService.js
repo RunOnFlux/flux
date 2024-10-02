@@ -2030,8 +2030,24 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       if (res.flush) res.flush();
     }
 
-    const execDIR2 = `sudo mkdir ${appsFolder + appId}/appdata`;
+    const makeDirectoryB = {
+      status: 'Making application data directory...',
+    };
+    log.info(makeDirectoryB);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectoryB));
+      if (res.flush) res.flush();
+    }
+    const execDIR2 = `sudo mkdir -p ${appsFolder + appId}/appdata`;
     await cmdAsync(execDIR2);
+    const makeDirectoryB2 = {
+      status: 'Application data directory made',
+    };
+    log.info(makeDirectoryB2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectoryB2));
+      if (res.flush) res.flush();
+    }
 
     const permissionsDirectory = {
       status: 'Adjusting permissions...',
