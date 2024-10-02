@@ -677,13 +677,13 @@ async function initiateAndHandleConnection(connection) {
       }
       myPort = myIP.split(':')[1] || 16127;
     }
-    /* const options = {
+    const options = {
       perMessageDeflate: {
         zlibDeflateOptions: {
         // See zlib defaults.
           chunkSize: 1024,
-          memLevel: 9,
-          level: 7,
+          memLevel: 8,
+          level: 3,
         },
         zlibInflateOptions: {
           chunkSize: 10 * 1024,
@@ -691,16 +691,16 @@ async function initiateAndHandleConnection(connection) {
         // Other options settable:
         clientNoContextTakeover: true, // Defaults to negotiated value.
         serverNoContextTakeover: true, // Defaults to negotiated value.
-        serverMaxWindowBits: 16, // Defaults to negotiated value.
-        clientMaxWindowBits: 16, // Defaults to negotiated value.
+        serverMaxWindowBits: 15, // Defaults to negotiated value.
+        clientMaxWindowBits: 15, // Defaults to negotiated value.
         // Below options specified as default values.
-        concurrencyLimit: 3, // Limits zlib concurrency for perf.
+        concurrencyLimit: 2, // Limits zlib concurrency for perf.
         threshold: 128, // Size (in bytes) below which messages
       // should not be compressed if context takeover is disabled.
       },
-    }; */
+    };
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
-    const websocket = new WebSocket(wsuri);
+    const websocket = new WebSocket(wsuri, options);
     websocket.port = port;
     websocket.ip = ip;
     websocket.onopen = () => {
