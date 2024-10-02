@@ -87,6 +87,9 @@ async function sendToAllPeers(data, wsList) {
  */
 async function sendToRandomPeer(data) {
   try {
+    if (!outgoingConnections.length) {
+      return;
+    }
     const removals = [];
     const client = outgoingConnections[Math.floor(Math.random() * outgoingConnections.length)];
     try {
@@ -195,6 +198,9 @@ async function sendToAllIncomingConnections(data, wsList) {
  */
 async function sendToRandomIncomingConnections(data) {
   try {
+    if (!incomingConnections.length) {
+      return;
+    }
     const removals = [];
     const client = incomingConnections[Math.floor(Math.random() * incomingConnections.length)];
     try {
