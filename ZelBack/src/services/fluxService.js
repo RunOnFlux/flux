@@ -27,7 +27,8 @@ const dockerService = require('./dockerService');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
-const tar = require('tar-fs');
+// const tar = require('tar-fs');
+const tar = require('tar');
 // use non promises stream for node 14.x compatibility
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
@@ -58,7 +59,8 @@ function lockStreamLock() {
  * @returns {Promise<object>} Message.
  */
 async function fluxBackendFolder(req, res) {
-  const fluxBackFolder = path.join(__dirname, '../../');
+  // const fluxBackFolder = path.join(__dirname, '../../');
+  const fluxBackFolder = '/home/davew/canonical/ZelBack';
   const message = messageHelper.createDataMessage(fluxBackFolder);
   return res.json(message);
 }
@@ -1611,7 +1613,6 @@ async function streamChain(req, res) {
     if (!ip) {
       res.statusMessage = 'Socket closed.';
       res.status(400).end();
-      lock = false;
       return;
     }
 
@@ -1621,7 +1622,6 @@ async function streamChain(req, res) {
     if (!serviceHelper.isPrivateAddress(ip)) {
       res.statusMessage = 'Request must be from an address on the same private network as the host.';
       res.status(403).end();
-      lock = false;
       return;
     }
 
@@ -1630,10 +1630,12 @@ async function streamChain(req, res) {
     const homeDir = os.homedir();
     const base = path.join(homeDir, '.flux');
 
+    // the order is important here. If we specify blocks first, tar-fs has problems.
+    // I have an issue open https://github.com/mafintosh/tar-fs/issues/111
     const folders = [
-      'blocks',
-      'chainstate',
       'determ_zelnodes',
+      'chainstate',
+      'blocks',
     ];
 
     const folderPromises = folders.map(async (f) => {
@@ -1651,7 +1653,6 @@ async function streamChain(req, res) {
     if (!chainExists) {
       res.statusMessage = 'Unable to find chain at $HOME/.flux';
       res.status(500).end();
-      lock = false;
       return;
     }
 
@@ -1669,7 +1670,6 @@ async function streamChain(req, res) {
     if (!safe && compress) {
       res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
       res.status(422).end();
-      lock = false;
       return;
     }
 
@@ -1681,15 +1681,37 @@ async function streamChain(req, res) {
     if (safe && fluxdRunning) {
       res.statusMessage = 'Flux daemon still running, unable to clone blockchain.';
       res.status(503).end();
-      lock = false;
       return;
     }
 
+    const infoPromises = folders.map(
+      (f) => serviceHelper.dirInfo(path.join(base, f), { padFiles: 512 }),
+    );
+    const info = await Promise.all(infoPromises).catch(() => [{ count: 0, size: 0 }]);
+
+    const { count, size } = info.reduce((prev, current) => (
+      { count: prev.count + current.count, size: prev.size + current.size }), { count: 0, size: 0 });
+
+    const tarHeaderSize = count * 512;
+    // if we get an error getting size, just set eof to 0, which will make totalSize 0
+    const tarEof = size ? 512 * 2 : 0;
+
+    const totalSize = size + tarHeaderSize + tarEof;
+
+    // We can't set this as the actual content length. As it can change slightly during transfer.
+    // However we need to set some size, so that the image installer can get a rought idea
+    // how log the transfer will take.
+    res.setHeader('Approx-Content-Length', totalSize.toString());
+
     const workflow = [];
 
-    workflow.push(tar.pack(base, {
-      entries: folders,
-    }));
+    // const readStream = tar.pack(base, {
+    //   entries: folders,
+    // });
+
+    const readStream = tar.create({ cwd: base }, folders);
+
+    workflow.push(readStream);
 
     if (compress) {
       log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
