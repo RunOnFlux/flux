@@ -19,10 +19,10 @@ class FluxWebsocketServer {
       // Other options settable:
       clientNoContextTakeover: true, // Defaults to negotiated value.
       serverNoContextTakeover: true, // Defaults to negotiated value.
-      serverMaxWindowBits: 15, // Defaults to negotiated value.
-      clientMaxWindowBits: 15, // Defaults to negotiated value.
+      serverMaxWindowBits: 16, // Defaults to negotiated value.
+      clientMaxWindowBits: 16, // Defaults to negotiated value.
       // Below options specified as default values.
-      concurrencyLimit: 4, // Limits zlib concurrency for perf.
+      concurrencyLimit: 3, // Limits zlib concurrency for perf.
       threshold: 128, // Size (in bytes) below which messages
     // should not be compressed if context takeover is disabled.
     },
