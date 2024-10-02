@@ -6,7 +6,7 @@ class FluxWebsocketServer {
 
   #socketServer = new WebSocketServer({
     noServer: true,
-    perMessageDeflate: {
+    /* perMessageDeflate: {
       zlibDeflateOptions: {
       // See zlib defaults.
         chunkSize: 1024,
@@ -25,7 +25,7 @@ class FluxWebsocketServer {
       concurrencyLimit: 3, // Limits zlib concurrency for perf.
       threshold: 128, // Size (in bytes) below which messages
     // should not be compressed if context takeover is disabled.
-    },
+    }, */
   });
 
   #routes = {};

@@ -677,7 +677,7 @@ async function initiateAndHandleConnection(connection) {
       }
       myPort = myIP.split(':')[1] || 16127;
     }
-    const options = {
+    /* const options = {
       perMessageDeflate: {
         zlibDeflateOptions: {
         // See zlib defaults.
@@ -698,9 +698,9 @@ async function initiateAndHandleConnection(connection) {
         threshold: 128, // Size (in bytes) below which messages
       // should not be compressed if context takeover is disabled.
       },
-    };
+    }; */
     const wsuri = `ws://${ip}:${port}/ws/flux/${myPort}`;
-    const websocket = new WebSocket(wsuri, options);
+    const websocket = new WebSocket(wsuri);
     websocket.port = port;
     websocket.ip = ip;
     websocket.onopen = () => {
