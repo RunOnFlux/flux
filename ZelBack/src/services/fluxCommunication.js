@@ -378,6 +378,7 @@ function handleIncomingConnection(websocket, optionalPort) {
     }
     incomingConnections.push(ws);
     incomingPeers.push(peer);
+    log.info(JSON.stringify(ws));
 
     // verify data integrity, if not signed, close connection
     ws.onmessage = async (msg) => {
@@ -712,7 +713,6 @@ async function initiateAndHandleConnection(connection) {
         latency: null,
       };
       outgoingPeers.push(peer);
-      log.info(JSON.stringify(websocket));
     };
 
     // every time a ping is sent a pong as received, measure latency
