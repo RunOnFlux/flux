@@ -22,7 +22,7 @@ class FluxWebsocketServer {
       serverMaxWindowBits: 15, // Defaults to negotiated value.
       clientMaxWindowBits: 15, // Defaults to negotiated value.
       // Below options specified as default values.
-      concurrencyLimit: 3, // Limits zlib concurrency for perf.
+      concurrencyLimit: 2, // Limits zlib concurrency for perf.
       threshold: 128, // Size (in bytes) below which messages
     // should not be compressed if context takeover is disabled.
     },
