@@ -3,6 +3,7 @@ const config = require('config');
 const { LRUCache } = require('lru-cache');
 const hash = require('object-hash');
 const WebSocket = require('ws');
+const inspect = require('util');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
@@ -379,6 +380,7 @@ function handleIncomingConnection(websocket, optionalPort) {
     incomingConnections.push(ws);
     incomingPeers.push(peer);
 
+    log.info(inspect(ws));
     // verify data integrity, if not signed, close connection
     ws.onmessage = async (msg) => {
       if (!msg) {

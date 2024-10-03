@@ -1,5 +1,4 @@
 const { match } = require('path-to-regexp');
-const log = require('./log');
 const WebSocketServer = require('ws').Server;
 
 class FluxWebsocketServer {
@@ -33,7 +32,6 @@ class FluxWebsocketServer {
       const handler = this.matchRoute(url);
 
       if (handler) handler(ws);
-      log.info(JSON.stringify(ws));
     });
   }
 
