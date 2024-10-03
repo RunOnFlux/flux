@@ -379,7 +379,6 @@ function handleIncomingConnection(websocket, optionalPort) {
     incomingConnections.push(ws);
     incomingPeers.push(peer);
 
-    log.info(JSON.stringify(ws.extensions));
     // verify data integrity, if not signed, close connection
     ws.onmessage = async (msg) => {
       if (!msg) {
