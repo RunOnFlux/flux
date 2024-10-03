@@ -683,7 +683,7 @@ async function initiateAndHandleConnection(connection) {
         zlibDeflateOptions: {
         // See zlib defaults.
           chunkSize: 1024,
-          memLevel: 10,
+          memLevel: 9,
           level: 9,
         },
         zlibInflateOptions: {

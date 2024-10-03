@@ -6,7 +6,26 @@ class FluxWebsocketServer {
 
   #socketServer = new WebSocketServer({
     noServer: true,
-    perMessageDeflate: true,
+    perMessageDeflate: {
+      zlibDeflateOptions: {
+      // See zlib defaults.
+        chunkSize: 1024,
+        memLevel: 9,
+        level: 9,
+      },
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024,
+      },
+      // Other options settable:
+      clientNoContextTakeover: true, // Defaults to negotiated value.
+      serverNoContextTakeover: true, // Defaults to negotiated value.
+      serverMaxWindowBits: 15, // Defaults to negotiated value.
+      clientMaxWindowBits: 15, // Defaults to negotiated value.
+      // Below options specified as default values.
+      concurrencyLimit: 3, // Limits zlib concurrency for perf.
+      threshold: 128, // Size (in bytes) below which messages
+    // should not be compressed if context takeover is disabled.
+    },
   });
 
   #routes = {};
