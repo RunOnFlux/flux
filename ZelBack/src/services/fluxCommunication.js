@@ -693,6 +693,7 @@ async function initiateAndHandleConnection(connection) {
         latency: null,
       };
       outgoingPeers.push(peer);
+      log.info(JSON.stringify(websocket));
     };
 
     // every time a ping is sent a pong as received, measure latency
