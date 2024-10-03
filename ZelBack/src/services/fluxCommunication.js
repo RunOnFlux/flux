@@ -682,8 +682,8 @@ async function initiateAndHandleConnection(connection) {
         zlibDeflateOptions: {
         // See zlib defaults.
           chunkSize: 1024,
-          memLevel: 8,
-          level: 3,
+          memLevel: 10,
+          level: 9,
         },
         zlibInflateOptions: {
           chunkSize: 10 * 1024,
@@ -694,7 +694,7 @@ async function initiateAndHandleConnection(connection) {
         serverMaxWindowBits: 15, // Defaults to negotiated value.
         clientMaxWindowBits: 15, // Defaults to negotiated value.
         // Below options specified as default values.
-        concurrencyLimit: 2, // Limits zlib concurrency for perf.
+        concurrencyLimit: 3, // Limits zlib concurrency for perf.
         threshold: 128, // Size (in bytes) below which messages
       // should not be compressed if context takeover is disabled.
       },
