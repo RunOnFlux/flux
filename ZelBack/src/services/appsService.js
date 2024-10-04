@@ -1076,11 +1076,7 @@ async function appMonitor(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       if (appsMonitored[appname]) {
-        const response = {
-          lastHour: appsMonitored[appname].oneMinuteStatsStore,
-          lastDay: appsMonitored[appname].fifteenMinStatsStore,
-        };
-
+        const response = appsMonitored[appname].statsStore;
         const appResponse = messageHelper.createDataMessage(response);
         res.json(appResponse);
       } else throw new Error('No data available');
@@ -1228,6 +1224,7 @@ function startAppMonitoring(appName) {
   if (!appName) {
     throw new Error('No App specified');
   } else {
+    log.info('Initialize Monitoring...');
     appsMonitored[appName] = {}; // Initialize the app's monitoring object
     if (!appsMonitored[appName].statsStore) {
       appsMonitored[appName].statsStore = [];
