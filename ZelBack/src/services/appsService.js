@@ -1040,6 +1040,9 @@ async function appStats(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerStats(appname);
+      // eslint-disable-next-line no-use-before-define
+      const containerStorageInfo = await getContainerStorage(appname);
+      response.disk_stats = containerStorageInfo;
       const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
