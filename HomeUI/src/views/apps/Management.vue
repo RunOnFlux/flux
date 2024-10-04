@@ -758,73 +758,242 @@
         </div>
       </b-tab>
       <b-tab title="Monitoring">
-        <h3>History Statistics 1 hour</h3>
-        <div v-if="appSpecification.version >= 4">
+        <div class="container">
           <div
-            v-for="(component, index) in callResponseMonitoring.data"
-            :key="index"
+            class="d-flex mb-1 mt-2 align-items-center justify-content-between"
+            style="border: 1px solid #ccc; border-radius: 8px; height: 45px; padding: 12px; text-align: left;"
           >
-            <h4>Component: {{ component.name }}</h4>
-            <b-table
-              class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastHour, component.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
-              :fields="statsFields"
-              show-empty
-              bordered
-              small
-              empty-text="No records available."
-            />
+            <h5>
+              <b-icon
+                class="mr-1"
+                scale="1.2"
+                icon="bar-chart-fill"
+              /> Stats Overview
+            </h5>
+            <b-form-checkbox v-model="enableHistoryStatistics" switch @change="enableHistoryStatisticsChange">
+              History Statistics
+            </b-form-checkbox>
           </div>
-        </div>
-        <div v-else>
-          <b-table
-            v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
-            class="stats-table"
-            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastHour, callResponseMonitoring.data[0].nanoCpus, appSpecification)"
-            :fields="statsFields"
-            show-empty
-            bordered
-            small
-            empty-text="No records available."
-          />
-          <div v-else>
-            Loading...
+          <!-- Menu -->
+          <div class="d-flex flex-container mt-1">
+            <div>
+              <b-input-group size="sm" class="mb-2">
+                <b-input-group-prepend is-text>
+                  <b-icon icon="app-indicator" />
+                </b-input-group-prepend>
+                <b-form-select
+                  v-if="appSpecification?.compose"
+                  v-model="selectedContainerMonitoring"
+                  :options="null"
+                  :disabled="isComposeSingle"
+                >
+                  <b-form-select-option
+                    value="null"
+                    disabled
+                  >
+                    -- Please select component --
+                  </b-form-select-option>
+                  <b-form-select-option
+                    v-for="component in appSpecification?.compose"
+                    :key="component.name"
+                    :value="component.name"
+                  >
+                    {{ component.name }}
+                  </b-form-select-option>
+                </b-form-select>
+                <b-form-input
+                  v-if="!appSpecification?.compose"
+                  :placeholder="appSpecification.name"
+                  disabled
+                />
+                <b-icon v-if="enableHistoryStatistics" icon="arrow-clockwise" :class="['ml-2', 'r']" @click="fetchStats" />
+              </b-input-group>
+              <b-input-group v-if="!enableHistoryStatistics" size="sm" style="width: 120px;" class="mb-2">
+                <b-input-group-prepend is-text>
+                  <b-icon
+                    v-b-tooltip.hover.top="'Limit the number of data points displayed on the charts.'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                    icon="clipboard-data"
+                  />
+                </b-input-group-prepend>
+                <b-form-select
+                  v-model="selectedPoints"
+                  :options="pointsOptions"
+                  @change="handleContainerChange"
+                />
+              </b-input-group>
+            </div>
+            <div v-if="!enableHistoryStatistics">
+              <b-input-group size="sm" class="mb-2">
+                <b-input-group-prepend is-text>
+                  <b-icon
+                    v-b-tooltip.hover.top="'Choose the interval for refreshing data on the charts.'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                    icon="clock"
+                  />
+                </b-input-group-prepend>
+                <b-form-select
+                  v-model="refreshRateMonitoring"
+                  size="sm"
+                  :options="refreshOptions"
+                />
+              </b-input-group>
+            </div>
+            <div v-if="enableHistoryStatistics">
+              <b-input-group size="sm" class="mb-2">
+                <b-input-group-prepend is-text>
+                  <b-icon
+                    v-b-tooltip.hover.top="'Choose the time period to display historical data.'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                    icon="calendar-range"
+                  />
+                </b-input-group-prepend>
+                <b-form-select v-model="selectedTimeRange" :options="timeOptions" />
+              </b-input-group>
+            </div>
           </div>
-        </div>
-
-        <br><br>
-
-        <h3>History Statistics 24 hours</h3>
-        <div v-if="appSpecification.version >= 4">
-          <div
-            v-for="(component, index) in callResponseMonitoring.data"
-            :key="index"
-          >
-            <h4>Component: {{ component.name }}</h4>
-            <b-table
-              class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastDay, component.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
-              :fields="statsFields"
-              show-empty
-              bordered
-              small
-              empty-text="No records available."
-            />
-          </div>
-        </div>
-        <div v-else>
-          <b-table
-            v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
-            class="stats-table"
-            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastDay, callResponseMonitoring.data[0].nanoCpus, appSpecification)"
-            :fields="statsFields"
-            show-empty
-            bordered
-            small
-            empty-text="No records available."
-          />
-          <div v-else>
-            Loading...
+          <!-- Charts Grid -->
+          <div class="charts-grid">
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon icon="bar-chart-line" style="width: 30px; height: 30px;" />
+                <span class="chart-title ml-2">Memory usage</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays memory usage over time. Monitoring memory usage helps identify potential memory leaks, optimize application performance, and.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="memoryChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">CPU Usage</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays CPU usage over time. Monitoring CPU usage helps identify high load periods, optimize resource allocation, and troubleshoot performance bottlenecks.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="cpuChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">Network usage (aggregate)</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays network usage over time (TX: Transmit - outgoing data; RX: Receive - incoming data). Key metrics include bandwidth, throughput, and latency. Monitoring helps identify bottlenecks, optimize performance, and ensure efficient data transfer.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="networkChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">I/O usage (aggregate)</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays Input/Output operations over time, measuring data transfer to/from storage devices and peripherals. Monitoring I/O helps identify bottlenecks, optimize performance, and ensure responsive system behavior.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="ioChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">Persistent Storage</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Persistent Storage refers to data that is retained across container restarts and updates. It ensures important information is preserved. Monitoring this helps prevent disk space exhaustion and supports efficient data management.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="diskPersistentChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">Root Filesystem (rootfs)</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Root Filesystem refers to the temporary storage used by the container during its lifetime. This data is not retained after the container is stopped or deleted. Monitoring rootfs usage helps avoid disk space issues within the container’s filesystem.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="diskFileSystemChart" />
+            </div>
+            <div v-if="!enableHistoryStatistics" class="chart-wrapper">
+              <div class="chart-title-container mb-2">
+                <b-icon
+                  icon="list-ul"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">Processes</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'List of running process in continer.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <b-form-input
+                v-model="search"
+                placeholder="Search processes..."
+                class="mb-2"
+              />
+              <div class="table-responsive">
+                <b-table class="table" small responsive show-empty empty-text="No records available." :items="paginatedProcesses" :fields="titles" bordered hover />
+              </div>
+              <div class="d-flex align-items-center my-3">
+                <div class="flex-grow-1 text-center">
+                  <b-pagination
+                    v-if="filteredProcesses.length"
+                    v-model="currentPage"
+                    pills
+                    size="sm"
+                    :total-rows="filteredProcesses.length"
+                    :per-page="perPage"
+                    @change="scrollToPagination"
+                  />
+                </div>
+                <div class="d-flex align-items-center ml-3">
+                  <label class="mr-2 mb-0" style="white-space: nowrap;">Items per page:</label>
+                  <b-form-select v-model="perPage" :options="perPageOptions" size="sm" class="ml-2" @change="scrollToPagination" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </b-tab>
@@ -5932,6 +6101,11 @@ import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 import AnsiToHtml from 'ansi-to-html';
+import {
+  Chart, LineController, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title, Filler,
+} from 'chart.js';
+
+Chart.register(LineController, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title, Filler);
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -6026,6 +6200,59 @@ export default {
   },
   data() {
     return {
+      noDat: false,
+      enableHistoryStatistics: false,
+      selectedTimeRange: 1 * 24 * 60 * 60 * 1000,
+      timeOptions: [
+        { value: 15 * 60 * 1000, text: 'Last 15 Minutes' }, // 15 minutes in ms
+        { value: 30 * 60 * 1000, text: 'Last 30 Minutes' }, // 30 minutes in ms
+        { value: 1 * 60 * 60 * 1000, text: 'Last 1 Hour' }, // 1 hour in ms
+        { value: 2 * 60 * 60 * 1000, text: 'Last 2 Hours' }, // 2 hours in ms
+        { value: 3 * 60 * 60 * 1000, text: 'Last 3 Hours' }, // 3 hours in ms
+        { value: 5 * 60 * 60 * 1000, text: 'Last 5 Hours' }, // 5 hours in ms
+        { value: 1 * 24 * 60 * 60 * 1000, text: 'Last 1 Day' }, // 1 day in ms
+        { value: 2 * 24 * 60 * 60 * 1000, text: 'Last 2 Days' }, // 2 days in ms
+        { value: 3 * 24 * 60 * 60 * 1000, text: 'Last 3 Days' }, // 3 days in ms
+        { value: 7 * 24 * 60 * 60 * 1000, text: 'Last 7 Days' }, // 7 days in ms
+      ],
+      selectedPoints: 500,
+      pointsOptions: [5, 10, 25, 50, 100, 200, 300, 400, 500],
+      search: '', // Search query
+      currentPage: 1, // Current page for pagination
+      perPage: 5, // Default items per page
+      perPageOptions: [
+        { value: 5, text: '5' },
+        { value: 10, text: '10' },
+        { value: 20, text: '20' },
+        { value: 50, text: '50' },
+      ],
+      processes: [],
+      titles: [
+        { key: 'uid', label: 'UID' },
+        { key: 'pid', label: 'PID' },
+        { key: 'ppid', label: 'PPID' },
+        { key: 'c', label: 'C' },
+        { key: 'stime', label: 'STIME' },
+        { key: 'tty', label: 'TTY' },
+        { key: 'time', label: 'TIME' },
+        { key: 'cmd', label: 'CMD' },
+      ],
+      selectedContainerMonitoring: null,
+      refreshRateMonitoring: 5000,
+      containerOptions: [],
+      memoryChart: null,
+      diskFileSystemChart: null,
+      diskPersistentChart: null,
+      cpuChart: null,
+      refreshOptions: [
+        { value: 5000, text: '5s' },
+        { value: 10000, text: '10s' },
+        { value: 30000, text: '30s' },
+      ],
+      errorMessage: null,
+      timerStats: null,
+      memoryLimit: 1,
+      cpuSet: 1,
       logs: [],
       noLogs: false,
       manualInProgress: false,
@@ -6482,6 +6709,17 @@ export default {
     };
   },
   computed: {
+    filteredProcesses() {
+      if (this.search) {
+        return this.processes.filter((process) => Object.values(process).some((value) => String(value).toLowerCase().includes(this.search.toLowerCase())));
+      }
+      return this.processes;
+    },
+    paginatedProcesses() {
+      const start = (this.currentPage - 1) * this.perPage;
+      const end = start + this.perPage;
+      return this.filteredProcesses.slice(start, end);
+    },
     isDisabled() {
       return !!this.pollingEnabled || this.manualInProgress;
     },
@@ -6879,11 +7117,23 @@ export default {
         }
       }
     },
+    selectedContainerMonitoring() {
+      if (!this.enableHistoryStatistics) {
+        if (this.timerStats) this.stopPollingStats();
+        if (this.selectedContainer) this.startPollingStats();
+        this.clearCharts();
+      }
+    },
+    refreshRateMonitoring() {
+      if (this.timerStats) this.stopPollingStats();
+      this.startPollingStats();
+    },
     isComposeSingle(value) {
       if (value) {
         if (this.appSpecification.version >= 4) {
           this.selectedApp = this.appSpecification.compose[0].name;
           this.selectedAppVolume = this.appSpecification.compose[0].name;
+          this.selectedContainerMonitoring = this.appSpecification.compose[0].name;
         }
       }
     },
@@ -6979,12 +7229,612 @@ export default {
     this.getMultiplier();
     this.getEnterpriseNodes();
     this.getDaemonBlockCount();
+    // this.initCharts();
   },
   beforeDestroy() {
     this.stopPolling();
+    this.stopPollingStats();
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    // Stats Section START
+    enableHistoryStatisticsChange() {
+      if (this.enableHistoryStatistics) {
+        this.stopPollingStats();
+        this.clearCharts();
+      } else {
+        this.clearCharts();
+        this.startPollingStats();
+      }
+    },
+    LimitChartItems(chart) {
+      const datasetLength = chart.data.datasets[0].data.length;
+      if (datasetLength > this.selectedPoints) {
+        const excess = datasetLength - this.selectedPoints;
+        chart.data.labels = chart.data.labels.slice(excess);
+        chart.data.datasets.forEach((dataset) => {
+          dataset.data = dataset.data.slice(excess);
+        });
+        chart.update({
+          duration: 800,
+          lazy: false,
+          easing: 'easeOutBounce',
+        });
+      }
+    },
+    async scrollToPagination() {
+      await this.$nextTick();
+      window.scrollTo(0, document.body.scrollHeight);
+    },
+    processStatsData(statsData, configData, timeStamp = null) {
+      const memoryLimitBytes = statsData.memory_stats.limit;
+      this.memoryLimit = memoryLimitBytes;
+      const memoryUsageBytes = statsData.memory_stats.usage;
+      const memoryUsageMB = memoryUsageBytes;
+      const memoryUsagePercentage = ((memoryUsageBytes / memoryLimitBytes) * 100).toFixed(1);
+      const cpuUsage = statsData.cpu_stats.cpu_usage.total_usage - statsData.precpu_stats.cpu_usage.total_usage;
+      const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
+      const onlineCpus = statsData.cpu_stats.online_cpus;
+      const nanoCpus = configData.HostConfig.NanoCpus;
+      const cpuSize = (((cpuUsage / systemCpuUsage) * onlineCpus)).toFixed(1) || 0;
+      // eslint-disable-next-line no-mixed-operators
+      const cpuPercent = (cpuSize / (nanoCpus / 1e9) * 100).toFixed(1);
+      this.cpuSet = (nanoCpus / 1e9).toFixed(1);
+      const ioReadBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'read')?.value || 0 : null;
+      const ioWriteBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'write')?.value || 0 : null;
+      const networkRxBytes = statsData.networks.eth0?.rx_bytes || null;
+      const networkTxBytes = statsData.networks.eth0?.tx_bytes || null;
+      const diskUsageMounts = statsData.disk_stats?.appDataMounts || null;
+      const diskUsageDocker = statsData.disk_stats?.dockerVolume || null;
+      const diskUsageRootFs = statsData.disk_stats?.rootfs || null;
+      this.insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp);
+    },
+    async fetchStats() {
+      try {
+        const appname = this.selectedContainerMonitoring ? `${this.selectedContainerMonitoring}_${this.appSpecification.name}` : this.appSpecification.name;
+        let statsResponse;
+        if (this.enableHistoryStatistics) {
+          statsResponse = await this.executeLocalCommand(`/apps/appmonitor/${appname}`);
+        } else {
+          statsResponse = await this.executeLocalCommand(`/apps/appstats/${appname}`);
+        }
+        const inspectResponse = await this.executeLocalCommand(`/apps/appinspect/${appname}`);
+        if (statsResponse.data.status === 'error') {
+          this.showToast('danger', statsResponse.data.data.message || statsResponse.data.data);
+        } else if (inspectResponse.data.status === 'error') {
+          this.showToast('danger', inspectResponse.data.data.message || inspectResponse.data.data);
+        } else {
+          if (!this.enableHistoryStatistics) {
+            this.fetchProcesses(appname);
+          }
+          const configData = inspectResponse.data;
+          const statsData = statsResponse.data;
+
+          if (Array.isArray(statsData)) {
+            statsData.data.forEach((stats) => {
+              console.log(stats.timestamp);
+              console.log(stats.data);
+              this.processStatsData(stats.data, configData, stats.timestamp);
+            });
+          } else {
+            console.log(statsData);
+            this.processStatsData(statsData, configData);
+          }
+          if (appname === this.selectedContainerMonitoring) {
+            this.updateCharts();
+          } else {
+            this.clearCharts();
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching container data:', error);
+      }
+    },
+    updateAxes() {
+      // Check and update the Y-axis limits for the memory chart
+      if (this.memoryChart.data.labels.length === 1) {
+        this.memoryChart.options.scales.y.max = this.memoryLimit * 1.2;
+        this.memoryChart.options.scales.y1.max = 120;
+      }
+      // Check and update the Y-axis limits for the CPU chart
+      if (this.cpuChart.data.labels.length === 1) {
+        this.cpuChart.options.scales.y.max = (this.cpuSet * 1.2).toFixed(1);
+        this.cpuChart.options.scales.y1.max = 120;
+      }
+    },
+    insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp = null) {
+      const timeLabel = timeStamp === null ? new Date().toLocaleTimeString() : new Date(timeStamp).toLocaleTimeString();
+      // Update memory chart
+      this.LimitChartItems(this.memoryChart);
+      this.memoryChart.data.labels.push(timeLabel);
+      this.memoryChart.data.datasets[0].data.push(memoryUsageMB);
+      this.memoryChart.data.datasets[1].data.push(memoryUsagePercentage);
+      // Update CPU chart
+      this.LimitChartItems(this.cpuChart);
+      this.cpuChart.data.labels.push(timeLabel);
+      this.cpuChart.data.datasets[0].data.push(cpuSize);
+      this.cpuChart.data.datasets[1].data.push(cpuPercent);
+      // Update Network chart
+      this.LimitChartItems(this.networkChart);
+      this.networkChart.data.labels.push(timeLabel);
+      this.networkChart.data.datasets[0].data.push(networkRxBytes);
+      this.networkChart.data.datasets[1].data.push(networkTxBytes);
+      // Update I/O chart
+      if (ioReadBytes !== null && ioWriteBytes !== null) {
+        this.LimitChartItems(this.ioChart);
+        this.ioChart.data.labels.push(timeLabel);
+        this.ioChart.data.datasets[0].data.push(ioReadBytes);
+        this.ioChart.data.datasets[1].data.push(ioWriteBytes);
+      }
+      // Update Persistent Storage chart
+      this.LimitChartItems(this.diskPersistentChart);
+      this.diskPersistentChart.data.labels.push(timeLabel);
+      this.diskPersistentChart.data.datasets[0].data.push(diskUsageMounts);
+      this.diskPersistentChart.data.datasets[1].data.push(diskUsageDocker);
+      this.diskPersistentChart.data.datasets[1].hidden = diskUsageDocker === 0;
+      // Update File System chart
+      this.LimitChartItems(this.diskFileSystemChart);
+      this.diskFileSystemChart.data.labels.push(timeLabel);
+      this.diskFileSystemChart.data.datasets[0].data.push(diskUsageRootFs);
+      this.updateAxes();
+      this.noDat = true;
+    },
+    updateCharts() {
+      // Update all charts after data insertion
+      this.memoryChart.update();
+      this.cpuChart.update();
+      this.networkChart.update();
+      this.ioChart.update();
+      this.diskPersistentChart.update();
+      this.diskFileSystemChart.update();
+    },
+    formatDataSize(bytes, options = { base: 10, round: 1 }) {
+      if (bytes <= 5) {
+        return `${bytes} B`;
+      }
+      const base = options.base === 10 ? 1000 : 1024; // Base 10 for SI, Base 2 for binary
+      const labels = options.base === 10 ? ['B', 'KB', 'MB', 'GB'] : ['B', 'KiB', 'MiB', 'GiB'];
+      if (bytes === 0) return '0 B';
+      let size = bytes;
+      let index = 0;
+      while (size >= base && index < labels.length - 1) {
+        size /= base;
+        // eslint-disable-next-line no-plusplus
+        index++;
+      }
+      return `${parseFloat(size.toFixed(options.round)).toString()} ${labels[index]}`;
+    },
+    async fetchProcesses(appname) {
+      try {
+        const response = await this.executeLocalCommand(`/apps/apptop/${appname}`);
+        if (this.selectedContainerMonitoring === appname) {
+          this.processes = response.data?.data;
+        } else {
+          console.error('Selected container has changed. Proccess list discarded.');
+        }
+      } catch (error) {
+        console.error('Error fetching processes:', error);
+      }
+    },
+    initCharts() {
+      const memoryCtx = document.getElementById('memoryChart').getContext('2d');
+      const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+      const networkCtx = document.getElementById('networkChart').getContext('2d');
+      const ioCtx = document.getElementById('ioChart').getContext('2d');
+      const diskPersistentCtx = document.getElementById('diskPersistentChart').getContext('2d');
+      const diskFileSystemCtx = document.getElementById('diskFileSystemChart').getContext('2d');
+
+      const noDataPlugin = {
+        id: 'noDataPlugin',
+        beforeInit: () => {
+          console.log('noDataPlugin initialized'); // Check if plugin is loaded
+        },
+        afterDraw: (chart) => {
+          if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noDat === true) {
+            const { ctx, width, height } = chart;
+            ctx.save();
+            ctx.font = '16px Arial';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('No Data Available', width / 2, height / 2);
+            ctx.restore();
+          }
+        },
+      };
+      Chart.register(noDataPlugin);
+      this.diskPersistentChart = new Chart(diskPersistentCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Bind',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(119,255,132,0.3)',
+              borderColor: 'rgba(119,255,132,0.6)',
+              tension: 0.4,
+            },
+            {
+              label: 'Volume',
+              data: [],
+              borderColor: 'rgba(155,99,132,1)',
+              borderDash: [5, 5],
+              pointRadius: 2,
+              borderWidth: 2,
+              tension: 0.5,
+              fill: false,
+            },
+
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: '' } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
+                },
+              },
+            },
+            legend: {
+              display: true,
+              labels: {
+                filter: (item) => {
+                  // Check if diskPersistentChart is null
+                  if (!this.diskPersistentChart) return true; // If null, do not display any labels
+                  if (item.datasetIndex === 1) {
+                    const datasetData = this.diskPersistentChart.data.datasets[item.datasetIndex]?.data; // Get the data for dataset index 1
+                    // Check if dataset exists and has values greater than zero
+                    const hasValuesGreaterThanZero = Array.isArray(datasetData) && datasetData.some((value) => value > 0);
+                    return hasValuesGreaterThanZero; // Return true to keep in legend
+                  }
+                  return true;
+                },
+              },
+            },
+          },
+        },
+      });
+
+      this.diskFileSystemChart = new Chart(diskFileSystemCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'File System (RootFS)',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(159,155,132,0.3)',
+              borderColor: 'rgba(159,155,132,0.6)',
+              tension: 0.4,
+            },
+
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: '' } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
+                },
+              },
+            },
+          },
+        },
+      });
+
+      this.memoryChart = new Chart(memoryCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Memory Allocated',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(151,187,205,0.4)',
+              borderColor: 'rgba(151,187,205,0.6)',
+              yAxisID: 'y',
+              pointRadius: 2,
+              borderWidth: 2,
+              tension: 0.4,
+            },
+            {
+              label: 'Memory Utilization (%)',
+              data: [],
+              fill: false,
+              borderColor: 'rgba(255,99,132,1)',
+              borderDash: [5, 5],
+              yAxisID: 'y1',
+              pointRadius: 2,
+              borderWidth: 2,
+              tension: 0.4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true } },
+            y: {
+              id: 'y',
+              title: { display: true },
+              beginAtZero: true,
+              precision: 0,
+              ticks: {
+                callback: (value) => this.formatDataSize(value, { base: 2, round: 1 }),
+              },
+            },
+            y1: {
+              id: 'y1',
+              title: {
+                display: true,
+              },
+              beginAtZero: true,
+              position: 'right',
+              grid: {
+                display: false,
+              },
+              ticks: {
+                callback: (value) => `${value}%`,
+              },
+            },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  if (datasetLabel.includes('%')) {
+                    return `Memory Utilization: ${dataValue}%`;
+                  }
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 2, round: 1 })}`;
+                },
+                footer: () => `Available Memory: ${this.formatDataSize(this.memoryLimit, { base: 2, round: 1 })}`,
+              },
+            },
+          },
+        },
+      });
+      this.updateYAxisLimits();
+      this.cpuChart = new Chart(cpuCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'CPU Allocated',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(255,99,132,0.4)',
+              borderColor: 'rgba(255,99,132,0.6)',
+              tension: 0.4,
+            },
+            {
+              label: 'CPU Utilization (%)',
+              fill: false,
+              borderColor: 'rgba(255,99,132,1)',
+              borderDash: [5, 5],
+              yAxisID: 'y1',
+              pointRadius: 2,
+              borderWidth: 2,
+              tension: 0.4,
+            },
+
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true } },
+            y: {
+              id: 'y',
+              title: { display: true },
+              beginAtZero: true,
+              ticks: { callback: (value) => `${value} CPU` },
+            },
+            y1: {
+              id: 'y1',
+              title: {
+                display: true,
+              },
+              beginAtZero: true,
+              position: 'right',
+              grid: {
+                display: false,
+              },
+              ticks: {
+                callback: (value) => `${value}%`,
+              },
+            },
+
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  if (datasetLabel.includes('%')) {
+                    return `CPU Utilization: ${dataValue}%`;
+                  }
+                  return `CPU Allocated: ${dataValue} CPU`;
+                },
+              },
+            },
+          },
+        },
+      });
+      this.updateYAxisCPU();
+      this.networkChart = new Chart(networkCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'RX on eth0',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(99,255,132,0.4)',
+              borderColor: 'rgba(99,255,132,0.6)',
+              tension: 0.4,
+            },
+            {
+              label: 'TX on eth0',
+              data: [],
+              fill: false,
+              borderColor: 'rgba(132,99,255,1)',
+              tension: 0.4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: '' } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue)}`;
+                },
+              },
+            },
+          },
+        },
+      });
+
+      this.ioChart = new Chart(ioCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Read',
+              data: [],
+              fill: false,
+              borderColor: 'rgba(99,132,255,0.6)',
+              tension: 0.4,
+            },
+            {
+              label: 'Write',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(255,132,99,0.4)',
+              borderColor: 'rgba(255,132,99,0.6)',
+              tension: 0.4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true } },
+            y: { title: { display: true }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+          },
+          plugins: {
+            noDataPlugin,
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue)}`;
+                },
+              },
+            },
+          },
+        },
+      });
+    },
+    startPollingStats() {
+      this.timerStats = setInterval(() => {
+        this.fetchStats();
+      }, this.refreshRateMonitoring);
+    },
+    stopPollingStats() {
+      clearInterval(this.timerStats);
+      this.timerStats = null;
+    },
+    clearCharts() {
+      // Clear memory chart data
+      this.memoryChart.data.labels = [];
+      this.memoryChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.memoryChart.options.scales.y.max = 1.2;
+      this.memoryChart.options.scales.y1.max = 120;
+      this.memoryChart.update();
+
+      this.memoryChart.update();
+      // Clear CPU chart data
+      this.cpuChart.data.labels = [];
+      this.cpuChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.cpuChart.options.scales.y.max = 1.2;
+      this.cpuChart.options.scales.y1.max = 120;
+      this.cpuChart.update();
+      // Clear Network chart data
+      this.networkChart.data.labels = [];
+      this.networkChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.networkChart.update();
+      // Clear I/O chart data
+      this.ioChart.data.labels = [];
+      this.ioChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.ioChart.update();
+      this.diskPersistentChart.data.labels = [];
+      this.diskPersistentChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.diskPersistentChart.update();
+      this.diskFileSystemChart.data.labels = [];
+      this.diskFileSystemChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.diskFileSystemChart.update();
+      this.noDat = false;
+    },
+    // Stats Section END
     extractTimestamp(log) {
       return log.split(' ')[0];
     },
@@ -8716,6 +9566,7 @@ export default {
           this.getApplicationStats();
           break;
         case 4:
+          this.initCharts();
           this.getApplicationMonitoring();
           // this.getApplicationMonitoringStream(); // TODO UI with graphs
           break;
@@ -11582,6 +12433,105 @@ td .ellipsis-wrapper {
   height: 30px !important;
   box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
   transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease, opacity 0.6s ease, transform 0.6s ease;
+}
+
+/* Main Container */
+.container {
+  max-width: 1500px;
+  width: 100%; /* Use full available width */
+  padding: 0;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+/* Flexbox for container selection and refresh rate */
+.flex-container {
+  height: 50%;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  padding: 0.5vw;
+}
+/* Chart Grid */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1vw;
+  width: 100%;
+  margin: 1vh;
+}
+/* Chart Wrapper */
+.chart-wrapper {
+  padding: 10px; /* Adjust as needed */
+  border-radius: 10px;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  min-width: 600px;
+  overflow: hidden;
+  justify-content: center;
+  align-items: center;
+}
+
+.chart-title-container {
+  align-items: center;
+  display: flex;
+  margin-right: 10px; /* Odstęp między tytułem a wykresem */
+}
+
+.table-responsive {
+  overflow-x: auto; /* Enable horizontal scrolling */
+  box-shadow: 0px 6px 6px rgba(0, 0, 0, 0.1);
+}
+
+.table {
+  table-layout: auto; /* Fixes the table layout so columns don't shift */
+  width: 100%; /* Take full width of the container */
+}
+
+.table th, .table td {
+  white-space: nowrap; /* Prevent text from wrapping */
+  border: none; /* Remove borders */
+  background-color: transparent; /* Background color for cells */
+
+}
+
+.chart-title {
+  margin-left: 8px; /* Odstęp między ikoną a tytułem */
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.icon-large {
+  font-size: 24px !important; /* Ensure this size takes priority */
+}
+
+/* Chart canvas responsiveness */
+.chart-wrapper canvas {
+  max-width: 100%;
+  height: 100%;
+}
+
+/* Adjust grid for smaller screens */
+@media (max-width: 1200px) {
+  .charts-grid {
+    grid-template-columns: 1fr;
+    gap: 2vw;
+    margin: 1vh 0;
+  }
+}
+
+/* Ensure grid returns to original layout */
+@media (min-width: 1200px) {
+  .charts-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1vw;
+  }
+ /* Wyśrodkowanie ostatniego elementu, jeśli liczba elementów jest nieparzysta */
+  .charts-grid > .chart-wrapper:nth-last-child(1):nth-child(odd) {
+    grid-column: 1 / -1; /* Rozciągnij na całą szerokość */
+    justify-self: center; /* Wyśrodkuj poziomo */
+    width: 100%; /* Ogranicz szerokość do 50%, jeśli chcesz mniejszy element */
+  }
 }
 
 input[type="number"]::-webkit-outer-spin-button,
