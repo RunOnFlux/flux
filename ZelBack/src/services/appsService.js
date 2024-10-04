@@ -1249,7 +1249,7 @@ function startAppMonitoring(appName) {
         const containerStorageInfo = await getContainerStorage(appName);
         statsNow.disk_stats = containerStorageInfo;
         const now = Date.now();
-        appsMonitored[appName].statsStore({ timestamp: now, data: statsNow });
+        appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
         appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
           (stat) => now - stat.timestamp <= 10 * 60 * 1000,
         );
