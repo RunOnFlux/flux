@@ -1253,8 +1253,11 @@ function startAppMonitoring(appName) {
         statsNow.disk_stats = containerStorageInfo;
         const now = Date.now();
         appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
+        const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
+        const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
+        log.info(`Estimated size of statsStore over 7 days: ${estimatedSizeInMB.toFixed(2)} MB`);
         appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
-          (stat) => now - stat.timestamp <= 10 * 60 * 1000,
+          (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
         );
       } catch (error) {
         log.error(error);
@@ -1279,7 +1282,7 @@ function stopAppMonitoring(appName, deleteData) {
 }
 
 /**
- * Calculates the average CPU usage for a monitored app over the last 7 days.
+ * Calculates the average CPU usage for a monitored app over the last 1 hour.
  * @param {string} appName The name of the app for which to calculate CPU usage.
  * @returns {object|null} An object containing the average CPU usage difference and average system CPU usage difference, or null if the app is not monitored or has no stats data.
  */
@@ -1292,7 +1295,7 @@ function getAverageCpuUsage(appName) {
   }
 
   const stats = appsMonitored[appName].statsStore.filter(
-    (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
+    (stat) => now - stat.timestamp <= 60 * 60 * 1000,
   );
 
   if (stats.length === 0) {
@@ -1312,7 +1315,7 @@ function getAverageCpuUsage(appName) {
 
   const avgCpuUsageDiff = totalCpuUsageDiff / stats.length;
   const avgSystemCpuUsageDiff = totalSystemCpuUsageDiff / stats.length;
-
+  log.info(`${avgCpuUsageDiff}, ${avgSystemCpuUsageDiff}`);
   return {
     avgCpuUsageDiff,
     avgSystemCpuUsageDiff,
@@ -9686,6 +9689,8 @@ async function checkApplicationsCpuUSage() {
           const systemCpuUsage = averageStats.avgSystemCpuUsageDiff;
           const cpu = ((cpuUsage / systemCpuUsage) * stats[0].data.cpu_stats.online_cpus * 100) / app.cpu || 0;
           const realCpu = cpu / (nanoCpus / app.cpu / 1e9);
+          log.info(`CPU usage: ${realCpu}`);
+          log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: : ${cpuThrottling}`);
           if (realCpu < 92) {
             cpuThrottling = false;
           }
