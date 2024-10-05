@@ -13074,7 +13074,8 @@ let nodeConfirmedOnLastCheck = true;
 /**
  * Method responsable to monitor node status ans uninstall apps if node is not confirmed
  */
-async function monitorNodesStatus() {
+// eslint-disable-next-line consistent-return
+async function monitorNodeStatus() {
   try {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
@@ -13094,11 +13095,16 @@ async function monitorNodesStatus() {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
         }
+        await serviceHelper.delay(10 * 60 * 1000); // 10m delay before next check
+      } else {
+        nodeConfirmedOnLastCheck = false;
+        await serviceHelper.delay(2 * 60 * 1000); // 2m delay before next check
       }
-      nodeConfirmedOnLastCheck = false;
-      return;
+      return monitorNodeStatus();
     }
     nodeConfirmedOnLastCheck = true;
+    await serviceHelper.delay(10 * 60 * 1000); // 10m delay before next check
+    monitorNodeStatus();
   } catch (error) {
     log.errror(error);
   }
@@ -13240,5 +13246,5 @@ module.exports = {
   masterSlaveApps,
   getAppSpecsUSDPrice,
   checkApplicationsCpuUSage,
-  monitorNodesStatus,
+  monitorNodeStatus,
 };
