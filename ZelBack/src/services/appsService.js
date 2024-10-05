@@ -13087,7 +13087,7 @@ async function monitorNodeStatus() {
         const appsInstalled = installedAppsRes.data;
         // eslint-disable-next-line no-restricted-syntax
         for (const installedApp of appsInstalled) {
-          log.info(`Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network for more than 2 hours..`);
+          log.info(`Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network`);
           log.warn(`Removing application ${installedApp.name} locally`);
           // eslint-disable-next-line no-await-in-loop
           await removeAppLocally(installedApp.name, null, true, false, false);
