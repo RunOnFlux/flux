@@ -1255,14 +1255,14 @@ function startAppMonitoring(appName) {
         appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
         const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
         const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
-        log.info(`Estimated size of statsStore over 7 days: ${estimatedSizeInMB.toFixed(2)} MB`);
+        log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
         appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
           (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
         );
       } catch (error) {
         log.error(error);
       }
-    }, 1 * 60 * 1000);
+    }, 3 * 60 * 1000);
   }
 }
 
@@ -9682,7 +9682,7 @@ async function checkApplicationsCpuUSage() {
         stats = appsMonitored[app.name].statsStore;
         // eslint-disable-next-line no-await-in-loop
         const inspect = await dockerService.dockerContainerInspect(app.name);
-        if (inspect && stats.length > 55) {
+        if (inspect && stats.length > 19) {
           const nanoCpus = inspect.HostConfig.NanoCpus;
           let cpuThrottling = true;
           const cpuUsage = averageStats.avgCpuUsageDiff;
@@ -9692,7 +9692,7 @@ async function checkApplicationsCpuUSage() {
           if (realCpu < 92) {
             cpuThrottling = false;
           }
-          log.info(`CPU usage: ${realCpu}%`);
+          log.info(`CPU usage: ${realCpu.toFixed(2)}%`);
           log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: : ${cpuThrottling}`);
           if (cpuThrottling && app.cpu > 1) {
             if (nanoCpus / app.cpu / 1e9 === 1) {
@@ -9718,7 +9718,7 @@ async function checkApplicationsCpuUSage() {
           const averageStats = getAverageCpuUsage(`${appComponent.name}_${app.name}`);
           // eslint-disable-next-line no-await-in-loop
           const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
-          if (inspect && stats.length > 55) {
+          if (inspect && stats.length > 19) {
             const nanoCpus = inspect.HostConfig.NanoCpus;
             let cpuThrottling = true;
             const cpuUsage = averageStats.avgCpuUsageDiff;
@@ -9728,7 +9728,7 @@ async function checkApplicationsCpuUSage() {
             if (realCpu < 92) {
               cpuThrottling = false;
             }
-            log.info(`CPU usage: ${realCpu}%`);
+            log.info(`CPU usage: ${realCpu.toFixed(2)}%`);
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: : ${cpuThrottling}`);
             if (cpuThrottling && appComponent.cpu > 1) {
               if (nanoCpus / appComponent.cpu / 1e9 === 1) {
