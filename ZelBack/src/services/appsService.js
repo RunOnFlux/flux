@@ -13114,7 +13114,8 @@ async function monitorNodeStatus() {
     const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
     log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes((node) => node.ip === location));
+    const nodeIpList = nodeList.map(({ ip }) => ip);
+    const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeIpList.includes(location));
     log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on determinisct node list`);
     // eslint-disable-next-line no-restricted-syntax
     /* for (const location of appsLocationsNotOnNodelist) {
