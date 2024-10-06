@@ -7191,6 +7191,7 @@ export default {
     // Stats Section START
     enableHistoryStatisticsChange() {
       this.buttonStats = false;
+      this.noData = false;
       if (this.enableHistoryStatistics) {
         this.stopPollingStats();
         this.clearCharts();
@@ -7851,6 +7852,7 @@ export default {
       }
     },
     stopPollingStats(action = false) {
+      this.noData = false;
       clearInterval(this.timerStats);
       this.timerStats = null;
       if (action === true) {
