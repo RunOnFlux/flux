@@ -13096,7 +13096,7 @@ async function monitorNodeStatus() {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
         }
-        await serviceHelper.delay(20 * 60 * 1000); // 10m delay before next check
+        await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
       } else {
         nodeConfirmedOnLastCheck = false;
         await serviceHelper.delay(2 * 60 * 1000); // 2m delay before next check
@@ -13137,7 +13137,7 @@ async function monitorNodeStatus() {
         await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
       }
     }
-    await serviceHelper.delay(20 * 60 * 1000); // 10m delay before next check
+    await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
     monitorNodeStatus();
   } catch (error) {
     log.errror(error);
