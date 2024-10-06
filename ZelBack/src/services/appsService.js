@@ -13080,6 +13080,7 @@ async function monitorNodeStatus() {
   try {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
+      log.info('monitorNodeStatus - Node is not Confirmed');
       if (!nodeConfirmedOnLastCheck) {
         const installedAppsRes = await installedApps();
         if (installedAppsRes.status !== 'success') {
@@ -13103,6 +13104,7 @@ async function monitorNodeStatus() {
       }
       return monitorNodeStatus();
     }
+    log.info('monitorNodeStatus - Node is Confirmed');
     nodeConfirmedOnLastCheck = true;
     // lets remove from locations when nodes are no longer confirmed
     const dbopen = dbHelper.databaseConnection();
@@ -13111,9 +13113,10 @@ async function monitorNodeStatus() {
     const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
     const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes((node) => node.ip === location));
+    log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on determinisct node list`);
     // eslint-disable-next-line no-restricted-syntax
     for (const location of appsLocationsNotOnNodelist) {
-      log.info(`monitorNodeStatus - IP ${location} is no present on determinisct node list`);
+      log.info(`monitorNodeStatus - Checking IP ${location}.`);
       const ip = location.split(':')[0];
       const port = location.split(':')[1] || 16127;
       const { CancelToken } = axios;
@@ -13129,7 +13132,7 @@ async function monitorNodeStatus() {
       const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
       isResolved = true;
       if (response && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
-        log.info(`monitorNodeStatus - IP ${location} is available with a different ip awaiting for the new ip confirmation transaction`);
+        log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
       } else {
         log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
         const query = { ip: location };
