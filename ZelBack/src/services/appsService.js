@@ -13111,6 +13111,8 @@ async function monitorNodeStatus() {
     const database = dbopen.db(config.database.daemon.database);
     const variable = 'ip';
     const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
+    log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
+    log.info(JSON.stringify(appslocations));
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
     const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes((node) => node.ip === location));
     log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on determinisct node list`);
