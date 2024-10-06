@@ -13083,20 +13083,20 @@ async function monitorNodeStatus() {
       if (!nodeConfirmedOnLastCheck) {
         const installedAppsRes = await installedApps();
         if (installedAppsRes.status !== 'success') {
-          throw new Error('Failed to get installed Apps');
+          throw new Error('monitorNodeStatus - Failed to get installed Apps');
         }
         const appsInstalled = installedAppsRes.data;
         // eslint-disable-next-line no-restricted-syntax
         for (const installedApp of appsInstalled) {
-          log.info(`Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network`);
-          log.warn(`Removing application ${installedApp.name} locally`);
+          log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network`);
+          log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
           // eslint-disable-next-line no-await-in-loop
           await removeAppLocally(installedApp.name, null, true, false, false);
-          log.warn(`Application ${installedApp.name} locally removed`);
+          log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
         }
-        await serviceHelper.delay(10 * 60 * 1000); // 10m delay before next check
+        await serviceHelper.delay(20 * 60 * 1000); // 10m delay before next check
       } else {
         nodeConfirmedOnLastCheck = false;
         await serviceHelper.delay(2 * 60 * 1000); // 2m delay before next check
@@ -13113,7 +13113,7 @@ async function monitorNodeStatus() {
     const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes((node) => node.ip === location));
     // eslint-disable-next-line no-restricted-syntax
     for (const location of appsLocationsNotOnNodelist) {
-      log.info(`Location ${location} is no present on determinisct node list`);
+      log.info(`monitorNodeStatus - IP ${location} is no present on determinisct node list`);
       const ip = location.split(':')[0];
       const port = location.split(':')[1] || 16127;
       const { CancelToken } = axios;
@@ -13129,15 +13129,15 @@ async function monitorNodeStatus() {
       const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
       isResolved = true;
       if (response && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
-        log.info(`Location ${location} is available with a different ip awaiting for the new ip confirmation transaction`);
+        log.info(`monitorNodeStatus - IP ${location} is available with a different ip awaiting for the new ip confirmation transaction`);
       } else {
-        log.info(`Removing Location ${location} from globalAppsLocations`);
+        log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
         const query = { ip: location };
         // eslint-disable-next-line no-await-in-loop
         await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
       }
     }
-    await serviceHelper.delay(10 * 60 * 1000); // 10m delay before next check
+    await serviceHelper.delay(20 * 60 * 1000); // 10m delay before next check
     monitorNodeStatus();
   } catch (error) {
     log.errror(error);
