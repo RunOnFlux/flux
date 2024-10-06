@@ -729,7 +729,7 @@
                 class="mr-1"
                 scale="1.2"
                 icon="bar-chart-fill"
-              /> {{ overviewTitle }} {{ noDat }}
+              /> {{ overviewTitle }}
             </h5>
             <b-form-checkbox v-model="enableHistoryStatistics" switch @change="enableHistoryStatisticsChange">
               History Statistics
@@ -6121,8 +6121,10 @@ export default {
   },
   data() {
     return {
+      diskUsagePercentage: '',
+      diskBindLimit: '',
       buttonStats: false,
-      noDat: false,
+      noData: false,
       enableHistoryStatistics: false,
       selectedTimeRange: 1 * 24 * 60 * 60 * 1000,
       timeOptions: [
@@ -7060,7 +7062,7 @@ export default {
         if (!this.enableHistoryStatistics) {
           if (this.timerStats) this.stopPollingStats();
           if (this.selectedContainerMonitoring !== null) this.startPollingStats();
-          if (this.noDat === true) {
+          if (this.noData === true) {
             this.clearCharts();
           }
         } else {
@@ -7217,8 +7219,16 @@ export default {
       await this.$nextTick();
       window.scrollTo(0, document.body.scrollHeight);
     },
+    getHddByName(applications, appName) {
+      if (applications?.compose) {
+        const app = applications.compose.find((application) => application.name === appName);
+        return app.hdd;
+      // eslint-disable-next-line no-else-return
+      } else {
+        return applications.hdd;
+      }
+    },
     processStatsData(statsData, configData, timeStamp = null) {
-      console.log(statsData);
       const memoryLimitBytes = statsData.memory_stats.limit;
       this.memoryLimit = memoryLimitBytes;
       const memoryUsageBytes = statsData.memory_stats?.usage || null;
@@ -7237,6 +7247,14 @@ export default {
       const networkRxBytes = statsData.networks?.eth0?.rx_bytes || null;
       const networkTxBytes = statsData.networks?.eth0?.tx_bytes || null;
       const diskUsageMounts = statsData.disk_stats?.bind || null;
+      let hddSize;
+      if (this.appSpecification.version >= 4) {
+        hddSize = this.getHddByName(this.appSpecification, this.selectedContainerMonitoring);
+      } else {
+        hddSize = this.appSpecification.hdd;
+      }
+      this.diskBindLimit = Number(hddSize) * 1000 * 1000 * 1000;
+      this.diskUsagePercentage = (diskUsageMounts / this.diskBindLimit) * 100;
       const diskUsageDocker = statsData.disk_stats?.volume || null;
       const diskUsageRootFs = statsData.disk_stats?.rootfs || null;
 
@@ -7373,7 +7391,7 @@ export default {
         this.diskFileSystemChart.data.labels.push(timeLabel);
         this.diskFileSystemChart.data.datasets[0].data.push(diskUsageRootFs);
       }
-      this.noDat = true;
+      this.noData = true;
       this.updateAxes();
     },
     updateCharts() {
@@ -7446,7 +7464,7 @@ export default {
       const noDataPlugin = {
         id: 'noDataPlugin',
         beforeDraw: (chart) => {
-          if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noDat === true) {
+          if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noData === true) {
             const { ctx, width, height } = chart;
             ctx.save();
             ctx.font = 'bold 16px Arial';
@@ -7462,7 +7480,7 @@ export default {
           }
         },
         afterDraw: (chart) => {
-          if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noDat === true) {
+          if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noData === true) {
             const { ctx, width, height } = chart;
             ctx.save();
             ctx.font = 'bold 16px Arial';
@@ -7521,6 +7539,10 @@ export default {
                   const dataValue = tooltipItem.raw;
                   return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
                 },
+                footer: () => [
+                  `Available Bind Size: ${this.formatDataSize(this.diskBindLimit, { base: 10, round: 1 })}`,
+                  `Usage (%): ${this.diskUsagePercentage.toFixed(2)}%`,
+                ],
               },
             },
             legend: {
@@ -7837,7 +7859,7 @@ export default {
     },
     clearCharts() {
       // Clear memory chart data
-      this.noDat = false;
+      this.noData = false;
       this.memoryChart.data.labels = [];
       this.memoryChart.data.datasets.forEach((dataset) => {
         dataset.data = [];
@@ -9572,6 +9594,8 @@ export default {
     },
     async updateManagementTab(index) {
       this.noData = false;
+      this.processes = [];
+      this.enableHistoryStatistics = false;
       this.callResponse.data = '';
       this.callResponse.status = '';
       // do not reset global application specifics obtained
@@ -9619,7 +9643,6 @@ export default {
         case 3:
           this.$nextTick(() => {
             this.initCharts();
-            this.processes = [];
             setTimeout(this.startPollingStats(), 2000);
           });
           break;
