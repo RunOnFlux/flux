@@ -718,66 +718,27 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Resources">
-        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <div v-if="commandExecutingStats">
-          <div style="display: flex; align-items: center;">
-            <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
-            <h5 style="margin: 0;">
-              Loading...
-            </h5>
-          </div>
-        </div>
-        <div v-if="appSpecification.version >= 4">
-          <div
-            v-for="(component, index) in callResponseStats.data"
-            :key="index"
-          >
-            <h4>Component: {{ component.name }}</h4>
-            <div v-if="component.callData">
-              <json-viewer
-                :value="component.callData"
-                :expand-depth="5"
-                copyable
-                boxed
-                theme="jv-dark"
-              />
-            </div>
-          </div>
-        </div>
-        <div v-else>
-          <div v-if="callResponseStats.data && callResponseStats.data[0]">
-            <json-viewer
-              :value="callResponseStats.data[0].callData"
-              :expand-depth="5"
-              copyable
-              boxed
-              theme="jv-dark"
-            />
-          </div>
-        </div>
-      </b-tab>
       <b-tab title="Monitoring">
         <div class="container">
           <div
             class="d-flex mb-1 mt-2 align-items-center justify-content-between"
-            style="border: 1px solid #ccc; border-radius: 8px; height: 45px; padding: 12px; text-align: left;"
+            style="border: 1px solid #ccc; border-radius: 8px; height: 45px; padding-top: 12px; padding-bottom: 4px;  padding-left: 12px;  padding-right: 12px; text-align: left;"
           >
             <h5>
               <b-icon
                 class="mr-1"
                 scale="1.2"
                 icon="bar-chart-fill"
-              /> Stats Overview
+              /> {{ overviewTitle }} {{ noDat }}
             </h5>
             <b-form-checkbox v-model="enableHistoryStatistics" switch @change="enableHistoryStatisticsChange">
               History Statistics
             </b-form-checkbox>
           </div>
           <!-- Menu -->
-          <div class="d-flex flex-container mt-1">
+          <div class="d-flex flex-container2">
             <div>
-              <b-input-group size="sm" class="mb-2">
+              <b-input-group size="sm" class="mb-1">
                 <b-input-group-prepend is-text>
                   <b-icon icon="app-indicator" />
                 </b-input-group-prepend>
@@ -806,9 +767,10 @@
                   :placeholder="appSpecification.name"
                   disabled
                 />
-                <b-icon v-if="enableHistoryStatistics" icon="arrow-clockwise" :class="['ml-2', 'r']" @click="fetchStats" />
+                <b-icon v-if="enableHistoryStatistics" icon="arrow-clockwise" :class="['ml-1', 'r']" @click="fetchStats" />
+                <b-icon v-if="!enableHistoryStatistics && buttonStats === true" icon="arrow-clockwise" :class="['ml-1', 'r']" @click="startPollingStats(true)" />
               </b-input-group>
-              <b-input-group v-if="!enableHistoryStatistics" size="sm" style="width: 120px;" class="mb-2">
+              <b-input-group v-if="!enableHistoryStatistics" size="sm" style="width: 120px;">
                 <b-input-group-prepend is-text>
                   <b-icon
                     v-b-tooltip.hover.top="'Limit the number of data points displayed on the charts.'"
@@ -819,12 +781,11 @@
                 <b-form-select
                   v-model="selectedPoints"
                   :options="pointsOptions"
-                  @change="handleContainerChange"
                 />
               </b-input-group>
             </div>
             <div v-if="!enableHistoryStatistics">
-              <b-input-group size="sm" class="mb-2">
+              <b-input-group size="sm">
                 <b-input-group-prepend is-text>
                   <b-icon
                     v-b-tooltip.hover.top="'Choose the interval for refreshing data on the charts.'"
@@ -840,7 +801,7 @@
               </b-input-group>
             </div>
             <div v-if="enableHistoryStatistics">
-              <b-input-group size="sm" class="mb-2">
+              <b-input-group size="sm">
                 <b-input-group-prepend is-text>
                   <b-icon
                     v-b-tooltip.hover.top="'Choose the time period to display historical data.'"
@@ -848,7 +809,7 @@
                     icon="calendar-range"
                   />
                 </b-input-group-prepend>
-                <b-form-select v-model="selectedTimeRange" :options="timeOptions" />
+                <b-form-select v-model="selectedTimeRange" :options="timeOptions" @change="fetchStats" />
               </b-input-group>
             </div>
           </div>
@@ -974,7 +935,7 @@
                 class="mb-2"
               />
               <div class="table-responsive">
-                <b-table class="table" small responsive show-empty empty-text="No records available." :items="paginatedProcesses" :fields="titles" bordered hover />
+                <b-table class="table-monitoring" small responsive show-empty empty-text="No records available." :items="paginatedProcesses" :fields="titles" bordered hover />
               </div>
               <div class="d-flex align-items-center my-3">
                 <div class="flex-grow-1 text-center">
@@ -1036,45 +997,6 @@
             <json-viewer
               class="mt-1"
               :value="callResponseChanges.data[0].callData"
-              :expand-depth="5"
-              copyable
-              boxed
-              theme="jv-dark"
-            />
-          </div>
-        </div>
-      </b-tab>
-      <b-tab title="Processes">
-        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <div v-if="commandExecutingProcesses">
-          <div style="display: flex; align-items: center;">
-            <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
-            <h5 style="margin: 0;">
-              Loading...
-            </h5>
-          </div>
-        </div>
-        <div v-if="appSpecification.version >= 4">
-          <div
-            v-for="(component, index) in callResponseProcesses.data"
-            :key="index"
-          >
-            <h4>Component: {{ component.name }}</h4>
-            <div v-if="component.callData">
-              <json-viewer
-                :value="component.callData"
-                :expand-depth="5"
-                copyable
-                boxed
-                theme="jv-dark"
-              />
-            </div>
-          </div>
-        </div>
-        <div v-else>
-          <div v-if="callResponseProcesses.data && callResponseProcesses.data[0]">
-            <json-viewer
-              :value="callResponseProcesses.data[0].callData"
               :expand-depth="5"
               copyable
               boxed
@@ -6130,7 +6052,6 @@ const axios = require('axios');
 const qs = require('qs');
 const store = require('store');
 const openpgp = require('openpgp');
-const timeoptions = require('@/libs/dateFormat');
 const splitargs = require('splitargs');
 const geolocations = require('../../libs/geolocation');
 
@@ -6200,6 +6121,7 @@ export default {
   },
   data() {
     return {
+      buttonStats: false,
       noDat: false,
       enableHistoryStatistics: false,
       selectedTimeRange: 1 * 24 * 60 * 60 * 1000,
@@ -6240,7 +6162,9 @@ export default {
       selectedContainerMonitoring: null,
       refreshRateMonitoring: 5000,
       containerOptions: [],
+      ioChart: null,
       memoryChart: null,
+      networkChart: null,
       diskFileSystemChart: null,
       diskPersistentChart: null,
       cpuChart: null,
@@ -6709,6 +6633,9 @@ export default {
     };
   },
   computed: {
+    overviewTitle() {
+      return this.enableHistoryStatistics ? 'History Stats Overview' : 'Stats & Processes Overview';
+    },
     filteredProcesses() {
       if (this.search) {
         return this.processes.filter((process) => Object.values(process).some((value) => String(value).toLowerCase().includes(this.search.toLowerCase())));
@@ -7077,6 +7004,16 @@ export default {
     },
   },
   watch: {
+    skin() {
+      if (this.memoryChart !== null) {
+        this.updateCharts();
+      }
+    },
+    noData() {
+      if (this.memoryChart !== null) {
+        this.updateCharts();
+      }
+    },
     filterKeyword() {
       if (this.logs?.length > 0) {
         this.$nextTick(() => {
@@ -7117,16 +7054,28 @@ export default {
         }
       }
     },
-    selectedContainerMonitoring() {
-      if (!this.enableHistoryStatistics) {
-        if (this.timerStats) this.stopPollingStats();
-        if (this.selectedContainer) this.startPollingStats();
-        this.clearCharts();
+    selectedContainerMonitoring(newValue) {
+      if (newValue) {
+        this.buttonStats = false;
+        if (!this.enableHistoryStatistics) {
+          if (this.timerStats) this.stopPollingStats();
+          if (this.selectedContainerMonitoring !== null) this.startPollingStats();
+          if (this.noDat === true) {
+            this.clearCharts();
+          }
+        } else {
+          this.stopPollingStats();
+          this.fetchStats();
+        }
       }
     },
     refreshRateMonitoring() {
-      if (this.timerStats) this.stopPollingStats();
-      this.startPollingStats();
+      if (!this.enableHistoryStatistics) {
+        if (this.timerStats) this.stopPollingStats();
+        this.startPollingStats();
+      } else {
+        this.stopPollingStats();
+      }
     },
     isComposeSingle(value) {
       if (value) {
@@ -7239,9 +7188,11 @@ export default {
   methods: {
     // Stats Section START
     enableHistoryStatisticsChange() {
+      this.buttonStats = false;
       if (this.enableHistoryStatistics) {
         this.stopPollingStats();
         this.clearCharts();
+        this.fetchStats();
       } else {
         this.clearCharts();
         this.startPollingStats();
@@ -7267,9 +7218,10 @@ export default {
       window.scrollTo(0, document.body.scrollHeight);
     },
     processStatsData(statsData, configData, timeStamp = null) {
+      console.log(statsData);
       const memoryLimitBytes = statsData.memory_stats.limit;
       this.memoryLimit = memoryLimitBytes;
-      const memoryUsageBytes = statsData.memory_stats.usage;
+      const memoryUsageBytes = statsData.memory_stats?.usage || null;
       const memoryUsageMB = memoryUsageBytes;
       const memoryUsagePercentage = ((memoryUsageBytes / memoryLimitBytes) * 100).toFixed(1);
       const cpuUsage = statsData.cpu_stats.cpu_usage.total_usage - statsData.precpu_stats.cpu_usage.total_usage;
@@ -7282,15 +7234,42 @@ export default {
       this.cpuSet = (nanoCpus / 1e9).toFixed(1);
       const ioReadBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'read')?.value || 0 : null;
       const ioWriteBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'write')?.value || 0 : null;
-      const networkRxBytes = statsData.networks.eth0?.rx_bytes || null;
-      const networkTxBytes = statsData.networks.eth0?.tx_bytes || null;
-      const diskUsageMounts = statsData.disk_stats?.appDataMounts || null;
-      const diskUsageDocker = statsData.disk_stats?.dockerVolume || null;
+      const networkRxBytes = statsData.networks?.eth0?.rx_bytes || null;
+      const networkTxBytes = statsData.networks?.eth0?.tx_bytes || null;
+      const diskUsageMounts = statsData.disk_stats?.bind || null;
+      const diskUsageDocker = statsData.disk_stats?.volume || null;
       const diskUsageRootFs = statsData.disk_stats?.rootfs || null;
+
+      console.log('CPU Percent:', cpuPercent);
+      console.log('Memory Usage:', memoryUsageMB);
+      console.log('Memory Usage (%):', memoryUsagePercentage);
+      console.log('Network RX Bytes:', networkRxBytes);
+      console.log('Network TX Bytes:', networkTxBytes);
+      console.log('I/O Read Bytes:', ioReadBytes);
+      console.log('I/O Write Bytes:', ioWriteBytes);
+      console.log('Disk Usage Mounts:', diskUsageMounts);
+      console.log('Disk Usage Volume:', diskUsageDocker);
+      console.log('Disk Usage RootFS:', diskUsageRootFs);
+      console.log('CPU Size:', cpuSize);
+
       this.insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp);
     },
     async fetchStats() {
       try {
+        if (this.appSpecification.version >= 4) {
+          if (!this.selectedContainerMonitoring) {
+            console.error('No container selected');
+            if (this.timerStats) this.stopPollingStats();
+            return;
+          }
+        }
+        if (this.$refs.managementTabs?.currentTab !== 3) {
+          return;
+        }
+        if (this.enableHistoryStatistics) {
+          this.clearCharts();
+        }
+        const containerName = this.selectedContainerMonitoring;
         const appname = this.selectedContainerMonitoring ? `${this.selectedContainerMonitoring}_${this.appSpecification.name}` : this.appSpecification.name;
         let statsResponse;
         if (this.enableHistoryStatistics) {
@@ -7305,22 +7284,29 @@ export default {
           this.showToast('danger', inspectResponse.data.data.message || inspectResponse.data.data);
         } else {
           if (!this.enableHistoryStatistics) {
-            this.fetchProcesses(appname);
+            this.fetchProcesses(appname, containerName);
           }
           const configData = inspectResponse.data;
-          const statsData = statsResponse.data;
-
+          let statsData;
+          if (statsResponse.data?.data?.lastDay) {
+            statsData = statsResponse.data.data.lastDay.reverse();
+          } else {
+            statsData = statsResponse.data.data;
+          }
           if (Array.isArray(statsData)) {
-            statsData.data.forEach((stats) => {
-              console.log(stats.timestamp);
-              console.log(stats.data);
-              this.processStatsData(stats.data, configData, stats.timestamp);
+            const now = new Date().getTime();
+            const cutoffTimestamp = now - this.selectedTimeRange;
+            const filteredStats = statsData.filter((stats) => {
+              const statsTimestamp = new Date(stats.timestamp).getTime();
+              return statsTimestamp >= cutoffTimestamp;
+            });
+            filteredStats.forEach((stats) => {
+              this.processStatsData(stats.data, configData.data, stats.timestamp);
             });
           } else {
-            console.log(statsData);
-            this.processStatsData(statsData, configData);
+            this.processStatsData(statsData, configData.data);
           }
-          if (appname === this.selectedContainerMonitoring) {
+          if (containerName === this.selectedContainerMonitoring) {
             this.updateCharts();
           } else {
             this.clearCharts();
@@ -7328,6 +7314,7 @@ export default {
         }
       } catch (error) {
         console.error('Error fetching container data:', error);
+        this.stopPollingStats(true);
       }
     },
     updateAxes() {
@@ -7345,20 +7332,26 @@ export default {
     insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp = null) {
       const timeLabel = timeStamp === null ? new Date().toLocaleTimeString() : new Date(timeStamp).toLocaleTimeString();
       // Update memory chart
-      this.LimitChartItems(this.memoryChart);
-      this.memoryChart.data.labels.push(timeLabel);
-      this.memoryChart.data.datasets[0].data.push(memoryUsageMB);
-      this.memoryChart.data.datasets[1].data.push(memoryUsagePercentage);
+      if (memoryUsageMB !== null) {
+        this.LimitChartItems(this.memoryChart);
+        this.memoryChart.data.labels.push(timeLabel);
+        this.memoryChart.data.datasets[0].data.push(memoryUsageMB);
+        this.memoryChart.data.datasets[1].data.push(memoryUsagePercentage);
+      }
       // Update CPU chart
-      this.LimitChartItems(this.cpuChart);
-      this.cpuChart.data.labels.push(timeLabel);
-      this.cpuChart.data.datasets[0].data.push(cpuSize);
-      this.cpuChart.data.datasets[1].data.push(cpuPercent);
+      if (networkRxBytes !== null && networkTxBytes !== null) {
+        this.LimitChartItems(this.cpuChart);
+        this.cpuChart.data.labels.push(timeLabel);
+        this.cpuChart.data.datasets[0].data.push(cpuSize);
+        this.cpuChart.data.datasets[1].data.push(cpuPercent);
+      }
       // Update Network chart
-      this.LimitChartItems(this.networkChart);
-      this.networkChart.data.labels.push(timeLabel);
-      this.networkChart.data.datasets[0].data.push(networkRxBytes);
-      this.networkChart.data.datasets[1].data.push(networkTxBytes);
+      if (networkRxBytes !== null && networkTxBytes !== null) {
+        this.LimitChartItems(this.networkChart);
+        this.networkChart.data.labels.push(timeLabel);
+        this.networkChart.data.datasets[0].data.push(networkRxBytes);
+        this.networkChart.data.datasets[1].data.push(networkTxBytes);
+      }
       // Update I/O chart
       if (ioReadBytes !== null && ioWriteBytes !== null) {
         this.LimitChartItems(this.ioChart);
@@ -7367,20 +7360,23 @@ export default {
         this.ioChart.data.datasets[1].data.push(ioWriteBytes);
       }
       // Update Persistent Storage chart
-      this.LimitChartItems(this.diskPersistentChart);
-      this.diskPersistentChart.data.labels.push(timeLabel);
-      this.diskPersistentChart.data.datasets[0].data.push(diskUsageMounts);
-      this.diskPersistentChart.data.datasets[1].data.push(diskUsageDocker);
-      this.diskPersistentChart.data.datasets[1].hidden = diskUsageDocker === 0;
+      if (diskUsageMounts !== null || diskUsageMounts !== null) {
+        this.LimitChartItems(this.diskPersistentChart);
+        this.diskPersistentChart.data.labels.push(timeLabel);
+        this.diskPersistentChart.data.datasets[0].data.push(diskUsageMounts);
+        this.diskPersistentChart.data.datasets[1].data.push(diskUsageDocker);
+        this.diskPersistentChart.data.datasets[1].hidden = diskUsageDocker === 0;
+      }
       // Update File System chart
-      this.LimitChartItems(this.diskFileSystemChart);
-      this.diskFileSystemChart.data.labels.push(timeLabel);
-      this.diskFileSystemChart.data.datasets[0].data.push(diskUsageRootFs);
-      this.updateAxes();
+      if (diskUsageRootFs !== null) {
+        this.LimitChartItems(this.diskFileSystemChart);
+        this.diskFileSystemChart.data.labels.push(timeLabel);
+        this.diskFileSystemChart.data.datasets[0].data.push(diskUsageRootFs);
+      }
       this.noDat = true;
+      this.updateAxes();
     },
     updateCharts() {
-      // Update all charts after data insertion
       this.memoryChart.update();
       this.cpuChart.update();
       this.networkChart.update();
@@ -7404,12 +7400,27 @@ export default {
       }
       return `${parseFloat(size.toFixed(options.round)).toString()} ${labels[index]}`;
     },
-    async fetchProcesses(appname) {
+    async fetchProcesses(appname, continer) {
       try {
         const response = await this.executeLocalCommand(`/apps/apptop/${appname}`);
-        if (this.selectedContainerMonitoring === appname) {
-          this.processes = response.data?.data;
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+          this.stopPollingStats(true);
+          return;
+        }
+        if (this.selectedContainerMonitoring === continer) {
+          this.processes = (response.data?.data?.Processes || []).map((proc) => ({
+            uid: proc[0],
+            pid: proc[1],
+            ppid: proc[2],
+            c: proc[3],
+            stime: proc[4],
+            tty: proc[5],
+            time: proc[6],
+            cmd: proc[7],
+          }));
         } else {
+          this.processes = [];
           console.error('Selected container has changed. Proccess list discarded.');
         }
       } catch (error) {
@@ -7417,6 +7428,14 @@ export default {
       }
     },
     initCharts() {
+      if (this.memoryChart) {
+        this.memoryChart.destroy();
+        this.cpuChart.destroy();
+        this.networkChart.destroy();
+        this.ioChart.destroy();
+        this.diskPersistentChart.destroy();
+        this.diskFileSystemChart.destroy();
+      }
       const memoryCtx = document.getElementById('memoryChart').getContext('2d');
       const cpuCtx = document.getElementById('cpuChart').getContext('2d');
       const networkCtx = document.getElementById('networkChart').getContext('2d');
@@ -7426,15 +7445,32 @@ export default {
 
       const noDataPlugin = {
         id: 'noDataPlugin',
-        beforeInit: () => {
-          console.log('noDataPlugin initialized'); // Check if plugin is loaded
+        beforeDraw: (chart) => {
+          if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noDat === true) {
+            const { ctx, width, height } = chart;
+            ctx.save();
+            ctx.font = 'bold 16px Arial';
+            if (this.skin === 'dark') {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            } else {
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            }
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('No Data Available', width / 2, height / 2);
+            ctx.restore();
+          }
         },
         afterDraw: (chart) => {
           if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noDat === true) {
             const { ctx, width, height } = chart;
             ctx.save();
-            ctx.font = '16px Arial';
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.font = 'bold 16px Arial';
+            if (this.skin === 'dark') {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            } else {
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            }
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('No Data Available', width / 2, height / 2);
@@ -7621,7 +7657,7 @@ export default {
           },
         },
       });
-      this.updateYAxisLimits();
+
       this.cpuChart = new Chart(cpuCtx, {
         type: 'line',
         data: {
@@ -7692,7 +7728,7 @@ export default {
           },
         },
       });
-      this.updateYAxisCPU();
+
       this.networkChart = new Chart(networkCtx, {
         type: 'line',
         data: {
@@ -7766,7 +7802,6 @@ export default {
             y: { title: { display: true }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
           },
           plugins: {
-            noDataPlugin,
             tooltip: {
               mode: 'index',
               intersect: false,
@@ -7781,18 +7816,28 @@ export default {
           },
         },
       });
+      this.updateAxes();
     },
-    startPollingStats() {
-      this.timerStats = setInterval(() => {
-        this.fetchStats();
-      }, this.refreshRateMonitoring);
+    startPollingStats(action = false) {
+      if (!this.timerStats) {
+        this.timerStats = setInterval(() => {
+          this.fetchStats();
+        }, this.refreshRateMonitoring);
+      }
+      if (action === true) {
+        this.buttonStats = false;
+      }
     },
-    stopPollingStats() {
+    stopPollingStats(action = false) {
       clearInterval(this.timerStats);
       this.timerStats = null;
+      if (action === true) {
+        this.buttonStats = true;
+      }
     },
     clearCharts() {
       // Clear memory chart data
+      this.noDat = false;
       this.memoryChart.data.labels = [];
       this.memoryChart.data.datasets.forEach((dataset) => {
         dataset.data = [];
@@ -7832,7 +7877,7 @@ export default {
         dataset.data = [];
       });
       this.diskFileSystemChart.update();
-      this.noDat = false;
+      this.processes = [];
     },
     // Stats Section END
     extractTimestamp(log) {
@@ -7904,7 +7949,7 @@ export default {
       this.manualInProgress = false;
     },
     async fetchLogsForSelectedContainer() {
-      if (this.$refs.managementTabs.currentTab !== 7) {
+      if (this.$refs.managementTabs?.currentTab !== 5) {
         return;
       }
       console.log('fetchLogsForSelectedContainer in progress...');
@@ -9526,6 +9571,7 @@ export default {
       }
     },
     async updateManagementTab(index) {
+      this.noData = false;
       this.callResponse.data = '';
       this.callResponse.status = '';
       // do not reset global application specifics obtained
@@ -9535,12 +9581,18 @@ export default {
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.backupToUpload = [];
-      if (index !== 11) {
+
+      const tabs = this.$refs.managementTabs.$children;
+      const tabTitle = tabs[index]?.title;
+      if (tabTitle !== 'Interactive Terminal') {
         this.disconnectTerminal();
       }
-      if (index !== 7) {
+      if (tabTitle !== 'Logs') {
         this.stopPolling();
         this.pollingEnabled = false;
+      }
+      if (tabTitle !== 'Monitoring') {
+        this.stopPollingStats();
       }
       if (!this.selectedIp) {
         await this.getInstancesForDropDown();
@@ -9553,7 +9605,6 @@ export default {
       this.getApplicationManagementAndStatus();
       switch (index) {
         case 1:
-          // this.getInstancesForDropDown();
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -9561,42 +9612,44 @@ export default {
           this.callResponseInspect.data = '';
           this.getApplicationInspect();
           break;
+        // case 3:
+        //   this.callResponseStats.data = '';
+        //   this.getApplicationStats();
+        //   break;
         case 3:
-          this.callResponseStats.data = '';
-          this.getApplicationStats();
+          this.$nextTick(() => {
+            this.initCharts();
+            this.processes = [];
+            setTimeout(this.startPollingStats(), 2000);
+          });
           break;
         case 4:
-          this.initCharts();
-          this.getApplicationMonitoring();
-          // this.getApplicationMonitoringStream(); // TODO UI with graphs
-          break;
-        case 5:
           this.callResponseChanges.data = '';
           this.getApplicationChanges();
           break;
-        case 6:
-          this.callResponseProcesses.data = '';
-          this.getApplicationProcesses();
-          break;
-        case 7:
+        // case 6:
+        //   this.callResponseProcesses.data = '';
+        //   this.getApplicationProcesses();
+        //   break;
+        case 5:
           this.logs = [];
           this.selectedLog = [];
           this.fetchLogsForSelectedContainer();
           break;
-        case 10:
+        case 8:
           this.applyFilter();
           this.loadBackupList();
           break;
-        case 11:
+        case 9:
           if (!this.appSpecification?.compose || this.appSpecification?.compose?.length === 1) {
             this.refreshFolder();
           }
           break;
-        case 15:
+        case 13:
           this.getZelidAuthority();
           this.cleanData();
           break;
-        case 16:
+        case 14:
           this.getZelidAuthority();
           this.cleanData();
           break;
@@ -10330,123 +10383,6 @@ export default {
       this.callResponseInspect.status = 'success';
       this.callResponseInspect.data = callData;
     },
-    async getApplicationStats() {
-      const callData = [];
-      this.commandExecutingStats = true;
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          const response = await this.executeLocalCommand(`/apps/appstats/${component.name}_${this.appSpecification.name}`);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          } else {
-            const appComponentInspect = {
-              name: component.name,
-              callData: response.data.data,
-            };
-            callData.push(appComponentInspect);
-          }
-        }
-      } else {
-        const response = await this.executeLocalCommand(`/apps/appstats/${this.appName}`);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        } else {
-          const appComponentInspect = {
-            name: this.appSpecification.name,
-            callData: response.data.data,
-          };
-          callData.push(appComponentInspect);
-        }
-        console.log(response);
-      }
-      this.commandExecutingStats = false;
-      this.callResponseStats.status = 'success';
-      this.callResponseStats.data = callData;
-    },
-    async getApplicationMonitoring() {
-      const callData = [];
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          const response = await this.executeLocalCommand(`/apps/appmonitor/${component.name}_${this.appSpecification.name}`);
-          // eslint-disable-next-line no-await-in-loop
-          const responseB = await this.executeLocalCommand(`/apps/appinspect/${component.name}_${this.appSpecification.name}`);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          } else if (responseB.data.status === 'error') {
-            this.showToast('danger', responseB.data.data.message || responseB.data.data);
-          } else {
-            const appComponentInspect = {
-              name: component.name,
-              callData: response.data.data,
-              nanoCpus: responseB.data.data.HostConfig.NanoCpus,
-            };
-            callData.push(appComponentInspect);
-          }
-        }
-      } else {
-        const response = await this.executeLocalCommand(`/apps/appmonitor/${this.appName}`);
-        const responseB = await this.executeLocalCommand(`/apps/appinspect/${this.appName}`);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        } else if (responseB.data.status === 'error') {
-          this.showToast('danger', responseB.data.data.message || responseB.data.data);
-        } else {
-          const appComponentInspect = {
-            name: this.appSpecification.name,
-            callData: response.data.data,
-            nanoCpus: responseB.data.data.HostConfig.NanoCpus,
-          };
-          callData.push(appComponentInspect);
-        }
-        console.log(response);
-      }
-      this.callResponseMonitoring.status = 'success';
-      this.callResponseMonitoring.data = callData;
-    },
-    async getApplicationMonitoringStream() {
-      const self = this;
-      const zelidauth = localStorage.getItem('zelidauth');
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          const axiosConfig = {
-            headers: {
-              zelidauth,
-            },
-            onDownloadProgress(progressEvent) {
-              self.monitoringStream[`${component.name}_${self.appSpecification.name}`] = JSON.parse(`[${progressEvent.event.target.response.replace(/}{"read/g, '},{"read')}]`);
-            },
-          };
-          // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.justAPI().get(`/apps/appmonitorstream/${component.name}_${this.appSpecification.name}`, axiosConfig);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          }
-        }
-      } else {
-        const axiosConfig = {
-          headers: {
-            zelidauth,
-          },
-          onDownloadProgress(progressEvent) {
-            console.log(progressEvent.event.target.response);
-            self.monitoringStream[self.appName] = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
-          },
-        };
-        // eslint-disable-next-line no-await-in-loop
-        const response = await AppsService.justAPI().get(`/apps/appmonitorstream/${this.appName}`, axiosConfig);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        }
-      }
-    },
     async stopMonitoring(appName, deleteData = false) {
       this.output = [];
       this.showToast('warning', `Stopping Monitoring of ${appName}`);
@@ -10509,42 +10445,6 @@ export default {
       this.commandExecutingChanges = false;
       this.callResponseChanges.status = 'success';
       this.callResponseChanges.data = callData;
-    },
-    async getApplicationProcesses() {
-      const callData = [];
-      this.commandExecutingProcesses = true;
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          const response = await this.executeLocalCommand(`/apps/apptop/${component.name}_${this.appSpecification.name}`);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          } else {
-            const appComponentInspect = {
-              name: component.name,
-              callData: response.data.data,
-            };
-            callData.push(appComponentInspect);
-          }
-        }
-      } else {
-        const response = await this.executeLocalCommand(`/apps/apptop/${this.appName}`);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        } else {
-          const appComponentInspect = {
-            name: this.appSpecification.name,
-            callData: response.data.data,
-          };
-          callData.push(appComponentInspect);
-        }
-        console.log(response);
-      }
-      this.commandExecutingProcesses = false;
-      this.callResponseProcesses.status = 'success';
-      this.callResponseProcesses.data = callData;
     },
     async getInstancesForDropDown() {
       const response = await AppsService.getAppLocation(this.appName);
@@ -10712,7 +10612,6 @@ export default {
       }
       this.selectedAppOwner = response.data.data;
     },
-
     async stopApp(app) {
       this.output = [];
       // this.showToast('warning', `Stopping ${app}`);
@@ -11167,83 +11066,6 @@ export default {
       if (this.instancesLocked) {
         this.maxInstances = this.appUpdateSpecification.instances;
       }
-    },
-    generateStatsTableItems(statsData, nanoCpus, specifications) {
-      // { key: 'timestamp', label: 'DATE' },
-      // { key: 'cpu', label: 'CPU' },
-      // { key: 'memory', label: 'RAM' },
-      // { key: 'disk', label: 'SSD' },
-      // { key: 'net', label: 'NET I/O' },
-      // { key: 'block', label: 'BLOCK I/O' },
-      // { key: 'pids', label: 'PIDS' },
-      console.log(statsData);
-      console.log(nanoCpus);
-      if (!statsData || !Array.isArray(statsData)) {
-        return [];
-      }
-      const statsItems = [];
-      statsData.forEach((entry, index) => {
-        console.log(`Processing entry ${index}:`, entry);
-        // Calculate CPU usage
-        const cpuUsage = entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage;
-        const systemCpuUsage = entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage;
-        const cpu = `${(((cpuUsage / systemCpuUsage) * entry.data.cpu_stats.online_cpus * 100) / (nanoCpus / specifications.cpu / 1e9) || 0).toFixed(2)}%`;
-        // Calculate memory usage
-        const memoryUsage = entry.data.memory_stats.usage;
-        const memory = `${(memoryUsage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((memoryUsage / (specifications.ram * 1e6)) * 100 || 0).toFixed(2)}%`;
-        // Safely access network data
-        const networks = entry.data && entry.data.networks;
-        const eth0 = networks && networks.eth0;
-        let net = '0 / 0 GB';
-        if (eth0) {
-          const rxBytes = eth0.rx_bytes / 1e9;
-          const txBytes = eth0.tx_bytes / 1e9;
-          net = `${rxBytes.toFixed(2)} / ${txBytes.toFixed(2)} GB`;
-        } else {
-          console.error(`Network data for entry ${index} is missing or undefined.`);
-          return;
-        }
-        // Safely access block I/O data
-        const blkioStats = entry.data && entry.data.blkio_stats;
-        let block = '0.00 / 0.00 GB';
-        if (blkioStats && Array.isArray(blkioStats.io_service_bytes_recursive)) {
-          const read = blkioStats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read');
-          const write = blkioStats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write');
-          const readValue = (read ? read.value : 0) / 1e9;
-          const writeValue = (write ? write.value : 0) / 1e9;
-          block = `${readValue.toFixed(2)} / ${writeValue.toFixed(2)} GB`;
-        }
-        // Safely access disk data
-        const diskStats = entry.data && entry.data.disk_stats;
-        let disk = '0 / 0 GB';
-        if (diskStats) {
-          const diskUsed = diskStats.used;
-          disk = `${(diskUsed / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((diskUsed / (specifications.hdd * 1e9)) * 100 || 0).toFixed(2)}%`;
-        }
-        // Get PIDs count
-        const pids = entry.data && entry.data.pids_stats ? entry.data.pids_stats.current : 0;
-        // Create point object and push to statsItems
-        const point = {
-          timestamp: new Date(entry.timestamp).toLocaleString('en-GB', timeoptions.shortDate),
-          cpu,
-          memory,
-          net,
-          block,
-          disk,
-          pids,
-        };
-        statsItems.push(point);
-      });
-      return statsItems;
-    },
-    getCpuPercentage(statsData) {
-      console.log(statsData);
-      const percentages = [];
-      statsData.forEach((data) => {
-        const onePercentage = `${((data.data.cpu_stats.cpu_usage.total_usage / data.data.cpu_stats.cpu_usage.system_cpu_usage) * 100).toFixed(2)}%`;
-        percentages.push(onePercentage);
-      });
-      return percentages;
     },
     getTimestamps(statsData) {
       const timestamps = [];
@@ -12446,7 +12268,7 @@ td .ellipsis-wrapper {
   justify-content: space-between;
 }
 /* Flexbox for container selection and refresh rate */
-.flex-container {
+.flex-container2 {
   height: 50%;
   justify-content: space-between;
   flex-wrap: nowrap;
@@ -12483,12 +12305,12 @@ td .ellipsis-wrapper {
   box-shadow: 0px 6px 6px rgba(0, 0, 0, 0.1);
 }
 
-.table {
+.table-monitoring {
   table-layout: auto; /* Fixes the table layout so columns don't shift */
   width: 100%; /* Take full width of the container */
 }
 
-.table th, .table td {
+.table-monitoring th, .table-monitoring td {
   white-space: nowrap; /* Prevent text from wrapping */
   border: none; /* Remove borders */
   background-color: transparent; /* Background color for cells */
@@ -12512,7 +12334,7 @@ td .ellipsis-wrapper {
 }
 
 /* Adjust grid for smaller screens */
-@media (max-width: 1200px) {
+@media (max-width: 1800px) {
   .charts-grid {
     grid-template-columns: 1fr;
     gap: 2vw;
@@ -12521,7 +12343,7 @@ td .ellipsis-wrapper {
 }
 
 /* Ensure grid returns to original layout */
-@media (min-width: 1200px) {
+@media (min-width: 1800px) {
   .charts-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 1vw;
