@@ -13110,7 +13110,7 @@ async function monitorNodeStatus() {
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const variable = 'ip';
-    const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
+    const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable, {});
     log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
     log.info(JSON.stringify(appslocations));
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
