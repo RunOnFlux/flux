@@ -43,6 +43,7 @@ const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
+const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -13103,6 +13104,39 @@ async function monitorNodeStatus() {
       return monitorNodeStatus();
     }
     nodeConfirmedOnLastCheck = true;
+    // lets remove from locations when nodes are no longer confirmed
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.daemon.database);
+    const variable = 'ip';
+    const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
+    const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+    const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes((node) => node.ip === location));
+    // eslint-disable-next-line no-restricted-syntax
+    for (const location of appsLocationsNotOnNodelist) {
+      log.info(`Location ${location} is no present on determinisct node list`);
+      const ip = location.split(':')[0];
+      const port = location.split(':')[1] || 16127;
+      const { CancelToken } = axios;
+      const source = CancelToken.source();
+      let isResolved = false;
+      const timeout = 5 * 1000; // 5 seconds
+      setTimeout(() => {
+        if (!isResolved) {
+          source.cancel('Operation canceled by the user.');
+        }
+      }, timeout * 2);
+      // eslint-disable-next-line no-await-in-loop
+      const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
+      isResolved = true;
+      if (response && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
+        log.info(`Location ${location} is available with a different ip awaiting for the new ip confirmation transaction`);
+      } else {
+        log.info(`Removing Location ${location} from globalAppsLocations`);
+        const query = { ip: location };
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
+      }
+    }
     await serviceHelper.delay(10 * 60 * 1000); // 10m delay before next check
     monitorNodeStatus();
   } catch (error) {
