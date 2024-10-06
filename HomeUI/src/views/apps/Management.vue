@@ -7466,7 +7466,8 @@ export default {
           if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noData === true) {
             const { ctx, width, height } = chart;
             ctx.save();
-            ctx.font = 'bold 16px Arial';
+            const fontSize = Math.min(width, height) / 14;
+            ctx.font = `400 ${fontSize}px Arial`;
             if (this.skin === 'dark') {
               ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
             } else {
@@ -7474,23 +7475,8 @@ export default {
             }
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('No Data Available', width / 2, height / 2);
-            ctx.restore();
-          }
-        },
-        afterDraw: (chart) => {
-          if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noData === true) {
-            const { ctx, width, height } = chart;
-            ctx.save();
-            ctx.font = 'bold 16px Arial';
-            if (this.skin === 'dark') {
-              ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-            } else {
-              ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-            }
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('No Data Available', width / 2, height / 2);
+            ctx.translate(width / 2, height / 2);
+            ctx.fillText('No Data Available', 0, 0);
             ctx.restore();
           }
         },
@@ -7865,6 +7851,9 @@ export default {
       }
     },
     clearCharts() {
+      if (!this.memoryChart) {
+        return;
+      }
       // Clear memory chart data
       this.noData = false;
       this.memoryChart.data.labels = [];
