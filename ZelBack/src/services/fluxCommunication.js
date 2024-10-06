@@ -1071,6 +1071,10 @@ async function fluxDiscovery() {
       const connection = await fluxNetworkHelper.getRandomConnection();
       if (connection) {
         const ipInc = connection.split(':')[0];
+        if (ipInc === myIP.split(':')[0]) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         const portInc = connection.split(':')[1] || '16127';
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
@@ -1092,6 +1096,10 @@ async function fluxDiscovery() {
       const connection = await fluxNetworkHelper.getRandomConnection();
       if (connection) {
         const ipInc = connection.split(':')[0];
+        if (ipInc === myIP.split(':')[0]) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         const portInc = connection.split(':')[1] || '16127';
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
