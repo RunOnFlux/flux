@@ -13113,12 +13113,12 @@ async function monitorNodeStatus() {
     // we already have the exact same data
     const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
     log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
-    const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const nodeIpList = nodeList.map(({ ip }) => ip);
-    const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeIpList.includes(location));
+    let nodeList = await fluxCommunicationUtils.deterministicFluxList();
+    nodeList = nodeList.map(({ ip }) => ip);
+    const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes(location));
     log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on determinisct node list`);
     // eslint-disable-next-line no-restricted-syntax
-    /* for (const location of appsLocationsNotOnNodelist) {
+    for (const location of appsLocationsNotOnNodelist) {
       log.info(`monitorNodeStatus - Checking IP ${location}.`);
       const ip = location.split(':')[0];
       const port = location.split(':')[1] || 16127;
@@ -13142,7 +13142,7 @@ async function monitorNodeStatus() {
         // eslint-disable-next-line no-await-in-loop
         await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
       }
-    } */
+    }
     await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
     monitorNodeStatus();
   } catch (error) {
