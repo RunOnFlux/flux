@@ -13110,6 +13110,11 @@ async function monitorNodeStatus() {
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const variable = 'ip';
+    const queryFind = { };
+    const projection = { _id: 0, ip: 1 };
+    // we already have the exact same data
+    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+    log.info(`monitorNodeStatus - Found ${result.length} distinct IP's on appslocations`);
     const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable, {});
     log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
     log.info(JSON.stringify(appslocations));
