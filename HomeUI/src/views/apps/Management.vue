@@ -729,7 +729,7 @@
                 class="mr-1"
                 scale="1.2"
                 icon="bar-chart-fill"
-              /> {{ overviewTitle }} {{ noData }}
+              /> {{ overviewTitle }}
             </h5>
             <b-form-checkbox v-model="enableHistoryStatistics" switch @change="enableHistoryStatisticsChange">
               History Statistics
