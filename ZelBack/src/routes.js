@@ -43,10 +43,10 @@ module.exports = (app) => {
   app.get('/daemon/getinfo', cache('30 seconds'), (req, res) => {
     daemonServiceControlRpcs.getInfo(req, res);
   });
-  app.get('/daemon/getfluxnodestatus', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getfluxnodestatus', cache('60 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
-  app.get('/daemon/getzelnodestatus', cache('30 seconds'), (req, res) => { // DEPRECATED
+  app.get('/daemon/getzelnodestatus', cache('60 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
   app.get('/daemon/listfluxnodes/:filter?', cache('30 seconds'), (req, res) => {

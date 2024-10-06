@@ -13125,7 +13125,7 @@ async function monitorNodeStatus() {
       const { CancelToken } = axios;
       const source = CancelToken.source();
       let isResolved = false;
-      const timeout = 5 * 1000; // 5 seconds
+      const timeout = 10 * 1000; // 10 seconds
       setTimeout(() => {
         if (!isResolved) {
           source.cancel('Operation canceled by the user.');
