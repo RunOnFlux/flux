@@ -729,7 +729,7 @@
                 class="mr-1"
                 scale="1.2"
                 icon="bar-chart-fill"
-              /> {{ overviewTitle }}
+              /> {{ overviewTitle }} {{ noData }}
             </h5>
             <b-form-checkbox v-model="enableHistoryStatistics" switch @change="enableHistoryStatisticsChange">
               History Statistics
@@ -7062,9 +7062,7 @@ export default {
         if (!this.enableHistoryStatistics) {
           if (this.timerStats) this.stopPollingStats();
           if (this.selectedContainerMonitoring !== null) this.startPollingStats();
-          if (this.noData === true) {
-            this.clearCharts();
-          }
+          this.clearCharts();
         } else {
           this.stopPollingStats();
           this.fetchStats();
@@ -7497,7 +7495,7 @@ export default {
           }
         },
       };
-      Chart.register(noDataPlugin);
+
       this.diskPersistentChart = new Chart(diskPersistentCtx, {
         type: 'line',
         data: {
@@ -7563,7 +7561,9 @@ export default {
               },
             },
           },
+          // eslint-disable-next-line no-dupe-keys
         },
+        plugins: [noDataPlugin],
       });
 
       this.diskFileSystemChart = new Chart(diskFileSystemCtx, {
@@ -7602,6 +7602,7 @@ export default {
             },
           },
         },
+        plugins: [noDataPlugin],
       });
 
       this.memoryChart = new Chart(memoryCtx, {
@@ -7679,6 +7680,7 @@ export default {
             },
           },
         },
+        plugins: [noDataPlugin],
       });
 
       this.cpuChart = new Chart(cpuCtx, {
@@ -7750,6 +7752,7 @@ export default {
             },
           },
         },
+        plugins: [noDataPlugin],
       });
 
       this.networkChart = new Chart(networkCtx, {
@@ -7794,6 +7797,7 @@ export default {
             },
           },
         },
+        plugins: [noDataPlugin],
       });
 
       this.ioChart = new Chart(ioCtx, {
@@ -7838,6 +7842,7 @@ export default {
             },
           },
         },
+        plugins: [noDataPlugin],
       });
       this.updateAxes();
     },
