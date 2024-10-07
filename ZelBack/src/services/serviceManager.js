@@ -80,8 +80,6 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
-    fluxNetworkHelper.adjustFirewallToNotAllowNetscans();
-    log.info('Firewalls Netscans checked');
     log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
     log.info('Node allowed to bind privileged ports');
