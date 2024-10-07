@@ -718,113 +718,243 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Resources">
-        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <div v-if="commandExecutingStats">
-          <div style="display: flex; align-items: center;">
-            <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
-            <h5 style="margin: 0;">
-              Loading...
-            </h5>
-          </div>
-        </div>
-        <div v-if="appSpecification.version >= 4">
+      <b-tab title="Monitoring">
+        <div class="container">
           <div
-            v-for="(component, index) in callResponseStats.data"
-            :key="index"
+            class="d-flex mb-1 mt-2 align-items-center justify-content-between"
+            style="border: 1px solid #ccc; border-radius: 8px; height: 45px; padding-top: 12px; padding-bottom: 4px;  padding-left: 12px;  padding-right: 12px; text-align: left;"
           >
-            <h4>Component: {{ component.name }}</h4>
-            <div v-if="component.callData">
-              <json-viewer
-                :value="component.callData"
-                :expand-depth="5"
-                copyable
-                boxed
-                theme="jv-dark"
-              />
+            <h5>
+              <b-icon
+                class="mr-1"
+                scale="1.2"
+                icon="bar-chart-fill"
+              /> {{ overviewTitle }}
+            </h5>
+            <b-form-checkbox v-model="enableHistoryStatistics" switch @change="enableHistoryStatisticsChange">
+              History Statistics
+            </b-form-checkbox>
+          </div>
+          <!-- Menu -->
+          <div class="d-flex flex-container2">
+            <div>
+              <b-input-group size="sm" class="mb-1">
+                <b-input-group-prepend is-text>
+                  <b-icon icon="app-indicator" />
+                </b-input-group-prepend>
+                <b-form-select
+                  v-if="appSpecification?.compose"
+                  v-model="selectedContainerMonitoring"
+                  :options="null"
+                  :disabled="isComposeSingle"
+                >
+                  <b-form-select-option
+                    value="null"
+                    disabled
+                  >
+                    -- Please select component --
+                  </b-form-select-option>
+                  <b-form-select-option
+                    v-for="component in appSpecification?.compose"
+                    :key="component.name"
+                    :value="component.name"
+                  >
+                    {{ component.name }}
+                  </b-form-select-option>
+                </b-form-select>
+                <b-form-input
+                  v-if="!appSpecification?.compose"
+                  :placeholder="appSpecification.name"
+                  disabled
+                />
+                <b-icon v-if="enableHistoryStatistics" icon="arrow-clockwise" :class="['ml-1', 'r']" @click="fetchStats" />
+                <b-icon v-if="!enableHistoryStatistics && buttonStats === true" icon="arrow-clockwise" :class="['ml-1', 'r']" @click="startPollingStats(true)" />
+              </b-input-group>
+              <b-input-group v-if="!enableHistoryStatistics" size="sm" style="width: 120px;">
+                <b-input-group-prepend is-text>
+                  <b-icon
+                    v-b-tooltip.hover.top="'Limit the number of data points displayed on the charts.'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                    icon="clipboard-data"
+                  />
+                </b-input-group-prepend>
+                <b-form-select
+                  v-model="selectedPoints"
+                  :options="pointsOptions"
+                />
+              </b-input-group>
+            </div>
+            <div v-if="!enableHistoryStatistics">
+              <b-input-group size="sm">
+                <b-input-group-prepend is-text>
+                  <b-icon
+                    v-b-tooltip.hover.top="'Choose the interval for refreshing data on the charts.'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                    icon="clock"
+                  />
+                </b-input-group-prepend>
+                <b-form-select
+                  v-model="refreshRateMonitoring"
+                  size="sm"
+                  :options="refreshOptions"
+                />
+              </b-input-group>
+            </div>
+            <div v-if="enableHistoryStatistics">
+              <b-input-group size="sm">
+                <b-input-group-prepend is-text>
+                  <b-icon
+                    v-b-tooltip.hover.top="'Choose the time period to display historical data.'"
+                    v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                    icon="calendar-range"
+                  />
+                </b-input-group-prepend>
+                <b-form-select v-model="selectedTimeRange" :options="timeOptions" @change="fetchStats" />
+              </b-input-group>
             </div>
           </div>
-        </div>
-        <div v-else>
-          <div v-if="callResponseStats.data && callResponseStats.data[0]">
-            <json-viewer
-              :value="callResponseStats.data[0].callData"
-              :expand-depth="5"
-              copyable
-              boxed
-              theme="jv-dark"
-            />
-          </div>
-        </div>
-      </b-tab>
-      <b-tab title="Monitoring">
-        <h3>History Statistics 1 hour</h3>
-        <div v-if="appSpecification.version >= 4">
-          <div
-            v-for="(component, index) in callResponseMonitoring.data"
-            :key="index"
-          >
-            <h4>Component: {{ component.name }}</h4>
-            <b-table
-              class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastHour, component.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
-              :fields="statsFields"
-              show-empty
-              bordered
-              small
-              empty-text="No records available."
-            />
-          </div>
-        </div>
-        <div v-else>
-          <b-table
-            v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
-            class="stats-table"
-            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastHour, callResponseMonitoring.data[0].nanoCpus, appSpecification)"
-            :fields="statsFields"
-            show-empty
-            bordered
-            small
-            empty-text="No records available."
-          />
-          <div v-else>
-            Loading...
-          </div>
-        </div>
-
-        <br><br>
-
-        <h3>History Statistics 24 hours</h3>
-        <div v-if="appSpecification.version >= 4">
-          <div
-            v-for="(component, index) in callResponseMonitoring.data"
-            :key="index"
-          >
-            <h4>Component: {{ component.name }}</h4>
-            <b-table
-              class="stats-table"
-              :items="generateStatsTableItems(component.callData.lastDay, component.nanoCpus, appSpecification.compose.find((c) => c.name === component.name))"
-              :fields="statsFields"
-              show-empty
-              bordered
-              small
-              empty-text="No records available."
-            />
-          </div>
-        </div>
-        <div v-else>
-          <b-table
-            v-if="callResponseMonitoring.data && callResponseMonitoring.data[0]"
-            class="stats-table"
-            :items="generateStatsTableItems(callResponseMonitoring.data[0].callData.lastDay, callResponseMonitoring.data[0].nanoCpus, appSpecification)"
-            :fields="statsFields"
-            show-empty
-            bordered
-            small
-            empty-text="No records available."
-          />
-          <div v-else>
-            Loading...
+          <!-- Charts Grid -->
+          <div class="charts-grid">
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">CPU Usage</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays CPU usage over time. Monitoring CPU usage helps identify high load periods, optimize resource allocation, and troubleshoot performance bottlenecks.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="cpuChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon icon="bar-chart-line" style="width: 30px; height: 30px;" />
+                <span class="chart-title ml-2">Memory usage</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays memory usage over time. Monitoring memory usage helps identify potential memory leaks, optimize application performance, and.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="memoryChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">Network usage (aggregate)</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays network usage over time (TX: Transmit - outgoing data; RX: Receive - incoming data). Key metrics include bandwidth, throughput, and latency. Monitoring helps identify bottlenecks, optimize performance, and ensure efficient data transfer.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="networkChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">I/O usage (aggregate)</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays Input/Output operations over time, measuring data transfer to/from storage devices and peripherals. Monitoring I/O helps identify bottlenecks, optimize performance, and ensure responsive system behavior.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="ioChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">Persistent Storage</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Persistent Storage refers to data that is retained across container restarts and updates. It ensures important information is preserved. Monitoring this helps prevent disk space exhaustion and supports efficient data management.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="diskPersistentChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon
+                  icon="bar-chart-line"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">Root Filesystem (rootfs)</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Root Filesystem refers to the temporary storage used by the container during its lifetime. This data is not retained after the container is stopped or deleted. Monitoring rootfs usage helps avoid disk space issues within the container’s filesystem.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="diskFileSystemChart" />
+            </div>
+            <div v-if="!enableHistoryStatistics" class="chart-wrapper">
+              <div class="chart-title-container mb-2">
+                <b-icon
+                  icon="list-ul"
+                  style="width: 30px; height: 30px;"
+                />
+                <span class="chart-title">Processes</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'List of running process in continer.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <b-form-input
+                v-model="search"
+                placeholder="Search processes..."
+                class="mb-2"
+              />
+              <div class="table-responsive">
+                <b-table class="table-monitoring" small responsive show-empty empty-text="No records available." :items="paginatedProcesses" :fields="titles" bordered hover />
+              </div>
+              <div class="d-flex align-items-center my-3">
+                <div class="flex-grow-1 text-center">
+                  <b-pagination
+                    v-if="filteredProcesses.length"
+                    v-model="currentPage"
+                    pills
+                    size="sm"
+                    :total-rows="filteredProcesses.length"
+                    :per-page="perPage"
+                    @change="scrollToPagination"
+                  />
+                </div>
+                <div class="d-flex align-items-center ml-3">
+                  <label class="mr-2 mb-0" style="white-space: nowrap;">Items per page:</label>
+                  <b-form-select v-model="perPage" :options="perPageOptions" size="sm" class="ml-2" @change="scrollToPagination" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </b-tab>
@@ -867,45 +997,6 @@
             <json-viewer
               class="mt-1"
               :value="callResponseChanges.data[0].callData"
-              :expand-depth="5"
-              copyable
-              boxed
-              theme="jv-dark"
-            />
-          </div>
-        </div>
-      </b-tab>
-      <b-tab title="Processes">
-        <h3><b-icon icon="app-indicator" /> {{ appSpecification.name }}</h3>
-        <div v-if="commandExecutingProcesses">
-          <div style="display: flex; align-items: center;">
-            <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
-            <h5 style="margin: 0;">
-              Loading...
-            </h5>
-          </div>
-        </div>
-        <div v-if="appSpecification.version >= 4">
-          <div
-            v-for="(component, index) in callResponseProcesses.data"
-            :key="index"
-          >
-            <h4>Component: {{ component.name }}</h4>
-            <div v-if="component.callData">
-              <json-viewer
-                :value="component.callData"
-                :expand-depth="5"
-                copyable
-                boxed
-                theme="jv-dark"
-              />
-            </div>
-          </div>
-        </div>
-        <div v-else>
-          <div v-if="callResponseProcesses.data && callResponseProcesses.data[0]">
-            <json-viewer
-              :value="callResponseProcesses.data[0].callData"
               :expand-depth="5"
               copyable
               boxed
@@ -5915,7 +6006,7 @@ import FluxMap from '@/views/components/FluxMap.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
-import { getUser } from '@/libs/firebase';
+import firebase, { getUser } from '@/libs/firebase';
 import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 import AppsService from '@/services/AppsService';
@@ -5932,6 +6023,13 @@ import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 import AnsiToHtml from 'ansi-to-html';
+import IDService from '@/services/IDService';
+
+import {
+  Chart, LineController, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title, Filler,
+} from 'chart.js';
+
+Chart.register(LineController, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title, Filler);
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -5956,7 +6054,6 @@ const axios = require('axios');
 const qs = require('qs');
 const store = require('store');
 const openpgp = require('openpgp');
-const timeoptions = require('@/libs/dateFormat');
 const splitargs = require('splitargs');
 const geolocations = require('../../libs/geolocation');
 
@@ -6026,6 +6123,65 @@ export default {
   },
   data() {
     return {
+      logoutTigger: false,
+      diskUsagePercentage: '',
+      diskBindLimit: '',
+      buttonStats: false,
+      noData: false,
+      enableHistoryStatistics: false,
+      selectedTimeRange: 1 * 24 * 60 * 60 * 1000,
+      timeOptions: [
+        { value: 15 * 60 * 1000, text: 'Last 15 Minutes' }, // 15 minutes in ms
+        { value: 30 * 60 * 1000, text: 'Last 30 Minutes' }, // 30 minutes in ms
+        { value: 1 * 60 * 60 * 1000, text: 'Last 1 Hour' }, // 1 hour in ms
+        { value: 2 * 60 * 60 * 1000, text: 'Last 2 Hours' }, // 2 hours in ms
+        { value: 3 * 60 * 60 * 1000, text: 'Last 3 Hours' }, // 3 hours in ms
+        { value: 5 * 60 * 60 * 1000, text: 'Last 5 Hours' }, // 5 hours in ms
+        { value: 1 * 24 * 60 * 60 * 1000, text: 'Last 1 Day' }, // 1 day in ms
+        { value: 2 * 24 * 60 * 60 * 1000, text: 'Last 2 Days' }, // 2 days in ms
+        { value: 3 * 24 * 60 * 60 * 1000, text: 'Last 3 Days' }, // 3 days in ms
+        { value: 7 * 24 * 60 * 60 * 1000, text: 'Last 7 Days' }, // 7 days in ms
+      ],
+      selectedPoints: 500,
+      pointsOptions: [5, 10, 25, 50, 100, 200, 300, 400, 500],
+      search: '', // Search query
+      currentPage: 1, // Current page for pagination
+      perPage: 5, // Default items per page
+      perPageOptions: [
+        { value: 5, text: '5' },
+        { value: 10, text: '10' },
+        { value: 20, text: '20' },
+        { value: 50, text: '50' },
+      ],
+      processes: [],
+      titles: [
+        { key: 'uid', label: 'UID' },
+        { key: 'pid', label: 'PID' },
+        { key: 'ppid', label: 'PPID' },
+        { key: 'c', label: 'C' },
+        { key: 'stime', label: 'STIME' },
+        { key: 'tty', label: 'TTY' },
+        { key: 'time', label: 'TIME' },
+        { key: 'cmd', label: 'CMD' },
+      ],
+      selectedContainerMonitoring: null,
+      refreshRateMonitoring: 5000,
+      containerOptions: [],
+      ioChart: null,
+      memoryChart: null,
+      networkChart: null,
+      diskFileSystemChart: null,
+      diskPersistentChart: null,
+      cpuChart: null,
+      refreshOptions: [
+        { value: 5000, text: '5s' },
+        { value: 10000, text: '10s' },
+        { value: 30000, text: '30s' },
+      ],
+      errorMessage: null,
+      timerStats: null,
+      memoryLimit: 1,
+      cpuSet: 1,
       logs: [],
       noLogs: false,
       manualInProgress: false,
@@ -6366,7 +6522,7 @@ export default {
       applicationPriceFluxError: false,
       maxInstances: 100,
       minInstances: 3,
-      globalZelidAuthorized: false,
+      globalZelidAuthorized: true,
       monitoringStream: {},
       statsFields: [
         { key: 'timestamp', label: 'Date' },
@@ -6482,6 +6638,20 @@ export default {
     };
   },
   computed: {
+    overviewTitle() {
+      return this.enableHistoryStatistics ? 'History Stats Overview' : 'Stats & Processes Overview';
+    },
+    filteredProcesses() {
+      if (this.search) {
+        return this.processes.filter((process) => Object.values(process).some((value) => String(value).toLowerCase().includes(this.search.toLowerCase())));
+      }
+      return this.processes;
+    },
+    paginatedProcesses() {
+      const start = (this.currentPage - 1) * this.perPage;
+      const end = start + this.perPage;
+      return this.filteredProcesses.slice(start, end);
+    },
     isDisabled() {
       return !!this.pollingEnabled || this.manualInProgress;
     },
@@ -6839,6 +7009,16 @@ export default {
     },
   },
   watch: {
+    skin() {
+      if (this.memoryChart !== null) {
+        this.updateCharts();
+      }
+    },
+    noData() {
+      if (this.memoryChart !== null) {
+        this.updateCharts();
+      }
+    },
     filterKeyword() {
       if (this.logs?.length > 0) {
         this.$nextTick(() => {
@@ -6879,11 +7059,33 @@ export default {
         }
       }
     },
+    selectedContainerMonitoring(newValue) {
+      if (newValue) {
+        this.buttonStats = false;
+        if (!this.enableHistoryStatistics) {
+          if (this.timerStats) this.stopPollingStats();
+          if (this.selectedContainerMonitoring !== null) this.startPollingStats();
+          this.clearCharts();
+        } else {
+          this.stopPollingStats();
+          this.fetchStats();
+        }
+      }
+    },
+    refreshRateMonitoring() {
+      if (!this.enableHistoryStatistics) {
+        if (this.timerStats) this.stopPollingStats();
+        this.startPollingStats();
+      } else {
+        this.stopPollingStats();
+      }
+    },
     isComposeSingle(value) {
       if (value) {
         if (this.appSpecification.version >= 4) {
           this.selectedApp = this.appSpecification.compose[0].name;
           this.selectedAppVolume = this.appSpecification.compose[0].name;
+          this.selectedContainerMonitoring = this.appSpecification.compose[0].name;
         }
       }
     },
@@ -6961,6 +7163,7 @@ export default {
     this.$nextTick(() => {
       window.addEventListener('resize', self.onResize);
     });
+    this.getZelidAuthority();
     this.initMMSDK();
     this.callBResponse.data = '';
     this.callBResponse.status = '';
@@ -6979,12 +7182,780 @@ export default {
     this.getMultiplier();
     this.getEnterpriseNodes();
     this.getDaemonBlockCount();
+    // this.initCharts();
   },
   beforeDestroy() {
     this.stopPolling();
+    this.stopPollingStats();
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    async logout() {
+      if (!this.logoutTigger) {
+        this.logoutTigger = true;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        localStorage.removeItem('zelidauth');
+        this.$store.commit('flux/setPrivilege', 'none');
+        this.$store.commit('flux/setZelid', '');
+        console.log(auth);
+        IDService.logoutCurrentSession(zelidauth)
+          .then((response) => {
+            console.log(response);
+            if (response.data.status === 'error') {
+              console.log(response.data.data.message);
+            // SHOULD NEVER HAPPEN. Do not show any message.
+            } else {
+              this.showToast('success', response.data.data.message);
+              // Redirect to home page
+              if (this.$route.path === '/') {
+                window.location.reload();
+              } else {
+                this.$router.push({ name: 'home' });
+              }
+            }
+          })
+          .catch((e) => {
+            console.log(e);
+            this.showToast('danger', e.toString());
+          });
+        try {
+          await firebase.auth().signOut();
+        } catch (error) {
+          console.log(error);
+        }
+      }
+    },
+    // Stats Section START
+    enableHistoryStatisticsChange() {
+      this.buttonStats = false;
+      this.noData = false;
+      if (this.enableHistoryStatistics) {
+        this.stopPollingStats();
+        this.clearCharts();
+        this.fetchStats();
+      } else {
+        this.clearCharts();
+        this.startPollingStats();
+      }
+    },
+    LimitChartItems(chart) {
+      const datasetLength = chart.data.datasets[0].data.length;
+      if (datasetLength > this.selectedPoints) {
+        const excess = datasetLength - this.selectedPoints;
+        chart.data.labels = chart.data.labels.slice(excess);
+        chart.data.datasets.forEach((dataset) => {
+          dataset.data = dataset.data.slice(excess);
+        });
+        chart.update({
+          duration: 800,
+          lazy: false,
+          easing: 'easeOutBounce',
+        });
+      }
+    },
+    async scrollToPagination() {
+      await this.$nextTick();
+      window.scrollTo(0, document.body.scrollHeight);
+    },
+    getHddByName(applications, appName) {
+      if (applications?.compose) {
+        const app = applications.compose.find((application) => application.name === appName);
+        return app.hdd;
+      // eslint-disable-next-line no-else-return
+      } else {
+        return applications.hdd;
+      }
+    },
+    getCpuByName(applications, appName) {
+      if (applications?.compose) {
+        const app = applications.compose.find((application) => application.name === appName);
+        return app.cpu;
+      // eslint-disable-next-line no-else-return
+      } else {
+        return applications.cpu;
+      }
+    },
+    processStatsData(statsData, configData, timeStamp = null) {
+      const memoryLimitBytes = statsData.memory_stats.limit;
+      this.memoryLimit = memoryLimitBytes;
+      const memoryUsageBytes = statsData.memory_stats?.usage || null;
+      const memoryUsageMB = memoryUsageBytes;
+      const memoryUsagePercentage = ((memoryUsageBytes / memoryLimitBytes) * 100).toFixed(1);
+      const cpuUsage = statsData.cpu_stats.cpu_usage.total_usage - statsData.precpu_stats.cpu_usage.total_usage;
+      const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
+      const onlineCpus = statsData.cpu_stats.online_cpus;
+      const nanoCpus = configData.HostConfig.NanoCpus;
+      let cpuCores;
+      if (this.appSpecification.version >= 4) {
+        cpuCores = this.getCpuByName(this.appSpecification, this.selectedContainerMonitoring);
+      } else {
+        cpuCores = this.appSpecification.cpu;
+      }
+      const rawCpu = (((cpuUsage / systemCpuUsage) * onlineCpus)).toFixed(2) || 0;
+      // eslint-disable-next-line no-mixed-operators
+      const cpuSize = ((rawCpu / (nanoCpus / cpuCores / 1e9) * 100) / 100).toFixed(2);
+      // eslint-disable-next-line no-mixed-operators
+      const cpuPercent = ((rawCpu / (nanoCpus / cpuCores / 1e9) * 100) / cpuCores).toFixed(2);
+      this.cpuSet = cpuCores;
+      const ioReadBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'read')?.value || 0 : null;
+      const ioWriteBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'write')?.value || 0 : null;
+      const networkRxBytes = statsData.networks?.eth0?.rx_bytes || null;
+      const networkTxBytes = statsData.networks?.eth0?.tx_bytes || null;
+      const diskUsageMounts = statsData.disk_stats?.bind || null;
+      let hddSize;
+      if (this.appSpecification.version >= 4) {
+        hddSize = this.getHddByName(this.appSpecification, this.selectedContainerMonitoring);
+      } else {
+        hddSize = this.appSpecification.hdd;
+      }
+      this.diskBindLimit = Number(hddSize) * 1000 * 1000 * 1000;
+      this.diskUsagePercentage = (diskUsageMounts / this.diskBindLimit) * 100;
+      const diskUsageDocker = statsData.disk_stats?.volume || null;
+      const diskUsageRootFs = statsData.disk_stats?.rootfs || null;
+
+      console.log('CPU Percent:', cpuPercent);
+      console.log('Memory Usage:', memoryUsageMB);
+      console.log('Memory Usage (%):', memoryUsagePercentage);
+      console.log('Network RX Bytes:', networkRxBytes);
+      console.log('Network TX Bytes:', networkTxBytes);
+      console.log('I/O Read Bytes:', ioReadBytes);
+      console.log('I/O Write Bytes:', ioWriteBytes);
+      console.log('Disk Usage Mounts:', diskUsageMounts);
+      console.log('Disk Usage Volume:', diskUsageDocker);
+      console.log('Disk Usage RootFS:', diskUsageRootFs);
+      console.log('CPU Size:', cpuSize);
+
+      this.insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp);
+    },
+    async fetchStats() {
+      try {
+        if (this.appSpecification.version >= 4) {
+          if (!this.selectedContainerMonitoring) {
+            console.error('No container selected');
+            if (this.timerStats) this.stopPollingStats();
+            return;
+          }
+        }
+        if (this.$refs.managementTabs?.currentTab !== 3) {
+          return;
+        }
+        if (this.enableHistoryStatistics) {
+          this.clearCharts();
+        }
+        const containerName = this.selectedContainerMonitoring;
+        const appname = this.selectedContainerMonitoring ? `${this.selectedContainerMonitoring}_${this.appSpecification.name}` : this.appSpecification.name;
+        let statsResponse;
+        if (this.enableHistoryStatistics) {
+          statsResponse = await this.executeLocalCommand(`/apps/appmonitor/${appname}`);
+        } else {
+          statsResponse = await this.executeLocalCommand(`/apps/appstats/${appname}`);
+        }
+        const inspectResponse = await this.executeLocalCommand(`/apps/appinspect/${appname}`);
+        if (statsResponse.data.status === 'error') {
+          this.showToast('danger', statsResponse.data.data.message || statsResponse.data.data);
+        } else if (inspectResponse.data.status === 'error') {
+          this.showToast('danger', inspectResponse.data.data.message || inspectResponse.data.data);
+        } else {
+          if (!this.enableHistoryStatistics) {
+            this.fetchProcesses(appname, containerName);
+          }
+          const configData = inspectResponse.data;
+          let statsData;
+          if (statsResponse.data?.data?.lastDay) {
+            statsData = statsResponse.data.data.lastDay.reverse();
+          } else {
+            statsData = statsResponse.data.data;
+          }
+          if (Array.isArray(statsData)) {
+            const now = new Date().getTime();
+            const cutoffTimestamp = now - this.selectedTimeRange;
+            const filteredStats = statsData.filter((stats) => {
+              const statsTimestamp = new Date(stats.timestamp).getTime();
+              return statsTimestamp >= cutoffTimestamp;
+            });
+            filteredStats.forEach((stats) => {
+              this.processStatsData(stats.data, configData.data, stats.timestamp);
+            });
+          } else {
+            this.processStatsData(statsData, configData.data);
+          }
+          if (containerName === this.selectedContainerMonitoring) {
+            this.updateCharts();
+          } else {
+            this.clearCharts();
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching container data:', error);
+        this.stopPollingStats(true);
+      }
+    },
+    updateAxes() {
+      // Check and update the Y-axis limits for the memory chart
+      if (this.memoryChart.data.labels.length === 1) {
+        this.memoryChart.options.scales.y.max = this.memoryLimit * 1.2;
+        this.memoryChart.options.scales.y1.max = 120;
+      }
+      // Check and update the Y-axis limits for the CPU chart
+      if (this.cpuChart.data.labels.length === 1) {
+        this.cpuChart.options.scales.y.max = (this.cpuSet * 1.35).toFixed(1);
+        this.cpuChart.options.scales.y1.max = 135;
+      }
+    },
+    insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp = null) {
+      const timeLabel = timeStamp === null ? new Date().toLocaleTimeString() : new Date(timeStamp).toLocaleTimeString();
+      // Update memory chart
+      if (memoryUsageMB !== null) {
+        this.LimitChartItems(this.memoryChart);
+        this.memoryChart.data.labels.push(timeLabel);
+        this.memoryChart.data.datasets[0].data.push(memoryUsageMB);
+        this.memoryChart.data.datasets[1].data.push(memoryUsagePercentage);
+      }
+      // Update CPU chart
+      if (networkRxBytes !== null && networkTxBytes !== null) {
+        this.LimitChartItems(this.cpuChart);
+        this.cpuChart.data.labels.push(timeLabel);
+        this.cpuChart.data.datasets[0].data.push(cpuSize);
+        this.cpuChart.data.datasets[1].data.push(cpuPercent);
+      }
+      // Update Network chart
+      if (networkRxBytes !== null && networkTxBytes !== null) {
+        this.LimitChartItems(this.networkChart);
+        this.networkChart.data.labels.push(timeLabel);
+        this.networkChart.data.datasets[0].data.push(networkRxBytes);
+        this.networkChart.data.datasets[1].data.push(networkTxBytes);
+      }
+      // Update I/O chart
+      if (ioReadBytes !== null && ioWriteBytes !== null) {
+        this.LimitChartItems(this.ioChart);
+        this.ioChart.data.labels.push(timeLabel);
+        this.ioChart.data.datasets[0].data.push(ioReadBytes);
+        this.ioChart.data.datasets[1].data.push(ioWriteBytes);
+      }
+      // Update Persistent Storage chart
+      if (diskUsageMounts !== null || diskUsageMounts !== null) {
+        this.LimitChartItems(this.diskPersistentChart);
+        this.diskPersistentChart.data.labels.push(timeLabel);
+        this.diskPersistentChart.data.datasets[0].data.push(diskUsageMounts);
+        this.diskPersistentChart.data.datasets[1].data.push(diskUsageDocker);
+        this.diskPersistentChart.data.datasets[1].hidden = diskUsageDocker === 0;
+      }
+      // Update File System chart
+      if (diskUsageRootFs !== null) {
+        this.LimitChartItems(this.diskFileSystemChart);
+        this.diskFileSystemChart.data.labels.push(timeLabel);
+        this.diskFileSystemChart.data.datasets[0].data.push(diskUsageRootFs);
+      }
+      this.noData = true;
+      this.updateAxes();
+    },
+    updateCharts() {
+      this.memoryChart.update();
+      this.cpuChart.update();
+      this.networkChart.update();
+      this.ioChart.update();
+      this.diskPersistentChart.update();
+      this.diskFileSystemChart.update();
+    },
+    formatDataSize(bytes, options = { base: 10, round: 1 }) {
+      if (bytes <= 5) {
+        return `${bytes} B`;
+      }
+      const base = options.base === 10 ? 1000 : 1024; // Base 10 for SI, Base 2 for binary
+      const labels = options.base === 10 ? ['B', 'KB', 'MB', 'GB'] : ['B', 'KiB', 'MiB', 'GiB'];
+      if (bytes === 0) return '0 B';
+      let size = bytes;
+      let index = 0;
+      while (size >= base && index < labels.length - 1) {
+        size /= base;
+        // eslint-disable-next-line no-plusplus
+        index++;
+      }
+      return `${parseFloat(size.toFixed(options.round)).toString()} ${labels[index]}`;
+    },
+    async fetchProcesses(appname, continer) {
+      try {
+        const response = await this.executeLocalCommand(`/apps/apptop/${appname}`);
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+          this.stopPollingStats(true);
+          return;
+        }
+        if (this.selectedContainerMonitoring === continer) {
+          this.processes = (response.data?.data?.Processes || []).map((proc) => ({
+            uid: proc[0],
+            pid: proc[1],
+            ppid: proc[2],
+            c: proc[3],
+            stime: proc[4],
+            tty: proc[5],
+            time: proc[6],
+            cmd: proc[7],
+          }));
+        } else {
+          this.processes = [];
+          console.error('Selected container has changed. Proccess list discarded.');
+        }
+      } catch (error) {
+        console.error('Error fetching processes:', error);
+      }
+    },
+    initCharts() {
+      if (this.memoryChart) {
+        this.memoryChart.destroy();
+        this.cpuChart.destroy();
+        this.networkChart.destroy();
+        this.ioChart.destroy();
+        this.diskPersistentChart.destroy();
+        this.diskFileSystemChart.destroy();
+      }
+      const memoryCtx = document.getElementById('memoryChart').getContext('2d');
+      const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+      const networkCtx = document.getElementById('networkChart').getContext('2d');
+      const ioCtx = document.getElementById('ioChart').getContext('2d');
+      const diskPersistentCtx = document.getElementById('diskPersistentChart').getContext('2d');
+      const diskFileSystemCtx = document.getElementById('diskFileSystemChart').getContext('2d');
+
+      const noDataPlugin = {
+        id: 'noDataPlugin',
+        beforeDraw: (chart) => {
+          if (chart.data.datasets.every((dataset) => dataset.data.length === 0) && this.noData === true) {
+            const { ctx, width, height } = chart;
+            ctx.save();
+            const fontSize = Math.min(width, height) / 14;
+            ctx.font = `400 ${fontSize}px Arial`;
+            if (this.skin === 'dark') {
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+            } else {
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            }
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.translate(width / 2, height / 2);
+            ctx.fillText('No Data Available', 0, 0);
+            ctx.restore();
+          }
+        },
+      };
+
+      this.diskPersistentChart = new Chart(diskPersistentCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Bind',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(119,255,132,0.3)',
+              borderColor: 'rgba(119,255,132,0.6)',
+              tension: 0.4,
+            },
+            {
+              label: 'Volume',
+              data: [],
+              borderColor: 'rgba(155,99,132,1)',
+              borderDash: [5, 5],
+              pointRadius: 2,
+              borderWidth: 2,
+              tension: 0.5,
+              fill: false,
+            },
+
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: '' } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
+                },
+                footer: () => [
+                  `Available Bind Size: ${this.formatDataSize(this.diskBindLimit, { base: 10, round: 1 })}`,
+                  `Usage (%): ${this.diskUsagePercentage.toFixed(2)}%`,
+                ],
+              },
+            },
+            legend: {
+              display: true,
+              labels: {
+                filter: (item) => {
+                  // Check if diskPersistentChart is null
+                  if (!this.diskPersistentChart) return true; // If null, do not display any labels
+                  if (item.datasetIndex === 1) {
+                    const datasetData = this.diskPersistentChart.data.datasets[item.datasetIndex]?.data; // Get the data for dataset index 1
+                    // Check if dataset exists and has values greater than zero
+                    const hasValuesGreaterThanZero = Array.isArray(datasetData) && datasetData.some((value) => value > 0);
+                    return hasValuesGreaterThanZero; // Return true to keep in legend
+                  }
+                  return true;
+                },
+              },
+            },
+          },
+          // eslint-disable-next-line no-dupe-keys
+        },
+        plugins: [noDataPlugin],
+      });
+
+      this.diskFileSystemChart = new Chart(diskFileSystemCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'File System (RootFS)',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(159,155,132,0.3)',
+              borderColor: 'rgba(159,155,132,0.6)',
+              tension: 0.4,
+            },
+
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: '' } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
+                },
+              },
+            },
+          },
+        },
+        plugins: [noDataPlugin],
+      });
+
+      this.memoryChart = new Chart(memoryCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Memory Allocated',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(151,187,205,0.4)',
+              borderColor: 'rgba(151,187,205,0.6)',
+              yAxisID: 'y',
+              pointRadius: 2,
+              borderWidth: 2,
+              tension: 0.4,
+            },
+            {
+              label: 'Memory Utilization (%)',
+              data: [],
+              fill: false,
+              borderColor: 'rgba(255,99,132,1)',
+              borderDash: [5, 5],
+              yAxisID: 'y1',
+              pointRadius: 2,
+              borderWidth: 2,
+              tension: 0.4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true } },
+            y: {
+              id: 'y',
+              title: { display: true },
+              beginAtZero: true,
+              precision: 0,
+              ticks: {
+                callback: (value) => this.formatDataSize(value, { base: 2, round: 1 }),
+              },
+            },
+            y1: {
+              id: 'y1',
+              title: {
+                display: true,
+              },
+              beginAtZero: true,
+              position: 'right',
+              grid: {
+                display: false,
+              },
+              ticks: {
+                callback: (value) => `${value}%`,
+              },
+            },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  if (datasetLabel.includes('%')) {
+                    return `Memory Utilization: ${dataValue}%`;
+                  }
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 2, round: 1 })}`;
+                },
+                footer: () => `Available Memory: ${this.formatDataSize(this.memoryLimit, { base: 2, round: 1 })}`,
+              },
+            },
+          },
+        },
+        plugins: [noDataPlugin],
+      });
+
+      this.cpuChart = new Chart(cpuCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'CPU Allocated',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(255,99,132,0.4)',
+              borderColor: 'rgba(255,99,132,0.6)',
+              tension: 0.4,
+            },
+            {
+              label: 'CPU Utilization (%)',
+              fill: false,
+              borderColor: 'rgba(255,99,132,1)',
+              borderDash: [5, 5],
+              yAxisID: 'y1',
+              pointRadius: 2,
+              borderWidth: 2,
+              tension: 0.4,
+            },
+
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true } },
+            y: {
+              id: 'y',
+              title: { display: true },
+              beginAtZero: true,
+              ticks: { callback: (value) => `${value} CPU` },
+            },
+            y1: {
+              id: 'y1',
+              title: {
+                display: true,
+              },
+              beginAtZero: true,
+              position: 'right',
+              grid: {
+                display: false,
+              },
+              ticks: {
+                callback: (value) => `${value}%`,
+              },
+            },
+
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  if (datasetLabel.includes('%')) {
+                    return `CPU Utilization: ${dataValue}%`;
+                  }
+                  return `CPU Allocated: ${dataValue} CPU`;
+                },
+                footer: () => `Available CPU Core(s): ${this.cpuSet}`,
+              },
+            },
+          },
+        },
+        plugins: [noDataPlugin],
+      });
+
+      this.networkChart = new Chart(networkCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'RX on eth0',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(99,255,132,0.4)',
+              borderColor: 'rgba(99,255,132,0.6)',
+              tension: 0.4,
+            },
+            {
+              label: 'TX on eth0',
+              data: [],
+              fill: false,
+              borderColor: 'rgba(132,99,255,1)',
+              tension: 0.4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true, text: '' } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue)}`;
+                },
+              },
+            },
+          },
+        },
+        plugins: [noDataPlugin],
+      });
+
+      this.ioChart = new Chart(ioCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: 'Read',
+              data: [],
+              fill: false,
+              borderColor: 'rgba(99,132,255,0.6)',
+              tension: 0.4,
+            },
+            {
+              label: 'Write',
+              data: [],
+              fill: true,
+              backgroundColor: 'rgba(255,132,99,0.4)',
+              borderColor: 'rgba(255,132,99,0.6)',
+              tension: 0.4,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { title: { display: true } },
+            y: { title: { display: true }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+          },
+          plugins: {
+            tooltip: {
+              mode: 'index',
+              intersect: false,
+              callbacks: {
+                label: (tooltipItem) => {
+                  const datasetLabel = tooltipItem.dataset.label;
+                  const dataValue = tooltipItem.raw;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue)}`;
+                },
+              },
+            },
+          },
+        },
+        plugins: [noDataPlugin],
+      });
+      this.updateAxes();
+    },
+    startPollingStats(action = false) {
+      if (!this.timerStats) {
+        this.timerStats = setInterval(() => {
+          this.fetchStats();
+        }, this.refreshRateMonitoring);
+      }
+      if (action === true) {
+        this.buttonStats = false;
+      }
+    },
+    stopPollingStats(action = false) {
+      this.noData = false;
+      clearInterval(this.timerStats);
+      this.timerStats = null;
+      if (action === true) {
+        this.buttonStats = true;
+      }
+    },
+    clearCharts() {
+      if (!this.memoryChart) {
+        return;
+      }
+      // Clear memory chart data
+      this.noData = false;
+      this.memoryChart.data.labels = [];
+      this.memoryChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.memoryChart.options.scales.y.max = 1.2;
+      this.memoryChart.options.scales.y1.max = 120;
+      this.memoryChart.update();
+
+      this.memoryChart.update();
+      // Clear CPU chart data
+      this.cpuChart.data.labels = [];
+      this.cpuChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.cpuChart.options.scales.y.max = 1.2;
+      this.cpuChart.options.scales.y1.max = 120;
+      this.cpuChart.update();
+      // Clear Network chart data
+      this.networkChart.data.labels = [];
+      this.networkChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.networkChart.update();
+      // Clear I/O chart data
+      this.ioChart.data.labels = [];
+      this.ioChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.ioChart.update();
+      this.diskPersistentChart.data.labels = [];
+      this.diskPersistentChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.diskPersistentChart.update();
+      this.diskFileSystemChart.data.labels = [];
+      this.diskFileSystemChart.data.datasets.forEach((dataset) => {
+        dataset.data = [];
+      });
+      this.diskFileSystemChart.update();
+      this.processes = [];
+    },
+    // Stats Section END
     extractTimestamp(log) {
       return log.split(' ')[0];
     },
@@ -7054,7 +8025,7 @@ export default {
       this.manualInProgress = false;
     },
     async fetchLogsForSelectedContainer() {
-      if (this.$refs.managementTabs.currentTab !== 7) {
+      if (this.$refs.managementTabs?.currentTab !== 5) {
         return;
       }
       console.log('fetchLogsForSelectedContainer in progress...');
@@ -8676,6 +9647,13 @@ export default {
       }
     },
     async updateManagementTab(index) {
+      await this.getZelidAuthority();
+      if (!this.globalZelidAuthorized) {
+        return;
+      }
+      this.noData = false;
+      this.processes = [];
+      this.enableHistoryStatistics = false;
       this.callResponse.data = '';
       this.callResponse.status = '';
       // do not reset global application specifics obtained
@@ -8685,12 +9663,18 @@ export default {
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.backupToUpload = [];
-      if (index !== 11) {
+
+      const tabs = this.$refs.managementTabs.$children;
+      const tabTitle = tabs[index]?.title;
+      if (tabTitle !== 'Interactive Terminal') {
         this.disconnectTerminal();
       }
-      if (index !== 7) {
+      if (tabTitle !== 'Logs') {
         this.stopPolling();
         this.pollingEnabled = false;
+      }
+      if (tabTitle !== 'Monitoring') {
+        this.stopPollingStats();
       }
       if (!this.selectedIp) {
         await this.getInstancesForDropDown();
@@ -8703,7 +9687,6 @@ export default {
       this.getApplicationManagementAndStatus();
       switch (index) {
         case 1:
-          // this.getInstancesForDropDown();
           this.getInstalledApplicationSpecifics();
           this.getGlobalApplicationSpecifics();
           break;
@@ -8711,41 +9694,43 @@ export default {
           this.callResponseInspect.data = '';
           this.getApplicationInspect();
           break;
+        // case 3:
+        //   this.callResponseStats.data = '';
+        //   this.getApplicationStats();
+        //   break;
         case 3:
-          this.callResponseStats.data = '';
-          this.getApplicationStats();
+          this.$nextTick(() => {
+            this.initCharts();
+            setTimeout(this.startPollingStats(), 2000);
+          });
           break;
         case 4:
-          this.getApplicationMonitoring();
-          // this.getApplicationMonitoringStream(); // TODO UI with graphs
-          break;
-        case 5:
           this.callResponseChanges.data = '';
           this.getApplicationChanges();
           break;
-        case 6:
-          this.callResponseProcesses.data = '';
-          this.getApplicationProcesses();
-          break;
-        case 7:
+        // case 6:
+        //   this.callResponseProcesses.data = '';
+        //   this.getApplicationProcesses();
+        //   break;
+        case 5:
           this.logs = [];
           this.selectedLog = [];
           this.fetchLogsForSelectedContainer();
           break;
-        case 10:
+        case 8:
           this.applyFilter();
           this.loadBackupList();
           break;
-        case 11:
+        case 9:
           if (!this.appSpecification?.compose || this.appSpecification?.compose?.length === 1) {
             this.refreshFolder();
           }
           break;
-        case 15:
+        case 13:
           this.getZelidAuthority();
           this.cleanData();
           break;
-        case 16:
+        case 14:
           this.getZelidAuthority();
           this.cleanData();
           break;
@@ -9479,123 +10464,6 @@ export default {
       this.callResponseInspect.status = 'success';
       this.callResponseInspect.data = callData;
     },
-    async getApplicationStats() {
-      const callData = [];
-      this.commandExecutingStats = true;
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          const response = await this.executeLocalCommand(`/apps/appstats/${component.name}_${this.appSpecification.name}`);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          } else {
-            const appComponentInspect = {
-              name: component.name,
-              callData: response.data.data,
-            };
-            callData.push(appComponentInspect);
-          }
-        }
-      } else {
-        const response = await this.executeLocalCommand(`/apps/appstats/${this.appName}`);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        } else {
-          const appComponentInspect = {
-            name: this.appSpecification.name,
-            callData: response.data.data,
-          };
-          callData.push(appComponentInspect);
-        }
-        console.log(response);
-      }
-      this.commandExecutingStats = false;
-      this.callResponseStats.status = 'success';
-      this.callResponseStats.data = callData;
-    },
-    async getApplicationMonitoring() {
-      const callData = [];
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          const response = await this.executeLocalCommand(`/apps/appmonitor/${component.name}_${this.appSpecification.name}`);
-          // eslint-disable-next-line no-await-in-loop
-          const responseB = await this.executeLocalCommand(`/apps/appinspect/${component.name}_${this.appSpecification.name}`);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          } else if (responseB.data.status === 'error') {
-            this.showToast('danger', responseB.data.data.message || responseB.data.data);
-          } else {
-            const appComponentInspect = {
-              name: component.name,
-              callData: response.data.data,
-              nanoCpus: responseB.data.data.HostConfig.NanoCpus,
-            };
-            callData.push(appComponentInspect);
-          }
-        }
-      } else {
-        const response = await this.executeLocalCommand(`/apps/appmonitor/${this.appName}`);
-        const responseB = await this.executeLocalCommand(`/apps/appinspect/${this.appName}`);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        } else if (responseB.data.status === 'error') {
-          this.showToast('danger', responseB.data.data.message || responseB.data.data);
-        } else {
-          const appComponentInspect = {
-            name: this.appSpecification.name,
-            callData: response.data.data,
-            nanoCpus: responseB.data.data.HostConfig.NanoCpus,
-          };
-          callData.push(appComponentInspect);
-        }
-        console.log(response);
-      }
-      this.callResponseMonitoring.status = 'success';
-      this.callResponseMonitoring.data = callData;
-    },
-    async getApplicationMonitoringStream() {
-      const self = this;
-      const zelidauth = localStorage.getItem('zelidauth');
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          const axiosConfig = {
-            headers: {
-              zelidauth,
-            },
-            onDownloadProgress(progressEvent) {
-              self.monitoringStream[`${component.name}_${self.appSpecification.name}`] = JSON.parse(`[${progressEvent.event.target.response.replace(/}{"read/g, '},{"read')}]`);
-            },
-          };
-          // eslint-disable-next-line no-await-in-loop
-          const response = await AppsService.justAPI().get(`/apps/appmonitorstream/${component.name}_${this.appSpecification.name}`, axiosConfig);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          }
-        }
-      } else {
-        const axiosConfig = {
-          headers: {
-            zelidauth,
-          },
-          onDownloadProgress(progressEvent) {
-            console.log(progressEvent.event.target.response);
-            self.monitoringStream[self.appName] = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
-          },
-        };
-        // eslint-disable-next-line no-await-in-loop
-        const response = await AppsService.justAPI().get(`/apps/appmonitorstream/${this.appName}`, axiosConfig);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        }
-      }
-    },
     async stopMonitoring(appName, deleteData = false) {
       this.output = [];
       this.showToast('warning', `Stopping Monitoring of ${appName}`);
@@ -9658,42 +10526,6 @@ export default {
       this.commandExecutingChanges = false;
       this.callResponseChanges.status = 'success';
       this.callResponseChanges.data = callData;
-    },
-    async getApplicationProcesses() {
-      const callData = [];
-      this.commandExecutingProcesses = true;
-      if (this.appSpecification.version >= 4) {
-        // compose
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of this.appSpecification.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          const response = await this.executeLocalCommand(`/apps/apptop/${component.name}_${this.appSpecification.name}`);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          } else {
-            const appComponentInspect = {
-              name: component.name,
-              callData: response.data.data,
-            };
-            callData.push(appComponentInspect);
-          }
-        }
-      } else {
-        const response = await this.executeLocalCommand(`/apps/apptop/${this.appName}`);
-        if (response.data.status === 'error') {
-          this.showToast('danger', response.data.data.message || response.data.data);
-        } else {
-          const appComponentInspect = {
-            name: this.appSpecification.name,
-            callData: response.data.data,
-          };
-          callData.push(appComponentInspect);
-        }
-        console.log(response);
-      }
-      this.commandExecutingProcesses = false;
-      this.callResponseProcesses.status = 'success';
-      this.callResponseProcesses.data = callData;
     },
     async getInstancesForDropDown() {
       const response = await AppsService.getAppLocation(this.appName);
@@ -9861,7 +10693,6 @@ export default {
       }
       this.selectedAppOwner = response.data.data;
     },
-
     async stopApp(app) {
       this.output = [];
       // this.showToast('warning', `Stopping ${app}`);
@@ -10011,17 +10842,22 @@ export default {
         }, 5000);
       }
     },
-    getZelidAuthority() {
+    async getZelidAuthority() {
       const zelidauth = localStorage.getItem('zelidauth');
-      this.globalZelidAuthorized = false;
       const auth = qs.parse(zelidauth);
       const timestamp = Date.now();
-      const maxHours = 1.5 * 60 * 60 * 1000;
-      const mesTime = auth.loginPhrase.substring(0, 13);
-      if (+mesTime < (timestamp - maxHours)) {
-        this.globalZelidAuthorized = false;
-      } else {
+      const maxTime = 10 * 60 * 1000;
+      const mesTime = auth?.loginPhrase?.substring(0, 13) || 0;
+      const expiryTime = +mesTime + maxTime;
+      const expiryDate = new Date(expiryTime).toLocaleString();
+      console.log(`Current time: ${new Date(timestamp).toLocaleString()}`);
+      console.log(`Authorization will expire at: ${expiryDate}`);
+      if (+mesTime > 0 && timestamp < expiryTime) {
         this.globalZelidAuthorized = true;
+      } else {
+        this.globalZelidAuthorized = false;
+        this.showToast('danger', 'Session expired. Please log into FluxOS again');
+        await this.logout();
       }
     },
     async delay(ms) {
@@ -10316,83 +11152,6 @@ export default {
       if (this.instancesLocked) {
         this.maxInstances = this.appUpdateSpecification.instances;
       }
-    },
-    generateStatsTableItems(statsData, nanoCpus, specifications) {
-      // { key: 'timestamp', label: 'DATE' },
-      // { key: 'cpu', label: 'CPU' },
-      // { key: 'memory', label: 'RAM' },
-      // { key: 'disk', label: 'SSD' },
-      // { key: 'net', label: 'NET I/O' },
-      // { key: 'block', label: 'BLOCK I/O' },
-      // { key: 'pids', label: 'PIDS' },
-      console.log(statsData);
-      console.log(nanoCpus);
-      if (!statsData || !Array.isArray(statsData)) {
-        return [];
-      }
-      const statsItems = [];
-      statsData.forEach((entry, index) => {
-        console.log(`Processing entry ${index}:`, entry);
-        // Calculate CPU usage
-        const cpuUsage = entry.data.cpu_stats.cpu_usage.total_usage - entry.data.precpu_stats.cpu_usage.total_usage;
-        const systemCpuUsage = entry.data.cpu_stats.system_cpu_usage - entry.data.precpu_stats.system_cpu_usage;
-        const cpu = `${(((cpuUsage / systemCpuUsage) * entry.data.cpu_stats.online_cpus * 100) / (nanoCpus / specifications.cpu / 1e9) || 0).toFixed(2)}%`;
-        // Calculate memory usage
-        const memoryUsage = entry.data.memory_stats.usage;
-        const memory = `${(memoryUsage / 1e9).toFixed(2)} / ${(specifications.ram / 1e3).toFixed(2)} GB, ${((memoryUsage / (specifications.ram * 1e6)) * 100 || 0).toFixed(2)}%`;
-        // Safely access network data
-        const networks = entry.data && entry.data.networks;
-        const eth0 = networks && networks.eth0;
-        let net = '0 / 0 GB';
-        if (eth0) {
-          const rxBytes = eth0.rx_bytes / 1e9;
-          const txBytes = eth0.tx_bytes / 1e9;
-          net = `${rxBytes.toFixed(2)} / ${txBytes.toFixed(2)} GB`;
-        } else {
-          console.error(`Network data for entry ${index} is missing or undefined.`);
-          return;
-        }
-        // Safely access block I/O data
-        const blkioStats = entry.data && entry.data.blkio_stats;
-        let block = '0.00 / 0.00 GB';
-        if (blkioStats && Array.isArray(blkioStats.io_service_bytes_recursive)) {
-          const read = blkioStats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'read');
-          const write = blkioStats.io_service_bytes_recursive.find((x) => x.op.toLowerCase() === 'write');
-          const readValue = (read ? read.value : 0) / 1e9;
-          const writeValue = (write ? write.value : 0) / 1e9;
-          block = `${readValue.toFixed(2)} / ${writeValue.toFixed(2)} GB`;
-        }
-        // Safely access disk data
-        const diskStats = entry.data && entry.data.disk_stats;
-        let disk = '0 / 0 GB';
-        if (diskStats) {
-          const diskUsed = diskStats.used;
-          disk = `${(diskUsed / 1e9).toFixed(2)} / ${(specifications.hdd).toFixed(2)} GB, ${((diskUsed / (specifications.hdd * 1e9)) * 100 || 0).toFixed(2)}%`;
-        }
-        // Get PIDs count
-        const pids = entry.data && entry.data.pids_stats ? entry.data.pids_stats.current : 0;
-        // Create point object and push to statsItems
-        const point = {
-          timestamp: new Date(entry.timestamp).toLocaleString('en-GB', timeoptions.shortDate),
-          cpu,
-          memory,
-          net,
-          block,
-          disk,
-          pids,
-        };
-        statsItems.push(point);
-      });
-      return statsItems;
-    },
-    getCpuPercentage(statsData) {
-      console.log(statsData);
-      const percentages = [];
-      statsData.forEach((data) => {
-        const onePercentage = `${((data.data.cpu_stats.cpu_usage.total_usage / data.data.cpu_stats.cpu_usage.system_cpu_usage) * 100).toFixed(2)}%`;
-        percentages.push(onePercentage);
-      });
-      return percentages;
     },
     getTimestamps(statsData) {
       const timestamps = [];
@@ -11137,6 +11896,9 @@ export default {
       }
     },
     async getApplicationManagementAndStatus() {
+      if (!this.globalZelidAuthorized) {
+        return;
+      }
       if (this.selectedIp) {
         await this.appsGetListAllApps();
         console.log(this.getAllAppsResponse);
@@ -11582,6 +12344,105 @@ td .ellipsis-wrapper {
   height: 30px !important;
   box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
   transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease, opacity 0.6s ease, transform 0.6s ease;
+}
+
+/* Main Container */
+.container {
+  max-width: 1500px;
+  width: 100%; /* Use full available width */
+  padding: 0;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+/* Flexbox for container selection and refresh rate */
+.flex-container2 {
+  height: 50%;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  padding: 0.5vw;
+}
+/* Chart Grid */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1vw;
+  width: 100%;
+  margin: 1vh;
+}
+/* Chart Wrapper */
+.chart-wrapper {
+  padding: 10px; /* Adjust as needed */
+  border-radius: 10px;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  min-width: 600px;
+  overflow: hidden;
+  justify-content: center;
+  align-items: center;
+}
+
+.chart-title-container {
+  align-items: center;
+  display: flex;
+  margin-right: 10px; /* Odstęp między tytułem a wykresem */
+}
+
+.table-responsive {
+  overflow-x: auto; /* Enable horizontal scrolling */
+  box-shadow: 0px 6px 6px rgba(0, 0, 0, 0.1);
+}
+
+.table-monitoring {
+  table-layout: auto; /* Fixes the table layout so columns don't shift */
+  width: 100%; /* Take full width of the container */
+}
+
+.table-monitoring th, .table-monitoring td {
+  white-space: nowrap; /* Prevent text from wrapping */
+  border: none; /* Remove borders */
+  background-color: transparent; /* Background color for cells */
+
+}
+
+.chart-title {
+  margin-left: 8px; /* Odstęp między ikoną a tytułem */
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.icon-large {
+  font-size: 24px !important; /* Ensure this size takes priority */
+}
+
+/* Chart canvas responsiveness */
+.chart-wrapper canvas {
+  max-width: 100%;
+  height: 100%;
+}
+
+/* Adjust grid for smaller screens */
+@media (max-width: 1800px) {
+  .charts-grid {
+    grid-template-columns: 1fr;
+    gap: 2vw;
+    margin: 1vh 0;
+  }
+}
+
+/* Ensure grid returns to original layout */
+@media (min-width: 1800px) {
+  .charts-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1vw;
+  }
+ /* Wyśrodkowanie ostatniego elementu, jeśli liczba elementów jest nieparzysta */
+  .charts-grid > .chart-wrapper:nth-last-child(1):nth-child(odd) {
+    grid-column: 1 / -1; /* Rozciągnij na całą szerokość */
+    justify-self: center; /* Wyśrodkuj poziomo */
+    width: 100%; /* Ogranicz szerokość do 50%, jeśli chcesz mniejszy element */
+  }
 }
 
 input[type="number"]::-webkit-outer-spin-button,
