@@ -13146,7 +13146,7 @@ async function monitorNodeStatus() {
     await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
     monitorNodeStatus();
   } catch (error) {
-    log.errror(error);
+    log.error(error);
   }
 }
 

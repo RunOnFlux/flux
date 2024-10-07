@@ -1364,7 +1364,7 @@ async function purgeUFW() {
     const cmdAsync = util.promisify(nodecmd.get);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
-      const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\'';
+      const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\' | grep -E \'(3[0-9]{4})\''; // 30000 - 39999
       const cmdresB = await cmdAsync(execB).catch(() => { }) || ''; // fail silently,
       if (serviceHelper.ensureString(cmdresB).includes('DENY')) {
         const deniedPorts = cmdresB.split('\n'); // split by new line
@@ -1382,10 +1382,23 @@ async function purgeUFW() {
           // eslint-disable-next-line no-await-in-loop
           await deleteDenyPortRule(port);
         }
-        log.info('UFW app deny rules purged');
+        log.info('UFW app deny rules on ports purged');
       } else {
-        log.info('No UFW deny rules found');
+        log.info('No UFW deny on ports rules found');
       }
+      const execDelDenyA = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 10.0.0.0/8';
+      const execDelDenyB = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 172.16.0.0/12';
+      const execDelDenyC = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 192.168.0.0/16';
+      const execDelDenyD = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 100.64.0.0/10';
+      const execDelDenyE = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 198.18.0.0/15';
+      const execDelDenyF = 'LANG="en_US.UTF-8" && sudo ufw delete deny out from any to 169.254.0.0/16';
+      await cmdAsync(execDelDenyA);
+      await cmdAsync(execDelDenyB);
+      await cmdAsync(execDelDenyC);
+      await cmdAsync(execDelDenyD);
+      await cmdAsync(execDelDenyE);
+      await cmdAsync(execDelDenyF);
+      log.info('UFW app deny netscans rules purged');
     } else {
       log.info('Firewall is not active. Purging UFW not necessary');
     }
