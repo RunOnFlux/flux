@@ -817,20 +817,6 @@
           <div class="charts-grid">
             <div class="chart-wrapper">
               <div class="chart-title-container">
-                <b-icon icon="bar-chart-line" style="width: 30px; height: 30px;" />
-                <span class="chart-title ml-2">Memory usage</span>
-                <b-icon
-                  v-b-tooltip.hover.top="'Displays memory usage over time. Monitoring memory usage helps identify potential memory leaks, optimize application performance, and.'"
-                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
-                  class="ml-1"
-                  icon="info-circle"
-                  style="width: 15px; height: 15px;"
-                />
-              </div>
-              <canvas id="memoryChart" />
-            </div>
-            <div class="chart-wrapper">
-              <div class="chart-title-container">
                 <b-icon
                   icon="bar-chart-line"
                   style="width: 30px; height: 30px;"
@@ -845,6 +831,20 @@
                 />
               </div>
               <canvas id="cpuChart" />
+            </div>
+            <div class="chart-wrapper">
+              <div class="chart-title-container">
+                <b-icon icon="bar-chart-line" style="width: 30px; height: 30px;" />
+                <span class="chart-title ml-2">Memory usage</span>
+                <b-icon
+                  v-b-tooltip.hover.top="'Displays memory usage over time. Monitoring memory usage helps identify potential memory leaks, optimize application performance, and.'"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="ml-1"
+                  icon="info-circle"
+                  style="width: 15px; height: 15px;"
+                />
+              </div>
+              <canvas id="memoryChart" />
             </div>
             <div class="chart-wrapper">
               <div class="chart-title-container">
@@ -6006,7 +6006,7 @@ import FluxMap from '@/views/components/FluxMap.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
 import { useClipboard } from '@vueuse/core';
-import { getUser } from '@/libs/firebase';
+import firebase, { getUser } from '@/libs/firebase';
 import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 import AppsService from '@/services/AppsService';
@@ -6023,6 +6023,8 @@ import { SerializeAddon } from 'xterm-addon-serialize';
 import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 import AnsiToHtml from 'ansi-to-html';
+import IDService from '@/services/IDService';
+
 import {
   Chart, LineController, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title, Filler,
 } from 'chart.js';
@@ -6121,6 +6123,7 @@ export default {
   },
   data() {
     return {
+      logoutTigger: false,
       diskUsagePercentage: '',
       diskBindLimit: '',
       buttonStats: false,
@@ -6519,7 +6522,7 @@ export default {
       applicationPriceFluxError: false,
       maxInstances: 100,
       minInstances: 3,
-      globalZelidAuthorized: false,
+      globalZelidAuthorized: true,
       monitoringStream: {},
       statsFields: [
         { key: 'timestamp', label: 'Date' },
@@ -7160,6 +7163,7 @@ export default {
     this.$nextTick(() => {
       window.addEventListener('resize', self.onResize);
     });
+    this.getZelidAuthority();
     this.initMMSDK();
     this.callBResponse.data = '';
     this.callBResponse.status = '';
@@ -7186,6 +7190,42 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    async logout() {
+      if (!this.logoutTigger) {
+        this.logoutTigger = true;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        localStorage.removeItem('zelidauth');
+        this.$store.commit('flux/setPrivilege', 'none');
+        this.$store.commit('flux/setZelid', '');
+        console.log(auth);
+        IDService.logoutCurrentSession(zelidauth)
+          .then((response) => {
+            console.log(response);
+            if (response.data.status === 'error') {
+              console.log(response.data.data.message);
+            // SHOULD NEVER HAPPEN. Do not show any message.
+            } else {
+              this.showToast('success', response.data.data.message);
+              // Redirect to home page
+              if (this.$route.path === '/') {
+                window.location.reload();
+              } else {
+                this.$router.push({ name: 'home' });
+              }
+            }
+          })
+          .catch((e) => {
+            console.log(e);
+            this.showToast('danger', e.toString());
+          });
+        try {
+          await firebase.auth().signOut();
+        } catch (error) {
+          console.log(error);
+        }
+      }
+    },
     // Stats Section START
     enableHistoryStatisticsChange() {
       this.buttonStats = false;
@@ -7227,6 +7267,15 @@ export default {
         return applications.hdd;
       }
     },
+    getCpuByName(applications, appName) {
+      if (applications?.compose) {
+        const app = applications.compose.find((application) => application.name === appName);
+        return app.cpu;
+      // eslint-disable-next-line no-else-return
+      } else {
+        return applications.cpu;
+      }
+    },
     processStatsData(statsData, configData, timeStamp = null) {
       const memoryLimitBytes = statsData.memory_stats.limit;
       this.memoryLimit = memoryLimitBytes;
@@ -7237,10 +7286,18 @@ export default {
       const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
       const onlineCpus = statsData.cpu_stats.online_cpus;
       const nanoCpus = configData.HostConfig.NanoCpus;
-      const cpuSize = (((cpuUsage / systemCpuUsage) * onlineCpus)).toFixed(1) || 0;
+      let cpuCores;
+      if (this.appSpecification.version >= 4) {
+        cpuCores = this.getCpuByName(this.appSpecification, this.selectedContainerMonitoring);
+      } else {
+        cpuCores = this.appSpecification.cpu;
+      }
+      const rawCpu = (((cpuUsage / systemCpuUsage) * onlineCpus)).toFixed(2) || 0;
       // eslint-disable-next-line no-mixed-operators
-      const cpuPercent = (cpuSize / (nanoCpus / 1e9) * 100).toFixed(1);
-      this.cpuSet = (nanoCpus / 1e9).toFixed(1);
+      const cpuSize = ((rawCpu / (nanoCpus / cpuCores / 1e9) * 100) / 100).toFixed(2);
+      // eslint-disable-next-line no-mixed-operators
+      const cpuPercent = ((rawCpu / (nanoCpus / cpuCores / 1e9) * 100) / cpuCores).toFixed(2);
+      this.cpuSet = cpuCores;
       const ioReadBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'read')?.value || 0 : null;
       const ioWriteBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'write')?.value || 0 : null;
       const networkRxBytes = statsData.networks?.eth0?.rx_bytes || null;
@@ -7342,8 +7399,8 @@ export default {
       }
       // Check and update the Y-axis limits for the CPU chart
       if (this.cpuChart.data.labels.length === 1) {
-        this.cpuChart.options.scales.y.max = (this.cpuSet * 1.2).toFixed(1);
-        this.cpuChart.options.scales.y1.max = 120;
+        this.cpuChart.options.scales.y.max = (this.cpuSet * 1.35).toFixed(1);
+        this.cpuChart.options.scales.y1.max = 135;
       }
     },
     insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp = null) {
@@ -7734,6 +7791,7 @@ export default {
                   }
                   return `CPU Allocated: ${dataValue} CPU`;
                 },
+                footer: () => `Available CPU Core(s): ${this.cpuSet}`,
               },
             },
           },
@@ -9589,6 +9647,10 @@ export default {
       }
     },
     async updateManagementTab(index) {
+      await this.getZelidAuthority();
+      if (!this.globalZelidAuthorized) {
+        return;
+      }
       this.noData = false;
       this.processes = [];
       this.enableHistoryStatistics = false;
@@ -10780,17 +10842,22 @@ export default {
         }, 5000);
       }
     },
-    getZelidAuthority() {
+    async getZelidAuthority() {
       const zelidauth = localStorage.getItem('zelidauth');
-      this.globalZelidAuthorized = false;
       const auth = qs.parse(zelidauth);
       const timestamp = Date.now();
-      const maxHours = 1.5 * 60 * 60 * 1000;
-      const mesTime = auth.loginPhrase.substring(0, 13);
-      if (+mesTime < (timestamp - maxHours)) {
-        this.globalZelidAuthorized = false;
-      } else {
+      const maxTime = 10 * 60 * 1000;
+      const mesTime = auth?.loginPhrase?.substring(0, 13) || 0;
+      const expiryTime = +mesTime + maxTime;
+      const expiryDate = new Date(expiryTime).toLocaleString();
+      console.log(`Current time: ${new Date(timestamp).toLocaleString()}`);
+      console.log(`Authorization will expire at: ${expiryDate}`);
+      if (+mesTime > 0 && timestamp < expiryTime) {
         this.globalZelidAuthorized = true;
+      } else {
+        this.globalZelidAuthorized = false;
+        this.showToast('danger', 'Session expired. Please log into FluxOS again');
+        await this.logout();
       }
     },
     async delay(ms) {
@@ -11829,6 +11896,9 @@ export default {
       }
     },
     async getApplicationManagementAndStatus() {
+      if (!this.globalZelidAuthorized) {
+        return;
+      }
       if (this.selectedIp) {
         await this.appsGetListAllApps();
         console.log(this.getAllAppsResponse);
