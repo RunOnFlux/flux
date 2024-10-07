@@ -721,7 +721,7 @@
       <b-tab title="Monitoring">
         <div class="container">
           <div
-            class="d-flex mb-1 mt-2 align-items-center justify-content-between"
+            class="d-flex mb-1 align-items-center justify-content-between"
             style="border: 1px solid #ccc; border-radius: 8px; height: 45px; padding-top: 12px; padding-bottom: 4px;  padding-left: 12px;  padding-right: 12px; text-align: left;"
           >
             <h5>
@@ -821,7 +821,7 @@
                   icon="bar-chart-line"
                   style="width: 30px; height: 30px;"
                 />
-                <span class="chart-title">CPU Usage</span>
+                <span class="chart-title">CPU usage</span>
                 <b-icon
                   v-b-tooltip.hover.top="'Displays CPU usage over time. Monitoring CPU usage helps identify high load periods, optimize resource allocation, and troubleshoot performance bottlenecks.'"
                   v-ripple.400="'rgba(255, 255, 255, 0.12)'"
