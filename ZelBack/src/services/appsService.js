@@ -13134,7 +13134,7 @@ async function monitorNodeStatus() {
       // eslint-disable-next-line no-await-in-loop
       const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
       isResolved = true;
-      if (response && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
+      if (response && response.data && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
         log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
       } else {
         log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
