@@ -2396,28 +2396,28 @@ async function adjustSyncthing() {
  * @returns {Promise<void>}
  */
 async function configureDirectories() {
-  // if (stc.aborted) return;
+  if (stc.aborted) return;
 
-  // const homedir = os.homedir();
-  // const configDir = path.join(homedir, '.config');
-  // const syncthingDir = path.join(configDir, 'syncthing');
+  const homedir = os.homedir();
+  const configDir = path.join(homedir, '.config');
+  const syncthingDir = path.join(configDir, 'syncthing');
 
-  // const user = os.userInfo().username;
-  // const owner = `${user}:${user}`;
+  const user = os.userInfo().username;
+  const owner = `${user}:${user}`;
 
-  // await serviceHelper.runCommand('mkdir', {
-  //   params: ['-p', syncthingDir],
-  // });
+  await serviceHelper.runCommand('mkdir', {
+    params: ['-p', syncthingDir],
+  });
 
-  // await serviceHelper.runCommand('chown', {
-  //   runAsRoot: true,
-  //   params: [owner, configDir],
-  // });
+  await serviceHelper.runCommand('chown', {
+    runAsRoot: true,
+    params: [owner, configDir],
+  });
 
-  // await serviceHelper.runCommand('chown', {
-  //   runAsRoot: true,
-  //   params: [owner, syncthingDir],
-  // });
+  await serviceHelper.runCommand('chown', {
+    runAsRoot: true,
+    params: [owner, syncthingDir],
+  });
 }
 
 /**
@@ -2495,10 +2495,11 @@ async function runSyncthingSentinel() {
       log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
       await stopSyncthing();
       await installSyncthingIdempotently();
-      await configureDirectories();
+      // await configureDirectories();
 
-      const homedir = os.homedir();
-      const syncthingHome = path.join(homedir, '.config/syncthing');
+      // const homedir = os.homedir();
+      // const syncthingHome = path.join(homedir, '.config/syncthing');
+      const syncthingHome = '/dat/usr/lib/syncthing';
       const logFile = path.join(syncthingHome, 'syncthing.log');
 
       if (stc.aborted) return 0;
@@ -2516,31 +2517,25 @@ async function runSyncthingSentinel() {
       // adding old spawn with shell in the interim.
 
       childProcess.spawn(
-        `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
-        { shell: true },
+        'nohup',
+        [
+          'syncthing',
+          '--logfile',
+          logFile,
+          '--logflags=3',
+          '--log-max-old-files=2',
+          '--log-max-size=26214400',
+          '--allow-newer-config',
+          '--no-browser',
+          '--home',
+          syncthingHome,
+        ],
+        {
+          detached: true,
+          stdio: 'ignore',
+          env: { HOME: syncthingHome },
+        },
       ).unref();
-
-      // childProcess.spawn(
-      //   'sudo',
-      //   [
-      //     'nohup',
-      //     'syncthing',
-      //     '--logfile',
-      //     logFile,
-      //     '--logflags=3',
-      //     '--log-max-old-files=2',
-      //     '--log-max-size=26214400',
-      //     '--allow-newer-config',
-      //     '--no-browser',
-      //     '--home',
-      //     syncthingHome,
-      //   ],
-      //   {
-      //     detached: true,
-      //     stdio: 'ignore',
-      //     // uid: 0,
-      //   },
-      // ).unref();
 
       // let syncthing set itself up
       await stc.sleep(5 * 1000);
