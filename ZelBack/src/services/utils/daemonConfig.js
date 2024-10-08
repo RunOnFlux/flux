@@ -24,8 +24,6 @@ class DaemonConfig {
 
   platform = process.platform;
 
-  homedir = os.homedir();
-
   raw = '';
 
   configElements = {};
@@ -33,7 +31,7 @@ class DaemonConfig {
   constructor() {
     switch (this.platform) {
       case 'linux':
-        this.baseDir = os.homedir();
+        this.baseDir = '/dat/var/lib/fluxd';
         break;
       case 'darwin':
         this.baseDir = path.join(os.homedir(), 'Library/Application Support');
