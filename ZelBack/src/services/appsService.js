@@ -13150,7 +13150,7 @@ async function monitorNodeStatus() {
         await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
       } else {
         nodeConfirmedOnLastCheck = false;
-        await serviceHelper.delay(2 * 60 * 1000); // 2m delay before next check
+        await serviceHelper.delay(5 * 60 * 1000); // 5m delay before next check
       }
       return monitorNodeStatus();
     }
