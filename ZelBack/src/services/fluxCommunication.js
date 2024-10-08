@@ -682,8 +682,8 @@ async function initiateAndHandleConnection(connection) {
         zlibDeflateOptions: {
         // See zlib defaults.
           chunkSize: 1024,
-          memLevel: 8,
-          level: 3,
+          memLevel: 9,
+          level: 9,
         },
         zlibInflateOptions: {
           chunkSize: 10 * 1024,
@@ -1025,6 +1025,10 @@ async function fluxDiscovery() {
       const fixedIndex = fluxNodeIndex + i < sortedNodeList.length ? fluxNodeIndex + i : fluxNodeIndex + i - sortedNodeList.length;
       const { ip } = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
+      if (ipInc === myIP.split(':')[0]) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       const portInc = ip.split(':')[1] || '16127';
       // additional precaution
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
@@ -1041,6 +1045,10 @@ async function fluxDiscovery() {
       const fixedIndex = fluxNodeIndex - i > 0 ? fluxNodeIndex - i : sortedNodeList.length - fluxNodeIndex - i;
       const { ip } = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
+      if (ipInc === myIP.split(':')[0]) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       const portInc = ip.split(':')[1] || '16127';
       // additional precaution
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
@@ -1063,6 +1071,10 @@ async function fluxDiscovery() {
       const connection = await fluxNetworkHelper.getRandomConnection();
       if (connection) {
         const ipInc = connection.split(':')[0];
+        if (ipInc === myIP.split(':')[0]) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         const portInc = connection.split(':')[1] || '16127';
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
@@ -1084,6 +1096,10 @@ async function fluxDiscovery() {
       const connection = await fluxNetworkHelper.getRandomConnection();
       if (connection) {
         const ipInc = connection.split(':')[0];
+        if (ipInc === myIP.split(':')[0]) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         const portInc = connection.split(':')[1] || '16127';
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);

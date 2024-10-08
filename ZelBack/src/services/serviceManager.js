@@ -80,8 +80,6 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
-    fluxNetworkHelper.adjustFirewallToNotAllowNetscans();
-    log.info('Firewalls Netscans checked');
     log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
     log.info('Node allowed to bind privileged ports');
@@ -223,6 +221,9 @@ async function startFluxFunctions() {
       // appsService.checkForNonAllowedAppsOnLocalNetwork();
       appsService.checkMyAppsAvailability(); // periodically checks
     }, 3 * 60 * 1000);
+    setTimeout(() => {
+      appsService.monitorNodeStatus();
+    }, 1.5 * 60 * 1000);
     setTimeout(() => {
       appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
       setInterval(() => { // every 60 mins messages stay on db for 65m
