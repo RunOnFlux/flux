@@ -58,39 +58,27 @@
         <div>
           <b-card>
             <h3><b-icon icon="hdd-network-fill" /> &nbsp;Backend Selection</h3>
-            <b-input-group class="my-1" style="width: 350px">
-              <b-input-group-prepend>
-                <b-input-group-text>
+            <div class="d-flex">
+              <b-input-group class="my-1" size="sm" style="width: 250px">
+                <b-input-group-prepend is-text>
                   <b-icon icon="laptop" />
-                </b-input-group-text>
-              </b-input-group-prepend>
-              <b-form-select
-                v-model="selectedIp"
-                :options="null"
-                @change="selectedIpChanged"
-              >
-                <b-form-select-option
-                  v-for="instance in instances.data"
-                  :key="instance.ip"
-                  :value="instance.ip"
+                </b-input-group-prepend>
+                <b-form-select
+                  v-model="selectedIp"
+                  :options="null"
+                  @change="selectedIpChanged"
                 >
-                  {{ instance.ip }}
-                </b-form-select-option>
-              </b-form-select>
-
-              <b-button
-                ref="BackendRefresh"
-                v-b-tooltip.hover.top="'Refresh'"
-                v-ripple.400="'rgba(255, 255, 255, 0.12)'"
-                variant="outline-success"
-                size="sm"
-                class="ml-1 bb"
-                style="outline: none !important; box-shadow: none !important"
-                @click="refreshInfo"
-              >
-                <b-icon scale="1.2" icon="arrow-clockwise" />
-              </b-button>
-            </b-input-group>
+                  <b-form-select-option
+                    v-for="instance in instances.data"
+                    :key="instance.ip"
+                    :value="instance.ip"
+                  >
+                    {{ instance.ip }}
+                  </b-form-select-option>
+                </b-form-select>
+                <b-icon icon="arrow-clockwise" :class="['ml-1', 'r', { disabled: isDisabled }]" @click="refreshInfo" />
+              </b-input-group>
+            </div>
           </b-card>
         </div>
         <div>
@@ -6123,6 +6111,7 @@ export default {
   },
   data() {
     return {
+      backendLoading: false,
       logoutTigger: false,
       diskUsagePercentage: '',
       diskBindLimit: '',
@@ -6653,7 +6642,7 @@ export default {
       return this.filteredProcesses.slice(start, end);
     },
     isDisabled() {
-      return !!this.pollingEnabled || this.manualInProgress;
+      return !!this.pollingEnabled || this.manualInProgress || this.backendLoading;
     },
     filteredLogs() {
       const keyword = this.filterKeyword.toLowerCase();
@@ -7277,9 +7266,10 @@ export default {
       }
     },
     processStatsData(statsData, configData, timeStamp = null) {
+      console.log(statsData);
       const memoryLimitBytes = statsData.memory_stats.limit;
       this.memoryLimit = memoryLimitBytes;
-      const memoryUsageBytes = statsData.memory_stats?.usage || null;
+      const memoryUsageBytes = statsData.memory_stats?.usage ?? null;
       const memoryUsageMB = memoryUsageBytes;
       const memoryUsagePercentage = ((memoryUsageBytes / memoryLimitBytes) * 100).toFixed(1);
       const cpuUsage = statsData.cpu_stats.cpu_usage.total_usage - statsData.precpu_stats.cpu_usage.total_usage;
@@ -7300,9 +7290,9 @@ export default {
       this.cpuSet = cpuCores;
       const ioReadBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'read')?.value || 0 : null;
       const ioWriteBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'write')?.value || 0 : null;
-      const networkRxBytes = statsData.networks?.eth0?.rx_bytes || null;
-      const networkTxBytes = statsData.networks?.eth0?.tx_bytes || null;
-      const diskUsageMounts = statsData.disk_stats?.bind || null;
+      const networkRxBytes = statsData.networks?.eth0?.rx_bytes ?? null;
+      const networkTxBytes = statsData.networks?.eth0?.tx_bytes ?? null;
+      const diskUsageMounts = statsData.disk_stats?.bind ?? null;
       let hddSize;
       if (this.appSpecification.version >= 4) {
         hddSize = this.getHddByName(this.appSpecification, this.selectedContainerMonitoring);
@@ -7311,9 +7301,10 @@ export default {
       }
       this.diskBindLimit = Number(hddSize) * 1000 * 1000 * 1000;
       this.diskUsagePercentage = (diskUsageMounts / this.diskBindLimit) * 100;
-      const diskUsageDocker = statsData.disk_stats?.volume || null;
-      const diskUsageRootFs = statsData.disk_stats?.rootfs || null;
+      const diskUsageDocker = statsData.disk_stats?.volume ?? null;
+      const diskUsageRootFs = statsData.disk_stats?.rootfs ?? null;
 
+      console.log('CPU Size:', cpuSize);
       console.log('CPU Percent:', cpuPercent);
       console.log('Memory Usage:', memoryUsageMB);
       console.log('Memory Usage (%):', memoryUsagePercentage);
@@ -7324,7 +7315,6 @@ export default {
       console.log('Disk Usage Mounts:', diskUsageMounts);
       console.log('Disk Usage Volume:', diskUsageDocker);
       console.log('Disk Usage RootFS:', diskUsageRootFs);
-      console.log('CPU Size:', cpuSize);
 
       this.insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp);
     },
@@ -7413,7 +7403,7 @@ export default {
         this.memoryChart.data.datasets[1].data.push(memoryUsagePercentage);
       }
       // Update CPU chart
-      if (networkRxBytes !== null && networkTxBytes !== null) {
+      if (cpuSize !== null && cpuPercent !== null) {
         this.LimitChartItems(this.cpuChart);
         this.cpuChart.data.labels.push(timeLabel);
         this.cpuChart.data.datasets[0].data.push(cpuSize);
@@ -7434,12 +7424,13 @@ export default {
         this.ioChart.data.datasets[1].data.push(ioWriteBytes);
       }
       // Update Persistent Storage chart
-      if (diskUsageMounts !== null || diskUsageMounts !== null) {
+      if (diskUsageMounts !== null) {
         this.LimitChartItems(this.diskPersistentChart);
         this.diskPersistentChart.data.labels.push(timeLabel);
         this.diskPersistentChart.data.datasets[0].data.push(diskUsageMounts);
+      }
+      if (diskUsageDocker !== null) {
         this.diskPersistentChart.data.datasets[1].data.push(diskUsageDocker);
-        this.diskPersistentChart.data.datasets[1].hidden = diskUsageDocker === 0;
       }
       // Update File System chart
       if (diskUsageRootFs !== null) {
@@ -8133,13 +8124,17 @@ export default {
       debouncedFetchLogs();
     },
     async refreshInfo() {
-      this.$refs.BackendRefresh.blur();
+      // this.$refs.BackendRefresh.blur();
+      this.backendLoading = true;
       await this.getInstancesForDropDown();
       this.selectedIpChanged();
       this.getApplicationLocations().catch(() => {
         this.isBusy = false;
         this.showToast('danger', 'Error loading application locations');
       });
+      setTimeout(() => {
+        this.backendLoading = false;
+      }, 1000);
     },
     copyMessageToSign() {
       const { copy } = useClipboard({ source: this.dataToSign, legacy: true });
