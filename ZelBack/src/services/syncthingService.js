@@ -51,38 +51,39 @@ const stc = new FluxController();
  * @returns {Promise<(string | null)>} config gile (XML).
  */
 async function getConfigFile() {
-  const homedir = os.homedir();
-  const configDir = path.join(homedir, '.config');
-  const syncthingDir = path.join(configDir, 'syncthing');
-  const configFile = path.join(syncthingDir, 'config.xml');
+  // const homedir = os.homedir();
+  // const configDir = path.join(homedir, '.config');
+  // const syncthingDir = path.join(configDir, 'syncthing');
+  // const configFile = path.join(syncthingDir, 'config.xml');
+  const configFile = '/dat/usr/lib/syncthing/config.xml';
 
-  const user = os.userInfo().username;
-  const owner = `${user}:${user}`;
+  // const user = os.userInfo().username;
+  // const owner = `${user}:${user}`;
 
   // As syncthing is running as root, we need to change owenership to running user
-  const { error: chownConfigDirError } = await serviceHelper.runCommand('chown', {
-    runAsRoot: true,
-    logError: false,
-    params: [owner, configDir],
-  });
+  // const { error: chownConfigDirError } = await serviceHelper.runCommand('chown', {
+  //   runAsRoot: true,
+  //   logError: false,
+  //   params: [owner, configDir],
+  // });
 
-  if (chownConfigDirError) return null;
+  // if (chownConfigDirError) return null;
 
-  const { error: chownSyncthingError } = await serviceHelper.runCommand('chown', {
-    runAsRoot: true,
-    logError: false,
-    params: [owner, syncthingDir],
-  });
+  // const { error: chownSyncthingError } = await serviceHelper.runCommand('chown', {
+  //   runAsRoot: true,
+  //   logError: false,
+  //   params: [owner, syncthingDir],
+  // });
 
-  if (chownSyncthingError) return null;
+  // if (chownSyncthingError) return null;
 
-  const { error: chmodError } = await serviceHelper.runCommand('chmod', {
-    runAsRoot: true,
-    logError: false,
-    params: ['644', configFile],
-  });
+  // const { error: chmodError } = await serviceHelper.runCommand('chmod', {
+  //   runAsRoot: true,
+  //   logError: false,
+  //   params: ['644', configFile],
+  // });
 
-  if (chmodError) return null;
+  // if (chmodError) return null;
 
   let result = null;
   // this should never reject as chown would error first but just in case
@@ -2395,28 +2396,28 @@ async function adjustSyncthing() {
  * @returns {Promise<void>}
  */
 async function configureDirectories() {
-  if (stc.aborted) return;
+  // if (stc.aborted) return;
 
-  const homedir = os.homedir();
-  const configDir = path.join(homedir, '.config');
-  const syncthingDir = path.join(configDir, 'syncthing');
+  // const homedir = os.homedir();
+  // const configDir = path.join(homedir, '.config');
+  // const syncthingDir = path.join(configDir, 'syncthing');
 
-  const user = os.userInfo().username;
-  const owner = `${user}:${user}`;
+  // const user = os.userInfo().username;
+  // const owner = `${user}:${user}`;
 
-  await serviceHelper.runCommand('mkdir', {
-    params: ['-p', syncthingDir],
-  });
+  // await serviceHelper.runCommand('mkdir', {
+  //   params: ['-p', syncthingDir],
+  // });
 
-  await serviceHelper.runCommand('chown', {
-    runAsRoot: true,
-    params: [owner, configDir],
-  });
+  // await serviceHelper.runCommand('chown', {
+  //   runAsRoot: true,
+  //   params: [owner, configDir],
+  // });
 
-  await serviceHelper.runCommand('chown', {
-    runAsRoot: true,
-    params: [owner, syncthingDir],
-  });
+  // await serviceHelper.runCommand('chown', {
+  //   runAsRoot: true,
+  //   params: [owner, syncthingDir],
+  // });
 }
 
 /**
