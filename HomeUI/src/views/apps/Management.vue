@@ -7432,6 +7432,14 @@ export default {
       if (diskUsageDocker !== null) {
         this.diskPersistentChart.data.datasets[1].data.push(diskUsageDocker);
       }
+      if (this.diskPersistentChart.data?.datasets[1]?.data) {
+        const hasValuesGreaterThanZero = Array.isArray(this.diskPersistentChart.data.datasets[1].data) && this.diskPersistentChart.data.datasets[1].data.some((value) => value > 0);
+        if (hasValuesGreaterThanZero) {
+          this.diskPersistentChart.data.datasets[1].hidden = false;
+        } else {
+          this.diskPersistentChart.data.datasets[1].hidden = true;
+        }
+      }
       // Update File System chart
       if (diskUsageRootFs !== null) {
         this.LimitChartItems(this.diskFileSystemChart);
@@ -7574,7 +7582,7 @@ export default {
                 },
                 footer: () => [
                   `Available Bind Size: ${this.formatDataSize(this.diskBindLimit, { base: 10, round: 1 })}`,
-                  `Usage (%): ${this.diskUsagePercentage.toFixed(2)}%`,
+                  `Bind Usage (%): ${this.diskUsagePercentage.toFixed(2)}%`,
                 ],
               },
             },
