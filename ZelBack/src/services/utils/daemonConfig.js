@@ -5,8 +5,7 @@ const os = require('node:os');
 class DaemonConfig {
   static daemonConfigPaths = {
     linux: {
-      zelPath: '.zelcash/zelcash.conf',
-      fluxPath: '.flux/flux.conf',
+      fluxPath: '/dat/var/lib/fluxd/flux.conf',
     },
     darwin: {
       zelPath: 'Zelcash/zelcash.conf',
