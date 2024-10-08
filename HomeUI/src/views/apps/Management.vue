@@ -937,7 +937,7 @@
               <div class="table-responsive">
                 <b-table class="table-monitoring" small responsive show-empty empty-text="No records available." :items="paginatedProcesses" :fields="titles" bordered hover />
               </div>
-              <div class="d-flex align-items-center my-3">
+              <div class="d-flex align-items-center my-1">
                 <div class="flex-grow-1 text-center">
                   <b-pagination
                     v-if="filteredProcesses.length"
@@ -12392,6 +12392,7 @@ td .ellipsis-wrapper {
 .table-responsive {
   overflow-x: auto; /* Enable horizontal scrolling */
   box-shadow: 0px 6px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 0;
 }
 
 .table-monitoring {
