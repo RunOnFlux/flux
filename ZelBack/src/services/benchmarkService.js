@@ -17,8 +17,7 @@ let response = messageHelper.createErrorMessage();
 let benchdClient = null;
 
 async function buildBenchdClient() {
-  const homeDirPath = path.join(__dirname, '../../../../');
-  const fluxbenchdPath = path.join(homeDirPath, '.fluxbenchmark');
+  const fluxbenchdPath = '/dat/usr/lib/fluxbenchd';
 
   const exists = await fs.stat(fluxbenchdPath).catch(() => false);
 
