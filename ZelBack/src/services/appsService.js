@@ -9006,6 +9006,8 @@ function getAppPorts(appSpecs) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 let firstExecutionAfterItsSynced = true;
+let fluxNodeWasAlreadyConfirmed = false;
+let fluxNodeWasNotConfirmedOnLastCheck = false;
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function?
@@ -9028,10 +9030,21 @@ async function trySpawningGlobalApplication() {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Global applications will not be installed');
+      fluxNodeWasNotConfirmedOnLastCheck = true;
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
     }
+    if (fluxNodeWasAlreadyConfirmed && fluxNodeWasNotConfirmedOnLastCheck) {
+      fluxNodeWasNotConfirmedOnLastCheck = false;
+      setTimeout(() => {
+        // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
+        // 125 minutes should give enough time for node receive currently two times the apprunning messages
+        trySpawningGlobalApplication();
+      }, 125 * 60 * 1000);
+      return;
+    }
+    fluxNodeWasAlreadyConfirmed = true;
 
     const benchmarkResponse = await benchmarkService.getBenchmarks();
     if (benchmarkResponse.status === 'error') {
