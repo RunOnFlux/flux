@@ -10846,7 +10846,7 @@ export default {
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       const timestamp = Date.now();
-      const maxTime = 10 * 60 * 1000;
+      const maxTime = 1.5 * 60 * 60 * 1000;
       const mesTime = auth?.loginPhrase?.substring(0, 13) || 0;
       const expiryTime = +mesTime + maxTime;
       const expiryDate = new Date(expiryTime).toLocaleString();
