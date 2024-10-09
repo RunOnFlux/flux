@@ -7356,9 +7356,9 @@ export default {
           if (status !== 'running') {
             this.noData = true;
             if (status === 'exited') {
-              this.additionalMessage = '(Continer marked as slave)';
+              this.additionalMessage = '(Container marked as stand by)';
             } else {
-              this.additionalMessage = '(Continer not running)';
+              this.additionalMessage = '(Container not running)';
             }
             this.stopPollingStats(true);
             return;
