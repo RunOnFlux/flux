@@ -6111,6 +6111,7 @@ export default {
   },
   data() {
     return {
+      additionalMessage: '',
       backendLoading: false,
       logoutTigger: false,
       diskUsagePercentage: '',
@@ -7351,6 +7352,17 @@ export default {
             this.fetchProcesses(appname, containerName);
           }
           const configData = inspectResponse.data;
+          const status = configData.data?.State?.Status;
+          if (status !== 'running') {
+            this.noData = true;
+            if (status === 'exited') {
+              this.additionalMessage = '(Continer marked as slave)';
+            } else {
+              this.additionalMessage = '(Continer not running)';
+            }
+            this.stopPollingStats(true);
+            return;
+          }
           let statsData;
           if (statsResponse.data?.data?.lastDay) {
             statsData = statsResponse.data.data.lastDay.reverse();
@@ -7403,7 +7415,7 @@ export default {
         this.memoryChart.data.datasets[1].data.push(memoryUsagePercentage);
       }
       // Update CPU chart
-      if (cpuSize !== null && cpuPercent !== null) {
+      if (!Number.isNaN(Number(cpuSize)) && !Number.isNaN(Number(cpuPercent))) {
         this.LimitChartItems(this.cpuChart);
         this.cpuChart.data.labels.push(timeLabel);
         this.cpuChart.data.datasets[0].data.push(cpuSize);
@@ -7533,6 +7545,12 @@ export default {
             ctx.textBaseline = 'middle';
             ctx.translate(width / 2, height / 2);
             ctx.fillText('No Data Available', 0, 0);
+
+            const additionalMessage = this.additionalMessage || '';
+            const additionalFontSize = fontSize * 0.7;
+            ctx.font = `400 ${additionalFontSize}px Arial`;
+            ctx.fillText(additionalMessage, 0, fontSize);
+
             ctx.restore();
           }
         },
@@ -7900,11 +7918,12 @@ export default {
       }
     },
     stopPollingStats(action = false) {
-      this.noData = false;
       clearInterval(this.timerStats);
       this.timerStats = null;
       if (action === true) {
         this.buttonStats = true;
+      } else {
+        this.noData = false;
       }
     },
     clearCharts() {
