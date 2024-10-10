@@ -9665,7 +9665,7 @@ async function checkApplicationsCpuUSage() {
             cpuThrottling = true;
           }
           log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
-          log.info(nanoCpus / app.cpu / 1e9);
+          log.info(`checkApplicationsCpuUSage ${nanoCpus / app.cpu / 1e9}`);
           if (cpuThrottling && app.cpu > 1) {
             if (nanoCpus / app.cpu / 1e9 === 1) {
               if (app.cpu > 2) {
@@ -9725,7 +9725,7 @@ async function checkApplicationsCpuUSage() {
               cpuThrottling = true;
             }
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
-            log.info(nanoCpus / appComponent.cpu / 1e9);
+            log.info(`checkApplicationsCpuUSage ${nanoCpus / app.cpu / 1e9}`);
             if (cpuThrottling && appComponent.cpu > 1) {
               if (nanoCpus / appComponent.cpu / 1e9 === 1) {
                 if (appComponent.cpu > 2) {
