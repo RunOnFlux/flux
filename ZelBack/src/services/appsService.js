@@ -9665,9 +9665,10 @@ async function checkApplicationsCpuUSage() {
             cpuThrottling = true;
           }
           log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
-          log.info(`checkApplicationsCpuUSage ${nanoCpus / app.cpu / 1e9}`);
+          const cpuPercentage = nanoCpus / app.cpu / 1e9;
+          log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
           if (cpuThrottling && app.cpu > 1) {
-            if (nanoCpus / app.cpu / 1e9 === 1) {
+            if (cpuPercentage === 1) {
               if (app.cpu > 2) {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.8));
@@ -9678,25 +9679,25 @@ async function checkApplicationsCpuUSage() {
               log.info(`checkApplicationsCpuUSage ${app.name} lowering cpu.`);
               appsMonitored[app.name].lastHourstatsStore = [];
             }
-          } else if (nanoCpus / app.cpu / 1e9 === 0.95) {
+          } else if (cpuPercentage <= 0.8) {
             // eslint-disable-next-line no-await-in-loop
-            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 100.`);
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 85.`);
             appsMonitored[app.name].lastHourstatsStore = [];
-          } else if (nanoCpus / app.cpu / 1e9 === 0.9) {
-            // eslint-disable-next-line no-await-in-loop
-            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.95));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 95.`);
-            appsMonitored[app.name].lastHourstatsStore = [];
-          } else if (nanoCpus / app.cpu / 1e9 === 0.85) {
+          } else if (cpuPercentage <= 0.85) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
             log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 90.`);
             appsMonitored[app.name].lastHourstatsStore = [];
-          } else if (nanoCpus / app.cpu / 1e9 === 0.8) {
+          } else if (cpuPercentage <= 0.9) {
             // eslint-disable-next-line no-await-in-loop
-            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 85.`);
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.95));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 95.`);
+            appsMonitored[app.name].lastHourstatsStore = [];
+          } else if (cpuPercentage < 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 100.`);
             appsMonitored[app.name].lastHourstatsStore = [];
           }
         }
@@ -9725,9 +9726,10 @@ async function checkApplicationsCpuUSage() {
               cpuThrottling = true;
             }
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
-            log.info(`checkApplicationsCpuUSage ${nanoCpus / appComponent.cpu / 1e9}`);
+            const cpuPercentage = nanoCpus / appComponent.cpu / 1e9;
+            log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
             if (cpuThrottling && appComponent.cpu > 1) {
-              if (nanoCpus / appComponent.cpu / 1e9 === 1) {
+              if (cpuPercentage === 1) {
                 if (appComponent.cpu > 2) {
                   // eslint-disable-next-line no-await-in-loop
                   await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.8));
@@ -9738,25 +9740,25 @@ async function checkApplicationsCpuUSage() {
                 log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} lowering cpu.`);
                 appsMonitored[app.name].lastHourstatsStore = [];
               }
-            } else if (nanoCpus / appComponent.cpu / 1e9 === 0.95) {
+            } else if (cpuPercentage <= 0.8) {
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 100.`);
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.85));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 85.`);
               appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
-            } else if (nanoCpus / appComponent.cpu / 1e9 === 0.9) {
-              // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.95));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 95.`);
-              appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
-            } else if (nanoCpus / app.cpu / 1e9 === 0.85) {
+            } else if (cpuPercentage <= 0.85) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
               log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 90.`);
               appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
-            } else if (nanoCpus / app.cpu / 1e9 === 0.8) {
+            } else if (cpuPercentage <= 0.9) {
               // eslint-disable-next-line no-await-in-loop
-              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.85));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 85.`);
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.95));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 95.`);
+              appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
+            } else if (cpuPercentage < 1) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 100.`);
               appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
             }
           }
