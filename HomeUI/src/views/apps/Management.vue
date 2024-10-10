@@ -3039,7 +3039,7 @@
                   :style="getIconColorStyle(storage.used, storage.total)"
                   :icon="getIconName(storage.used, storage.total)"
                   scale="1.4"
-                /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
+                /> {{ `${convertVolumeSize(storage.used, 'GB', 1, true)} / ${convertVolumeSize(storage.total, 'GB', 1, true)}` }} GB
               </h6>
             </div>
             <div
@@ -7274,7 +7274,9 @@ export default {
       const memoryUsageMB = memoryUsageBytes;
       const memoryUsagePercentage = ((memoryUsageBytes / memoryLimitBytes) * 100).toFixed(1);
       const cpuUsage = statsData.cpu_stats.cpu_usage.total_usage - statsData.precpu_stats.cpu_usage.total_usage;
+      console.log(cpuUsage);
       const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
+      console.log(systemCpuUsage);
       const onlineCpus = statsData.cpu_stats.online_cpus;
       const nanoCpus = configData.HostConfig.NanoCpus;
       let cpuCores;
@@ -7300,7 +7302,7 @@ export default {
       } else {
         hddSize = this.appSpecification.hdd;
       }
-      this.diskBindLimit = Number(hddSize) * 1000 * 1000 * 1000;
+      this.diskBindLimit = Number(hddSize) * 1024 * 1024 * 1024;
       this.diskUsagePercentage = (diskUsageMounts / this.diskBindLimit) * 100;
       const diskUsageDocker = statsData.disk_stats?.volume ?? null;
       const diskUsageRootFs = statsData.disk_stats?.rootfs ?? null;
@@ -7337,6 +7339,7 @@ export default {
         const containerName = this.selectedContainerMonitoring;
         const appname = this.selectedContainerMonitoring ? `${this.selectedContainerMonitoring}_${this.appSpecification.name}` : this.appSpecification.name;
         let statsResponse;
+        this.additionalMessage = '';
         if (this.enableHistoryStatistics) {
           statsResponse = await this.executeLocalCommand(`/apps/appmonitor/${appname}`);
         } else {
@@ -7353,7 +7356,7 @@ export default {
           }
           const configData = inspectResponse.data;
           const status = configData.data?.State?.Status;
-          if (status !== 'running') {
+          if (status !== 'running' && !this.enableHistoryStatistics) {
             this.noData = true;
             if (status === 'exited') {
               this.additionalMessage = '(Container marked as stand by)';
@@ -7586,7 +7589,7 @@ export default {
           responsive: true,
           scales: {
             x: { title: { display: true, text: '' } },
-            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 2, round: 0 }) } },
           },
           plugins: {
             tooltip: {
@@ -7596,10 +7599,10 @@ export default {
                 label: (tooltipItem) => {
                   const datasetLabel = tooltipItem.dataset.label;
                   const dataValue = tooltipItem.raw;
-                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 2, round: 1 })}`;
                 },
                 footer: () => [
-                  `Available Bind Size: ${this.formatDataSize(this.diskBindLimit, { base: 10, round: 1 })}`,
+                  `Available Bind Size: ${this.formatDataSize(this.diskBindLimit, { base: 2, round: 1 })}`,
                   `Bind Usage (%): ${this.diskUsagePercentage.toFixed(2)}%`,
                 ],
               },
@@ -7646,7 +7649,7 @@ export default {
           responsive: true,
           scales: {
             x: { title: { display: true, text: '' } },
-            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 2, round: 0 }) } },
           },
           plugins: {
             tooltip: {
@@ -7656,7 +7659,7 @@ export default {
                 label: (tooltipItem) => {
                   const datasetLabel = tooltipItem.dataset.label;
                   const dataValue = tooltipItem.raw;
-                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 2, round: 1 })}`;
                 },
               },
             },
@@ -8230,10 +8233,10 @@ export default {
     },
     async storageStats() {
       try {
-        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${this.appName}/${this.selectedAppVolume}/${'GB'}/${2}/${'used,size'}`);
+        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${this.appName}/${this.selectedAppVolume}/${'B'}/${2}/${'used,size'}`);
         this.volumePath = this.volumeInfo.data?.data;
         if (this.volumeInfo.data.status === 'success') {
-          this.storage.total = this.volumeInfo.data.data.size;
+          this.storage.total = this.getHddByName(this.appSpecification, this.selectedAppVolume) * 1024 * 1024 * 1024;
           this.storage.used = this.volumeInfo.data.data.used;
         } else {
           this.showToast('danger', this.volumeInfo.data.data.message || this.volumeInfo.data.data);
@@ -8479,6 +8482,48 @@ export default {
         return `http://${ip}:${port}/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
       }
       return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
+    },
+    convertVolumeSize(size, targetUnit = 'auto', decimal = 0, returnWithoutUnit = true) {
+      const multiplierMap = {
+        B: 1,
+        KB: 1024,
+        MB: 1024 * 1024,
+        GB: 1024 * 1024 * 1024,
+      };
+      // eslint-disable-next-line no-shadow
+      const getSizeWithMultiplier = (size, multiplier) => size / multiplierMap[multiplier.toUpperCase()];
+      const formatResult = (result, unit) => {
+        const formattedResult = unit === 'B' ? result.toFixed(0) : result.toFixed(decimal);
+        return returnWithoutUnit ? formattedResult : `${formattedResult} ${unit}`;
+      };
+
+      const sizeInBytes = +size;
+      // Validate input size
+      if (Number.isNaN(sizeInBytes)) {
+        console.error('Invalid size parameter');
+        return 'N/A';
+      }
+
+      // Auto-select best unit if 'auto' is chosen
+      if (targetUnit === 'auto') {
+        let bestMatchUnit;
+        let bestMatchResult = sizeInBytes;
+        Object.keys(multiplierMap).forEach((unit) => {
+          const result = getSizeWithMultiplier(sizeInBytes, unit);
+          if (result >= 1 && (bestMatchResult === undefined || result < bestMatchResult)) {
+            bestMatchResult = result;
+            bestMatchUnit = unit;
+          }
+        });
+
+        bestMatchUnit = bestMatchUnit || 'B';
+        return formatResult(bestMatchResult, bestMatchUnit);
+      // eslint-disable-next-line no-else-return
+      } else {
+        // Convert to specified target unit
+        const result = getSizeWithMultiplier(sizeInBytes, targetUnit);
+        return formatResult(result, targetUnit);
+      }
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {
