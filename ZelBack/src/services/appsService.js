@@ -9709,7 +9709,7 @@ async function checkApplicationsCpuUSage() {
           if (inspect && stats && stats.length > 4) {
             const nanoCpus = inspect.HostConfig.NanoCpus;
             let cpuThrottlingRuns = 0;
-            let cpuThrottling = true;
+            let cpuThrottling = false;
             // eslint-disable-next-line no-restricted-syntax
             for (const stat of stats) {
               const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
