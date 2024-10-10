@@ -9660,7 +9660,7 @@ async function checkApplicationsCpuUSage() {
               cpuThrottlingRuns += 1;
             }
           }
-          if (cpuThrottlingRuns >= stats.length > 0.8) {
+          if (cpuThrottlingRuns >= stats.length * 0.8) {
             // cpu was high on 80% of the checks
             cpuThrottling = true;
           }
@@ -9720,7 +9720,7 @@ async function checkApplicationsCpuUSage() {
                 cpuThrottlingRuns += 1;
               }
             }
-            if (cpuThrottlingRuns >= stats.length > 0.8) {
+            if (cpuThrottlingRuns >= stats.length * 0.8) {
               // cpu was high on 80% of the checks
               cpuThrottling = true;
             }
