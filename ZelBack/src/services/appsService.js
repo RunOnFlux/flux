@@ -9706,7 +9706,7 @@ async function checkApplicationsCpuUSage() {
           stats = appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore;
           // eslint-disable-next-line no-await-in-loop
           const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
-          if (inspect && stats && stats.length > 55) {
+          if (inspect && stats && stats.length > 4) {
             const nanoCpus = inspect.HostConfig.NanoCpus;
             let cpuThrottlingRuns = 0;
             let cpuThrottling = true;
@@ -9725,7 +9725,7 @@ async function checkApplicationsCpuUSage() {
               cpuThrottling = true;
             }
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
-            log.info(`checkApplicationsCpuUSage ${nanoCpus / app.cpu / 1e9}`);
+            log.info(`checkApplicationsCpuUSage ${nanoCpus / appComponent.cpu / 1e9}`);
             if (cpuThrottling && appComponent.cpu > 1) {
               if (nanoCpus / appComponent.cpu / 1e9 === 1) {
                 if (appComponent.cpu > 2) {
