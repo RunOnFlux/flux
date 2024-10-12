@@ -648,7 +648,7 @@ export default {
         totalHDD += composeObj.hdd;
       });
       // Return an array containing the sum of RAM, CPU, and HDD usage
-      return [totalRAM, totalCPU, totalHDD];
+      return [totalRAM, totalCPU.toFixed(1), totalHDD];
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({

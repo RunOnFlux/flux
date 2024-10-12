@@ -1372,9 +1372,7 @@ export default {
         totalCPU += composeObj.cpu;
         totalHDD += composeObj.hdd;
       });
-      console.log(`Info: ${totalRAM}, ${totalCPU}, ${totalHDD}`);
-      // Return an array containing the sum of RAM, CPU, and HDD usage
-      return [totalRAM, totalCPU, totalHDD];
+      return [totalRAM, totalCPU.toFixed(1), totalHDD];
       // eslint-disable-next-line no-else-return
     },
     isLessThanTwoDays(timeString) {
