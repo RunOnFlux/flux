@@ -521,7 +521,11 @@ async function mongoDBConfig() {
   log.info('MongoDB file config verification...');
   try {
     const hashCurrent = hash(await fs.readFile('/etc/mongod.conf'));
-    const vailidHashes = ['4646c649230b8125c7894d618313039f20d1901b', '1b20cbacf63c4400d0bf90188615db78b9a7602e'];
+    const vailidHashes = [
+      '0b43953f09579dcf8bddd4f9f517a9b6296877e7',
+      '4646c649230b8125c7894d618313039f20d1901b',
+      '1b20cbacf63c4400d0bf90188615db78b9a7602e',
+    ];
     if (vailidHashes.indexOf(hashCurrent) !== -1) {
       log.info('MongoDB config verification passed.');
       return;
