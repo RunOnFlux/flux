@@ -523,6 +523,7 @@ async function mongoDBConfig() {
     const hashCurrent = hash(await fs.readFile('/etc/mongod.conf'));
     const vailidHashes = [
       '0b43953f09579dcf8bddd4f9f517a9b6296877e7',
+      '5e635bbcd8b70043cfe4559a19a9374cf12e8564',
       '4646c649230b8125c7894d618313039f20d1901b',
       '1b20cbacf63c4400d0bf90188615db78b9a7602e',
     ];
