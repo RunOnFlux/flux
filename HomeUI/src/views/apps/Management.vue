@@ -7266,7 +7266,7 @@ export default {
         return applications.cpu;
       }
     },
-    processStatsData(statsData, configData, timeStamp = null) {
+    processStatsData(statsData, timeStamp = null) {
       console.log(statsData);
       const memoryLimitBytes = statsData.memory_stats.limit;
       this.memoryLimit = memoryLimitBytes;
@@ -7380,10 +7380,10 @@ export default {
               return statsTimestamp >= cutoffTimestamp;
             });
             filteredStats.forEach((stats) => {
-              this.processStatsData(stats.data, configData.data, stats.timestamp);
+              this.processStatsData(stats.data, stats.timestamp);
             });
           } else {
-            this.processStatsData(statsData, configData.data);
+            this.processStatsData(statsData);
           }
           if (containerName === this.selectedContainerMonitoring) {
             this.updateCharts();
