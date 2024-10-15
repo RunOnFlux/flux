@@ -7278,7 +7278,7 @@ export default {
       const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
       console.log(systemCpuUsage);
       const onlineCpus = statsData.cpu_stats.online_cpus;
-      const nanoCpus = configData.HostConfig.NanoCpus;
+      const { nanoCpus } = statsData;
       let cpuCores;
       if (this.appSpecification.version >= 4) {
         cpuCores = this.getCpuByName(this.appSpecification, this.selectedContainerMonitoring);

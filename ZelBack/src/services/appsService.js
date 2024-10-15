@@ -1259,6 +1259,8 @@ function startAppMonitoring(appName) {
         statsNow.disk_stats = containerStorageInfo;
         const now = Date.now();
         if (appsMonitored[appName].run % 3 === 0) {
+          const inspect = await dockerService.dockerContainerInspect(appName);
+          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
           appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
           const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
           const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
