@@ -58,39 +58,27 @@
         <div>
           <b-card>
             <h3><b-icon icon="hdd-network-fill" /> &nbsp;Backend Selection</h3>
-            <b-input-group class="my-1" style="width: 350px">
-              <b-input-group-prepend>
-                <b-input-group-text>
+            <div class="d-flex">
+              <b-input-group class="my-1" size="sm" style="width: 250px">
+                <b-input-group-prepend is-text>
                   <b-icon icon="laptop" />
-                </b-input-group-text>
-              </b-input-group-prepend>
-              <b-form-select
-                v-model="selectedIp"
-                :options="null"
-                @change="selectedIpChanged"
-              >
-                <b-form-select-option
-                  v-for="instance in instances.data"
-                  :key="instance.ip"
-                  :value="instance.ip"
+                </b-input-group-prepend>
+                <b-form-select
+                  v-model="selectedIp"
+                  :options="null"
+                  @change="selectedIpChanged"
                 >
-                  {{ instance.ip }}
-                </b-form-select-option>
-              </b-form-select>
-
-              <b-button
-                ref="BackendRefresh"
-                v-b-tooltip.hover.top="'Refresh'"
-                v-ripple.400="'rgba(255, 255, 255, 0.12)'"
-                variant="outline-success"
-                size="sm"
-                class="ml-1 bb"
-                style="outline: none !important; box-shadow: none !important"
-                @click="refreshInfo"
-              >
-                <b-icon scale="1.2" icon="arrow-clockwise" />
-              </b-button>
-            </b-input-group>
+                  <b-form-select-option
+                    v-for="instance in instances.data"
+                    :key="instance.ip"
+                    :value="instance.ip"
+                  >
+                    {{ instance.ip }}
+                  </b-form-select-option>
+                </b-form-select>
+                <b-icon icon="arrow-clockwise" :class="['ml-1', 'r', { disabled: isDisabled }]" @click="refreshInfo" />
+              </b-input-group>
+            </div>
           </b-card>
         </div>
         <div>
@@ -3051,7 +3039,7 @@
                   :style="getIconColorStyle(storage.used, storage.total)"
                   :icon="getIconName(storage.used, storage.total)"
                   scale="1.4"
-                /> {{ `${storage.used.toFixed(2)} / ${storage.total.toFixed(2)}` }} GB
+                /> {{ `${convertVolumeSize(storage.used, 'GB', 1, true)} / ${convertVolumeSize(storage.total, 'GB', 1, true)}` }} GB
               </h6>
             </div>
             <div
@@ -6123,6 +6111,8 @@ export default {
   },
   data() {
     return {
+      additionalMessage: '',
+      backendLoading: false,
       logoutTigger: false,
       diskUsagePercentage: '',
       diskBindLimit: '',
@@ -6653,7 +6643,7 @@ export default {
       return this.filteredProcesses.slice(start, end);
     },
     isDisabled() {
-      return !!this.pollingEnabled || this.manualInProgress;
+      return !!this.pollingEnabled || this.manualInProgress || this.backendLoading;
     },
     filteredLogs() {
       const keyword = this.filterKeyword.toLowerCase();
@@ -7276,16 +7266,19 @@ export default {
         return applications.cpu;
       }
     },
-    processStatsData(statsData, configData, timeStamp = null) {
+    processStatsData(statsData, timeStamp = null) {
+      console.log(statsData);
       const memoryLimitBytes = statsData.memory_stats.limit;
       this.memoryLimit = memoryLimitBytes;
-      const memoryUsageBytes = statsData.memory_stats?.usage || null;
+      const memoryUsageBytes = statsData.memory_stats?.usage ?? null;
       const memoryUsageMB = memoryUsageBytes;
       const memoryUsagePercentage = ((memoryUsageBytes / memoryLimitBytes) * 100).toFixed(1);
       const cpuUsage = statsData.cpu_stats.cpu_usage.total_usage - statsData.precpu_stats.cpu_usage.total_usage;
+      console.log(cpuUsage);
       const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
+      console.log(systemCpuUsage);
       const onlineCpus = statsData.cpu_stats.online_cpus;
-      const nanoCpus = configData.HostConfig.NanoCpus;
+      const { nanoCpus } = statsData;
       let cpuCores;
       if (this.appSpecification.version >= 4) {
         cpuCores = this.getCpuByName(this.appSpecification, this.selectedContainerMonitoring);
@@ -7300,20 +7293,21 @@ export default {
       this.cpuSet = cpuCores;
       const ioReadBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'read')?.value || 0 : null;
       const ioWriteBytes = statsData.blkio_stats.io_service_bytes_recursive ? statsData.blkio_stats.io_service_bytes_recursive.find((i) => i.op.toLowerCase() === 'write')?.value || 0 : null;
-      const networkRxBytes = statsData.networks?.eth0?.rx_bytes || null;
-      const networkTxBytes = statsData.networks?.eth0?.tx_bytes || null;
-      const diskUsageMounts = statsData.disk_stats?.bind || null;
+      const networkRxBytes = statsData.networks?.eth0?.rx_bytes ?? null;
+      const networkTxBytes = statsData.networks?.eth0?.tx_bytes ?? null;
+      const diskUsageMounts = statsData.disk_stats?.bind ?? null;
       let hddSize;
       if (this.appSpecification.version >= 4) {
         hddSize = this.getHddByName(this.appSpecification, this.selectedContainerMonitoring);
       } else {
         hddSize = this.appSpecification.hdd;
       }
-      this.diskBindLimit = Number(hddSize) * 1000 * 1000 * 1000;
+      this.diskBindLimit = Number(hddSize) * 1024 * 1024 * 1024;
       this.diskUsagePercentage = (diskUsageMounts / this.diskBindLimit) * 100;
-      const diskUsageDocker = statsData.disk_stats?.volume || null;
-      const diskUsageRootFs = statsData.disk_stats?.rootfs || null;
+      const diskUsageDocker = statsData.disk_stats?.volume ?? null;
+      const diskUsageRootFs = statsData.disk_stats?.rootfs ?? null;
 
+      console.log('CPU Size:', cpuSize);
       console.log('CPU Percent:', cpuPercent);
       console.log('Memory Usage:', memoryUsageMB);
       console.log('Memory Usage (%):', memoryUsagePercentage);
@@ -7324,7 +7318,6 @@ export default {
       console.log('Disk Usage Mounts:', diskUsageMounts);
       console.log('Disk Usage Volume:', diskUsageDocker);
       console.log('Disk Usage RootFS:', diskUsageRootFs);
-      console.log('CPU Size:', cpuSize);
 
       this.insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp);
     },
@@ -7346,6 +7339,7 @@ export default {
         const containerName = this.selectedContainerMonitoring;
         const appname = this.selectedContainerMonitoring ? `${this.selectedContainerMonitoring}_${this.appSpecification.name}` : this.appSpecification.name;
         let statsResponse;
+        this.additionalMessage = '';
         if (this.enableHistoryStatistics) {
           statsResponse = await this.executeLocalCommand(`/apps/appmonitor/${appname}`);
         } else {
@@ -7361,6 +7355,17 @@ export default {
             this.fetchProcesses(appname, containerName);
           }
           const configData = inspectResponse.data;
+          const status = configData.data?.State?.Status;
+          if (status !== 'running' && !this.enableHistoryStatistics) {
+            this.noData = true;
+            if (status === 'exited') {
+              this.additionalMessage = '(Container marked as stand by)';
+            } else {
+              this.additionalMessage = '(Container not running)';
+            }
+            this.stopPollingStats(true);
+            return;
+          }
           let statsData;
           if (statsResponse.data?.data?.lastDay) {
             statsData = statsResponse.data.data.lastDay.reverse();
@@ -7375,10 +7380,10 @@ export default {
               return statsTimestamp >= cutoffTimestamp;
             });
             filteredStats.forEach((stats) => {
-              this.processStatsData(stats.data, configData.data, stats.timestamp);
+              this.processStatsData(stats.data, stats.timestamp);
             });
           } else {
-            this.processStatsData(statsData, configData.data);
+            this.processStatsData(statsData);
           }
           if (containerName === this.selectedContainerMonitoring) {
             this.updateCharts();
@@ -7413,7 +7418,7 @@ export default {
         this.memoryChart.data.datasets[1].data.push(memoryUsagePercentage);
       }
       // Update CPU chart
-      if (networkRxBytes !== null && networkTxBytes !== null) {
+      if (!Number.isNaN(Number(cpuSize)) && !Number.isNaN(Number(cpuPercent))) {
         this.LimitChartItems(this.cpuChart);
         this.cpuChart.data.labels.push(timeLabel);
         this.cpuChart.data.datasets[0].data.push(cpuSize);
@@ -7434,12 +7439,21 @@ export default {
         this.ioChart.data.datasets[1].data.push(ioWriteBytes);
       }
       // Update Persistent Storage chart
-      if (diskUsageMounts !== null || diskUsageMounts !== null) {
+      if (diskUsageMounts !== null) {
         this.LimitChartItems(this.diskPersistentChart);
         this.diskPersistentChart.data.labels.push(timeLabel);
         this.diskPersistentChart.data.datasets[0].data.push(diskUsageMounts);
+      }
+      if (diskUsageDocker !== null) {
         this.diskPersistentChart.data.datasets[1].data.push(diskUsageDocker);
-        this.diskPersistentChart.data.datasets[1].hidden = diskUsageDocker === 0;
+      }
+      if (this.diskPersistentChart.data?.datasets[1]?.data) {
+        const hasValuesGreaterThanZero = Array.isArray(this.diskPersistentChart.data.datasets[1].data) && this.diskPersistentChart.data.datasets[1].data.some((value) => value > 0);
+        if (hasValuesGreaterThanZero) {
+          this.diskPersistentChart.data.datasets[1].hidden = false;
+        } else {
+          this.diskPersistentChart.data.datasets[1].hidden = true;
+        }
       }
       // Update File System chart
       if (diskUsageRootFs !== null) {
@@ -7534,6 +7548,12 @@ export default {
             ctx.textBaseline = 'middle';
             ctx.translate(width / 2, height / 2);
             ctx.fillText('No Data Available', 0, 0);
+
+            const additionalMessage = this.additionalMessage || '';
+            const additionalFontSize = fontSize * 0.7;
+            ctx.font = `400 ${additionalFontSize}px Arial`;
+            ctx.fillText(additionalMessage, 0, fontSize);
+
             ctx.restore();
           }
         },
@@ -7569,7 +7589,7 @@ export default {
           responsive: true,
           scales: {
             x: { title: { display: true, text: '' } },
-            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 2, round: 0 }) } },
           },
           plugins: {
             tooltip: {
@@ -7579,11 +7599,11 @@ export default {
                 label: (tooltipItem) => {
                   const datasetLabel = tooltipItem.dataset.label;
                   const dataValue = tooltipItem.raw;
-                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 2, round: 1 })}`;
                 },
                 footer: () => [
-                  `Available Bind Size: ${this.formatDataSize(this.diskBindLimit, { base: 10, round: 1 })}`,
-                  `Usage (%): ${this.diskUsagePercentage.toFixed(2)}%`,
+                  `Available Bind Size: ${this.formatDataSize(this.diskBindLimit, { base: 2, round: 1 })}`,
+                  `Bind Usage (%): ${this.diskUsagePercentage.toFixed(2)}%`,
                 ],
               },
             },
@@ -7629,7 +7649,7 @@ export default {
           responsive: true,
           scales: {
             x: { title: { display: true, text: '' } },
-            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 10, round: 0 }) } },
+            y: { title: { display: true, text: '' }, beginAtZero: true, ticks: { callback: (value) => this.formatDataSize(value, { base: 2, round: 0 }) } },
           },
           plugins: {
             tooltip: {
@@ -7639,7 +7659,7 @@ export default {
                 label: (tooltipItem) => {
                   const datasetLabel = tooltipItem.dataset.label;
                   const dataValue = tooltipItem.raw;
-                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 10, round: 1 })}`;
+                  return `${datasetLabel}: ${this.formatDataSize(dataValue, { base: 2, round: 1 })}`;
                 },
               },
             },
@@ -7901,11 +7921,12 @@ export default {
       }
     },
     stopPollingStats(action = false) {
-      this.noData = false;
       clearInterval(this.timerStats);
       this.timerStats = null;
       if (action === true) {
         this.buttonStats = true;
+      } else {
+        this.noData = false;
       }
     },
     clearCharts() {
@@ -8133,13 +8154,17 @@ export default {
       debouncedFetchLogs();
     },
     async refreshInfo() {
-      this.$refs.BackendRefresh.blur();
+      // this.$refs.BackendRefresh.blur();
+      this.backendLoading = true;
       await this.getInstancesForDropDown();
       this.selectedIpChanged();
       this.getApplicationLocations().catch(() => {
         this.isBusy = false;
         this.showToast('danger', 'Error loading application locations');
       });
+      setTimeout(() => {
+        this.backendLoading = false;
+      }, 1000);
     },
     copyMessageToSign() {
       const { copy } = useClipboard({ source: this.dataToSign, legacy: true });
@@ -8208,10 +8233,10 @@ export default {
     },
     async storageStats() {
       try {
-        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${this.appName}/${this.selectedAppVolume}/${'GB'}/${2}/${'used,size'}`);
+        this.volumeInfo = await this.executeLocalCommand(`/backup/getvolumedataofcomponent/${this.appName}/${this.selectedAppVolume}/${'B'}/${2}/${'used,size'}`);
         this.volumePath = this.volumeInfo.data?.data;
         if (this.volumeInfo.data.status === 'success') {
-          this.storage.total = this.volumeInfo.data.data.size;
+          this.storage.total = this.getHddByName(this.appSpecification, this.selectedAppVolume) * 1024 * 1024 * 1024;
           this.storage.used = this.volumeInfo.data.data.used;
         } else {
           this.showToast('danger', this.volumeInfo.data.data.message || this.volumeInfo.data.data);
@@ -8457,6 +8482,48 @@ export default {
         return `http://${ip}:${port}/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
       }
       return `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/ioutils/fileupload/backup/${this.appName}/${this.restoreRemoteFile}/null/${filename}`;
+    },
+    convertVolumeSize(size, targetUnit = 'auto', decimal = 0, returnWithoutUnit = true) {
+      const multiplierMap = {
+        B: 1,
+        KB: 1024,
+        MB: 1024 * 1024,
+        GB: 1024 * 1024 * 1024,
+      };
+      // eslint-disable-next-line no-shadow
+      const getSizeWithMultiplier = (size, multiplier) => size / multiplierMap[multiplier.toUpperCase()];
+      const formatResult = (result, unit) => {
+        const formattedResult = unit === 'B' ? result.toFixed(0) : result.toFixed(decimal);
+        return returnWithoutUnit ? formattedResult : `${formattedResult} ${unit}`;
+      };
+
+      const sizeInBytes = +size;
+      // Validate input size
+      if (Number.isNaN(sizeInBytes)) {
+        console.error('Invalid size parameter');
+        return 'N/A';
+      }
+
+      // Auto-select best unit if 'auto' is chosen
+      if (targetUnit === 'auto') {
+        let bestMatchUnit;
+        let bestMatchResult = sizeInBytes;
+        Object.keys(multiplierMap).forEach((unit) => {
+          const result = getSizeWithMultiplier(sizeInBytes, unit);
+          if (result >= 1 && (bestMatchResult === undefined || result < bestMatchResult)) {
+            bestMatchResult = result;
+            bestMatchUnit = unit;
+          }
+        });
+
+        bestMatchUnit = bestMatchUnit || 'B';
+        return formatResult(bestMatchResult, bestMatchUnit);
+      // eslint-disable-next-line no-else-return
+      } else {
+        // Convert to specified target unit
+        const result = getSizeWithMultiplier(sizeInBytes, targetUnit);
+        return formatResult(result, targetUnit);
+      }
     },
     addAndConvertFileSizes(sizes, targetUnit = 'auto', decimal = 2) {
       const multiplierMap = {

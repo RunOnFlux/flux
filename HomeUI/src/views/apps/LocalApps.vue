@@ -2716,9 +2716,8 @@ export default {
         acc[1] += cpu;
         acc[2] += hdd;
         return acc;
-      }, [0, 0, 0]); // Initialize accumulator with zeros for RAM, CPU, and HDD
-      // Return total RAM, CPU, and HDD usage
-      return [totalRAM, totalCPU, totalHDD];
+      }, [0, 0, 0]);
+      return [totalRAM, totalCPU.toFixed(1), totalHDD];
     },
     getBadgeClass(appName) {
       const state = this.getStateByName(appName);
