@@ -1044,6 +1044,8 @@ async function appStats(req, res) {
       // eslint-disable-next-line no-use-before-define
       const containerStorageInfo = await getContainerStorage(appname);
       response.disk_stats = containerStorageInfo;
+      const inspect = await dockerService.dockerContainerInspect(appname);
+      response.nanoCpus = inspect.HostConfig.NanoCpus;
       const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
