@@ -1,22 +1,24 @@
 <template>
   <b-card>
-    <v-map :zoom="map.zoom" :center="map.center">
-      <v-tile-layer :url="map.url" />
-      <v-marker-cluster
-        v-if="nodesLoaded"
-        :options="map.clusterOptions"
-        @clusterclick="click"
-        @ready="ready"
-      >
-        <v-geo-json :geojson="geoJson" :options="geoJsonOptions" />
-      </v-marker-cluster>
-      <v-marker
-        v-if="nodesLoadedError"
-        :lat-lng="[20, -20]"
-        :icon="warning.icon"
-        :z-index-offset="warning.zIndexOffest"
-      />
-    </v-map>
+    <div class="v-map-wrapper">
+      <v-map :zoom="map.zoom" :center="map.center">
+        <v-tile-layer :url="map.url" />
+        <v-marker-cluster
+          v-if="nodesLoaded"
+          :options="map.clusterOptions"
+          @clusterclick="click"
+          @ready="ready"
+        >
+          <v-geo-json :geojson="geoJson" :options="geoJsonOptions" />
+        </v-marker-cluster>
+        <v-marker
+          v-if="nodesLoadedError"
+          :lat-lng="[20, -20]"
+          :icon="warning.icon"
+          :z-index-offset="warning.zIndexOffest"
+        />
+      </v-map>
+    </div>
   </b-card>
 </template>
 <script>
@@ -242,7 +244,7 @@ export default {
   font-weight: 700;
 }
 
-.dark-layout {
+.dark-layout .v-map-wrapper {
   path,
   .leaflet-layer,
   .leaflet-control-zoom-in,
