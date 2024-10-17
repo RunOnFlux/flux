@@ -1,7 +1,7 @@
 <template>
   <b-card>
     <div class="v-map-wrapper">
-      <v-map :zoom="map.zoom" :center="map.center">
+      <v-map :zoom="map.zoom" :center="map.center" :min-zoom="2">
         <v-tile-layer :url="map.url" />
         <v-marker-cluster
           v-if="nodesLoaded"
