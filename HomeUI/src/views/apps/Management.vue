@@ -3517,7 +3517,9 @@
         </div>
         <b-row>
           <b-col>
-            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+            <div class="map_m">
+              <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+            </div>
           </b-col>
         </b-row>
         <b-row>

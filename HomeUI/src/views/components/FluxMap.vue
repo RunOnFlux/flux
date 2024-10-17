@@ -232,6 +232,18 @@ export default {
   }
 }
 
+.map .vue2leaflet-map{
+  &.leaflet-container{
+    height: 450px;
+  }
+}
+
+.map_m .vue2leaflet-map{
+  &.leaflet-container{
+    height: 400px;
+  }
+}
+
 .text-labels {
   font-size: 2em;
   font-weight: 700;

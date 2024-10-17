@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="map">
     <flux-map :nodes="fluxList" class="m-0 p-0" />
     <b-row>
       <b-col
@@ -269,10 +269,5 @@ export default {
 };
 </script>
 
-<style lang="scss" scoped>
-.vue2leaflet-map{
-  &.leaflet-container{
-    height: 450px;
-  }
-}
+<style lang="scss">
 </style>
