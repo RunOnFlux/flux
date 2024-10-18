@@ -270,4 +270,7 @@ export default {
 </script>
 
 <style lang="scss">
+  .dark-layout span.apexcharts-legend-text {
+    color: #d0d2d6 !important;
+  }
 </style>
