@@ -1,6 +1,6 @@
 <template>
   <div class="map">
-    <flux-map :nodes="fluxList" class="m-0 p-0" />
+    <flux-map :nodes="fluxList" class="mb-2 p-0" />
     <b-row>
       <b-col
         md="6"
