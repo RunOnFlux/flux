@@ -273,4 +273,15 @@ export default {
   .dark-layout span.apexcharts-legend-text {
     color: #d0d2d6 !important;
   }
+  .dark-layout .apexcharts-canvas ::-webkit-scrollbar-track {
+    background-color: #2a2a2a;
+    border-radius: 10px;
+  }
+  .dark-layout .apexcharts-canvas ::-webkit-scrollbar-thumb {
+    background-color: #888888;
+  }
+  .apexcharts-canvas ::-webkit-scrollbar-track {
+    background-color: #888888;
+    border-radius: 10px;
+  }
 </style>
