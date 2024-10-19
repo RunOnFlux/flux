@@ -1044,6 +1044,8 @@ async function appStats(req, res) {
       // eslint-disable-next-line no-use-before-define
       const containerStorageInfo = await getContainerStorage(appname);
       response.disk_stats = containerStorageInfo;
+      const inspect = await dockerService.dockerContainerInspect(appname);
+      response.nanoCpus = inspect.HostConfig.NanoCpus;
       const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
@@ -1259,6 +1261,8 @@ function startAppMonitoring(appName) {
         statsNow.disk_stats = containerStorageInfo;
         const now = Date.now();
         if (appsMonitored[appName].run % 3 === 0) {
+          const inspect = await dockerService.dockerContainerInspect(appName);
+          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
           appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
           const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
           const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);

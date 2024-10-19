@@ -3517,7 +3517,9 @@
         </div>
         <b-row>
           <b-col>
-            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+            <div class="map_m">
+              <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+            </div>
           </b-col>
         </b-row>
         <b-row>
@@ -7266,7 +7268,7 @@ export default {
         return applications.cpu;
       }
     },
-    processStatsData(statsData, configData, timeStamp = null) {
+    processStatsData(statsData, timeStamp = null) {
       console.log(statsData);
       const memoryLimitBytes = statsData.memory_stats.limit;
       this.memoryLimit = memoryLimitBytes;
@@ -7278,7 +7280,7 @@ export default {
       const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
       console.log(systemCpuUsage);
       const onlineCpus = statsData.cpu_stats.online_cpus;
-      const nanoCpus = configData.HostConfig.NanoCpus;
+      const { nanoCpus } = statsData;
       let cpuCores;
       if (this.appSpecification.version >= 4) {
         cpuCores = this.getCpuByName(this.appSpecification, this.selectedContainerMonitoring);
@@ -7380,10 +7382,10 @@ export default {
               return statsTimestamp >= cutoffTimestamp;
             });
             filteredStats.forEach((stats) => {
-              this.processStatsData(stats.data, configData.data, stats.timestamp);
+              this.processStatsData(stats.data, stats.timestamp);
             });
           } else {
-            this.processStatsData(statsData, configData.data);
+            this.processStatsData(statsData);
           }
           if (containerName === this.selectedContainerMonitoring) {
             this.updateCharts();

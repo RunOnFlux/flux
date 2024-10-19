@@ -9,13 +9,15 @@
     </h3>
     <b-row>
       <b-col class="p-0 m-0">
-        <flux-map
-          class="mb-0"
-          :show-all="false"
-          :nodes="allNodesLocations"
-          :filter-nodes="mapLocations"
-          @nodes-updated="nodesUpdated"
-        />
+        <div class="map">
+          <flux-map
+            class="mb-0"
+            :show-all="false"
+            :nodes="allNodesLocations"
+            :filter-nodes="mapLocations"
+            @nodes-updated="nodesUpdated"
+          />
+        </div>
       </b-col>
     </b-row>
     <b-row>
