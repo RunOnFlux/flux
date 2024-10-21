@@ -6651,12 +6651,13 @@ export default {
             background-color: #AEC6CF;
             color: #333;
             padding: 2px 2px 2px 2px; 
-            border-radius: 10px;
+            border-radius: 12px;
             margin-right: 5px;
             font-weight: bold;
             font-size: 1em;
             display: inline-block;
             width: 110px;
+            height: 20px;
             text-overflow: ellipsis;
             overflow: hidden;
           ">
@@ -6666,11 +6667,12 @@ export default {
             background-color: #FFC1A6;
             color: #333;
             padding: 2px 2px 2px 2px; 
-            border-radius: 10px;
+            border-radius: 12px;
             font-weight: bold;
             font-size: 1em;
             display: inline-block;
             width: 110px;
+            height: 20px;
             text-overflow: ellipsis;
             overflow: hidden;
           ">
