@@ -104,13 +104,16 @@
               </template>
               <template #row-details="row">
                 <b-card class="mx-2">
-                  <h3 class="no-wrap">
+                  <h3 class="no-wrap align-items-center justify-content-center">
                     <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                       <b-icon
                         scale="1"
                         icon="info-square"
                         class="ml-1"
-                      /> &nbsp;Application Information&nbsp;</kbd>
+                        style="margin-top: 2px;"
+                      />
+                      <span style="margin-left: 10px;">Application Information</span>
+                    </kbd>
                   </h3>
                   <div class="ml-1">
                     <list-entry
@@ -263,13 +266,16 @@
                     </b-card>
                   </div>
                   <div v-else>
-                    <h3 class="no-wrap">
+                    <h3 class="no-wrap align-items-center justify-content-center">
                       <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                         <b-icon
                           scale="1"
                           icon="box"
                           class="ml-1"
-                        /> &nbsp;Composition&nbsp;</kbd>
+                          style="margin-top: 2px;"
+                        />
+                        <span style="margin-left: 10px;">Composition</span>
+                      </kbd>
                     </h3>
                     <b-card
                       v-for="(component, index) in row.item.compose"

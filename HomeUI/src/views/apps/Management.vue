@@ -3037,7 +3037,9 @@
                 style="margin-bottom: 7px;"
               >
                 <b-progress
-                  v-b-tooltip.hover.top="tooltipContent"
+                  v-b-tooltip.hover.html.left="{
+                    id: 'my-id', content: tooltipContent, title: tooltipContent,
+                  }"
                   v-ripple.400="'rgba(255, 255, 255, 0.12)'"
                   class="progress-container"
                   :value="usagePercentage"
@@ -6640,7 +6642,42 @@ export default {
   },
   computed: {
     tooltipContent() {
-      return `${this.convertVolumeSize(this.storage.used, 'GB', 1, true)} / ${this.convertVolumeSize(this.storage.total, 'GB', 1, true)} GB`;
+      const usedStorage = this.convertVolumeSize(this.storage.used, 'GB', 1, true);
+      const totalStorage = this.convertVolumeSize(this.storage.total, 'GB', 1, true);
+
+      return `
+        <div class="no-wrap" style="text-align: center; padding: 2px;">
+          <kbd style="
+            background-color: #AEC6CF;
+            color: #333;
+            padding: 2px 2px 2px 2px; 
+            border-radius: 10px;
+            margin-right: 5px;
+            font-weight: bold;
+            font-size: 1em;
+            display: inline-block;
+            width: 110px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+          ">
+            Used: ${usedStorage} GB
+          </kbd>
+          <kbd style="
+            background-color: #FFC1A6;
+            color: #333;
+            padding: 2px 2px 2px 2px; 
+            border-radius: 10px;
+            font-weight: bold;
+            font-size: 1em;
+            display: inline-block;
+            width: 110px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+          ">
+            Total: ${totalStorage} GB
+          </kbd>
+        </div>
+      `;
     },
     usagePercentage() {
       return (this.storage.used / this.storage.total) * 100;
@@ -12504,6 +12541,19 @@ td .ellipsis-wrapper {
   font-weight: bold;
   z-index: 10;
   pointer-events: none;
+}
+
+#my-id .tooltip-inner {
+  background-color: transparent !important;
+  color: #333;
+  border: none !important;
+  box-shadow: none !important;
+  margin-right: 25px;
+  margin-top: 4px;
+}
+
+#my-id .arrow {
+  display: none !important;
 }
 
 @media (max-width: 1800px) {

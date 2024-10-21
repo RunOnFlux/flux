@@ -1,11 +1,14 @@
 <template>
   <div>
-    <h3>
+    <h3 class="no-wrap align-items-center justify-content-center">
       <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
         <b-icon
           scale="1"
-          icon="globe"
-        /> &nbsp;Locations&nbsp;</kbd>
+          icon="pin-map-fill"
+          style="margin-top: 2px; margin-left: 10px;"
+        />
+        <span style="margin-left: 10px;">Locations</span>
+      </kbd>
     </h3>
     <b-row>
       <b-col class="p-0 m-0">
