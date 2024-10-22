@@ -8982,6 +8982,7 @@ function getAppPorts(appSpecs) {
 let firstExecutionAfterItsSynced = true;
 let fluxNodeWasAlreadyConfirmed = false;
 let fluxNodeWasNotConfirmedOnLastCheck = false;
+const appsToBeCheckedLater = [];
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function?
@@ -9085,6 +9086,7 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    let appFromAppsToBeCheckedLater = false;
     // no scoped applicaton, run some global app
     if (!appToRun) {
       // pick a random one
@@ -9101,6 +9103,13 @@ async function trySpawningGlobalApplication() {
           const randomGeoAppNumber = Math.floor((Math.random() * numberOfMyNodeGeoApps));
           // install geo location restricted app instead
           appToRun = appsInMyLocation[randomGeoAppNumber].name;
+        }
+      } else if (appToRunNumber % 9 === 0) { // we will be checking every few runs if there are apps on appsToBeCheckedLater to be installed that previously passed all checks but were prioritize to be installed on lower tier nodes
+        const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
+        if (appIndex >= 0) {
+          appToRun = appsToBeCheckedLater[appIndex].appName;
+          appsToBeCheckedLater.splice(appIndex, 1);
+          appFromAppsToBeCheckedLater = true;
         }
       }
     }
@@ -9263,6 +9272,36 @@ async function trySpawningGlobalApplication() {
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture });
+    }
+
+    if (!appFromAppsToBeCheckedLater) {
+      const tier = await generalService.nodeTier();
+      const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
+      if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        const appToCheck = {
+          timeToCheck: Date.now() + 1.5 * 60 * 60 * 1000,
+          appName: appToRun,
+        };
+        log.info(`App ${appToRun} specs are from cumulus, will check in 1.5h if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appToRun);
+      } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+        const appToCheck = {
+          timeToCheck: Date.now() + 1 * 60 * 60 * 1000,
+          appName: appToRun,
+        };
+        log.info(`App ${appToRun} specs are from nimbus, will check in 1h if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appToRun);
+      } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        const appToCheck = {
+          timeToCheck: Date.now() + 0.75 * 60 * 60 * 1000,
+          appName: appToRun,
+        };
+        log.info(`App ${appToRun} specs are from cumulus, will check in 45m if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appToRun);
+      }
     }
 
     // an application was selected and checked that it can run on this node. try to install and run it locally
