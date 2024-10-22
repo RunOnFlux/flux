@@ -705,7 +705,7 @@ export default {
 };
 </script>
 
-<style sco>
+<style>
 .progress-label {
   float: right;
   margin-left: 1em;
