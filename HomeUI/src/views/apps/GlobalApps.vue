@@ -564,7 +564,7 @@
                             :per-page="appLocationOptions.perPage"
                             align="center"
                             size="sm"
-                            class="my-0 mt-1"
+                            class="mt-1 mb-0"
                           />
                         </b-col>
                       </b-row>
@@ -616,7 +616,7 @@
                 :per-page="tableconfig.active.perPage"
                 align="center"
                 size="sm"
-                class="my-0"
+                class="mt-1 mb-0"
               />
             </b-col>
           </b-card>
@@ -1187,7 +1187,7 @@
                             :per-page="appLocationOptions.perPage"
                             align="center"
                             size="sm"
-                            class="my-0 mt-1"
+                            class="mt-1 mb-0"
                           />
                         </b-col>
                       </b-row>
@@ -1203,7 +1203,7 @@
                 :per-page="tableconfig.active_marketplace.perPage"
                 align="center"
                 size="sm"
-                class="my-0"
+                class="mt-1 mb-0"
               />
             </b-col>
           </b-card>

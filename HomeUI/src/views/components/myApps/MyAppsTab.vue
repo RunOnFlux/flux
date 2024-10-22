@@ -405,17 +405,24 @@
           </b-col>
         </b-row>
         <b-col cols="12">
-          <b-pagination
-            v-model="tableOptions.currentPage"
-            :total-rows="apps.length"
-            :per-page="tableOptions.perPage"
-            align="center"
-            size="sm"
-            class="my-0"
-          />
+          <div class="d-flex justify-content-between align-items-center">
+            <div v-if="apps?.length">
+              <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
+              <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ apps.length }}&nbsp;</kbd></b>
+            </div>
+            <div class="text-center flex-grow-1">
+              <b-pagination
+                v-if="apps?.length"
+                v-model="tableOptions.currentPage"
+                :total-rows="apps.length"
+                :per-page="tableOptions.perPage"
+                align="center"
+                size="sm"
+                class="mt-1 mb-0"
+              />
+            </div>
+          </div>
         </b-col>
-        <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
-        <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ apps.length || 0 }}&nbsp;</kbd></b>
       </b-card>
     </b-overlay>
   </b-tab>
@@ -702,5 +709,8 @@ export default {
   .myapps-table thead th,
   .myapps-table tbody td {
     text-transform: none !important;
+  }
+  .b-table-sort-icon-left {
+    padding-left:  20px !important;
   }
 </style>

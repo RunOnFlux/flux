@@ -3587,6 +3587,7 @@
               hover
               outlined
               responsive
+              sort-icon-left
               :busy="isBusy"
               :per-page="instances.perPage"
               :current-page="instances.currentPage"
@@ -3662,7 +3663,7 @@
               :per-page="instances.perPage"
               align="center"
               size="sm"
-              class="my-0"
+              class="my-0 mt-1"
             />
           </b-col>
         </b-row>
@@ -12591,5 +12592,8 @@ input[type="number"] {
   appearance: textfield;
   padding-right: 10px;
   color: grey;
+}
+.b-table-sort-icon-left {
+  padding-left:  20px !important;
 }
 </style>
