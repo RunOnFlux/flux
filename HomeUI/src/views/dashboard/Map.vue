@@ -1,6 +1,6 @@
 <template>
-  <div>
-    <flux-map :nodes="fluxList" class="m-0 p-0" />
+  <div class="map">
+    <flux-map :nodes="fluxList" class="mb-2 p-0" />
     <b-row>
       <b-col
         md="6"
@@ -270,9 +270,18 @@ export default {
 </script>
 
 <style lang="scss">
-.vue2leaflet-map{
-  &.leaflet-container{
-    height: 450px;
+  .dark-layout span.apexcharts-legend-text {
+    color: #d0d2d6 !important;
   }
-}
+  .dark-layout .apexcharts-canvas ::-webkit-scrollbar-track {
+    background-color: #2a2a2a;
+    border-radius: 10px;
+  }
+  .dark-layout .apexcharts-canvas ::-webkit-scrollbar-thumb {
+    background-color: #888888;
+  }
+  .apexcharts-canvas ::-webkit-scrollbar-track {
+    background-color: #888888;
+    border-radius: 10px;
+  }
 </style>

@@ -45,6 +45,7 @@ class FluxRpc {
       ['z_getpaymentdisclosure', null],
       ['z_validatepaymentdisclosure', null],
       // == Fluxnode ==
+      ['createconfirmationtransaction', null],
       ['createfluxnodekey', null],
       ['createp2shstarttx', null],
       ['createzelnodekey', null],

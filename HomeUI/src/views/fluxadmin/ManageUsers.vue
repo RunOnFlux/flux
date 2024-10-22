@@ -58,6 +58,8 @@
             hover
             responsive
             small
+            outlined
+            sort-icon-left
             :per-page="perPage"
             :current-page="currentPage"
             :items="items"
@@ -103,16 +105,16 @@
             :per-page="perPage"
             align="center"
             size="sm"
-            class="my-0"
+            class="mt-1 mb-0"
           />
-          <span class="table-total">Total: {{ totalRows }}</span>
+          <span class="table-total mt-1">Total: {{ totalRows }}</span>
         </b-col>
       </b-row>
       <div class="text-center">
         <b-button
           id="logout-all"
           size="sm"
-          class="mt-2"
+          class="mt-1"
           variant="danger"
           @click="logoutAllPopoverShow = true"
         >
@@ -295,5 +297,7 @@ export default {
 </script>
 
 <style>
-
+  .b-table-sort-icon-left {
+    padding-left:  20px !important;
+  }
 </style>

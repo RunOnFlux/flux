@@ -104,13 +104,16 @@
               </template>
               <template #row-details="row">
                 <b-card class="mx-2">
-                  <h3 class="no-wrap">
+                  <h3 class="no-wrap align-items-center justify-content-center">
                     <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                       <b-icon
                         scale="1"
                         icon="info-square"
                         class="ml-1"
-                      /> &nbsp;Application Information&nbsp;</kbd>
+                        style="margin-top: 2px;"
+                      />
+                      <span style="margin-left: 10px;">Application Information</span>
+                    </kbd>
                   </h3>
                   <div class="ml-1">
                     <list-entry
@@ -263,13 +266,16 @@
                     </b-card>
                   </div>
                   <div v-else>
-                    <h3 class="no-wrap">
+                    <h3 class="no-wrap align-items-center justify-content-center">
                       <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                         <b-icon
                           scale="1"
                           icon="box"
                           class="ml-1"
-                        /> &nbsp;Composition&nbsp;</kbd>
+                          style="margin-top: 2px;"
+                        />
+                        <span style="margin-left: 10px;">Composition</span>
+                      </kbd>
                     </h3>
                     <b-card
                       v-for="(component, index) in row.item.compose"
@@ -399,17 +405,24 @@
           </b-col>
         </b-row>
         <b-col cols="12">
-          <b-pagination
-            v-model="tableOptions.currentPage"
-            :total-rows="apps.length"
-            :per-page="tableOptions.perPage"
-            align="center"
-            size="sm"
-            class="my-0"
-          />
+          <div class="d-flex justify-content-between align-items-center">
+            <div v-if="apps?.length">
+              <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
+              <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ apps.length }}&nbsp;</kbd></b>
+            </div>
+            <div class="text-center flex-grow-1">
+              <b-pagination
+                v-if="apps?.length"
+                v-model="tableOptions.currentPage"
+                :total-rows="apps.length"
+                :per-page="tableOptions.perPage"
+                align="center"
+                size="sm"
+                class="mt-1 mb-0"
+              />
+            </div>
+          </div>
         </b-col>
-        <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
-        <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ apps.length || 0 }}&nbsp;</kbd></b>
       </b-card>
     </b-overlay>
   </b-tab>
@@ -696,5 +709,8 @@ export default {
   .myapps-table thead th,
   .myapps-table tbody td {
     text-transform: none !important;
+  }
+  .b-table-sort-icon-left {
+    padding-left:  20px !important;
   }
 </style>

@@ -3015,12 +3015,13 @@
               style="
                 display: flex;
                 justify-content: space-between;
+                align-items: center;
                 border: 1px solid #ccc;
                 border-radius: 8px;
                 height: 45px;
-                padding: 12px;
+                padding: 15px 15px 10px 15px;
                 text-align: left;
-                line-height: 0px;
+                line-height: 0;
               "
             >
               <h5>
@@ -3030,17 +3031,27 @@
                   icon="server"
                 /> Volume browser
               </h5>
-              <h6
+              <div
                 v-if="selectedAppVolume || !appSpecification?.compose"
-                class="progress-label"
+                class="d-flex justify-content-center align-items-center no-wrap"
+                style="margin-bottom: 7px;"
               >
-                <b-icon
-                  class="mr-1"
-                  :style="getIconColorStyle(storage.used, storage.total)"
-                  :icon="getIconName(storage.used, storage.total)"
-                  scale="1.4"
-                /> {{ `${convertVolumeSize(storage.used, 'GB', 1, true)} / ${convertVolumeSize(storage.total, 'GB', 1, true)}` }} GB
-              </h6>
+                <b-progress
+                  v-b-tooltip.hover.html.left="{
+                    id: 'my-id', content: tooltipContent, title: tooltipContent,
+                  }"
+                  v-ripple.400="'rgba(255, 255, 255, 0.12)'"
+                  class="progress-container"
+                  :value="usagePercentage"
+                  :max="100"
+                  :variant="getProgressVariant()"
+                >
+                  <b-progress-bar :value="usagePercentage" />
+                  <div class="progress-center-text">
+                    {{ usagePercentage.toFixed(2) }}%
+                  </div>
+                </b-progress>
+              </div>
             </div>
             <div
               class="mr-4 d-flex"
@@ -3517,7 +3528,9 @@
         </div>
         <b-row>
           <b-col>
-            <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+            <div class="map_m">
+              <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+            </div>
           </b-col>
         </b-row>
         <b-row>
@@ -3574,6 +3587,7 @@
               hover
               outlined
               responsive
+              sort-icon-left
               :busy="isBusy"
               :per-page="instances.perPage"
               :current-page="instances.currentPage"
@@ -3649,7 +3663,7 @@
               :per-page="instances.perPage"
               align="center"
               size="sm"
-              class="my-0"
+              class="my-0 mt-1"
             />
           </b-col>
         </b-row>
@@ -6628,6 +6642,49 @@ export default {
     };
   },
   computed: {
+    tooltipContent() {
+      const usedStorage = this.convertVolumeSize(this.storage.used, 'GB', 1, true);
+      const totalStorage = this.convertVolumeSize(this.storage.total, 'GB', 1, true);
+
+      return `
+        <div class="no-wrap" style="text-align: center; padding: 2px;">
+          <kbd style="
+            background-color: #AEC6CF;
+            color: #333;
+            padding: 2px 2px 2px 2px; 
+            border-radius: 12px;
+            margin-right: 5px;
+            font-weight: bold;
+            font-size: 1em;
+            display: inline-block;
+            width: 110px;
+            height: 20px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+          ">
+            Used: ${usedStorage} GB
+          </kbd>
+          <kbd style="
+            background-color: #FFC1A6;
+            color: #333;
+            padding: 2px 2px 2px 2px; 
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 1em;
+            display: inline-block;
+            width: 110px;
+            height: 20px;
+            text-overflow: ellipsis;
+            overflow: hidden;
+          ">
+            Total: ${totalStorage} GB
+          </kbd>
+        </div>
+      `;
+    },
+    usagePercentage() {
+      return (this.storage.used / this.storage.total) * 100;
+    },
     overviewTitle() {
       return this.enableHistoryStatistics ? 'History Stats Overview' : 'Stats & Processes Overview';
     },
@@ -7180,6 +7237,11 @@ export default {
     window.removeEventListener('resize', this.onResize);
   },
   methods: {
+    getProgressVariant() {
+      const percentage = this.usagePercentage;
+      // eslint-disable-next-line no-nested-ternary
+      return percentage >= 95 ? 'danger' : percentage >= 75 ? 'warning' : 'success';
+    },
     async logout() {
       if (!this.logoutTigger) {
         this.logoutTigger = true;
@@ -8179,30 +8241,6 @@ export default {
       setTimeout(() => {
         this.tooltipText = 'Copy to clipboard';
       }, 1500);
-    },
-    getIconName(used, total) {
-      const percentage = (used / total) * 100;
-      let icon;
-      if (percentage <= 60) {
-        icon = 'battery-full';
-      } else if (percentage > 60 && percentage <= 80) {
-        icon = 'battery-half';
-      } else {
-        icon = 'battery';
-      }
-      return icon;
-    },
-    getIconColorStyle(used, total) {
-      const percentage = (used / total) * 100;
-      let color;
-      if (percentage <= 60) {
-        color = 'green';
-      } else if (percentage > 60 && percentage <= 80) {
-        color = 'yellow';
-      } else {
-        color = 'red';
-      }
-      return { color };
     },
     sortNameFolder(a, b) {
       return (a.isDirectory ? `..${a.name}` : a.name).localeCompare(b.isDirectory ? `..${b.name}` : b.name);
@@ -12413,24 +12451,23 @@ td .ellipsis-wrapper {
   transition: color 0.6s ease, border-color 0.6s ease, box-shadow 0.6s ease, opacity 0.6s ease, transform 0.6s ease;
 }
 
-/* Main Container */
 .container {
   max-width: 1500px;
-  width: 100%; /* Use full available width */
+  width: 100%;
   padding: 0;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
 }
-/* Flexbox for container selection and refresh rate */
+
 .flex-container2 {
   height: 50%;
   justify-content: space-between;
   flex-wrap: nowrap;
   padding: 0.5vw;
 }
-/* Chart Grid */
+
 .charts-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -12438,9 +12475,9 @@ td .ellipsis-wrapper {
   width: 100%;
   margin: 1vh;
 }
-/* Chart Wrapper */
+
 .chart-wrapper {
-  padding: 10px; /* Adjust as needed */
+  padding: 10px;
   border-radius: 10px;
   box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
   width: 100%;
@@ -12453,44 +12490,75 @@ td .ellipsis-wrapper {
 .chart-title-container {
   align-items: center;
   display: flex;
-  margin-right: 10px; /* Odstęp między tytułem a wykresem */
+  margin-right: 10px;
 }
 
 .table-responsive {
-  overflow-x: auto; /* Enable horizontal scrolling */
+  overflow-x: auto;
   box-shadow: 0px 6px 6px rgba(0, 0, 0, 0.1);
   margin-bottom: 0;
 }
 
 .table-monitoring {
-  table-layout: auto; /* Fixes the table layout so columns don't shift */
-  width: 100%; /* Take full width of the container */
+  table-layout: auto;
+  width: 100%;
 }
 
 .table-monitoring th, .table-monitoring td {
-  white-space: nowrap; /* Prevent text from wrapping */
-  border: none; /* Remove borders */
-  background-color: transparent; /* Background color for cells */
+  white-space: nowrap;
+  border: none;
+  background-color: transparent;
 
 }
 
 .chart-title {
-  margin-left: 8px; /* Odstęp między ikoną a tytułem */
+  margin-left: 8px;
   font-size: 18px;
   font-weight: bold;
 }
 
 .icon-large {
-  font-size: 24px !important; /* Ensure this size takes priority */
+  font-size: 24px !important;
 }
 
-/* Chart canvas responsiveness */
 .chart-wrapper canvas {
   max-width: 100%;
   height: 100%;
 }
 
-/* Adjust grid for smaller screens */
+.progress-container {
+  width: 150px;
+  height: 20px;
+  position: relative;
+  background-color: #6e6b7b;
+  transition: width 0.5s;
+  border-radius: 10px;
+}
+
+.progress-center-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-weight: bold;
+  z-index: 10;
+  pointer-events: none;
+}
+
+#my-id .tooltip-inner {
+  background-color: transparent !important;
+  color: #333;
+  border: none !important;
+  box-shadow: none !important;
+  margin-right: 25px;
+  margin-top: 4px;
+}
+
+#my-id .arrow {
+  display: none !important;
+}
+
 @media (max-width: 1800px) {
   .charts-grid {
     grid-template-columns: 1fr;
@@ -12499,17 +12567,16 @@ td .ellipsis-wrapper {
   }
 }
 
-/* Ensure grid returns to original layout */
 @media (min-width: 1800px) {
   .charts-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 1vw;
   }
- /* Wyśrodkowanie ostatniego elementu, jeśli liczba elementów jest nieparzysta */
+
   .charts-grid > .chart-wrapper:nth-last-child(1):nth-child(odd) {
-    grid-column: 1 / -1; /* Rozciągnij na całą szerokość */
-    justify-self: center; /* Wyśrodkuj poziomo */
-    width: 100%; /* Ogranicz szerokość do 50%, jeśli chcesz mniejszy element */
+    grid-column: 1 / -1;
+    justify-self: center;
+    width: 100%;
   }
 }
 
@@ -12525,5 +12592,8 @@ input[type="number"] {
   appearance: textfield;
   padding-right: 10px;
   color: grey;
+}
+.b-table-sort-icon-left {
+  padding-left:  20px !important;
 }
 </style>

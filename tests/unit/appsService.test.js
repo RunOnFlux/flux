@@ -2541,17 +2541,34 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'dockerContainerStats').returns('some data');
+      const mockStats = {
+        data: 1000,
+      };
+      const mockContainer = {
+        Id: 'mockContainerId',
+        Names: ['/test_myappname'],
+        HostConfig: { NanoCpus: 1000 },
+      };
+      const dockerContainerStatsStub = sinon
+        .stub(dockerService, 'dockerContainerStats')
+        .returns(Promise.resolve(mockStats));
+
+      const dockerContainerInspectStub = sinon
+        .stub(dockerService, 'dockerContainerInspect')
+        .returns(Promise.resolve(mockContainer));
+
       const res = generateResponse();
 
       await appsService.appStats(req, res);
-
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerContainerStatsStub, 'test_myappname');
+      sinon.assert.calledTwice(dockerContainerInspectStub);
+      sinon.assert.calledWith(dockerContainerInspectStub, 'test_myappname');
+      sinon.assert.calledWith(dockerContainerInspectStub, 'test_myappname', { size: true });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: 'some data',
+        data: mockStats,
       });
-      sinon.assert.notCalled(logSpy);
-      sinon.assert.calledOnceWithExactly(dockerStub, 'test_myappname');
     });
 
     it('should return app stats, no underscore in the name', async () => {
@@ -2565,17 +2582,34 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'dockerContainerStats').returns('some data');
+      const mockStats = {
+        data: 1000,
+      };
+      const mockContainer = {
+        Id: 'mockContainerId',
+        Names: ['/myappname'],
+        HostConfig: { NanoCpus: 1000 },
+      };
+      const dockerContainerStatsStub = sinon
+        .stub(dockerService, 'dockerContainerStats')
+        .returns(Promise.resolve(mockStats));
+
+      const dockerContainerInspectStub = sinon
+        .stub(dockerService, 'dockerContainerInspect')
+        .returns(Promise.resolve(mockContainer));
+
       const res = generateResponse();
 
       await appsService.appStats(req, res);
-
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerContainerStatsStub, 'myappname');
+      sinon.assert.calledTwice(dockerContainerInspectStub);
+      sinon.assert.calledWith(dockerContainerInspectStub, 'myappname');
+      sinon.assert.calledWith(dockerContainerInspectStub, 'myappname', { size: true });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: 'some data',
+        data: mockStats,
       });
-      sinon.assert.notCalled(logSpy);
-      sinon.assert.calledOnceWithExactly(dockerStub, 'myappname');
     });
   });
 
