@@ -560,7 +560,7 @@
                         <b-col cols="12">
                           <b-pagination
                             v-model="appLocationOptions.currentPage"
-                            :total-rows="appLocationOptions.totalRows"
+                            :total-rows="appLocations?.length || 1"
                             :per-page="appLocationOptions.perPage"
                             align="center"
                             size="sm"
@@ -1183,7 +1183,7 @@
                         <b-col cols="12">
                           <b-pagination
                             v-model="appLocationOptions.currentPage"
-                            :total-rows="appLocationOptions.totalRows"
+                            :total-rows="appLocations?.length || 1"
                             :per-page="appLocationOptions.perPage"
                             align="center"
                             size="sm"
