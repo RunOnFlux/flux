@@ -27,7 +27,6 @@ const dockerService = require('./dockerService');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
-// const tar = require('tar-fs');
 const tar = require('tar');
 // use non promises stream for node 14.x compatibility
 // const stream = require('node:stream/promises');
@@ -59,8 +58,7 @@ function lockStreamLock() {
  * @returns {Promise<object>} Message.
  */
 async function fluxBackendFolder(req, res) {
-  // const fluxBackFolder = path.join(__dirname, '../../');
-  const fluxBackFolder = '/home/davew/canonical/ZelBack';
+  const fluxBackFolder = path.join(__dirname, '../../');
   const message = messageHelper.createDataMessage(fluxBackFolder);
   return res.json(message);
 }
@@ -1603,12 +1601,12 @@ async function streamChain(req, res) {
     lock = true;
 
     /**
-   * Use the remote address here, don't need to worry about x-forwarded-for headers as
-   * we only allow the local network. Also, using the remote address is fine as FluxOS
-   * won't confirm if the upstream is natting behind a private address. I.e public
-   * connections coming in via a private address. (Flux websockets need the remote address
-   * or they think there is only one inbound connnection)
-   */
+     * Use the remote address here, don't need to worry about x-forwarded-for headers as
+     * we only allow the local network. Also, using the remote address is fine as FluxOS
+     * won't confirm if the upstream is natting behind a private address. I.e public
+     * connections coming in via a private address. (Flux websockets need the remote address
+     * or they think there is only one inbound connnection)
+     */
     let ip = req.socket.remoteAddress;
     if (!ip) {
       res.statusMessage = 'Socket closed.';
@@ -1630,8 +1628,7 @@ async function streamChain(req, res) {
     const homeDir = os.homedir();
     const base = path.join(homeDir, '.flux');
 
-    // the order is important here. If we specify blocks first, tar-fs has problems.
-    // I have an issue open https://github.com/mafintosh/tar-fs/issues/111
+    // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
       'determ_zelnodes',
       'chainstate',
@@ -1704,10 +1701,6 @@ async function streamChain(req, res) {
     res.setHeader('Approx-Content-Length', totalSize.toString());
 
     const workflow = [];
-
-    // const readStream = tar.pack(base, {
-    //   entries: folders,
-    // });
 
     const readStream = tar.create({ cwd: base }, folders);
 
