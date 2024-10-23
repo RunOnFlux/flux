@@ -27,7 +27,7 @@ const dockerService = require('./dockerService');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
-const tar = require('tar');
+const tar = require('tar/create');
 // use non promises stream for node 14.x compatibility
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
@@ -36,6 +36,13 @@ const stream = require('node:stream');
  * Stream chain lock, so only one request at a time
  */
 let lock = false;
+
+/**
+ * For testing
+ */
+function getStreamLock() {
+  return lock;
+}
 
 /**
  * For testing
@@ -1759,7 +1766,6 @@ module.exports = {
   hardUpdateFlux,
   installFluxWatchTower,
   isStaticIPapi,
-  lockStreamLock,
   rebuildHome,
   reindexDaemon,
   restartBenchmark,
@@ -1776,11 +1782,13 @@ module.exports = {
   tailFluxErrorLog,
   tailFluxInfoLog,
   tailFluxWarnLog,
-  unlockStreamLock,
   updateBenchmark,
   updateDaemon,
   updateFlux,
   // Exports for testing purposes
   fluxLog,
+  getStreamLock,
+  lockStreamLock,
   tailFluxLog,
+  unlockStreamLock,
 };
