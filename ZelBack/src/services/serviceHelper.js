@@ -1,4 +1,6 @@
 const util = require('node:util');
+const path = require('node:path');
+const fs = require('node:fs/promises');
 const execFile = util.promisify(require('node:child_process').execFile);
 
 const axios = require('axios').default;
@@ -451,6 +453,46 @@ function minVersionSatisfy(targetVersion, minimumVersion) {
   return true;
 }
 
+/**
+ * Recursively sum size of directory and children, in bytes
+ * @param {string} dir The directory we want the size of
+ * @param {{padFiles?: number}} options If the files are to be padded to size
+ * @returns {Promise<number>}
+ */
+async function dirInfo(dir, options = {}) {
+  const padFiles = options.padFiles || null;
+
+  const files = await fs.readdir(dir, { withFileTypes: true });
+
+  const pathPromises = files.map(async (file) => {
+    const targetpath = path.join(dir, file.name);
+
+    if (file.isDirectory()) return dirInfo(targetpath, options);
+
+    if (file.isFile()) {
+      const { size } = await fs.stat(targetpath);
+
+      return size;
+    }
+
+    return 0;
+  });
+
+  const paths = await Promise.all(pathPromises);
+
+  const response = paths.flat(Infinity).reduce((prev, current) => {
+    // the paths are either a number, i.e. a file, or a directory, with a count and aggregate size
+    const { count, size } = typeof current === 'number' ? { count: 1, size: current } : current;
+
+    // we only pad if it's a file (a dir has already been padded)
+    const padding = padFiles && count > 1 ? size % 512 : 0;
+
+    return { count: prev.count + count, size: prev.size + size + padding };
+  }, { count: 0, size: 0 });
+
+  return response;
+}
+
 module.exports = {
   axiosGet,
   axiosPost,
@@ -458,6 +500,7 @@ module.exports = {
   axiosInstance,
   delay,
   deleteLoginPhrase,
+  dirInfo,
   dockerBufferToString,
   ensureBoolean,
   ensureNumber,
