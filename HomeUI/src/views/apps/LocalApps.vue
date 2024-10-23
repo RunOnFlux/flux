@@ -77,13 +77,16 @@
                     </template>
                     <template #row-details="row">
                       <b-card class="mx-2">
-                        <h3 class="no-wrap">
+                        <h3 class="no-wrap align-items-center justify-content-center">
                           <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                             <b-icon
                               scale="1"
                               icon="info-square"
                               class="ml-1"
-                            /> &nbsp;Application Information&nbsp;</kbd>
+                              style="margin-top: 2px;"
+                            />
+                            <span style="margin-left: 10px;">Application Information</span>
+                          </kbd>
                         </h3>
                         <div class="ml-1">
                           <list-entry
@@ -236,13 +239,16 @@
                           </b-card>
                         </div>
                         <div v-else>
-                          <h3 class="no-wrap">
+                          <h3 class="no-wrap align-items-center justify-content-center">
                             <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                               <b-icon
                                 scale="1"
                                 icon="box"
                                 class="ml-1"
-                              /> &nbsp;Composition&nbsp;</kbd>
+                                style="margin-top: 2px;"
+                              />
+                              <span style="margin-left: 10px;">Composition</span>
+                            </kbd>
                           </h3>
                           <b-card
                             v-for="(component, index) in row.item.compose"
@@ -361,13 +367,15 @@
                             </div>
                           </b-card>
                         </div>
-                        <h3>
+                        <h3 class="no-wrap align-items-center justify-content-center">
                           <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                             <b-icon
                               scale="1"
-                              icon="globe"
-                              class="ml-1"
-                            /> &nbsp;Locations&nbsp;</kbd>
+                              icon="pin-map-fill"
+                              style="margin-top: 2px; margin-left: 10px;"
+                            />
+                            <span style="margin-left: 10px;">Locations</span>
+                          </kbd>
                         </h3>
                         <b-row>
                           <b-col
@@ -479,7 +487,7 @@
                           <b-col cols="12">
                             <b-pagination
                               v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
+                              :total-rows="appLocations?.length || 1"
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
@@ -598,8 +606,10 @@
                   </b-table>
                 </b-col>
               </b-row>
-              <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
-              <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ tableconfig.installed?.apps?.length || 0 }}&nbsp;</kbd></b>
+              <div v-if="tableconfig.installed?.apps?.length > 0" class="mt-1">
+                <b-icon class="ml-1" scale="1.4" icon="layers" />&nbsp;
+                <b>&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ tableconfig.installed?.apps?.length }}&nbsp;</kbd></b>
+              </div>
             </b-card>
           </b-overlay>
         </b-tab>
@@ -610,531 +620,6 @@
             blur="5px"
           >
             <b-card>
-              <h3 class="mb-1">
-                <kbd class="alert-info d-flex no-wrap" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
-                  &nbsp;<b-icon
-                    scale="1"
-                    icon="building"
-                    class="mr-1"
-                  /> Prebuilt Applications&nbsp;</kbd>
-              </h3>
-              <b-row>
-                <b-col cols="12">
-                  <b-table
-                    class="apps-available-table"
-                    striped
-                    outlined
-                    responsive
-                    :items="tableconfig.available.apps"
-                    :fields="isLoggedIn() ? tableconfig.available.loggedInFields : tableconfig.available.fields"
-                    show-empty
-                    sort-icon-left
-                    empty-text="No Flux Apps available"
-                  >
-                    <template #cell(name)="row">
-                      <div class="text-left">
-                        <kbd class="alert-info no-wrap" style="border-radius: 15px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ row.item.name }}&nbsp; </kbd>
-                        <br>
-                        <small style="font-size: 11px;">
-                          <div class="d-flex align-items-center" style="margin-top: 3px">
-                            &nbsp;&nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(1, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
-                            &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(0, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
-                            &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ getServiceUsageValue(2, row.item.name, row.item) }}</b>&nbsp;</kbd>&nbsp;
-                          </div>
-                        </small>
-                      </div>
-                    </template>
-                    <template #cell(visit)="row">
-                      <b-button
-                        v-b-tooltip.hover.top="'Visit App'"
-                        size="sm"
-                        class="mr-0 no-wrap hover-underline"
-                        variant="link"
-                        @click="openApp(row.item.name)"
-                      >
-                        <b-icon
-                          scale="1"
-                          icon="front"
-                        />
-                        Visit
-                      </b-button>
-                    </template>
-                    <template #cell(description)="row">
-                      <kbd class="text-secondary textarea" style="float: left; text-align:left;">{{ row.item.description }}</kbd>
-                    </template>
-                    <template #cell(state)="row">
-                      <kbd :class="getBadgeClass(row.item.name)" style="border-radius: 15px">&nbsp;<b>{{ getStateByName(row.item.name) }}</b>&nbsp;</kbd>
-                    </template>
-                    <template #cell(show_details)="row">
-                      <a @click="showLocations(row, tableconfig.available.apps)">
-                        <v-icon
-                          v-if="!row.detailsShowing"
-                          name="chevron-down"
-                          class="ml-1"
-                        />
-                        <v-icon
-                          v-if="row.detailsShowing"
-                          name="chevron-up"
-                          class="ml-1"
-                        />
-                      </a>
-                    </template>
-                    <template #row-details="row">
-                      <b-card class="mx-2">
-                        <h3 class="no-wrap">
-                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
-                            <b-icon
-                              scale="1"
-                              icon="info-square"
-                              class="ml-1"
-                            /> &nbsp;Application Information&nbsp;</kbd>
-                        </h3>
-                        <div class="ml-1">
-                          <list-entry
-                            v-if="row.item.owner"
-                            title="Owner"
-                            :data="row.item.owner"
-                          />
-                          <list-entry
-                            v-if="row.item.hash"
-                            title="Hash"
-                            :data="row.item.hash"
-                          />
-                          <div v-if="row.item.version >= 5">
-                            <list-entry
-                              v-if="row.item.contacts.length > 0"
-                              title="Contacts"
-                              :data="JSON.stringify(row.item.contacts)"
-                            />
-                            <div v-if="row.item.geolocation.length">
-                              <div
-                                v-for="location in row.item.geolocation"
-                                :key="location"
-                              >
-                                <list-entry
-                                  title="Geolocation"
-                                  :data="getGeolocation(location)"
-                                />
-                              </div>
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="Continent"
-                                data="All"
-                              />
-                              <list-entry
-                                title="Country"
-                                data="All"
-                              />
-                              <list-entry
-                                title="Region"
-                                data="All"
-                              />
-                            </div>
-                          </div>
-                          <list-entry
-                            v-if="row.item.instances"
-                            title="Instances"
-                            :data="row.item.instances.toString()"
-                          />
-                          <list-entry
-                            title="Expires in"
-                            :data="labelForExpire(row.item.expire, row.item.height)"
-                          />
-                          <list-entry
-                            v-if="row.item?.nodes?.length > 0"
-                            title="Enterprise Nodes"
-                            :data="row.item.nodes ? row.item.nodes.toString() : 'Not scoped'"
-                          />
-                          <list-entry
-                            title="Static IP"
-                            :data="row.item.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                          />
-                        </div>
-                        <div v-if="row.item.version <= 3">
-                          <b-card>
-                            <list-entry
-                              title="Repository"
-                              :data="row.item.repotag"
-                            />
-                            <list-entry
-                              title="Custom Domains"
-                              :data="row.item.domains.toString() || 'none'"
-                            />
-                            <list-entry
-                              title="Automatic Domains"
-                              :data="constructAutomaticDomains(row.item.ports, undefined, row.item.name).toString()"
-                            />
-                            <list-entry
-                              title="Ports"
-                              :data="row.item.ports.toString()"
-                            />
-                            <list-entry
-                              title="Container Ports"
-                              :data="row.item.containerPorts.toString()"
-                            />
-                            <list-entry
-                              title="Container Data"
-                              :data="row.item.containerData"
-                            />
-                            <list-entry
-                              title="Enviroment Parameters"
-                              :data="row.item.enviromentParameters.length > 0 ? row.item.enviromentParameters.toString() : 'none'"
-                            />
-                            <list-entry
-                              title="Commands"
-                              :data="row.item.commands.length > 0 ? row.item.commands.toString() : 'none'"
-                            />
-                            <div v-if="row.item.tiered">
-                              <list-entry
-                                title="CPU Cumulus"
-                                :data="`${row.item.cpubasic} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Nimbus"
-                                :data="`${row.item.cpusuper} vCore`"
-                              />
-                              <list-entry
-                                title="CPU Stratus"
-                                :data="`${row.item.cpubamf} vCore`"
-                              />
-                              <list-entry
-                                title="RAM Cumulus"
-                                :data="`${row.item.rambasic} MB`"
-                              />
-                              <list-entry
-                                title="RAM Nimbus"
-                                :data="`${row.item.ramsuper} MB`"
-                              />
-                              <list-entry
-                                title="RAM Stratus"
-                                :data="`${row.item.rambamf} MB`"
-                              />
-                              <list-entry
-                                title="SSD Cumulus"
-                                :data="`${row.item.hddbasic} GB`"
-                              />
-                              <list-entry
-                                title="SSD Nimbus"
-                                :data="`${row.item.hddsuper} GB`"
-                              />
-                              <list-entry
-                                title="SSD Stratus"
-                                :data="`${row.item.hddbamf} GB`"
-                              />
-                            </div>
-                            <div v-else>
-                              <list-entry
-                                title="CPU"
-                                :data="`${row.item.cpu} vCore`"
-                              />
-                              <list-entry
-                                title="RAM"
-                                :data="`${row.item.ram} MB`"
-                              />
-                              <list-entry
-                                title="SSD"
-                                :data="`${row.item.hdd} GB`"
-                              />
-                            </div>
-                          </b-card>
-                        </div>
-                        <div v-else>
-                          <h3 class="no-wrap">
-                            <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
-                              <b-icon
-                                scale="1"
-                                icon="box"
-                                class="ml-1"
-                              /> &nbsp;Composition&nbsp;</kbd>
-                          </h3>
-                          <b-card
-                            v-for="(component, index) in row.item.compose"
-                            :key="index"
-                            class="mb-0"
-                          >
-                            <h3 class="no-wrap">
-                              <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
-                                <b-icon
-                                  scale="1"
-                                  icon="menu-app-fill"
-                                  class="ml-1"
-                                /> &nbsp;{{ component.name }}&nbsp;</kbd>
-                            </h3>
-                            <div class="ml-1">
-                              <list-entry
-                                title="Name"
-                                :data="component.name"
-                              />
-                              <list-entry
-                                title="Description"
-                                :data="component.description"
-                              />
-                              <list-entry
-                                title="Repository"
-                                :data="component.repotag"
-                              />
-                              <list-entry
-                                title="Repository Authentication"
-                                :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                              />
-                              <list-entry
-                                title="Custom Domains"
-                                :data="component.domains.toString() || 'none'"
-                              />
-                              <list-entry
-                                title="Automatic Domains"
-                                :data="constructAutomaticDomains(component.ports, component.name, row.item.name, index).toString()"
-                              />
-                              <list-entry
-                                title="Ports"
-                                :data="component.ports.toString()"
-                              />
-                              <list-entry
-                                title="Container Ports"
-                                :data="component.containerPorts.toString()"
-                              />
-                              <list-entry
-                                title="Container Data"
-                                :data="component.containerData"
-                              />
-                              <list-entry
-                                title="Environment Parameters"
-                                :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                              />
-                              <list-entry
-                                title="Commands"
-                                :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                              />
-                              <list-entry
-                                title="Secret Environment Parameters"
-                                :data="component.secrets ? 'Content Encrypted' : 'none'"
-                              />
-                              <div v-if="component.tiered">
-                                <list-entry
-                                  title="CPU Cumulus"
-                                  :data="`${component.cpubasic} vCore`"
-                                />
-                                <list-entry
-                                  title="CPU Nimbus"
-                                  :data="`${component.cpusuper} vCore`"
-                                />
-                                <list-entry
-                                  title="CPU Stratus"
-                                  :data="`${component.cpubamf} vCore`"
-                                />
-                                <list-entry
-                                  title="RAM Cumulus"
-                                  :data="`${component.rambasic} MB`"
-                                />
-                                <list-entry
-                                  title="RAM Nimbus"
-                                  :data="`${component.ramsuper} MB`"
-                                />
-                                <list-entry
-                                  title="RAM Stratus"
-                                  :data="`${component.rambamf} MB`"
-                                />
-                                <list-entry
-                                  title="SSD Cumulus"
-                                  :data="`${component.hddbasic} GB`"
-                                />
-                                <list-entry
-                                  title="SSD Nimbus"
-                                  :data="`${component.hddsuper} GB`"
-                                />
-                                <list-entry
-                                  title="SSD Stratus"
-                                  :data="`${component.hddbamf} GB`"
-                                />
-                              </div>
-                              <div v-else>
-                                <list-entry
-                                  title="CPU"
-                                  :data="`${component.cpu} vCore`"
-                                />
-                                <list-entry
-                                  title="RAM"
-                                  :data="`${component.ram} MB`"
-                                />
-                                <list-entry
-                                  title="SSD"
-                                  :data="`${component.hdd} GB`"
-                                />
-                              </div>
-                            </div>
-                          </b-card>
-                        </div>
-                        <h3>
-                          <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
-                            <b-icon
-                              scale="1"
-                              icon="globe"
-                              class="ml-1"
-                            /> &nbsp;Locations&nbsp;</kbd>
-                        </h3>
-                        <b-row>
-                          <b-col
-                            md="4"
-                            sm="4"
-                            class="my-1"
-                          >
-                            <b-form-group class="mb-0">
-                              <label class="d-inline-block text-left mr-50">Per page</label>
-                              <b-form-select
-                                id="perPageSelect"
-                                v-model="appLocationOptions.perPage"
-                                size="sm"
-                                :options="appLocationOptions.pageOptions"
-                                class="w-50"
-                              />
-                            </b-form-group>
-                          </b-col>
-                          <b-col
-                            md="8"
-                            class="my-1"
-                          >
-                            <b-form-group
-                              label="Filter"
-                              label-cols-sm="1"
-                              label-align-sm="right"
-                              label-for="filterInput"
-                              class="mb-0"
-                            >
-                              <b-input-group size="sm">
-                                <b-form-input
-                                  id="filterInput"
-                                  v-model="appLocationOptions.filterTwo"
-                                  type="search"
-                                  placeholder="Type to Search"
-                                />
-                                <b-input-group-append>
-                                  <b-button
-                                    :disabled="!appLocationOptions.filterTwo"
-                                    @click="appLocationOptions.filterTwo = ''"
-                                  >
-                                    Clear
-                                  </b-button>
-                                </b-input-group-append>
-                              </b-input-group>
-                            </b-form-group>
-                          </b-col>
-
-                          <b-col cols="12">
-                            <b-table
-                              class="locations-table"
-                              borderless
-                              :per-page="appLocationOptions.perPage"
-                              :current-page="appLocationOptions.currentPage"
-                              :items="appLocations"
-                              :fields="appLocationFields"
-                              thead-class="d-none"
-                              :filter="appLocationOptions.filterTwo"
-                              show-empty
-                              sort-icon-left
-                              empty-text="No instances found.."
-                            >
-                              <template #cell(ip)="locationRow">
-                                <div class="no-wrap">
-                                  <kbd class="alert-info" style="border-radius: 15px;">
-                                    <b-icon
-                                      scale="1.1"
-                                      icon="hdd-network-fill"
-                                    /></kbd>
-                                  &nbsp;<kbd class="alert-success no-wrap" style="border-radius: 15px;">
-                                    <b>&nbsp;&nbsp;{{ locationRow.item.ip }}&nbsp;&nbsp;</b>
-                                  </kbd>
-                                </div>
-                              </template>
-                              <template #cell(visit)="locationRow">
-                                <div class="d-flex justify-content-end">
-                                  <b-button
-                                    v-b-tooltip.hover.top="'Visit App'"
-                                    size="sm"
-                                    class="mr-1"
-                                    pill
-                                    variant="dark"
-                                    @click="openApp(row.item.name, locationRow.item.ip.split(':')[0], getProperPort(row.item))"
-                                  >
-                                    <b-icon
-                                      scale="1"
-                                      icon="door-open"
-                                    />
-                                    App
-                                  </b-button>
-                                  <b-button
-                                    v-b-tooltip.hover.top="'Visit FluxNode'"
-                                    size="sm"
-                                    class="mr-0"
-                                    pill
-                                    variant="outline-dark"
-                                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                                  >
-                                    <b-icon
-                                      scale="1"
-                                      icon="house-door-fill"
-                                    />
-                                    FluxNode
-                                  </b-button>&nbsp;&nbsp;
-                                </div>
-                              </template>
-                            </b-table>
-                          </b-col>
-                          <b-col cols="12">
-                            <b-pagination
-                              v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
-                              :per-page="appLocationOptions.perPage"
-                              align="center"
-                              size="sm"
-                              class="my-0 mt-1"
-                            />
-                          </b-col>
-                        </b-row>
-                      </b-card>
-                    </template>
-                    <template #cell(Name)="row">
-                      {{ getAppName(row.item.name) }}
-                    </template>
-                    <template #cell(Description)="row">
-                      {{ row.item.description }}
-                    </template>
-                    <template #cell(install)="row">
-                      <b-button
-                        :id="`install-app-${row.item.name}`"
-                        v-b-tooltip.hover.top="'Install App'"
-                        size="sm"
-                        class="mr-0 no-wrap"
-                        variant="primary"
-                        pill
-                      >
-                        <b-icon
-                          scale="0.9"
-                          icon="layer-forward"
-                        />
-                        Install
-                      </b-button>
-                      <confirm-dialog
-                        :target="`install-app-${row.item.name}`"
-                        confirm-button="Install App"
-                        @confirm="installAppLocally(row.item.name)"
-                      />
-                    </template>
-                  </b-table>
-                </b-col>
-              </b-row>
-            </b-card>
-            <b-card>
-              <div class="mb-0">
-                <h3>
-                  <kbd class="alert-info d-flex no-wrap" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
-                    &nbsp;<b-icon
-                      scale="1"
-                      icon="globe"
-                      class="mr-1"
-                    /> Global Applications&nbsp;</kbd>
-                </h3>
-              </div>
               <b-row>
                 <b-col
                   md="4"
@@ -1233,13 +718,16 @@
                     </template>
                     <template #row-details="row">
                       <b-card class="mx-2">
-                        <h3 class="no-wrap">
+                        <h3 class="no-wrap align-items-center justify-content-center">
                           <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                             <b-icon
                               scale="1"
                               icon="info-square"
                               class="ml-1"
-                            /> &nbsp;Application Information&nbsp;</kbd>
+                              style="margin-top: 2px;"
+                            />
+                            <span style="margin-left: 10px;">Application Information</span>
+                          </kbd>
                         </h3>
                         <div class="ml-1">
                           <list-entry
@@ -1392,13 +880,16 @@
                           </b-card>
                         </div>
                         <div v-else>
-                          <h3 class="no-wrap">
+                          <h3 class="no-wrap align-items-center justify-content-center">
                             <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                               <b-icon
                                 scale="1"
                                 icon="box"
                                 class="ml-1"
-                              /> &nbsp;Composition&nbsp;</kbd>
+                                style="margin-top: 2px;"
+                              />
+                              <span style="margin-left: 10px;">Composition</span>
+                            </kbd>
                           </h3>
                           <b-card
                             v-for="(component, index) in row.item.compose"
@@ -1517,13 +1008,15 @@
                             </div>
                           </b-card>
                         </div>
-                        <h3>
+                        <h3 class="no-wrap align-items-center justify-content-center">
                           <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                             <b-icon
                               scale="1"
-                              icon="globe"
-                              class="ml-1"
-                            /> &nbsp;Locations&nbsp;</kbd>
+                              icon="pin-map-fill"
+                              style="margin-top: 2px; margin-left: 10px;"
+                            />
+                            <span style="margin-left: 10px;">Locations</span>
+                          </kbd>
                         </h3>
                         <b-row>
                           <b-col
@@ -1635,7 +1128,7 @@
                           <b-col cols="12">
                             <b-pagination
                               v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
+                              :total-rows="appLocations?.length || 1"
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
@@ -1671,11 +1164,11 @@
                 <b-col cols="12">
                   <b-pagination
                     v-model="tableconfig.globalAvailable.currentPage"
-                    :total-rows="tableconfig.globalAvailable.apps.length"
+                    :total-rows="tableconfig?.globalAvailable?.apps?.length || 1"
                     :per-page="tableconfig.globalAvailable.perPage"
                     align="center"
                     size="sm"
-                    class="my-0"
+                    class="my-0 mt-1"
                   />
                 </b-col>
               </b-row>
@@ -1811,13 +1304,16 @@
                     </template>
                     <template #row-details="row">
                       <b-card class="mx-2">
-                        <h3 class="no-wrap">
+                        <h3 class="no-wrap align-items-center justify-content-center">
                           <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                             <b-icon
                               scale="1"
                               icon="info-square"
                               class="ml-1"
-                            /> &nbsp;Application Information&nbsp;</kbd>
+                              style="margin-top: 2px;"
+                            />
+                            <span style="margin-left: 10px;">Application Information</span>
+                          </kbd>
                         </h3>
                         <div class="ml-1">
                           <list-entry
@@ -1970,13 +1466,16 @@
                           </b-card>
                         </div>
                         <div v-else>
-                          <h3 class="no-wrap">
+                          <h3 class="no-wrap align-items-center justify-content-center">
                             <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                               <b-icon
                                 scale="1"
                                 icon="box"
                                 class="ml-1"
-                              /> &nbsp;Composition&nbsp;</kbd>
+                                style="margin-top: 2px;"
+                              />
+                              <span style="margin-left: 10px;">Composition</span>
+                            </kbd>
                           </h3>
                           <b-card
                             v-for="(component, index) in row.item.compose"
@@ -2095,13 +1594,15 @@
                             </div>
                           </b-card>
                         </div>
-                        <h3>
+                        <h3 class="no-wrap align-items-center justify-content-center">
                           <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                             <b-icon
                               scale="1"
-                              icon="globe"
-                              class="ml-1"
-                            /> &nbsp;Locations&nbsp;</kbd>
+                              icon="pin-map-fill"
+                              style="margin-top: 2px; margin-left: 10px;"
+                            />
+                            <span style="margin-left: 10px;">Locations</span>
+                          </kbd>
                         </h3>
                         <b-row>
                           <b-col
@@ -2213,7 +1714,7 @@
                           <b-col cols="12">
                             <b-pagination
                               v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
+                              :total-rows="appLocations?.length || 1"
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
@@ -2334,19 +1835,20 @@
                 <b-col cols="12">
                   <div class="d-flex justify-content-between align-items-center">
                     <div>
-                      <div v-if="isLoggedIn()" class="d-inline ml-2">
+                      <div v-if="isLoggedIn() && tableconfig?.local?.totalRows > 0" class="d-inline ml-2">
                         <b-icon scale="1.4" icon="layers" />
                         <b>&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;{{ tableconfig.local.totalRows }}&nbsp;</kbd></b>
                       </div>
                     </div>
                     <div class="text-center flex-grow-1">
                       <b-pagination
+                        v-if="tableconfig?.local?.totalRows > 0"
                         v-model="tableconfig.local.currentPage"
                         :total-rows="tableconfig.local.totalRows"
                         :per-page="tableconfig.local.perPage"
                         align="center"
                         size="sm"
-                        class="my-0"
+                        class="my-0 mt-1"
                       />
                     </div>
                   </div>

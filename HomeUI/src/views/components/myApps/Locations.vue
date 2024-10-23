@@ -1,11 +1,14 @@
 <template>
   <div>
-    <h3>
+    <h3 class="no-wrap align-items-center justify-content-center">
       <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
         <b-icon
           scale="1"
-          icon="globe"
-        /> &nbsp;Locations&nbsp;</kbd>
+          icon="pin-map-fill"
+          style="margin-top: 2px; margin-left: 10px;"
+        />
+        <span style="margin-left: 10px;">Locations</span>
+      </kbd>
     </h3>
     <b-row>
       <b-col class="p-0 m-0">
@@ -130,7 +133,7 @@
       <b-col cols="12">
         <b-pagination
           v-model="appLocationOptions.currentPage"
-          :total-rows="appLocationOptions.totalRows"
+          :total-rows="appLocations?.length || 1"
           :per-page="appLocationOptions.perPage"
           align="center"
           size="sm"
@@ -164,10 +167,9 @@ export default {
         { key: 'visit', label: '' },
       ],
       appLocationOptions: {
-        perPage: 25,
+        perPage: 5,
         pageOptions: [5, 10, 25, 50, 100],
         currentPage: 1,
-        totalRows: 1,
         filterOn: [],
         filter: '',
       },
