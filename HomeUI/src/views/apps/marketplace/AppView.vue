@@ -81,6 +81,28 @@
                 </b-form-select>
               </b-form-group>
             </div>
+            <div v-if="appData.selectInstances">
+              <b-form-group
+                v-if="appData.version >= 3"
+                label-cols="2"
+                label-cols-lg="1"
+                label="Instances"
+                label-for="instances"
+              >
+                <div class="mx-1">
+                  {{ appRegistrationSpecification.instances }}
+                </div>
+                <b-form-input
+                  id="instances"
+                  v-model="appRegistrationSpecification.instances"
+                  placeholder="Minimum number of application instances to be spawned"
+                  type="range"
+                  min="3"
+                  max="100"
+                  step="1"
+                />
+              </b-form-group>
+            </div>
             <b-card style="padding: 0;">
               <b-tabs @activate-tab="componentSelected">
                 <b-tab
@@ -875,6 +897,7 @@ export default {
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
     const contact = ref(null);
+    const instance = ref(null);
     const appRegistrationSpecification = ref(null);
     const tooltipText = ref('Copy to clipboard');
     const copyButtonRef = ref(null);
@@ -1623,6 +1646,9 @@ export default {
         applicationPriceFluxDiscount.value = '';
         const auxSpecsFormatted = JSON.parse(JSON.stringify(appSpecFormatted));
         auxSpecsFormatted.priceUSD = props.appData.priceUSD;
+        if (instance.value && instance.value > 3) {
+          auxSpecsFormatted.priceUSD = ((auxSpecsFormatted.priceUSD * instance.value) / 3).toFixed(2);
+        }
 
         const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
         if (response.data.status === 'error') {
