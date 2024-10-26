@@ -1647,7 +1647,6 @@ export default {
         auxSpecsFormatted.priceUSD = props.appData.priceUSD;
         if (appInstances.value && appInstances.value > 3) {
           auxSpecsFormatted.priceUSD = Number(((auxSpecsFormatted.priceUSD * appInstances.value) / 3).toFixed(2));
-          console.log(auxSpecsFormatted.priceUSD);
         }
 
         const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
