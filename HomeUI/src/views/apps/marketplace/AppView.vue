@@ -84,17 +84,17 @@
             <div v-if="appData.selectInstances">
               <b-form-group
                 v-if="appData.version >= 3"
-                label-cols="2"
-                label-cols-lg="1"
+                label-cols="3"
+                label-cols-lg="20"
                 label="Instances"
-                label-for="instances"
+                label-for="appInstances"
               >
                 <div class="mx-1">
-                  {{ instances }}
+                  {{ appInstances }}
                 </div>
                 <b-form-input
-                  id="instances"
-                  v-model="instances"
+                  id="appInstances"
+                  v-model="appInstances"
                   placeholder="Minimum number of application instances to be spawned"
                   type="range"
                   min="3"
@@ -897,7 +897,7 @@ export default {
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
     const contact = ref(null);
-    const instances = ref(Number(3));
+    const appInstances = ref(Number(3));
     const appRegistrationSpecification = ref(null);
     const tooltipText = ref('Copy to clipboard');
     const copyButtonRef = ref(null);
@@ -1382,8 +1382,8 @@ export default {
       }
     };
     const autoSelectNodes = async () => {
-      const maxSamePubKeyNodes = +instances.value + 3;
-      const maxNumberOfNodes = +instances.value + Math.ceil(Math.max(7, +instances.value * 0.15));
+      const maxSamePubKeyNodes = +appInstances.value + 3;
+      const maxNumberOfNodes = +appInstances.value + Math.ceil(Math.max(7, +appInstances.value * 0.15));
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
@@ -1501,7 +1501,7 @@ export default {
           name: appName,
           description: props.appData.description,
           owner: userZelid.value,
-          instances: props.appData.instances,
+          instances: appInstances.value,
           compose: [],
         };
         if (props.appData.version >= 5) {
@@ -1645,8 +1645,9 @@ export default {
         applicationPriceFluxDiscount.value = '';
         const auxSpecsFormatted = JSON.parse(JSON.stringify(appSpecFormatted));
         auxSpecsFormatted.priceUSD = props.appData.priceUSD;
-        if (instances.value && instances.value > 3) {
-          auxSpecsFormatted.priceUSD = ((auxSpecsFormatted.priceUSD * instances.value) / 3).toFixed(2);
+        if (appInstances.value && appInstances.value > 3) {
+          auxSpecsFormatted.priceUSD = Number(((auxSpecsFormatted.priceUSD * appInstances.value) / 3).toFixed(2));
+          console.log(auxSpecsFormatted.priceUSD);
         }
 
         const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
@@ -2132,6 +2133,7 @@ export default {
       dataToSign,
       selectedGeolocation,
       contact,
+      appInstances,
       signClient,
       signature,
       appPricePerDeployment,
