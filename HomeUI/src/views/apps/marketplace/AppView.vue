@@ -952,10 +952,10 @@ export default {
       if (props.appData.version >= 6) {
         const auxArray = expireOptions.value;
         if (auxArray[expirePosition.value]) {
-          return Date.now() + auxArray[expirePosition.value].time;
+          return Date.now() + auxArray[expirePosition.value].time + 60 * 60 * 1000;
         }
       }
-      const expTime = Date.now() + 30 * 24 * 60 * 60 * 1000; // 1 month
+      const expTime = Date.now() + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
       return expTime;
     });
     const getExpireLabel = computed(() => {
