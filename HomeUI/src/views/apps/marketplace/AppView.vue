@@ -90,11 +90,11 @@
                 label-for="instances"
               >
                 <div class="mx-1">
-                  {{ appRegistrationSpecification.instances }}
+                  {{ instances }}
                 </div>
                 <b-form-input
                   id="instances"
-                  v-model="appRegistrationSpecification.instances"
+                  v-model="instances"
                   placeholder="Minimum number of application instances to be spawned"
                   type="range"
                   min="3"
@@ -897,7 +897,7 @@ export default {
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
     const contact = ref(null);
-    const instance = ref(null);
+    const instances = ref(Number(3));
     const appRegistrationSpecification = ref(null);
     const tooltipText = ref('Copy to clipboard');
     const copyButtonRef = ref(null);
@@ -1382,9 +1382,8 @@ export default {
       }
     };
     const autoSelectNodes = async () => {
-      const { instances } = props.appData;
-      const maxSamePubKeyNodes = +instances + 3;
-      const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
+      const maxSamePubKeyNodes = +instances.value + 3;
+      const maxNumberOfNodes = +instances.value + Math.ceil(Math.max(7, +instances.value * 0.15));
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
@@ -1646,8 +1645,8 @@ export default {
         applicationPriceFluxDiscount.value = '';
         const auxSpecsFormatted = JSON.parse(JSON.stringify(appSpecFormatted));
         auxSpecsFormatted.priceUSD = props.appData.priceUSD;
-        if (instance.value && instance.value > 3) {
-          auxSpecsFormatted.priceUSD = ((auxSpecsFormatted.priceUSD * instance.value) / 3).toFixed(2);
+        if (instances.value && instances.value > 3) {
+          auxSpecsFormatted.priceUSD = ((auxSpecsFormatted.priceUSD * instances.value) / 3).toFixed(2);
         }
 
         const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
