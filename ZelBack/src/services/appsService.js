@@ -13270,6 +13270,8 @@ async function monitorNodeStatus() {
     monitorNodeStatus();
   } catch (error) {
     log.error(error);
+    await serviceHelper.delay(2 * 60 * 1000); // 2m delay before next check
+    monitorNodeStatus();
   }
 }
 
