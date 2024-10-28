@@ -13183,6 +13183,24 @@ let nodeConfirmedOnLastCheck = true;
 // eslint-disable-next-line consistent-return
 async function monitorNodeStatus() {
   try {
+    if (fluxNetworkHelper.getDosStateValue() >= 100) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('monitorNodeStatus - Failed to get installed Apps');
+      }
+      const appsInstalled = installedAppsRes.data;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of appsInstalled) {
+        log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node have DOS state over 100`);
+        log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
+        // eslint-disable-next-line no-await-in-loop
+        await removeAppLocally(installedApp.name, null, true, false, false);
+        log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
+      }
+      await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
+    }
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
       log.info('monitorNodeStatus - Node is not Confirmed');
