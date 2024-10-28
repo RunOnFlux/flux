@@ -989,6 +989,9 @@ async function checkDeterministicNodesCollisions() {
               checkDeterministicNodesCollisions();
             }, 60 * 1000);
             return;
+          } if (getDosMessage().includes('is confirmed and reachable on flux network')) {
+            dosState = 0;
+            setDosMessage(null);
           }
           const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
           log.info(`createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
