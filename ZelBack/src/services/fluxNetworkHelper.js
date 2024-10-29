@@ -995,7 +995,7 @@ async function checkDeterministicNodesCollisions() {
           await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(errorCall = true);
           if (errorCall) {
             const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
-            log.info(`createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
+            log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
             if (getDosMessage().includes('is confirmed and reachable on flux network')) {
               dosState = 0;
               setDosMessage(null);
