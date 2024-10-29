@@ -81,6 +81,48 @@
                 </b-form-select>
               </b-form-group>
             </div>
+            <div v-if="appData.selectInstances">
+              <b-form-group
+                v-if="appData.version >= 3"
+                label-cols="3"
+                label-cols-lg="20"
+                label="Instances"
+                label-for="appInstances"
+              >
+                <div class="mx-1">
+                  {{ appInstances }}
+                </div>
+                <b-form-input
+                  id="appInstances"
+                  v-model="appInstances"
+                  placeholder="Minimum number of application instances to be spawned"
+                  type="range"
+                  min="3"
+                  max="100"
+                  step="1"
+                />
+              </b-form-group>
+            </div>
+            <b-form-group
+              v-if="appData.version >= 6"
+              label-cols="3"
+              label-cols-lg="20"
+              label="Period"
+              label-for="period"
+            >
+              <div class="mx-1">
+                {{ getExpireLabel }}
+              </div>
+              <b-form-input
+                id="period"
+                v-model="expirePosition"
+                placeholder="How long an application will live on Flux network"
+                type="range"
+                :min="0"
+                :max="3"
+                :step="1"
+              />
+            </b-form-group>
             <b-card style="padding: 0;">
               <b-tabs @activate-tab="componentSelected">
                 <b-tab
@@ -875,13 +917,54 @@ export default {
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
     const contact = ref(null);
+    const appInstances = ref(Number(3));
     const appRegistrationSpecification = ref(null);
     const tooltipText = ref('Copy to clipboard');
     const copyButtonRef = ref(null);
+    const expireOptions = ref([]);
+    const expirePosition = ref(Number(0));
+    expireOptions.value = [
+      {
+        value: 22000,
+        label: '1 month',
+        time: 30 * 24 * 60 * 60 * 1000,
+      },
+      {
+        value: 66000,
+        label: '3 months',
+        time: 90 * 24 * 60 * 60 * 1000,
+      },
+      {
+        value: 132000,
+        label: '6 months',
+        time: 180 * 24 * 60 * 60 * 1000,
+      },
+      {
+        value: 264000,
+        label: '1 year',
+        time: 365 * 24 * 60 * 60 * 1000,
+      },
+    ];
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
-    const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
+    const subscribedTill = computed(() => {
+      if (props.appData.version >= 6) {
+        const auxArray = expireOptions.value;
+        if (auxArray[expirePosition.value]) {
+          return Date.now() + auxArray[expirePosition.value].time + 60 * 60 * 1000;
+        }
+      }
+      const expTime = Date.now() + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
+      return expTime;
+    });
+    const getExpireLabel = computed(() => {
+      const auxArray = expireOptions.value;
+      if (auxArray[expirePosition.value]) {
+        return auxArray[expirePosition.value].label;
+      }
+      return null;
+    });
 
     const callbackValue = () => {
       const { protocol, hostname, port } = window.location;
@@ -1359,9 +1442,8 @@ export default {
       }
     };
     const autoSelectNodes = async () => {
-      const { instances } = props.appData;
-      const maxSamePubKeyNodes = +instances + 3;
-      const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
+      const maxSamePubKeyNodes = +appInstances.value + 3;
+      const maxNumberOfNodes = +appInstances.value + Math.ceil(Math.max(7, +appInstances.value * 0.15));
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
@@ -1479,7 +1561,7 @@ export default {
           name: appName,
           description: props.appData.description,
           owner: userZelid.value,
-          instances: props.appData.instances,
+          instances: appInstances.value,
           compose: [],
         };
         if (props.appData.version >= 5) {
@@ -1505,7 +1587,8 @@ export default {
           }
         }
         if (props.appData.version >= 6) {
-          appSpecification.expire = props.appData.expire || 22000;
+          const auxArray = expireOptions.value;
+          appSpecification.expire = auxArray[expirePosition.value].value || 22000;
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
@@ -1623,7 +1706,17 @@ export default {
         applicationPriceFluxDiscount.value = '';
         const auxSpecsFormatted = JSON.parse(JSON.stringify(appSpecFormatted));
         auxSpecsFormatted.priceUSD = props.appData.priceUSD;
-
+        console.log(auxSpecsFormatted.priceUSD);
+        if (appInstances.value && appInstances.value > 3) {
+          auxSpecsFormatted.priceUSD = Number(((auxSpecsFormatted.priceUSD * appInstances.value) / 3).toFixed(2));
+        }
+        if (expirePosition.value === '1') {
+          auxSpecsFormatted.priceUSD *= 3;
+        } else if (expirePosition.value === '2') {
+          auxSpecsFormatted.priceUSD *= 6;
+        } else if (expirePosition.value === '3') {
+          auxSpecsFormatted.priceUSD *= 12;
+        }
         const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
@@ -2107,6 +2200,7 @@ export default {
       dataToSign,
       selectedGeolocation,
       contact,
+      appInstances,
       signClient,
       signature,
       appPricePerDeployment,
@@ -2143,6 +2237,8 @@ export default {
       confirmLaunchDialogCloseShowing,
       confirmLaunchDialogFinish,
       confirmLaunchDialogCancel,
+      expirePosition,
+      getExpireLabel,
 
       currentComponent,
       componentSelected,

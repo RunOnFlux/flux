@@ -487,7 +487,7 @@
                           <b-col cols="12">
                             <b-pagination
                               v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
+                              :total-rows="appLocations?.length || 1"
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
@@ -1128,7 +1128,7 @@
                           <b-col cols="12">
                             <b-pagination
                               v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
+                              :total-rows="appLocations?.length || 1"
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"
@@ -1164,7 +1164,7 @@
                 <b-col cols="12">
                   <b-pagination
                     v-model="tableconfig.globalAvailable.currentPage"
-                    :total-rows="tableconfig.globalAvailable.apps.length"
+                    :total-rows="tableconfig?.globalAvailable?.apps?.length || 1"
                     :per-page="tableconfig.globalAvailable.perPage"
                     align="center"
                     size="sm"
@@ -1714,7 +1714,7 @@
                           <b-col cols="12">
                             <b-pagination
                               v-model="appLocationOptions.currentPage"
-                              :total-rows="appLocationOptions.totalRows"
+                              :total-rows="appLocations?.length || 1"
                               :per-page="appLocationOptions.perPage"
                               align="center"
                               size="sm"

@@ -133,7 +133,7 @@
       <b-col cols="12">
         <b-pagination
           v-model="appLocationOptions.currentPage"
-          :total-rows="appLocationOptions.totalRows"
+          :total-rows="appLocations?.length || 1"
           :per-page="appLocationOptions.perPage"
           align="center"
           size="sm"
@@ -167,10 +167,9 @@ export default {
         { key: 'visit', label: '' },
       ],
       appLocationOptions: {
-        perPage: 25,
+        perPage: 5,
         pageOptions: [5, 10, 25, 50, 100],
         currentPage: 1,
-        totalRows: 1,
         filterOn: [],
         filter: '',
       },

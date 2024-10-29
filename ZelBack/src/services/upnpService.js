@@ -96,9 +96,7 @@ async function adjustFirewallForUPNP() {
           routerIpNetwork += '/16';
         }
         const execDelete = `LANG="en_US.UTF-8" && sudo ufw delete deny out from any to ${routerIpNetwork}`;
-        const execDeny = `LANG="en_US.UTF-8" && sudo ufw deny out from any to ${routerIpNetwork}`;
         await cmdAsync(execDelete);
-        await cmdAsync(execDeny);
         log.info('Firewall adjusted for UPNP');
       } else {
         log.info('RouterIP is set but firewall is not active. Adjusting not applied for UPNP');
