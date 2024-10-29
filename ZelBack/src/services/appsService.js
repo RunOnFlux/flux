@@ -13188,13 +13188,14 @@ async function monitorNodeStatus() {
       if (installedAppsRes.status !== 'success') {
         throw new Error('monitorNodeStatus - Failed to get installed Apps');
       }
+      const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
       const appsInstalled = installedAppsRes.data;
       // eslint-disable-next-line no-restricted-syntax
       for (const installedApp of appsInstalled) {
         log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node have DOS state over 100`);
         log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
         // eslint-disable-next-line no-await-in-loop
-        await removeAppLocally(installedApp.name, null, true, false, false);
+        await removeAppLocally(installedApp.name, null, true, false, isNodeConfirmed);
         log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
