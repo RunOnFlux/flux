@@ -17,7 +17,6 @@
         </h4>
       </div>
     </div>
-
     <!-- App Details -->
     <vue-perfect-scrollbar
       :settings="perfectScrollbarSettings"
@@ -31,7 +30,267 @@
           md="12"
         >
           <br>
-          <b-card title="Details">
+          <b-card v-if="!userZelid">
+            <b-card-title>Automated Login</b-card-title>
+            <dl class="row">
+              <dd class="col-sm-6">
+                <b-tabs content-class="mt-0">
+                  <b-tab title="3rd Party Login" active>
+                    <div class="ssoLogin">
+                      <div id="ssoLoading">
+                        <b-spinner variant="primary" />
+                        <div>
+                          Loading Sign In Options
+                        </div>
+                      </div>
+                      <div
+                        id="ssoLoggedIn"
+                        style="display: none"
+                      >
+                        <b-spinner variant="primary" />
+                        <div>
+                          Finishing Login Process
+                        </div>
+                      </div>
+                      <div id="ssoVerify" style="display: none">
+                        <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
+                          Cancel Verification
+                        </b-button>
+                        <div>
+                          <b-spinner variant="primary" />
+                          <div>
+                            Finishing Verification Process
+                          </div>
+                          <div>
+                            <i>Please check email for verification link.</i>
+                          </div>
+                        </div>
+                      </div>
+                      <div id="firebaseui-auth-container" />
+                    </div>
+                  </b-tab>
+                  <b-tab title="Email/Password">
+                    <dl class="row">
+                      <dd class="col-sm-12 mt-1">
+                        <b-form
+                          id="emailLoginForm"
+                          ref="emailLoginForm"
+                          class="mx-5"
+                          @submit.prevent
+                        >
+                          <b-row>
+                            <b-col cols="12">
+                              <b-form-group
+                                label="Email"
+                                label-for="h-email"
+                                label-cols-md="4"
+                              >
+                                <b-form-input
+                                  id="h-email"
+                                  v-model="emailForm.email"
+                                  type="email"
+                                  placeholder="Email..."
+                                  required
+                                />
+                              </b-form-group>
+                            </b-col>
+                            <b-col cols="12">
+                              <b-form-group
+                                label="Password"
+                                label-for="h-password"
+                                label-cols-md="4"
+                              >
+                                <b-form-input
+                                  id="h-password"
+                                  v-model="emailForm.password"
+                                  type="password"
+                                  placeholder="Password..."
+                                  required
+                                />
+                              </b-form-group>
+                            </b-col>
+                            <b-col cols="12">
+                              <b-form-group label-cols-md="4">
+                                <b-button
+                                  type="submit"
+                                  variant="primary"
+                                  class="w-100"
+                                  @click="emailLogin"
+                                >
+                                  <div id="emailLoginProcessing" style="display: none">
+                                    <b-spinner variant="secondary" small />
+                                  </div>
+                                  <div id="emailLoginExecute">
+                                    Login
+                                  </div>
+                                </b-button>
+                              </b-form-group>
+                            </b-col>
+                            <b-col cols="12">
+                              <b-form-group label-cols-md="4">
+                                <b-button
+                                  id="signUpButton"
+                                  v-b-modal.modal-prevent-closing
+                                  type="submit"
+                                  variant="secondary"
+                                  class="w-100"
+                                  @click="createAccount"
+                                >
+                                  Sign Up
+                                </b-button>
+                              </b-form-group>
+                            </b-col>
+                          </b-row>
+                        </b-form>
+                        <div id="ssoEmailVerify" class="text-center" style="display: none">
+                          <b-button class="mb-2" variant="primary" type="submit" @click="cancelVerification">
+                            Cancel Verification
+                          </b-button>
+                          <div>
+                            <b-spinner variant="primary" />
+                            <div>
+                              Finishing Verification Process
+                            </div>
+                            <div>
+                              <i>Please check email for verification link.</i>
+                            </div>
+                          </div>
+                        </div>
+                      </dd>
+                    </dl>
+                  </b-tab>
+                </b-tabs>
+              </dd>
+              <dd class="col-sm-6">
+                <b-card-text class="text-center loginText">
+                  Decentralized Login
+                </b-card-text>
+                <div class="loginRow">
+                  <a
+                    :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueLogin()}`"
+                    title="Login with Zelcore"
+                    @click="initiateLoginWS"
+                  >
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a
+                    title="Login with SSP"
+                    @click="initSSPLogin"
+                  >
+                    <img
+                      class="walletIcon"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+                <div class="loginRow">
+                  <a
+                    title="Login with WalletConnect"
+                    @click="initWalletConnectLogin"
+                  >
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/walletconnect.svg"
+                      alt="WalletConnect"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a
+                    title="Login with Metamask"
+                    @click="initMetamaskLogin"
+                  >
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/metamask.svg"
+                      alt="Metamask"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
+              </dd>
+            </dl>
+          </b-card>
+          <b-card v-if="!userZelid">
+            <b-card-title>Manual Login</b-card-title>
+            <dl class="row">
+              <dd class="col-sm-12">
+                <b-card-text class="text-center">
+                  Sign the following message with any Flux ID / SSP Wallet ID / Bitcoin / Ethereum address
+                </b-card-text>
+                <br><br>
+                <b-form
+                  class="mx-5"
+                  @submit.prevent
+                >
+                  <b-row>
+                    <b-col cols="12">
+                      <b-form-group
+                        label="Message"
+                        label-for="h-message"
+                        label-cols-md="3"
+                      >
+                        <b-form-input
+                          id="h-message"
+                          v-model="loginForm.loginPhrase"
+                          placeholder="Insert Login Phrase"
+                        />
+                      </b-form-group>
+                    </b-col>
+                    <b-col cols="12">
+                      <b-form-group
+                        label="Address"
+                        label-for="h-address"
+                        label-cols-md="3"
+                      >
+                        <b-form-input
+                          id="h-address"
+                          v-model="loginForm.zelid"
+                          placeholder="Insert Flux ID or Bitcoin address"
+                        />
+                      </b-form-group>
+                    </b-col>
+                    <b-col cols="12">
+                      <b-form-group
+                        label="Signature"
+                        label-for="h-signature"
+                        label-cols-md="3"
+                      >
+                        <b-form-input
+                          id="h-signature"
+                          v-model="loginForm.signature"
+                          placeholder="Insert Signature"
+                        />
+                      </b-form-group>
+                    </b-col>
+                    <b-col cols="12">
+                      <b-form-group label-cols-md="3">
+                        <b-button
+                          type="submit"
+                          variant="primary"
+                          class="w-100"
+                          @click="login"
+                        >
+                          Login
+                        </b-button>
+                      </b-form-group>
+                    </b-col>
+                  </b-row>
+                </b-form>
+              </dd>
+            </dl>
+          </b-card>
+          <b-card v-if="userZelid" title="Details">
             <b-form-textarea
               id="textarea-rows"
               rows="2"
@@ -81,6 +340,48 @@
                 </b-form-select>
               </b-form-group>
             </div>
+            <div v-if="appData.selectInstances">
+              <b-form-group
+                v-if="appData.version >= 3"
+                label-cols="3"
+                label-cols-lg="20"
+                label="Instances"
+                label-for="appInstances"
+              >
+                <div class="mx-1">
+                  {{ appInstances }}
+                </div>
+                <b-form-input
+                  id="appInstances"
+                  v-model="appInstances"
+                  placeholder="Minimum number of application instances to be spawned"
+                  type="range"
+                  min="3"
+                  max="100"
+                  step="1"
+                />
+              </b-form-group>
+            </div>
+            <b-form-group
+              v-if="appData.version >= 6"
+              label-cols="3"
+              label-cols-lg="20"
+              label="Period"
+              label-for="period"
+            >
+              <div class="mx-1">
+                {{ getExpireLabel }}
+              </div>
+              <b-form-input
+                id="period"
+                v-model="expirePosition"
+                placeholder="How long an application will live on Flux network"
+                type="range"
+                :min="0"
+                :max="3"
+                :step="1"
+              />
+            </b-form-group>
             <b-card style="padding: 0;">
               <b-tabs @activate-tab="componentSelected">
                 <b-tab
@@ -191,9 +492,6 @@
               >
                 Start Launching Marketplace Application
               </b-button>
-              <h4 v-else>
-                Please login using your Flux ID to deploy Marketplace Apps
-              </h4>
             </div>
           </b-card>
         </b-col>
@@ -725,16 +1023,23 @@ import {
   computed,
   getCurrentInstance,
   nextTick,
+  onMounted,
 } from 'vue';
 
 import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
+import IDService from '@/services/IDService';
 import tierColors from '@/libs/colors';
 import SignClient from '@walletconnect/sign-client';
+import { WalletConnectModal } from '@walletconnect/modal';
 import { MetaMaskSDK } from '@metamask/sdk';
 import useAppConfig from '@core/app-config/useAppConfig';
 import { useClipboard } from '@vueuse/core';
-import { getUser } from '@/libs/firebase';
+import { getUser, loginWithEmail, createEmailSSO } from '@/libs/firebase';
+import firebase from 'firebase/compat/app';
+import * as firebaseui from 'firebaseui';
+import 'firebaseui/dist/firebaseui.css';
+
 import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
@@ -748,6 +1053,8 @@ const walletConnectOptions = {
     icons: ['https://home.runonflux.io/img/logo.png'],
   },
 };
+
+const walletConnectModal = new WalletConnectModal(walletConnectOptions);
 
 const metamaskOptions = {
   enableDebug: true,
@@ -807,8 +1114,12 @@ export default {
     },
     tier: {
       type: String,
-      required: true,
+      required: false,
       default: '',
+    },
+    isActive: {
+      type: Boolean,
+      default: false,
     },
   },
   setup(props) {
@@ -838,10 +1149,582 @@ export default {
         },
       });
     };
+
+    const modalShow = ref(false);
+    const websocket = ref(null);
+    const loginPhrase = ref('');
+    const signClient = ref(null);
+    const ssoVerification = ref('');
+    const loginForm = ref({ zelid: '', signature: '', loginPhrase: '' });
+    const userZelid = ref(props.zelid || '');
+    const emailForm = ref({ email: '', password: '' });
+    const ui = ref(null);
+    const createSSOForm = ref({ email: '', pw1: '', pw2: '' });
+    const emailState = ref(null);
+    const pw1State = ref(null);
+    const pw2State = ref(null);
+    const formRef = ref(null);
+    const bvModal = ref(null);
+
+    const getEmergencyLoginPhrase = async () => {
+      try {
+        const response = await IDService.emergencyLoginPhrase();
+        console.log(response);
+        if (response.data.status === 'error') {
+          showToast('danger', response.data.data.message);
+        } else {
+          loginPhrase.value = response.data.data;
+          loginForm.value.loginPhrase = response.data.data;
+        }
+      } catch (error) {
+        console.log(error);
+        showToast('danger', error);
+      }
+    };
+
+    const getZelIdLoginPhrase = async () => {
+      try {
+        const response = await IDService.loginPhrase();
+        console.log(response.data.data);
+        if (response.data.status === 'error') {
+          await getEmergencyLoginPhrase();
+        } else {
+          loginPhrase.value = response.data.data;
+          loginForm.value.loginPhrase = response.data.data;
+        }
+      } catch (error) {
+        console.log(error);
+        showToast('danger', error);
+      }
+    };
+
+    const getVariant = (status) => (status === 'error' ? 'danger' : 'success');
+
+    const resetLoginUI = () => {
+      document.getElementById('ssoVerify').style.display = 'none';
+      document.getElementById('ssoEmailVerify').style.display = 'none';
+      document.getElementById('ssoLoggedIn').style.display = 'none';
+      document.getElementById('emailLoginProcessing').style.display = 'none';
+      document.getElementById('emailLoginExecute').style.display = 'block';
+      document.getElementById('emailLoginForm').style.display = 'block';
+      document.getElementById('signUpButton').style.display = 'block';
+      emailForm.value.email = '';
+      emailForm.value.password = '';
+      ui.value.reset();
+      ui.value.start('#firebaseui-auth-container');
+      ssoVerification.value = false;
+    };
+
+    const cancelVerification = () => {
+      resetLoginUI();
+    };
+
+    const handleSignedInUser = async (user) => {
+      try {
+        if (user.emailVerified) {
+          document.getElementById('ssoLoggedIn').style.display = 'block';
+          const token = user.auth.currentUser.accessToken;
+          const message = loginPhrase.value;
+          const headers = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          };
+
+          const fluxLogin = await axios.post('https://service.fluxcore.ai/api/signInOrUp', { message }, { headers });
+          if (fluxLogin.data?.status !== 'success') {
+            throw new Error('Login Failed, please try again.');
+          }
+          console.log(fluxLogin);
+          const authLogin = {
+            zelid: fluxLogin.data.public_address,
+            signature: fluxLogin.data.signature,
+            loginPhrase: loginPhrase.value,
+          };
+
+          const response = await IDService.verifyLogin(authLogin);
+          console.log(response);
+          if (response.data.status === 'success') {
+            const zelidauth = {
+              zelid: fluxLogin.data.public_address,
+              signature: fluxLogin.data.signature,
+              loginPhrase: loginPhrase.value,
+            };
+            vm.$store.commit('flux/setPrivilege', response.data.data.privilege);
+            vm.$store.commit('flux/setZelid', zelidauth.zelid);
+            localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+            userZelid.value = zelidauth.zelid;
+            showToast('success', response.data.data.message);
+          } else {
+            showToast(getVariant(response.data.status), response.data.data.message || response.data.data);
+            resetLoginUI();
+          }
+        } else {
+          // eslint-disable-next-line no-use-before-define
+          await handleEmailVerification(user);
+        }
+      } catch (error) {
+        console.log(error);
+        resetLoginUI();
+        showToast('warning', 'Login Failed, please try again.');
+      }
+    };
+
+    const checkVerification = async () => {
+      try {
+        let user = getUser();
+        if (user && ssoVerification.value) {
+          await user.reload();
+          user = getUser();
+          if (user.emailVerified) {
+            showToast('info', 'email verified');
+            document.getElementById('ssoVerify').style.display = 'none';
+            handleSignedInUser(user);
+            ssoVerification.value = false;
+          } else {
+            setTimeout(checkVerification, 5000);
+          }
+        } else {
+          resetLoginUI();
+        }
+      } catch (error) {
+        showToast('warning', 'email verification failed');
+        resetLoginUI();
+      }
+    };
+
+    const handleEmailVerification = async (user) => {
+      if (user.displayName) {
+        const urlPattern = /\b((http|https|ftp):\/\/[-A-Z0-9+&@#%?=~_|!:,.;]*[-A-Z0-9+&@#%=~_|]|www\.[-A-Z0-9+&@#%?=~_|!:,.;]*[-A-Z0-9+&@#%=~_|]|[-A-Z0-9]+\.[A-Z]{2,}[-A-Z0-9+&@#%?=~_|]*[-A-Z0-9+&@#%=~_|])/i;
+        if (urlPattern.test(user.displayName)) {
+          throw new Error('Login Failed, please try again.');
+        }
+      }
+      try {
+        await user.sendEmailVerification();
+        showToast('info', 'please verify email');
+      } catch {
+        showToast('warning', 'failed to send new verification email');
+      } finally {
+        document.getElementById('ssoVerify').style.display = 'block';
+        document.getElementById('ssoEmailVerify').style.display = 'block';
+        document.getElementById('emailLoginForm').style.display = 'none';
+        ssoVerification.value = true;
+        await checkVerification();
+      }
+    };
+
+    const handleSignInSuccessWithAuthResult = (authResult) => {
+      if (authResult.user) {
+        handleSignedInUser(authResult.user);
+      }
+      return false;
+    };
+
+    const emailLogin = async () => {
+      try {
+        if (document.getElementById('emailLoginForm').reportValidity()) {
+          document.getElementById('emailLoginExecute').style.display = 'none';
+          document.getElementById('emailLoginProcessing').style.display = 'block';
+          document.getElementById('signUpButton').style.display = 'none';
+
+          const checkUser = await loginWithEmail(emailForm.value);
+          handleSignInSuccessWithAuthResult(checkUser); // Ensure to define this handler function
+        }
+      } catch (error) {
+        document.getElementById('emailLoginExecute').style.display = 'block';
+        document.getElementById('emailLoginProcessing').style.display = 'none';
+        document.getElementById('signUpButton').style.display = 'block';
+        document.getElementById('ssoEmailVerify').style.display = 'none';
+        showToast('danger', 'login failed, please try again');
+      }
+    };
+
+    const createAccount = () => {
+      modalShow.value = !modalShow.value;
+    };
+
+    const login = async () => {
+      try {
+        const response = await IDService.verifyLogin(loginForm.value);
+        console.log(response);
+
+        if (response.data.status === 'success') {
+          const zelidauth = {
+            zelid: loginForm.value.zelid,
+            signature: loginForm.value.signature,
+            loginPhrase: loginForm.value.loginPhrase,
+          };
+
+          vm.$store.commit('flux/setPrivilege', response.data.data.privilage);
+          vm.$store.commit('flux/setZelid', zelidauth.zelid);
+          localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+          userZelid.value = zelidauth.zelid;
+
+          await nextTick();
+          window.scrollTo({
+            top: 0,
+          });
+
+          showToast('success', response.data.data.message);
+        } else {
+          showToast(getVariant(response.data.status), response.data.data.message || response.data.data);
+        }
+      } catch (e) {
+        console.log(e);
+        showToast('danger', e.toString());
+      }
+    };
+
+    const checkFormValidity = () => {
+      const valid = formRef.value?.reportValidity();
+
+      if (createSSOForm.value.pw1.length >= 8) pw1State.value = true;
+      else {
+        showToast('info', 'Password must be at least 8 characters.');
+        return null;
+      }
+
+      if (createSSOForm.value.pw2.length >= 8) pw2State.value = true;
+      else {
+        showToast('info', 'Password must be at least 8 characters.');
+        return null;
+      }
+
+      if (createSSOForm.value.pw1 !== createSSOForm.value.pw2) {
+        showToast('info', 'Passwords do not match.');
+        pw1State.value = false;
+        pw2State.value = false;
+        return null;
+      }
+
+      return valid;
+    };
+
+    const resetModal = () => {
+      createSSOForm.value.email = '';
+      createSSOForm.value.pw1 = '';
+      createSSOForm.value.pw2 = '';
+      emailState.value = null;
+      pw1State.value = null;
+      pw2State.value = null;
+    };
+
+    const handleSubmit = async () => {
+      if (!checkFormValidity()) return;
+
+      try {
+        const createUser = await createEmailSSO({
+          email: createSSOForm.value.email,
+          password: createSSOForm.value.pw1,
+        });
+        handleSignInSuccessWithAuthResult(createUser);
+      } catch (error) {
+        resetLoginUI();
+        showToast('danger', 'Account creation failed, please try again.');
+      }
+
+      // eslint-disable-next-line vue/valid-next-tick
+      await nextTick(() => {
+        bvModal.value.hide('modal-prevent-closing');
+      });
+    };
+
+    const handleOk = (bvModalEvent) => {
+      bvModalEvent.preventDefault();
+      handleSubmit();
+    };
+
+    const onOpenLogin = (evt) => console.log('WebSocket opened:', evt);
+    const onCloseLogin = (evt) => console.log('WebSocket closed:', evt);
+    const onErrorLogin = (evt) => console.log('WebSocket error:', evt);
+    const onMessageLogin = (evt) => {
+      const data = qs.parse(evt.data);
+      if (data.status === 'success' && data.data) {
+        const zelidauth = {
+          zelid: data.data.zelid,
+          signature: data.data.signature,
+          loginPhrase: data.data.loginPhrase,
+        };
+        // eslint-disable-next-line no-use-before-define
+        vm.$store.commit('flux/setPrivilege', data.data.privilage);
+        vm.$store.commit('flux/setZelid', zelidauth.zelid);
+        localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+        userZelid.value = zelidauth.zelid;
+        showToast('success', data.data.message);
+      }
+      console.log('Message received:', data);
+    };
+
+    const initiateLoginWS = () => {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          vm.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          vm.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        // eslint-disable-next-line no-use-before-define
+        mybackend += config.value.apiPort;
+      }
+      let backendURL = store.get('backendURL') || mybackend;
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+
+      const wsuri = `${backendURL}/ws/id/${loginPhrase.value}`;
+      websocket.value = new WebSocket(wsuri);
+
+      websocket.value.onopen = (evt) => onOpenLogin(evt);
+      websocket.value.onclose = (evt) => onCloseLogin(evt);
+      websocket.value.onmessage = (evt) => onMessageLogin(evt);
+      websocket.value.onerror = (evt) => onErrorLogin(evt);
+    };
+
+    const callbackValueLogin = () => {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          vm.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          vm.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        // eslint-disable-next-line no-use-before-define
+        mybackend += config.value.apiPort;
+      }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/id/verifylogin`;
+      return encodeURI(url);
+    };
+
+    const uiConfig = {
+      callbacks: {
+        signInSuccessWithAuthResult: handleSignInSuccessWithAuthResult,
+        uiShown() {
+          const loadingElement = document.getElementById('ssoLoading');
+          if (loadingElement) {
+            loadingElement.style.display = 'none';
+          }
+        },
+      },
+      popupMode: true,
+      signInFlow: 'popup',
+      signInOptions: [
+        {
+          provider: firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+          customParameters: { prompt: 'select_account' },
+        },
+        'apple.com',
+      ],
+      tosUrl: 'https://cdn.runonflux.io/Flux_Terms_of_Service.pdf',
+      privacyPolicyUrl: 'https://runonflux.io/privacyPolicy',
+    };
+
+    const onSessionConnectLogin = async (session) => {
+      console.log(session);
+      try {
+        const result = await signClient.value.request({
+          topic: session.topic,
+          chainId: 'eip155:1',
+          request: {
+            method: 'personal_sign',
+            params: [
+              loginPhrase.value,
+              session.namespaces.eip155.accounts[0].split(':')[2],
+            ],
+          },
+        });
+        console.log(result);
+        const walletConnectInfo = {
+          zelid: session.namespaces.eip155.accounts[0].split(':')[2],
+          signature: result,
+          loginPhrase: loginPhrase.value,
+        };
+        const response = await IDService.verifyLogin(walletConnectInfo);
+        console.log(response);
+        if (response.data.status === 'success') {
+          const zelidauth = walletConnectInfo;
+          vm.$store.commit('flux/setPrivilege', response.data.data.privilage);
+          vm.$store.commit('flux/setZelid', zelidauth.zelid);
+          localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+          userZelid.value = zelidauth.zelid;
+          showToast('success', response.data.data.message);
+        } else {
+          showToast(getVariant(response.data.status), response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        console.error(error);
+        showToast('danger', error.message);
+      }
+    };
+
+    const onSessionUpdate = (session) => {
+      console.log(session);
+    };
+
+    const initWalletConnectLogin = async () => {
+      try {
+        signClient.value = await SignClient.init(walletConnectOptions);
+        signClient.value.on('session_event', ({ event }) => {
+          console.log(event);
+        });
+
+        signClient.value.on('session_update', ({ topic, params }) => {
+          const { namespaces } = params;
+          // eslint-disable-next-line no-underscore-dangle
+          const _session = signClient.value.session.get(topic);
+          const updatedSession = { ..._session, namespaces };
+          onSessionUpdate(updatedSession);
+        });
+
+        signClient.value.on('session_delete', () => {
+          // Session was deleted -> reset the dapp state, clean up from user session, etc.
+        });
+
+        const { uri, approval } = await signClient.value.connect({
+          requiredNamespaces: {
+            eip155: {
+              methods: ['personal_sign'],
+              chains: ['eip155:1'],
+              events: ['chainChanged', 'accountsChanged'],
+            },
+          },
+        });
+        if (uri) {
+          walletConnectModal.openModal({ uri });
+          const session = await approval();
+          await onSessionConnectLogin(session);
+          walletConnectModal.closeModal();
+        }
+      } catch (error) {
+        console.error(error);
+        showToast('danger', error.message);
+      }
+    };
+
+    const initSSPLogin = async () => {
+      try {
+        if (!window.ssp) {
+          showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: loginPhrase.value });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        }
+        const sspLogin = {
+          zelid: responseData.address,
+          signature: responseData.signature,
+          loginPhrase: loginPhrase.value,
+        };
+        const response = await IDService.verifyLogin(sspLogin);
+        console.log(response);
+        if (response.data.status === 'success') {
+          const zelidauth = sspLogin;
+          vm.$store.commit('flux/setPrivilege', response.data.data.privilage);
+          vm.$store.commit('flux/setZelid', zelidauth.zelid);
+          localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+          userZelid.value = zelidauth.zelid;
+          showToast('success', response.data.data.message);
+        } else {
+          showToast('danger', response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
+    const siweLogin = async (siweMessage, from) => {
+      try {
+        const msg = `0x${Buffer.from(siweMessage, 'utf8').toString('hex')}`;
+        const sign = await window.ethereum.request({
+          method: 'personal_sign',
+          params: [msg, from],
+        });
+        const metamaskLogin = {
+          zelid: from,
+          signature: sign,
+          loginPhrase: loginPhrase.value,
+        };
+        const response = await IDService.verifyLogin(metamaskLogin);
+        if (response.data.status === 'success') {
+          const zelidauth = metamaskLogin;
+          vm.$store.commit('flux/setPrivilege', response.data.data.privilage);
+          vm.$store.commit('flux/setZelid', zelidauth.zelid);
+          localStorage.setItem('zelidauth', qs.stringify(zelidauth));
+          userZelid.value = zelidauth.zelid;
+          showToast('success', response.data.data.message);
+        } else {
+          showToast('danger', response.data.data.message || response.data.data);
+        }
+      } catch (error) {
+        console.error(error);
+        showToast('danger', error.message);
+      }
+    };
+
+    const initMetamaskLogin = async () => {
+      try {
+        if (!window.ethereum) {
+          showToast('danger', 'Metamask not detected');
+          return;
+        }
+
+        let account;
+        if (!window.ethereum.selectedAddress) {
+          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+          account = accounts[0];
+        } else {
+          account = window.ethereum.selectedAddress;
+        }
+        await siweLogin(loginPhrase.value, account);
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
     const tier = ref('');
     tier.value = props.tier;
-    const userZelid = ref('');
-    userZelid.value = props.zelid;
     const loading = ref(false);
     const completed = ref(false);
     // Variables to control showing dialogs
@@ -858,7 +1741,6 @@ export default {
     const registrationtype = ref('fluxappregister');
     const dataToSign = ref(null);
     const signature = ref(null);
-    const signClient = ref(null);
     const dataForAppRegistration = ref(null);
     const timestamp = ref(null);
     const appPricePerDeployment = ref(0);
@@ -870,19 +1752,58 @@ export default {
     const registrationHash = ref(null);
     const stripeEnabled = ref(true);
     const paypalEnabled = ref(true);
-    const websocket = ref(null);
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
     const contact = ref(null);
+    const appInstances = ref(Number(3));
     const appRegistrationSpecification = ref(null);
     const tooltipText = ref('Copy to clipboard');
     const copyButtonRef = ref(null);
+    const expireOptions = ref([]);
+    const expirePosition = ref(Number(0));
+    expireOptions.value = [
+      {
+        value: 22000,
+        label: '1 month',
+        time: 30 * 24 * 60 * 60 * 1000,
+      },
+      {
+        value: 66000,
+        label: '3 months',
+        time: 90 * 24 * 60 * 60 * 1000,
+      },
+      {
+        value: 132000,
+        label: '6 months',
+        time: 180 * 24 * 60 * 60 * 1000,
+      },
+      {
+        value: 264000,
+        label: '1 year',
+        time: 365 * 24 * 60 * 60 * 1000,
+      },
+    ];
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
-    const subscribedTill = computed(() => timestamp.value + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000); // 1 month
-
+    const subscribedTill = computed(() => {
+      if (props.appData.version >= 6) {
+        const auxArray = expireOptions.value;
+        if (auxArray[expirePosition.value]) {
+          return Date.now() + auxArray[expirePosition.value].time + 60 * 60 * 1000;
+        }
+      }
+      const expTime = Date.now() + 30 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000; // 1 month
+      return expTime;
+    });
+    const getExpireLabel = computed(() => {
+      const auxArray = expireOptions.value;
+      if (auxArray[expirePosition.value]) {
+        return auxArray[expirePosition.value].label;
+      }
+      return null;
+    });
     const callbackValue = () => {
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
@@ -1359,9 +2280,8 @@ export default {
       }
     };
     const autoSelectNodes = async () => {
-      const { instances } = props.appData;
-      const maxSamePubKeyNodes = +instances + 3;
-      const maxNumberOfNodes = +instances + Math.ceil(Math.max(7, +instances * 0.15));
+      const maxSamePubKeyNodes = +appInstances.value + 3;
+      const maxNumberOfNodes = +appInstances.value + Math.ceil(Math.max(7, +appInstances.value * 0.15));
       const notSelectedEnterpriseNodes = await getEnterpriseNodes();
       const nodesToSelect = [];
       const selectedEnNodes = [];
@@ -1479,7 +2399,7 @@ export default {
           name: appName,
           description: props.appData.description,
           owner: userZelid.value,
-          instances: props.appData.instances,
+          instances: appInstances.value,
           compose: [],
         };
         if (props.appData.version >= 5) {
@@ -1505,7 +2425,8 @@ export default {
           }
         }
         if (props.appData.version >= 6) {
-          appSpecification.expire = props.appData.expire || 22000;
+          const auxArray = expireOptions.value;
+          appSpecification.expire = auxArray[expirePosition.value].value || 22000;
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
@@ -1623,7 +2544,17 @@ export default {
         applicationPriceFluxDiscount.value = '';
         const auxSpecsFormatted = JSON.parse(JSON.stringify(appSpecFormatted));
         auxSpecsFormatted.priceUSD = props.appData.priceUSD;
-
+        console.log(auxSpecsFormatted.priceUSD);
+        if (appInstances.value && appInstances.value > 3) {
+          auxSpecsFormatted.priceUSD = Number(((auxSpecsFormatted.priceUSD * appInstances.value) / 3).toFixed(2));
+        }
+        if (expirePosition.value === '1') {
+          auxSpecsFormatted.priceUSD *= 3;
+        } else if (expirePosition.value === '2') {
+          auxSpecsFormatted.priceUSD *= 6;
+        } else if (expirePosition.value === '3') {
+          auxSpecsFormatted.priceUSD *= 12;
+        }
         const response = await AppsService.appPriceUSDandFlux(auxSpecsFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
@@ -2075,6 +3006,34 @@ export default {
       }
     };
 
+    const initializeFirebaseUI = () => {
+      const container = document.getElementById('firebaseui-auth-container');
+      if (container) {
+        const existingUI = firebaseui.auth.AuthUI.getInstance();
+        ui.value = existingUI || new firebaseui.auth.AuthUI(firebase.auth());
+        if (ui.value) {
+          ui.value.start(container, uiConfig);
+        } else {
+          console.error('Failed to initialize FirebaseUI AuthUI instance');
+        }
+      }
+    };
+
+    watch(
+      () => props.isActive,
+      async (newVal) => {
+        if (!newVal) return;
+        await nextTick();
+        initializeFirebaseUI();
+      },
+    );
+
+    onMounted(async () => {
+      if (!userZelid.value) {
+        getZelIdLoginPhrase();
+      }
+    });
+
     return {
       // UI
       loading,
@@ -2103,10 +3062,29 @@ export default {
       hddRadialBarSmall,
       hdd,
 
+      ui,
+      loginForm,
+      initiateLoginWS,
+      initMetamaskLogin,
+      loginPhrase,
+      resetModal,
+      handleOk,
+      login,
+      modalShow,
+      emailLogin,
+      initSSPLogin,
+      createAccount,
+      handleSignInSuccessWithAuthResult,
+      cancelVerification,
+      ssoVerification,
+      createSSOForm,
+      emailForm,
+      getZelIdLoginPhrase,
       userZelid,
       dataToSign,
       selectedGeolocation,
       contact,
+      appInstances,
       signClient,
       signature,
       appPricePerDeployment,
@@ -2125,6 +3103,7 @@ export default {
 
       register,
       callbackValue,
+      callbackValueLogin,
       initiateSignWS,
       initMetamask,
       initSSP,
@@ -2134,6 +3113,7 @@ export default {
       openSite,
       initSignFluxSSO,
       initWalletConnect,
+      initWalletConnectLogin,
       onSessionConnect,
       siwe,
       copyMessageToSign,
@@ -2143,6 +3123,8 @@ export default {
       confirmLaunchDialogCloseShowing,
       confirmLaunchDialogFinish,
       confirmLaunchDialogCancel,
+      expirePosition,
+      getExpireLabel,
 
       currentComponent,
       componentSelected,

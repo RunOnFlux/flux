@@ -975,22 +975,32 @@ async function checkDeterministicNodesCollisions() {
             }, 60 * 1000);
             return;
           }
-        } else if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp) {
+        }
+        if (nodeStatus.data.status === 'CONFIRMED' && nodeCollateralDifferentIp) {
           let errorCall = false;
           const askingIP = nodeCollateralDifferentIp.ip.split(':')[0];
           const askingIpPort = nodeCollateralDifferentIp.ip.split(':')[1] || '16127';
           await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(errorCall = true);
           if (!errorCall) {
-            log.error('Flux collision detection. Another ip:port is confirmed and reachable on flux network with the same collateral transaction information.');
+            log.error(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
             dosState = 100;
-            setDosMessage('Flux collision detection. Another ip:port is confirmed and reachable on flux network with the same collateral transaction information.');
+            setDosMessage(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
             setTimeout(() => {
               checkDeterministicNodesCollisions();
             }, 60 * 1000);
             return;
           }
-          const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
-          log.info(`createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
+          errorCall = false;
+          await serviceHelper.delay(60 * 1000); // 60s await to double check the other machine is really offline or it just restarted or restarted fluxOs
+          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(errorCall = true);
+          if (errorCall) {
+            const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
+            log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
+            if (getDosMessage().includes('is confirmed and reachable on flux network')) {
+              dosState = 0;
+              setDosMessage(null);
+            }
+          }
         }
       }
       // early stages of the network or testnet

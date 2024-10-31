@@ -5,7 +5,7 @@ const path = require('node:path');
 const { Readable, Writable } = require('node:stream');
 const zlib = require('node:zlib');
 
-const tar = require('tar-fs');
+const tar = require('tar/create');
 
 const chai = require('chai');
 const chaiAsPromised = require('chai-as-promised');
@@ -2879,19 +2879,21 @@ describe('fluxService tests', () => {
 
   describe('streamChain tests', () => {
     let osStub;
-    let fsStub;
+    let statStub;
+    let readdirStub;
     let blockchainInfoStub;
     let tarPackStub;
 
     beforeEach(() => {
       osStub = sinon.stub(os, 'homedir');
-      fsStub = sinon.stub(fs, 'stat');
+      statStub = sinon.stub(fs, 'stat');
+      readdirStub = sinon.stub(fs, 'readdir');
+
       blockchainInfoStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockchainInfo');
-      tarPackStub = sinon.stub(tar, 'pack');
+      tarPackStub = sinon.stub(tar, 'create');
     });
 
     afterEach(() => {
-      fluxService.unlockStreamLock();
       sinon.restore();
     });
 
@@ -2902,8 +2904,10 @@ describe('fluxService tests', () => {
       await fluxService.streamChain(null, res);
 
       expect(res.statusMessage).to.equal('Streaming of chain already in progress, server busy.');
+      expect(fluxService.getStreamLock()).to.equal(true);
       sinon.assert.calledWithExactly(res.status, 503);
       sinon.assert.calledOnce(res.end);
+      fluxService.unlockStreamLock();
     });
 
     it('should lock if no other streams are in progress', async () => {
@@ -2938,7 +2942,7 @@ describe('fluxService tests', () => {
 
       osStub.returns('/home/testuser');
 
-      fsStub.rejects(new Error("Test block dir doesn't exist"));
+      statStub.rejects(new Error("Test block dir doesn't exist"));
 
       await fluxService.streamChain(req, res);
 
@@ -2952,7 +2956,7 @@ describe('fluxService tests', () => {
       const req = { socket: { remoteAddress: '10.20.30.40' }, body: { unsafe: true, compress: true } };
 
       osStub.returns('/home/testuser');
-      fsStub.resolves({ isDirectory: () => true });
+      statStub.resolves({ isDirectory: () => true });
 
       await fluxService.streamChain(req, res);
 
@@ -2966,7 +2970,7 @@ describe('fluxService tests', () => {
       const req = { socket: { remoteAddress: '10.20.30.40' } };
 
       osStub.returns('/home/testuser');
-      fsStub.resolves({ isDirectory: () => true });
+      statStub.resolves({ isDirectory: () => true });
       blockchainInfoStub.resolves({ status: 'success', blocks: 1635577 });
 
       await fluxService.streamChain(req, res);
@@ -2974,6 +2978,59 @@ describe('fluxService tests', () => {
       expect(res.statusMessage).to.equal('Flux daemon still running, unable to clone blockchain.');
       sinon.assert.calledWithExactly(res.status, 503);
       sinon.assert.calledOnce(res.end);
+    });
+
+    it('should set Approx-Content-Length response header with expected value', async () => {
+      const received = [];
+
+      const req = { socket: { remoteAddress: '10.20.30.40' } };
+
+      const res = new Writable({
+        write(chunk, encoding, done) {
+          received.push(chunk.toString());
+          done();
+        },
+      });
+
+      res.setHeader = sinon.stub();
+
+      let count = 0;
+      const readable = new Readable({
+        read() {
+          this.push('test');
+          if (count === 3) this.push(null);
+          count += 1;
+        },
+      });
+
+      osStub.returns('/home/testuser');
+
+      const createFile = (name) => ({
+        name,
+        isDirectory: () => false,
+        isFile: () => true,
+      });
+
+      const folderCount = 3;
+      const testFileSize = 1048576;
+      const testFiles = [...Array(50).keys()].map((x) => createFile(x.toString()));
+      const headerSize = testFiles.length * 512 * folderCount;
+      const eof = 1024;
+      const totalFileSize = testFiles.length * testFileSize * folderCount;
+      const expectedSize = headerSize + totalFileSize + eof;
+
+      statStub.resolves({
+        isDirectory: () => true,
+        size: testFileSize,
+      });
+
+      readdirStub.resolves(testFiles);
+
+      blockchainInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED' } });
+      tarPackStub.returns(readable);
+
+      await fluxService.streamChain(req, res);
+      sinon.assert.calledWithExactly(res.setHeader, 'Approx-Content-Length', expectedSize.toString());
     });
 
     it('should stream chain uncompressed when no compression requested', async () => {
@@ -2988,6 +3045,8 @@ describe('fluxService tests', () => {
         },
       });
 
+      res.setHeader = sinon.stub();
+
       let count = 0;
       const readable = new Readable({
         read() {
@@ -2998,7 +3057,7 @@ describe('fluxService tests', () => {
       });
 
       osStub.returns('/home/testuser');
-      fsStub.resolves({ isDirectory: () => true });
+      statStub.resolves({ isDirectory: () => true });
       blockchainInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED' } });
       tarPackStub.returns(readable);
 
@@ -3012,6 +3071,7 @@ describe('fluxService tests', () => {
       const req = { socket: { remoteAddress: '10.20.30.40' }, body: { compress: true } };
 
       const res = zlib.createGunzip();
+      res.setHeader = sinon.stub();
 
       res.on('data', (data) => {
         // this gets all data in buffer
@@ -3030,7 +3090,7 @@ describe('fluxService tests', () => {
       });
 
       osStub.returns('/home/testuser');
-      fsStub.resolves({ isDirectory: () => true });
+      statStub.resolves({ isDirectory: () => true });
       blockchainInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED' } });
       tarPackStub.returns(readable);
 

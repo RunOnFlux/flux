@@ -172,6 +172,7 @@
       :app-data="app"
       :zelid="zelid"
       :tier="tier"
+      :is-active="isAppViewActive"
       @close-app-view="isAppViewActive = false"
     />
 
@@ -209,7 +210,7 @@ import {
 } from 'bootstrap-vue';
 
 import {
-  ref, computed, watch, onBeforeMount,
+  ref, computed, watch, onBeforeMount, nextTick,
 } from 'vue';
 
 // eslint-disable-next-line import/no-cycle
@@ -248,7 +249,6 @@ export default {
     AppView,
     SharedNodesView,
     CategorySidebar,
-
     VuePerfectScrollbar,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
@@ -449,9 +449,13 @@ export default {
     };
     getFluxNodeStatus();
 
-    const handleAppClick = (appData) => {
+    const handleAppClick = async (appData) => {
       app.value = appData;
       isAppViewActive.value = true;
+      await nextTick();
+      window.scrollTo({
+        top: 0,
+      });
     };
 
     const perfectScrollbarSettings = {
