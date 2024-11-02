@@ -329,14 +329,9 @@
                   v-model="selectedGeolocation"
                   :options="appData.geolocationOptions"
                 >
-                  <template #first>
-                    <b-form-select-option
-                      :value="null"
-                      disabled
-                    >
-                      Worldwide
-                    </b-form-select-option>
-                  </template>
+                  <b-form-select-option :value="null">
+                    Worldwide
+                  </b-form-select-option>
                 </b-form-select>
               </b-form-group>
             </div>
@@ -345,20 +340,26 @@
                 v-if="appData.version >= 3"
                 label-cols="3"
                 label-cols-lg="20"
-                label="Instances"
-                label-for="appInstances"
               >
+                <template #label>
+                  Instances
+                  <v-icon
+                    v-b-tooltip.hover.top="'Minimum number of application instances to be spawned'"
+                    name="info-circle"
+                  />
+                </template>
                 <div class="mx-1">
                   {{ appInstances }}
                 </div>
-                <b-form-input
+                <input
                   id="appInstances"
                   v-model="appInstances"
-                  placeholder="Minimum number of application instances to be spawned"
                   type="range"
-                  min="3"
-                  max="100"
-                  step="1"
+                  class="form-control-range"
+                  style="width: 100%; outline: none;"
+                  :min="3"
+                  :max="100"
+                  :step="1"
                 />
               </b-form-group>
             </div>
@@ -366,17 +367,23 @@
               v-if="appData.version >= 6"
               label-cols="3"
               label-cols-lg="20"
-              label="Period"
-              label-for="period"
             >
+              <template #label>
+                Period
+                <v-icon
+                  v-b-tooltip.hover.top="'How long an application will live on Flux network'"
+                  name="info-circle"
+                />
+              </template>
               <div class="mx-1">
                 {{ getExpireLabel }}
               </div>
-              <b-form-input
+              <input
                 id="period"
                 v-model="expirePosition"
-                placeholder="How long an application will live on Flux network"
                 type="range"
+                class="form-control-range"
+                style="width: 100%; outline: none;"
                 :min="0"
                 :max="3"
                 :step="1"
@@ -2584,7 +2591,7 @@ export default {
     };
 
     const smallchart = {
-      height: 100,
+      height: 150,
       type: 'radialBar',
       sparkline: {
         enabled: true,
@@ -2616,18 +2623,17 @@ export default {
     const cpuRadialBar = {
       chart: largechart,
       colors: [$themeColors.primary],
-      labels: ['Cores'],
+      labels: ['CORES'],
+      stroke: {
+        lineCap: 'round',
+      },
       plotOptions: {
         radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
+          offsetY: 0,
+          startAngle: 0,
+          endAngle: 360,
           hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
+            size: '65%',
           },
           dataLabels: {
             name: {
@@ -2645,44 +2651,22 @@ export default {
           },
         },
       },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
-        },
-      },
     };
 
     const cpuRadialBarSmall = {
       chart: smallchart,
-      colors: [$themeColors.success],
-      labels: ['Cores'],
+      colors: [$themeColors.primary],
+      labels: ['CORES'],
+      stroke: {
+        lineCap: 'round',
+      },
       plotOptions: {
         radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
+          offsetY: 0,
+          startAngle: 0,
+          endAngle: 360,
           hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.success,
-            strokeWidth: '50%',
+            size: '65%',
           },
           dataLabels: {
             name: {
@@ -2698,27 +2682,6 @@ export default {
               fontWeight: '300',
             },
           },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
         },
       },
     };
@@ -2727,17 +2690,16 @@ export default {
       chart: largechart,
       colors: [$themeColors.primary],
       labels: ['MB'],
+      stroke: {
+        lineCap: 'round',
+      },
       plotOptions: {
         radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
+          offsetY: 0,
+          startAngle: 0,
+          endAngle: 360,
           hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
+            size: '65%',
           },
           dataLabels: {
             name: {
@@ -2753,27 +2715,6 @@ export default {
               fontWeight: '300',
             },
           },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
         },
       },
     };
@@ -2782,17 +2723,16 @@ export default {
       chart: smallchart,
       colors: [$themeColors.primary],
       labels: ['MB'],
+      stroke: {
+        lineCap: 'round',
+      },
       plotOptions: {
         radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
+          offsetY: 0,
+          startAngle: 0,
+          endAngle: 360,
           hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
+            size: '65%',
           },
           dataLabels: {
             name: {
@@ -2810,44 +2750,22 @@ export default {
           },
         },
       },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
-        },
-      },
     };
 
     const hddRadialBar = {
       chart: largechart,
       colors: [$themeColors.primary],
       labels: ['GB'],
+      stroke: {
+        lineCap: 'round',
+      },
       plotOptions: {
         radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
+          offsetY: 0,
+          startAngle: 0,
+          endAngle: 360,
           hollow: {
-            size: '77%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
+            size: '65%',
           },
           dataLabels: {
             name: {
@@ -2865,44 +2783,22 @@ export default {
           },
         },
       },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 30,
-        },
-      },
     };
 
     const hddRadialBarSmall = {
       chart: smallchart,
       colors: [$themeColors.primary],
       labels: ['GB'],
+      stroke: {
+        lineCap: 'round',
+      },
       plotOptions: {
         radialBar: {
-          offsetY: -10,
-          startAngle: -150,
-          endAngle: 150,
+          offsetY: 0,
+          startAngle: 0,
+          endAngle: 360,
           hollow: {
-            size: '70%',
-          },
-          track: {
-            background: $themeColors.dark,
-            strokeWidth: '50%',
+            size: '65%',
           },
           dataLabels: {
             name: {
@@ -2918,27 +2814,6 @@ export default {
               fontWeight: '300',
             },
           },
-        },
-      },
-      fill: {
-        type: 'gradient',
-        gradient: {
-          shade: 'dark',
-          type: 'horizontal',
-          shadeIntensity: 0.5,
-          gradientToColors: [$themeColors.success],
-          inverseColors: true,
-          opacityFrom: 1,
-          opacityTo: 1,
-          stops: [0, 100],
-        },
-      },
-      stroke: {
-        lineCap: 'round',
-      },
-      grid: {
-        padding: {
-          bottom: 10,
         },
       },
     };
