@@ -113,6 +113,13 @@ export default {
     ]),
   },
   mounted() {
+    const storedZelidauth = localStorage.getItem('zelidauth');
+    if (storedZelidauth) {
+      const authData = qs.parse(storedZelidauth);
+      if (authData.zelid) {
+        this.$store.commit('flux/setZelid', authData.zelid);
+      }
+    }
     const { protocol, hostname, port } = window.location;
     let mybackend = '';
     mybackend += protocol;
