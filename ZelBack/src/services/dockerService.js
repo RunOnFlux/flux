@@ -807,33 +807,6 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
 }
 
 /**
- * Updates the Env Parameters of a Docker container.
- *
- * @param {string} idOrName - The ID or name of the Docker container.
- * @param {array} envParams - new App Env. Parameters.
- * @returns {Promise<string>} message
- */
-async function appDockerUpdateEnv(idOrName, envParams) {
-  try {
-    // Get the Docker container by ID or name
-    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-    // Update the container's CPU resources
-    await dockerContainer.update({
-      Env: envParams,
-    });
-
-    // eslint-disable-next-line no-use-before-define
-    await appDockerRestart(idOrName);
-
-    return `Flux App ${idOrName} env parameters successfully updated with.`;
-  } catch (error) {
-    log.error(error);
-    throw new Error(`Failed to updateenv parameters for ${idOrName}: ${error.message}`);
-  }
-}
-
-/**
  * Starts app's docker.
  *
  * @param {string} idOrName
@@ -1180,7 +1153,6 @@ async function dockerLogsFix() {
 module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
-  appDockerUpdateEnv,
   appDockerImageRemove,
   appDockerKill,
   appDockerPause,
