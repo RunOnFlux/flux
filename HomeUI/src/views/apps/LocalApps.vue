@@ -675,7 +675,7 @@
                     :per-page="tableconfig.globalAvailable.perPage"
                     :current-page="tableconfig.globalAvailable.currentPage"
                     :items="tableconfig.globalAvailable.apps"
-                    :fields="isLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
+                    :fields="isFluxAdminLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
                     :filter="tableconfig.globalAvailable.filter"
                     show-empty
                     sort-icon-left
@@ -2622,6 +2622,9 @@ export default {
     },
     isLoggedIn() {
       return (this.privilege === 'fluxteam' || this.privilege === 'admin');
+    },
+    isFluxAdminLoggedIn() {
+      return (this.privilege === 'fluxteam');
     },
     showLocations(row, items) {
       if (row.detailsShowing) {
