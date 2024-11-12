@@ -4,9 +4,6 @@ const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-const geolocationService = require('./geolocationService');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const generalService = require('./generalService');
 const pgpService = require('./pgpService');
 const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
@@ -642,32 +639,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       throw new Error('Environment parameters from Secrets are invalid - not an array');
     }
   }
-  const hostId = envParams.find((env) => env.startsWith('HOST_ID'));
-  if (!hostId) {
-    const collateral = await generalService.nodeCollateral().catch((error) => {
-      log.error(error);
-    });
-    if (collateral) {
-      envParams.push(`HOST_ID=${collateral}`);
-    }
-  }
-  const hostIp = envParams.find((env) => env.startsWith('HOST_IP'));
-  if (!hostIp) {
-    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (myIP) {
-      envParams.push(`HOST_IP=${myIP.split(':')[0]}`);
-    }
-  }
-  const hostGeo = envParams.find((env) => env.startsWith('HOST_GEO'));
-  if (!hostGeo) {
-    const myGeo = await geolocationService.getNodeGeolocation();
-    if (myGeo) {
-      delete myGeo.ip;
-      delete myGeo.org;
-      envParams.push(`HOST_GEO=${JSON.stringify(myGeo)}`);
-    }
-  }
-
   const adjustedCommands = [];
   appSpecifications.commands.forEach((command) => {
     if (command !== '--privileged') {
@@ -803,33 +774,6 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
   } catch (error) {
     log.error(error);
     throw new Error(`Failed to update CPU resources for ${idOrName}: ${error.message}`);
-  }
-}
-
-/**
- * Updates the Env Parameters of a Docker container.
- *
- * @param {string} idOrName - The ID or name of the Docker container.
- * @param {array} envParams - new App Env. Parameters.
- * @returns {Promise<string>} message
- */
-async function appDockerUpdateEnv(idOrName, envParams) {
-  try {
-    // Get the Docker container by ID or name
-    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-    // Update the container's CPU resources
-    await dockerContainer.update({
-      Env: envParams,
-    });
-
-    // eslint-disable-next-line no-use-before-define
-    await appDockerRestart(idOrName);
-
-    return `Flux App ${idOrName} env parameters successfully updated with.`;
-  } catch (error) {
-    log.error(error);
-    throw new Error(`Failed to updateenv parameters for ${idOrName}: ${error.message}`);
   }
 }
 
@@ -1180,7 +1124,6 @@ async function dockerLogsFix() {
 module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
-  appDockerUpdateEnv,
   appDockerImageRemove,
   appDockerKill,
   appDockerPause,
