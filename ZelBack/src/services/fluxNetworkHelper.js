@@ -897,9 +897,9 @@ async function adjustExternalIP(ip) {
             appsRemoved += 1;
           } else {
             // eslint-disable-next-line no-await-in-loop
-            /* await appsService.softRedeploy(app, null, true).catch((error) => {
+            await appsService.softRedeploy(app, null, true).catch((error) => {
               log.error(error);
-            }); */
+            });
           }
         }
         if (apps.length > appsRemoved) {
