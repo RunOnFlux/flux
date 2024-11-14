@@ -86,6 +86,20 @@ async function findInDatabase(database, collection, query, projection) {
 }
 
 /**
+ * Returns array of documents from the DB based on pipeline aggregate.
+ *
+ * @param {string} database
+ * @param {string} collection
+ * @param {object} pipeline
+ *
+ * @returns array
+ */
+async function aggregateInDatabase(database, collection, pipeline) {
+  const results = await database.collection(collection).aggregate(pipeline).toArray();
+  return results;
+}
+
+/**
  * Returns document from the DB based on the query and the projection.
  *
  * @param {string} database
@@ -266,4 +280,5 @@ module.exports = {
   collectionStats,
   closeDbConnection,
   insertManyToDatabase,
+  aggregateInDatabase,
 };

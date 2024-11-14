@@ -8974,6 +8974,48 @@ function getAppPorts(appSpecs) {
   return appPorts;
 }
 
+async function testTrySpawningGlobalApplication() {
+  // get all the applications list names missing instances
+  const pipeline = [
+    {
+      $lookup: {
+        from: 'zelappslocation',
+        localField: 'name',
+        foreignField: 'name',
+        as: 'locations',
+      },
+    },
+    {
+      $addFields: {
+        actual: { $size: '$locations.name' },
+      },
+    },
+    {
+      $match: {
+        $expr: { $lt: ['$actual', { $ifNull: ['$instances', 3] }] },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        name: '$name',
+        actual: '$actual',
+        required: '$instances',
+        nodes: { $ifNull: ['$nodes', []] },
+        geolocation: { $ifNull: ['$geolocation', []] },
+      },
+    },
+    { $sort: { name: 1 } },
+  ];
+
+  const dbconnection = dbHelper.databaseConnection();
+  const appsDatabase = dbconnection.db(config.database.appslocal.database);
+  log.info('testTrySpawningGlobalApplication');
+  const globalAppNamesLocation = await dbHelper.aggregateInDatabase(appsDatabase, localAppsInformation, pipeline);
+  log.info(JSON.stringify(globalAppNamesLocation));
+  log.info('testTrySpawningGlobalApplication');
+}
+
 /**
  * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address.
  * Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
@@ -13413,4 +13455,5 @@ module.exports = {
   getAppSpecsUSDPrice,
   checkApplicationsCpuUSage,
   monitorNodeStatus,
+  testTrySpawningGlobalApplication,
 };
