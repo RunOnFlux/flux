@@ -9100,14 +9100,14 @@ async function trySpawningGlobalApplication() {
       appFromAppsToBeCheckedLater = true;
     } else {
       const myNodeLocation = nodeFullGeolocation();
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.lengh === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (!app.geolocation.lengh === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
         || (app.nodes.lengh === 0 || app.nodes.find((ip) => ip === myIP)));
       // eslint-disable-next-line no-restricted-syntax
       for (const appToRunAux of globalAppNamesLocation) {
         if (!trySpawningGlobalAppCache.has(appToRunAux.name) && !appsToBeCheckedLater.includes((app) => app.appName === appToRunAux.name)) {
           appToRun = appToRunAux.name;
           minInstances = appToRunAux.required;
-          log.info(`Application ${appToRun} selected to try to spawne. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
+          log.info(`Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
           break;
         }
       }
