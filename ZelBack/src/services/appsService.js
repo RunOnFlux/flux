@@ -70,8 +70,8 @@ testingAppserver = httpShutdown(testingAppserver);
 
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
-  ttl: 1000 * 60 * 60 * 2, // 2 hours
-  maxAge: 1000 * 60 * 60 * 2, // 2 hours
+  ttl: 1000 * 60 * 60 * 6, // 6 hours
+  maxAge: 1000 * 60 * 60 * 6, // 6 hours
 };
 const shortCache = {
   max: 500,
@@ -9045,7 +9045,6 @@ async function trySpawningGlobalApplication() {
       throw new Error('Unable to detect Flux IP address');
     }
 
-    // get all the applications list names
     // get all the applications list names missing instances
     const pipeline = [
       {
@@ -9081,7 +9080,6 @@ async function trySpawningGlobalApplication() {
 
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    log.info('testTrySpawningGlobalApplication');
     let globalAppNamesLocation = await dbHelper.aggregateInDatabase(database, globalAppsInformation, pipeline);
     const numberOfGlobalApps = globalAppNamesLocation.length;
     if (!numberOfGlobalApps) {
@@ -9092,10 +9090,12 @@ async function trySpawningGlobalApplication() {
     }
 
     let appToRun = null;
+    let minInstances = null;
     let appFromAppsToBeCheckedLater = false;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
     if (appIndex >= 0) {
       appToRun = appsToBeCheckedLater[appIndex].appName;
+      minInstances = appsToBeCheckedLater[appIndex].required;
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
     } else {
@@ -9106,6 +9106,7 @@ async function trySpawningGlobalApplication() {
       for (const appToRunAux of globalAppNamesLocation) {
         if (!trySpawningGlobalAppCache.has(appToRunAux.name) && !appsToBeCheckedLater.includes((app) => app.appName === appToRunAux.name)) {
           appToRun = appToRunAux.name;
+          minInstances = appToRunAux.required;
           log.info(`Application ${appToRun} selected to try to spawne. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
           break;
         }
@@ -9147,15 +9148,6 @@ async function trySpawningGlobalApplication() {
     const appSpecifications = await getApplicationGlobalSpecifications(appToRun);
     if (!appSpecifications) {
       throw new Error(`Specifications for application ${appToRun} were not found!`);
-    }
-
-    // check if app is installed on the number of instances requested
-    let minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
-    if (runningAppList.length >= minInstances) {
-      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
-      await serviceHelper.delay(5 * 60 * 1000);
-      trySpawningGlobalApplication();
-      return;
     }
 
     // eslint-disable-next-line no-restricted-syntax
@@ -9215,9 +9207,9 @@ async function trySpawningGlobalApplication() {
 
     // double check if app is installed on the number of instances requested
     runningAppList = await getRunningAppList(appToRun);
-    minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
     if (runningAppList.length >= minInstances) {
       log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
+      trySpawningGlobalAppCache.delete(appToRun);
       await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
@@ -9276,6 +9268,7 @@ async function trySpawningGlobalApplication() {
         const appToCheck = {
           timeToCheck: Date.now() + 1.5 * 60 * 60 * 1000,
           appName: appToRun,
+          required: minInstances,
         };
         log.info(`App ${appToRun} specs are from cumulus, will check in 1.5h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
@@ -9284,6 +9277,7 @@ async function trySpawningGlobalApplication() {
         const appToCheck = {
           timeToCheck: Date.now() + 1 * 60 * 60 * 1000,
           appName: appToRun,
+          required: minInstances,
         };
         log.info(`App ${appToRun} specs are from nimbus, will check in 1h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
@@ -9292,6 +9286,7 @@ async function trySpawningGlobalApplication() {
         const appToCheck = {
           timeToCheck: Date.now() + 0.75 * 60 * 60 * 1000,
           appName: appToRun,
+          required: minInstances,
         };
         log.info(`App ${appToRun} specs are from cumulus, will check in 45m if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
@@ -9324,9 +9319,9 @@ async function trySpawningGlobalApplication() {
 
     // double check if app is installed in more of the instances requested
     runningAppList = await getRunningAppList(appToRun);
-    minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
     if (runningAppList.length > minInstances) {
       log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances, will unninstall it`);
+      trySpawningGlobalAppCache.delete(appToRun);
       removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
     }
 
