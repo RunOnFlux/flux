@@ -9008,10 +9008,10 @@ async function testTrySpawningGlobalApplication() {
     { $sort: { name: 1 } },
   ];
 
-  const dbconnection = dbHelper.databaseConnection();
-  const appsDatabase = dbconnection.db(config.database.appslocal.database);
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
   log.info('testTrySpawningGlobalApplication');
-  const globalAppNamesLocation = await dbHelper.aggregateInDatabase(appsDatabase, localAppsInformation, pipeline);
+  const globalAppNamesLocation = await dbHelper.aggregateInDatabase(database, globalAppsInformation, pipeline);
   log.info(JSON.stringify(globalAppNamesLocation));
   log.info('testTrySpawningGlobalApplication');
 }
