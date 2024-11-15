@@ -9103,7 +9103,7 @@ async function trySpawningGlobalApplication() {
     } else {
       const myNodeLocation = nodeFullGeolocation();
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
-        || (app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP)));
+        && (app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP)));
       log.info(`Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       // eslint-disable-next-line no-restricted-syntax
       for (const appToRunAux of globalAppNamesLocation) {
