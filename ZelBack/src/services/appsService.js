@@ -9080,6 +9080,7 @@ async function trySpawningGlobalApplication() {
 
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
+    log.info('Checking for apps that are missing instances on the network.');
     let globalAppNamesLocation = await dbHelper.aggregateInDatabase(database, globalAppsInformation, pipeline);
     const numberOfGlobalApps = globalAppNamesLocation.length;
     if (!numberOfGlobalApps) {
@@ -9088,6 +9089,7 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+    log.info(`Found ${numberOfGlobalApps} that are missing instances on the network.`);
 
     let appToRun = null;
     let minInstances = null;
@@ -9100,8 +9102,9 @@ async function trySpawningGlobalApplication() {
       appFromAppsToBeCheckedLater = true;
     } else {
       const myNodeLocation = nodeFullGeolocation();
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (!app.geolocation.lengh === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
-        || (app.nodes.lengh === 0 || app.nodes.find((ip) => ip === myIP)));
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
+        || (app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP)));
+      log.info(`Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
       // eslint-disable-next-line no-restricted-syntax
       for (const appToRunAux of globalAppNamesLocation) {
         if (!trySpawningGlobalAppCache.has(appToRunAux.name) && !appsToBeCheckedLater.includes((app) => app.appName === appToRunAux.name)) {
