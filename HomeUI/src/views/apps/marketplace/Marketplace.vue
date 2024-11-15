@@ -89,7 +89,7 @@
                 <div class="app-title-area">
                   <div class="title-wrapper">
                     <span class="app-title">
-                      <h4>{{ singleApp.name }}</h4>
+                      <kbd class="alert-info no-wrap" style="border-radius: 15px; font-size: 16px; font-weight: 700 !important;"> <b-icon scale="1.2" icon="app-indicator" />&nbsp;&nbsp;{{ singleApp.name }}&nbsp; </kbd>
                     </span>
                   </div>
                 </div>
@@ -120,7 +120,7 @@
               </div>
               <div class="app-title-area">
                 <div class="title-wrapper">
-                  <h6 class="text-nowrap text-muted mr-1 app-description">
+                  <h6 class="text-nowrap text-muted mr-1 mb-1 app-description" style="width: 900px">
                     {{ singleApp.description }}
                   </h6>
                 </div>
@@ -128,11 +128,26 @@
               <div class="app-title-area">
                 <div class="title-wrapper">
                   <h6 class="text-nowrap text-muted mr-1 app-description">
-                    CPU: {{ resolveCpu(singleApp) }} cores - RAM: {{ resolveRam(singleApp) }} MB - HDD: {{ resolveHdd(singleApp) }} GB
+                    &nbsp;<b-icon scale="1.4" icon="speedometer2" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ resolveCpu(singleApp) }} </b>&nbsp;</kbd>&nbsp;
+                    &nbsp;<b-icon scale="1.4" icon="cpu" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ resolveRam(singleApp) }}</b>&nbsp;</kbd>&nbsp;
+                    &nbsp;<b-icon scale="1.4" icon="hdd" />&nbsp;&nbsp;<kbd class="alert-success" style="border-radius: 15px;">&nbsp;<b>{{ resolveHdd(singleApp) }} GB</b>&nbsp;</kbd>&nbsp;
                   </h6>
                 </div>
               </div>
-              <div class="app-title-area">
+              <div
+                v-if="singleApp.priceUSD"
+                class="app-title-area"
+              >
+                <div class="title-wrapper">
+                  <h5 class="text-nowrap mr-1 app-description">
+                    &nbsp;<b-icon class="mr-1" scale="1.3" icon="cash" />{{ singleApp.priceUSD }} USD, &nbsp;<b-icon class="mr-1" scale="1.1" icon="clock" />{{ adjustPeriod(singleApp) }}
+                  </h5>
+                </div>
+              </div>
+              <div
+                v-else
+                class="app-title-area"
+              >
                 <div class="title-wrapper">
                   <h5 class="text-nowrap mr-1 app-description">
                     Price: {{ singleApp.price }} Flux / {{ adjustPeriod(singleApp) }}
@@ -157,6 +172,7 @@
       :app-data="app"
       :zelid="zelid"
       :tier="tier"
+      :is-active="isAppViewActive"
       @close-app-view="isAppViewActive = false"
     />
 
@@ -194,7 +210,7 @@ import {
 } from 'bootstrap-vue';
 
 import {
-  ref, computed, watch, onBeforeMount,
+  ref, computed, watch, onBeforeMount, nextTick,
 } from 'vue';
 
 // eslint-disable-next-line import/no-cycle
@@ -233,7 +249,6 @@ export default {
     AppView,
     SharedNodesView,
     CategorySidebar,
-
     VuePerfectScrollbar,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
@@ -382,9 +397,10 @@ export default {
             filteredApps.value = filteredApps.value.filter((appData) => appData.extraDetail.name.toLowerCase() === router.currentRoute.params.filter.toLowerCase());
           }
           if (searchQuery.value) {
+            const normalizedSearchQuery = searchQuery.value.toLowerCase();
             filteredApps.value = filteredApps.value.filter((appData) => {
-              if (appData.name.toLowerCase().includes(searchQuery.value)) return true;
-              if (appData.description.toLowerCase().includes(searchQuery.value)) return true;
+              if (appData.name.toLowerCase().includes(normalizedSearchQuery)) return true;
+              if (appData.description.toLowerCase().includes(normalizedSearchQuery)) return true;
               return false;
             });
           }
@@ -433,9 +449,13 @@ export default {
     };
     getFluxNodeStatus();
 
-    const handleAppClick = (appData) => {
+    const handleAppClick = async (appData) => {
       app.value = appData;
       isAppViewActive.value = true;
+      await nextTick();
+      window.scrollTo({
+        top: 0,
+      });
     };
 
     const perfectScrollbarSettings = {

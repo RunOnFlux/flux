@@ -1,23 +1,43 @@
-/* global userconfig */
-const benchmarkrpc = require('daemonrpc');
+const path = require('node:path');
+const fs = require('node:fs/promises');
+
 const config = require('config');
-const path = require('path');
-const fs = require('fs');
+const userconfig = require('../../../config/userconfig');
+const log = require('../lib/log');
+
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
-const log = require('../lib/log');
-
-const isTestnet = userconfig.initial.testnet;
-
-const rpcport = isTestnet === true ? config.benchmark.rpcporttestnet : config.benchmark.rpcport;
-
-const homeDirPath = path.join(__dirname, '../../../../');
-const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+const fluxRpc = require('./utils/fluxRpc');
 
 let response = messageHelper.createErrorMessage();
+
+let benchdClient = null;
+
+async function buildBenchdClient() {
+  const homeDirPath = path.join(__dirname, '../../../../');
+  const fluxbenchdPath = path.join(homeDirPath, '.fluxbenchmark');
+
+  const exists = await fs.stat(fluxbenchdPath).catch(() => false);
+
+  const prefix = exists ? 'flux' : 'zel';
+
+  const username = `${prefix}benchuser`;
+  const password = `${prefix}benchpassword`;
+
+  const { initial: { testnet: isTestnet } } = userconfig;
+  const portId = isTestnet ? 'rpcporttestnet' : 'rpcport';
+  const rpcPort = config.benchmark[portId];
+
+  const client = new fluxRpc.FluxRpc(`http://127.0.0.1:${rpcPort}`, {
+    auth: { username, password }, timeout: 10_000, mode: 'fluxbenchd',
+  });
+
+  benchdClient = client;
+  return client;
+}
 
 /**
  * To execute a remote procedure call (RPC).
@@ -27,23 +47,14 @@ let response = messageHelper.createErrorMessage();
  * @returns {object} Message.
  */
 async function executeCall(rpc, params) {
-  let callResponse;
   const rpcparameters = params || [];
-  try {
-    let rpcuser = 'zelbenchuser';
-    let rpcpassword = 'zelbenchpassword';
-    if (fs.existsSync(newBenchmarkPath)) {
-      rpcuser = 'fluxbenchuser';
-      rpcpassword = 'fluxbenchpassword';
-    }
 
-    const client = new benchmarkrpc.Client({
-      port: rpcport,
-      user: rpcuser,
-      pass: rpcpassword,
-      timeout: 60000,
-    });
-    const data = await client[rpc](...rpcparameters);
+  if (!benchdClient) await buildBenchdClient();
+
+  let callResponse;
+
+  try {
+    const data = await benchdClient.run(rpc, { params: rpcparameters });
     const successResponse = messageHelper.createDataMessage(data);
     callResponse = successResponse;
   } catch (error) {
@@ -251,6 +262,10 @@ async function executeUpnpBench() {
     log.info('Calling FluxBench startMultiPortBench');
     log.info(await startMultiPortBench());
   }
+}
+
+if (require.main === module) {
+  getInfo().then((res) => console.log(res));
 }
 
 module.exports = {

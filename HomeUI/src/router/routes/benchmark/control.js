@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Help',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Benchmark',
         },
         {
@@ -26,6 +29,9 @@ export default [
     meta: {
       pageTitle: 'Start',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Benchmark',
         },
@@ -48,6 +54,9 @@ export default [
       pageTitle: 'Stop',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Benchmark',
         },
         {
@@ -68,6 +77,9 @@ export default [
     meta: {
       pageTitle: 'Restart',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Benchmark',
         },

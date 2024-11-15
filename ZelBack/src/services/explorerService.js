@@ -1,5 +1,4 @@
 const config = require('config');
-const { LRUCache } = require('lru-cache');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -19,7 +18,6 @@ const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const addressTransactionIndexCollection = config.database.daemon.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
-const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
@@ -28,12 +26,6 @@ let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 
-// cache for nodes
-const LRUoptions = {
-  max: 20000, // store 20k of nodes value forever, no ttl
-};
-
-const nodeCollateralCache = new LRUCache(LRUoptions);
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 
@@ -57,136 +49,6 @@ async function getSenderTransactionFromDaemon(txid) {
     return sender;
   }
   throw txContent.data;
-}
-
-/**
- * To return sender for a transaction.
- * @param {string} txid Transaction ID.
- * @param {number} vout Transaction output number (vector of outputs).
- * @returns {object} Document.
- */
-async function getSenderForFluxTxInsight(txid, vout) {
-  const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
-  if (nodeCacheExists) {
-    return nodeCacheExists;
-  }
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.daemon.database);
-  const queryFluxTx = {
-    collateralHash: txid,
-    collateralIndex: vout,
-  };
-  // we do not need other data as we are just asking what the sender address is.
-  const projectionFluxTx = {
-    projection: {
-      _id: 0,
-      collateralHash: 1,
-      zelAddress: 1,
-      lockedAmount: 1,
-    },
-  };
-  // find previous flux transaction that
-  const txContent = await dbHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
-  if (!txContent) {
-    // ask blockchain for the transaction
-    const verbose = 1;
-    const req = {
-      params: {
-        txid,
-        verbose,
-      },
-    };
-    const transaction = await daemonServiceTransactionRpcs.getRawTransaction(req);
-    if (transaction.status === 'success' && transaction.data.vout && transaction.data.vout[0]) {
-      const transactionOutput = transaction.data.vout.find((txVout) => +txVout.n === +vout);
-      if (transactionOutput) {
-        const adjustedTxContent = {
-          txid,
-          address: transactionOutput.scriptPubKey.addresses[0],
-          satoshis: transactionOutput.valueSat,
-        };
-        nodeCollateralCache.set(`${txid}-${vout}`, adjustedTxContent);
-        return adjustedTxContent;
-      }
-    }
-  }
-  if (!txContent) {
-    log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
-    const adjustedTxContent = {
-      txid,
-      address: undefined,
-      satoshis: undefined,
-    };
-    return adjustedTxContent;
-  }
-  nodeCollateralCache.set(`${txid}-${vout}`, txContent);
-  const sender = txContent;
-  return sender;
-}
-
-/**
- * To return the sender address of a transaction (from Flux cache or database).
- * @param {string} txid Transaction ID.
- * @param {number} vout Transaction output number (vector of outputs).
- * @returns {object} Document.
- */
-async function getSenderForFluxTx(txid, vout) {
-  const nodeCacheExists = nodeCollateralCache.get(`${txid}-${vout}`);
-  if (nodeCacheExists) {
-    return nodeCacheExists;
-  }
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.daemon.database);
-  const query = {
-    txid,
-    vout,
-  };
-  // we do not need other data as we are just asking what the sender address is.
-  const projection = {
-    projection: {
-      _id: 0,
-      txid: 1,
-      // vout: 1,
-      // height: 1,
-      address: 1,
-      satoshis: 1,
-      // scriptPubKey: 1,
-      // coinbase: 1,
-    },
-  };
-
-  // find the utxo from global utxo list
-  let txContent = await dbHelper.findOneInDatabase(database, utxoIndexCollection, query, projection);
-  if (!txContent) {
-    log.info(`Transaction ${txid} ${vout} not found in database. Falling back to previous Flux transaction`);
-    const queryFluxTx = {
-      collateralHash: txid,
-      collateralIndex: vout,
-    };
-    // we do not need other data as we are just asking what the sender address is.
-    const projectionFluxTx = {
-      projection: {
-        _id: 0,
-        collateralHash: 1,
-        zelAddress: 1,
-        lockedAmount: 1,
-      },
-    };
-    // find previous flux transaction that
-    txContent = await dbHelper.findOneInDatabase(database, fluxTransactionCollection, queryFluxTx, projectionFluxTx);
-  }
-  if (!txContent) {
-    log.warn(`Transaction ${txid} ${vout} was not found anywhere. Uncomplete tx!`);
-    const adjustedTxContent = {
-      txid: undefined,
-      address: undefined,
-      satoshis: undefined,
-    };
-    return adjustedTxContent;
-  }
-  const sender = txContent;
-  nodeCollateralCache.set(`${txid}-${vout}`, txContent);
-  return sender;
 }
 
 /**
@@ -373,6 +235,11 @@ async function processSoftFork(txid, height, message) {
   // let it throw to stop block processing
   const splittedMess = message.split('_');
   const version = splittedMess[0];
+  if (!version || splittedMess.length < 2) {
+    log.info('Ignoring non valid Soft Fork message.');
+    log.info(`${txid}_${height}_${message}`);
+    return;
+  }
   const data = {
     txid,
     height,
@@ -399,7 +266,6 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
-  const transactions = [];
   const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
@@ -411,19 +277,21 @@ async function processInsight(blockDataVerbose, database) {
       let isReceiverFounation = false;
 
       tx.vin.forEach((sender) => {
-        if (sender.address === config.fluxapps.addressMultisig) { // coinbase vin.addr is undefined
+        if (sender.address === config.fluxapps.addressMultisig || sender.address === config.fluxapps.addressMultisigB) { // coinbase vin.addr is undefined
           isSenderFoundation = true;
         }
       });
 
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB && blockDataVerbose.height >= config.fluxapps.multisigAddressChange)
             || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressDevelopment && config.development)) { // DEVELOPMENT MODE
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
           }
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig || receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB) {
             isReceiverFounation = true;
           }
         }
@@ -461,7 +329,6 @@ async function processInsight(blockDataVerbose, database) {
             const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
             if (!result) {
               appsTransactions.push(appTxRecord);
-              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
             } else {
               throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
             }
@@ -472,42 +339,33 @@ async function processInsight(blockDataVerbose, database) {
         }
       }
       // check for softForks
-      const isSoftFork = isSenderFoundation && isReceiverFounation;
+      const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
         // eslint-disable-next-line no-await-in-loop
         await processSoftFork(tx.txid, blockDataVerbose.height, message);
       }
-    } else if (tx.version === 5) {
-      // todo include to daemon better information about hash and index and preferably address associated
-      const collateralHash = tx.txhash;
-      const collateralIndex = tx.outidx;
-      // eslint-disable-next-line no-await-in-loop
-      const senderInfo = await getSenderForFluxTxInsight(collateralHash, collateralIndex);
-      const fluxTxData = {
-        txid: tx.txid,
-        version: tx.version,
-        type: tx.type,
-        updateType: tx.update_type,
-        ip: tx.ip,
-        benchTier: tx.benchmark_tier,
-        collateralHash,
-        collateralIndex,
-        zelAddress: senderInfo.address || senderInfo.zelAddress,
-        lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
-        height: blockDataVerbose.height,
-      };
-
-      transactions.push(fluxTxData);
     }
   }
-  const options = {
-    ordered: false, // If false, continue with remaining inserts when one fails.
-  };
   if (appsTransactions.length > 0) {
+    const options = {
+      ordered: false, // If false, continue with remaining inserts when one fails.
+    };
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-  }
-  if (transactions.length > 0) {
-    await dbHelper.insertManyToDatabase(database, fluxTransactionCollection, transactions, options);
+    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
+      while (appsTransactions.length > 500) {
+        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
+      }
+      if (appsTransactions.length > 0) {
+        appsService.checkAndRequestMultipleApps(appsTransactions);
+      }
+    } else {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const tx of appsTransactions) {
+        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
+      }
+    }
   }
 }
 
@@ -519,6 +377,7 @@ async function processInsight(blockDataVerbose, database) {
 async function processStandard(blockDataVerbose, database) {
   // get Block transactions information
   const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
+  const appsTransactions = [];
   // now we have verbose transactions of the block extended for senders - object of
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
@@ -534,18 +393,20 @@ async function processStandard(blockDataVerbose, database) {
       const addresses = [];
       tx.senders.forEach((sender) => {
         addresses.push(sender.address);
-        if (sender.address === config.fluxapps.addressMultisig) {
+        if (sender.address === config.fluxapps.addressMultisig || sender.address === config.fluxapps.addressMultisigB) {
           isSenderFoundation = true;
         }
       });
       tx.vout.forEach((receiver) => {
         if (receiver.scriptPubKey.addresses) { // count for messages
           addresses.push(receiver.scriptPubKey.addresses[0]);
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.address
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig && blockDataVerbose.height >= config.fluxapps.appSpecsEnforcementHeights[6])
+            || (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB && blockDataVerbose.height >= config.fluxapps.multisigAddressChange)) {
             // it is an app message. Get Satoshi amount
             isFluxAppMessageValue += receiver.valueSat;
           }
-          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig) {
+          if (receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisig || receiver.scriptPubKey.addresses[0] === config.fluxapps.addressMultisigB) {
             isReceiverFounation = true;
           }
         }
@@ -592,8 +453,7 @@ async function processStandard(blockDataVerbose, database) {
             };
             const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, querySearch, projectionSearch); // this search can be later removed if nodes rescan apps and reconstruct the index for unique
             if (!result) {
-              await dbHelper.insertOneToDatabase(database, appsHashesCollection, appTxRecord);
-              appsService.checkAndRequestApp(message, tx.txid, blockDataVerbose.height, isFluxAppMessageValue);
+              appsTransactions.push(appTxRecord);
             } else {
               throw new Error(`Found an existing hash app ${serviceHelper.ensureString(result)}`);
             }
@@ -604,34 +464,33 @@ async function processStandard(blockDataVerbose, database) {
         }
       }
       // check for softForks
-      const isSoftFork = isSenderFoundation && isReceiverFounation;
+      const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
         await processSoftFork(tx.txid, blockDataVerbose.height, message);
       }
     }
-    // tx version 5 are flux transactions. Put them into flux
-    if (tx.version === 5) {
-      // todo include to daemon better information about hash and index and preferably address associated
-      const collateral = tx.collateral_output;
-      const partialCollateralHash = collateral.split('COutPoint(')[1].split(', ')[0];
-      const collateralIndex = Number(collateral.split(', ')[1].split(')')[0]);
-      const senderInfo = await getSenderForFluxTx(partialCollateralHash, collateralIndex);
-      const fluxTxData = {
-        txid: tx.txid,
-        version: tx.version,
-        type: tx.type,
-        updateType: tx.update_type,
-        ip: tx.ip,
-        benchTier: tx.benchmark_tier,
-        collateralHash: senderInfo.txid || senderInfo.collateralHash || partialCollateralHash,
-        collateralIndex,
-        zelAddress: senderInfo.address || senderInfo.zelAddress,
-        lockedAmount: senderInfo.satoshis || senderInfo.lockedAmount,
-        height: blockDataVerbose.height,
-      };
-      await dbHelper.insertOneToDatabase(database, fluxTransactionCollection, fluxTxData);
-    }
   }));
+  if (appsTransactions.length > 0) {
+    const options = {
+      ordered: false, // If false, continue with remaining inserts when one fails.
+    };
+    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
+    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
+      while (appsTransactions.length > 500) {
+        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
+      }
+      if (appsTransactions.length > 0) {
+        appsService.checkAndRequestMultipleApps(appsTransactions);
+      }
+    } else {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const tx of appsTransactions) {
+        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
+      }
+    }
+  }
 }
 
 /**
@@ -673,8 +532,6 @@ async function processBlock(blockHeight, isInsightExplorer) {
         log.info(`ADDR documents: ${resultB.size}, ${resultB.count}, ${resultB.avgObjSize}`);
         log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
       }
-      const resultC = await dbHelper.collectionStats(database, fluxTransactionCollection);
-      log.info(`FLUX documents: ${resultC.size}, ${resultC.count}, ${resultC.avgObjSize}`);
     }
     // this should run only when node is synced
     const isSynced = !(blockDataVerbose.confirmations >= 2);
@@ -780,8 +637,6 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   await dbHelper.updateInDatabase(database, addressTransactionIndexCollection, queryForAddresses, projection);
   // remove addresses with 0 transactions
   await dbHelper.removeDocumentsFromCollection(database, addressTransactionIndexCollection, queryForAddressesDeletion);
-  // restore fluxTransactions collection
-  await dbHelper.removeDocumentsFromCollection(database, fluxTransactionCollection, query);
   // restore appsHashes collection
   await dbHelper.removeDocumentsFromCollection(database, appsHashesCollection, query);
   log.info('Rescanning Blockchain Parameters!');
@@ -868,11 +723,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           throw error;
         }
       });
-      const resultC = await dbHelper.dropCollection(database, fluxTransactionCollection).catch((error) => {
-        if (error.message !== 'ns not found') {
-          throw error;
-        }
-      });
       const resultD = await dbHelper.dropCollection(database, appsHashesCollection).catch((error) => {
         if (error.message !== 'ns not found') {
           throw error;
@@ -889,7 +739,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           throw error;
         }
       });
-      log.info(result, resultB, resultC, resultD, resultFusion, resultChainParams);
+      log.info(result, resultB, resultD, resultFusion, resultChainParams);
 
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1 }, { name: 'query for getting utxo', unique: true });
       await database.collection(utxoIndexCollection).createIndex({ txid: 1, vout: 1, satoshis: 1 }, { name: 'query for getting utxo for zelnode tx', unique: true });
@@ -901,11 +751,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await database.collection(coinbaseFusionIndexCollection).createIndex({ scriptPubKey: 1 }, { name: 'query for scriptPubKey coinbase fusion utxo' });
       await database.collection(addressTransactionIndexCollection).createIndex({ address: 1 }, { name: 'query for addresses transactions' });
       await database.collection(addressTransactionIndexCollection).createIndex({ address: 1, count: 1 }, { name: 'query for addresses transactions with count' });
-      await database.collection(fluxTransactionCollection).createIndex({ ip: 1 }, { name: 'query for getting list of zelnode txs associated to IP address' });
-      await database.collection(fluxTransactionCollection).createIndex({ zelAddress: 1 }, { name: 'query for getting list of zelnode txs associated to ZEL address' });
-      await database.collection(fluxTransactionCollection).createIndex({ tier: 1 }, { name: 'query for getting list of zelnode txs according to benchmarking tier' });
-      await database.collection(fluxTransactionCollection).createIndex({ type: 1 }, { name: 'query for getting all zelnode txs according to type of transaction' });
-      await database.collection(fluxTransactionCollection).createIndex({ collateralHash: 1, collateralIndex: 1 }, { name: 'query for getting list of zelnode txs associated to specific collateral' });
       await database.collection(appsHashesCollection).createIndex({ txid: 1 }, { name: 'query for getting txid' });
       await database.collection(appsHashesCollection).createIndex({ height: 1 }, { name: 'query for getting height' });
       await database.collection(appsHashesCollection).createIndex({ hash: 1 }, { name: 'query for getting app hash', unique: true }).catch((error) => {
@@ -939,20 +784,20 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         });
         log.info(resultE, resultF, resultG);
       }
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' }); // , unique: true
+      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ height: 1 }, { name: 'query for getting zelapp message based on height' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'zelAppSpecifications.name': 1 }, { name: 'query for getting zelapp message based on zelapp specs name' }); // , unique: true
+      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'zelAppSpecifications.name': 1 }, { name: 'query for getting zelapp message based on zelapp specs name' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'zelAppSpecifications.owner': 1 }, { name: 'query for getting zelapp message based on zelapp specs owner' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'zelAppSpecifications.repotag': 1 }, { name: 'query for getting zelapp message based on image' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.name': 1 }, { name: 'query for getting app message based on zelapp specs name' }); // , unique: true
+      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.name': 1 }, { name: 'query for getting app message based on zelapp specs name' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.owner': 1 }, { name: 'query for getting app message based on zelapp specs owner' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.repotag': 1 }, { name: 'query for getting app message based on image' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' }); // , unique: true
+      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // , unique: true // we need to know the hash of the last message update which is the true identifier
+      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // todo evaluate unique: true // we need to know the hash of the last message update which is the true identifier
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
@@ -1027,8 +872,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
 
       if (isInsightExplorer) {
         // if node is insight explorer based, we are only processing flux app messages
-        if (scannedBlockHeight < config.deterministicNodesStart - 1) {
-          scannedBlockHeight = config.deterministicNodesStart - 1;
+        if (scannedBlockHeight < config.fluxapps.epochstart - 1) {
+          scannedBlockHeight = config.fluxapps.epochstart - 1;
         }
       }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
@@ -1110,47 +955,6 @@ async function getAllFusionCoinbase(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
-    const resMessage = messageHelper.createDataMessage(results);
-    res.json(resMessage);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-/**
- * To get all Flux transactions.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function getAllFluxTransactions(req, res) {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = {};
-    const projection = {
-      projection: {
-        _id: 0,
-        txid: 1,
-        version: 1,
-        type: 1,
-        updateType: 1,
-        ip: 1,
-        benchTier: 1,
-        collateralHash: 1,
-        collateralIndex: 1,
-        zelAddress: 1,
-        fluxAddress: 1,
-        lockedAmount: 1,
-        height: 1,
-      },
-    };
-    const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
-    results.forEach((rec) => {
-      // eslint-disable-next-line no-param-reassign
-      rec.fluxAddress = rec.fluxAddress || rec.zelAddress;
-    });
     const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -1315,64 +1119,6 @@ async function getAddressFusionCoinbase(req, res) {
       },
     };
     const results = await dbHelper.findInDatabase(database, coinbaseFusionIndexCollection, query, projection);
-    const resMessage = messageHelper.createDataMessage(results);
-    res.json(resMessage);
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-/**
- * To get Flux transactions filtered by either IP address, collateral hash or Flux address.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function getFilteredFluxTxs(req, res) {
-  try {
-    let { filter } = req.params; // we accept both help/command and help?command=getinfo
-    filter = filter || req.query.filter;
-    let query = {};
-    if (!filter) {
-      throw new Error('No filter provided');
-    }
-    if (filter.includes('.')) {
-      // IP address case
-      query = { ip: filter };
-    } else if (filter.length === 64) {
-      // collateralHash case
-      query = { collateralHash: filter };
-    } else if (filter.length >= 30 && filter.length < 38) {
-      // flux address case
-      query = { zelAddress: filter };
-    } else {
-      throw new Error('It is possible to only filter via IP address, Flux address and Collateral hash.');
-    }
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const projection = {
-      projection: {
-        _id: 0,
-        txid: 1,
-        version: 1,
-        type: 1,
-        updateType: 1,
-        ip: 1,
-        benchTier: 1,
-        collateralHash: 1,
-        collateralIndex: 1,
-        zelAddress: 1,
-        fluxAddress: 1,
-        lockedAmount: 1,
-        height: 1,
-      },
-    };
-    const results = await dbHelper.findInDatabase(database, fluxTransactionCollection, query, projection);
-    results.forEach((rec) => {
-      // eslint-disable-next-line no-param-reassign
-      rec.fluxAddress = rec.fluxAddress || rec.zelAddress;
-    });
     const resMessage = messageHelper.createDataMessage(results);
     res.json(resMessage);
   } catch (error) {
@@ -1581,6 +1327,53 @@ async function reindexExplorer(req, res) {
   }
 }
 
+async function fixExplorer(height = 1670000, rescanApps = true) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const blockheight = serviceHelper.ensureNumber(height);
+    const database = dbopen.db(config.database.daemon.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+    if (!currentHeight) {
+      throw new Error('No scanned height found');
+    }
+    if (currentHeight.generalScannedHeight <= blockheight) {
+      throw new Error('Block height shall be lower than currently scanned');
+    }
+    if (blockheight < 0) {
+      throw new Error('BlockHeight lower than 0');
+    }
+    const rescanapps = serviceHelper.ensureBoolean(rescanApps);
+    if (blockheight === 0) {
+      await dbHelper.dropCollection(database, scannedHeightCollection).catch((error) => {
+        if (error.message !== 'ns not found') {
+          log.error(error);
+        }
+      });
+    } else {
+      // stop block processing
+      const update = { $set: { generalScannedHeight: blockheight } };
+      const options = {
+        upsert: true,
+      };
+      // update scanned Height in scannedBlockHeightCollection
+      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    }
+    initiateBlockProcessor(true, false, rescanapps); // restore database and possibly do rescan of apps
+    const message = messageHelper.createSuccessMessage(`Explorer rescan from blockheight ${blockheight} initiated`);
+    log.info(message);
+  } catch (error) {
+    log.warn(error);
+    initiateBlockProcessor(true, true);
+  }
+}
+
 /**
  * To rescan Flux explorer database from a specific block height. Only accessible by admins and Flux team members.
  * @param {object} req Request.
@@ -1729,19 +1522,15 @@ module.exports = {
   getAllUtxos,
   getAllAddressesWithTransactions,
   getAllAddresses,
-  getAllFluxTransactions,
   getAddressUtxos,
   getAddressTransactions,
   getAddressBalance,
-  getFilteredFluxTxs,
   getScannedHeight,
   getAllFusionCoinbase,
   getAddressFusionCoinbase,
 
   // exports for testing puproses
   getSenderTransactionFromDaemon,
-  getSenderForFluxTxInsight,
-  getSenderForFluxTx,
   getSender,
   processBlockTransactions,
   getVerboseBlock,
@@ -1752,4 +1541,7 @@ module.exports = {
   setBlockProccessingCanContinue,
   setIsInInitiationOfBP,
   restoreDatabaseToBlockheightState,
+
+  // temporary function
+  fixExplorer,
 };

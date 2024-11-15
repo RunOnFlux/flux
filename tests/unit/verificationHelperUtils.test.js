@@ -1,4 +1,3 @@
-global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const config = require('config');
 const { ObjectId } = require('mongodb');
@@ -238,7 +237,7 @@ describe('verificationHelperUtils tests', () => {
         },
       };
 
-      const rndDate = new Date().getTime() - (3 * 60 * 60 * 1000);
+      const rndDate = Date.now() - (3 * 60 * 60 * 1000);
       headers.zelidauth.loginPhrase = `${rndDate}cl4joxxaevbx93gwhegqj1fqsubhb9tsg9s3hjkbuk8`;
 
       const rndSignature = signMessage(headers.zelidauth.loginPhrase, rndPrivKey);

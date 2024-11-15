@@ -149,18 +149,18 @@ export default {
 
     const checkXDAOProposals = async () => {
       let openNotVoted = 0;
-      axios.get('https://stats.runonflux.io/proposals/listProposals').then((response) => {
-        if (response.data.status === 'success') {
-          const openProposals = response.data.data.filter((proposal) => proposal.status === 'Open');
-          openProposals.forEach(async (proposal) => {
-            const voteInformation = await getVoteInformation(proposal);
-            if (voteInformation.status === 'success' && (voteInformation.data == null || voteInformation.data.length === 0)) {
-              openNotVoted += 1;
-              xdaoOpenProposals.value = openNotVoted;
-            }
-          });
-        }
-      });
+      const response = await axios.get('https://stats.runonflux.io/proposals/listProposals').catch(() => ({ data: { status: 'fail' } }));
+
+      if (response.data.status === 'success') {
+        const openProposals = response.data.data.filter((proposal) => proposal.status === 'Open');
+        openProposals.forEach(async (proposal) => {
+          const voteInformation = await getVoteInformation(proposal);
+          if (voteInformation.status === 'success' && (voteInformation.data == null || voteInformation.data.length === 0)) {
+            openNotVoted += 1;
+            xdaoOpenProposals.value = openNotVoted;
+          }
+        });
+      }
     };
 
     setInterval(() => {

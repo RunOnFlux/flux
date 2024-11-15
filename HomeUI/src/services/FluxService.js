@@ -70,16 +70,16 @@ export default {
     return Api().post('/flux/broadcastmessage', JSON.stringify(data), axiosConfig);
   },
   connectedPeers() {
-    return Api().get(`/flux/connectedpeers?timestamp=${new Date().getTime()}`);
+    return Api().get(`/flux/connectedpeers?timestamp=${Date.now()}`);
   },
   connectedPeersInfo() {
-    return Api().get(`/flux/connectedpeersinfo?timestamp=${new Date().getTime()}`);
+    return Api().get(`/flux/connectedpeersinfo?timestamp=${Date.now()}`);
   },
   incomingConnections() {
-    return Api().get(`/flux/incomingconnections?timestamp=${new Date().getTime()}`);
+    return Api().get(`/flux/incomingconnections?timestamp=${Date.now()}`);
   },
   incomingConnectionsInfo() {
-    return Api().get(`/flux/incomingconnectionsinfo?timestamp=${new Date().getTime()}`);
+    return Api().get(`/flux/incomingconnectionsinfo?timestamp=${Date.now()}`);
   },
   addPeer(zelidauthHeader, ip) {
     return Api().get(`/flux/addpeer/${ip}`, {
@@ -97,13 +97,6 @@ export default {
   },
   removeIncomingPeer(zelidauthHeader, ip) {
     return Api().get(`/flux/removeincomingpeer/${ip}`, {
-      headers: {
-        zelidauth: zelidauthHeader,
-      },
-    });
-  },
-  adjustCruxID(zelidauthHeader, cruxid) {
-    return Api().get(`/flux/adjustcruxid/${cruxid}`, {
       headers: {
         zelidauth: zelidauthHeader,
       },
@@ -130,7 +123,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/flux/adjustblockedports', JSON.stringify(data), axiosConfig);
+    return Api().post('/flux/adjustblockedports', data, axiosConfig);
   },
   adjustAPIPort(zelidauthHeader, apiport) {
     return Api().get(`/flux/adjustapiport/${apiport}`, {
@@ -146,15 +139,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/flux/adjustblockedrepositories', JSON.stringify(data), axiosConfig);
-  },
-  getCruxID() {
-    const axiosConfig = {
-      headers: {
-        'x-apicache-bypass': true,
-      },
-    };
-    return Api().get('/flux/cruxid', axiosConfig);
+    return Api().post('/flux/adjustblockedrepositories', data, axiosConfig);
   },
   getKadenaAccount() {
     const axiosConfig = {

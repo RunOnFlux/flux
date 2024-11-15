@@ -1,7 +1,23 @@
+import benchmarks from './benchmark';
+import daemon from './daemon';
+import flux from './flux';
+
 export default [
   {
-    header: 'Flux Admin',
-    privilege: ['user', 'admin', 'fluxteam'],
+    header: 'Administration',
+  },
+  {
+    title: 'Explorer',
+    route: 'explorer',
+    icon: 'search',
+  },
+  ...daemon,
+  ...benchmarks,
+  ...flux,
+  {
+    title: 'Local Apps',
+    icon: 'upload',
+    route: 'apps-localapps',
   },
   {
     title: 'Logged Sessions',
@@ -32,5 +48,11 @@ export default [
     icon: 'fingerprint',
     route: 'fluxadmin-manageusers',
     privilege: ['admin', 'fluxteam'],
+  },
+  {
+    title: 'My FluxShare',
+    icon: 'regular/hdd',
+    route: 'apps-fluxsharestorage',
+    privilege: ['admin'],
   },
 ];

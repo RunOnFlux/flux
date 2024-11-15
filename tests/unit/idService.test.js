@@ -1,4 +1,3 @@
-global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const chaiAsPromised = require('chai-as-promised');
@@ -17,12 +16,11 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 
 const adminConfig = {
-  fluxTeamZelId: '1zasdfg',
+  fluxTeamFluxID: '1zasdfg',
   initial: {
     ipaddress: '83.51.212.243',
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
     kadena: '1234kadena',
-    cruxid: '12345678',
     apiport: '5550',
     testnet: true,
   },
@@ -269,6 +267,10 @@ describe('idService tests', () => {
     let tierStub;
     let collateralStub;
     let getDOSStateStub;
+
+    before(async () => {
+      await dbHelper.initiateDB();
+    });
 
     beforeEach(() => {
       osTotalmemStub = sinon.stub(os, 'totalmem');
@@ -537,7 +539,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No ZelID is specified',
+          message: 'No Flux ID is specified',
         },
       };
 
@@ -562,7 +564,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -587,7 +589,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -612,7 +614,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -742,7 +744,7 @@ describe('idService tests', () => {
 
     it('should return error if database returns nothing', async () => {
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
-      const timestamp = new Date().getTime();
+      const timestamp = Date.now();
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       const req = {
@@ -770,7 +772,7 @@ describe('idService tests', () => {
     });
 
     it('should return error if signature in database is invalid', async () => {
-      const timestamp = new Date().getTime();
+      const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp + 10000}11111111111111111111111111111`,
       });
@@ -802,7 +804,7 @@ describe('idService tests', () => {
 
     it('should return error if signature verification failed', async () => {
       bitcoinMessageStub.returns(false);
-      const timestamp = new Date().getTime();
+      const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
@@ -834,7 +836,7 @@ describe('idService tests', () => {
 
     it('should return success message if everything is okay', async () => {
       bitcoinMessageStub.returns(true);
-      const timestamp = new Date().getTime();
+      const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
@@ -894,7 +896,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No ZelID is specified',
+          message: 'No Flux ID is specified',
         },
       };
 
@@ -919,7 +921,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -944,7 +946,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -969,7 +971,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'ZelID is not valid',
+          message: 'Flux ID is not valid',
         },
       };
 
@@ -1051,7 +1053,7 @@ describe('idService tests', () => {
 
     it('should return success message if everything is okay', async () => {
       bitcoinMessageStub.returns(true);
-      const timestamp = new Date().getTime();
+      const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
         loginPhrase: `${timestamp - 10000}11111111111111111111111111111`,
       });
@@ -1308,9 +1310,9 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(ws.send, 'status=error&data%5Bname%5D=myerrromessage&data%5Bmessage%5D=Unknown%20error');
     });
 
-    it('should return proper message if user is fluxTeamZelId', async () => {
+    it('should return proper message if user is fluxTeamFluxID', async () => {
       dbStub.resolves({
-        zelid: adminConfig.fluxTeamZelId,
+        zelid: adminConfig.fluxTeamFluxID,
         loginPhrase: '12333345656',
         signature: 'signature1',
         createdAt: '168450311',
@@ -1406,7 +1408,7 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(ws.send, 'status=error&data%5Bname%5D=myerrromessage&data%5Bmessage%5D=Unknown%20error');
     });
 
-    it('should return proper message if user is fluxTeamZelId', async () => {
+    it('should return proper message if user is fluxTeamFluxID', async () => {
       dbStub.resolves('found');
       const ws = generateWebsocket();
       const req = {
@@ -1451,7 +1453,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user ZelID specificed',
+          message: 'No user Flux ID specificed',
         },
       });
     });
@@ -1497,7 +1499,7 @@ describe('idService tests', () => {
         data: {
           code: undefined,
           name: 'Error',
-          message: 'No user ZelID signature specificed',
+          message: 'No user Flux ID signature specificed',
         },
       });
     });

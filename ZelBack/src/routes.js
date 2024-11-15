@@ -24,6 +24,8 @@ const upnpService = require('./services/upnpService');
 const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
+const backupRestoreService = require('./services/backupRestoreService');
+const IOUtils = require('./services/IOUtils');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
@@ -33,7 +35,7 @@ function isLocal(req, res, next) {
 
 const cache = apicache.middleware;
 
-module.exports = (app, expressWs) => {
+module.exports = (app) => {
   // GET PUBLIC methods
   app.get('/daemon/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     daemonServiceControlRpcs.help(req, res);
@@ -41,10 +43,10 @@ module.exports = (app, expressWs) => {
   app.get('/daemon/getinfo', cache('30 seconds'), (req, res) => {
     daemonServiceControlRpcs.getInfo(req, res);
   });
-  app.get('/daemon/getfluxnodestatus', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getfluxnodestatus', cache('60 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
-  app.get('/daemon/getzelnodestatus', cache('30 seconds'), (req, res) => { // DEPRECATED
+  app.get('/daemon/getzelnodestatus', cache('60 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
   app.get('/daemon/listfluxnodes/:filter?', cache('30 seconds'), (req, res) => {
@@ -232,6 +234,9 @@ module.exports = (app, expressWs) => {
   app.get('/flux/version', cache('30 seconds'), (req, res) => {
     fluxService.getFluxVersion(req, res);
   });
+  app.get('/flux/nodejsversions', cache('30 seconds'), (req, res) => {
+    fluxService.getNodeJsVersions(req, res);
+  });
   app.get('/flux/ip', cache('30 seconds'), (req, res) => {
     fluxService.getFluxIP(req, res);
   });
@@ -249,9 +254,6 @@ module.exports = (app, expressWs) => {
   });
   app.get('/flux/pgp', cache('30 seconds'), (req, res) => {
     fluxService.getFluxPGPidentity(req, res);
-  });
-  app.get('/flux/cruxid', cache('30 seconds'), (req, res) => {
-    fluxService.getFluxCruxID(req, res);
   });
   app.get('/flux/kadena', cache('30 seconds'), (req, res) => {
     fluxService.getFluxKadena(req, res);
@@ -284,7 +286,7 @@ module.exports = (app, expressWs) => {
     fluxCommunication.connectedPeersInfo(req, res);
   });
   app.get('/flux/incomingconnections', cache('30 seconds'), (req, res) => {
-    fluxNetworkHelper.getIncomingConnections(req, res, expressWs.getWss('/ws/flux'));
+    fluxNetworkHelper.getIncomingConnections(req, res);
   });
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getIncomingConnectionsInfo(req, res);
@@ -296,7 +298,7 @@ module.exports = (app, expressWs) => {
     fluxNetworkHelper.checkAppAvailability(req, res);
   });
 
-  app.get('/apps/listrunningapps', cache('30 seconds'), (req, res) => {
+  app.get('/apps/listrunningapps', cache('5 seconds'), (req, res) => {
     appsService.listRunningApps(req, res);
   });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
@@ -347,6 +349,9 @@ module.exports = (app, expressWs) => {
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
     appsService.getAppPrice(req, res);
   });
+  app.post('/apps/calculatefiatandfluxprice', (req, res) => { // returns price in usd and flux for both new registration of app and update of app
+    appsService.getAppFiatAndFluxPrice(req, res);
+  });
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
     generalService.whitelistedRepositories(req, res);
   });
@@ -362,6 +367,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/enterprisenodes', cache('30 seconds'), (req, res) => {
     enterpriseNodesService.getEnterpriseNodesAPI(req, res);
   });
+  app.get('/apps/getappspecsusdprice', cache('30 minutes'), (req, res) => {
+    appsService.getAppSpecsUSDPrice(req, res);
+  });
 
   // app.get('/explorer/allutxos', (req, res) => {
   //   explorerService.getAllUtxos(req, res);
@@ -372,13 +380,7 @@ module.exports = (app, expressWs) => {
   // app.get('/explorer/alladdresses', (req, res) => {
   //   explorerService.getAllAddresses(req, res);
   // });
-  // app.get('/explorer/fluxtransactions', (req, res) => {
-  //   explorerService.getAllFluxTransactions(req, res);
-  // });
-  // filter can be IP, address, collateralHash.
-  app.get('/explorer/fluxtxs/:filter?', cache('30 seconds'), (req, res) => {
-    explorerService.getFilteredFluxTxs(req, res);
-  });
+
   app.get('/explorer/utxo/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressUtxos(req, res);
   });
@@ -442,7 +444,7 @@ module.exports = (app, expressWs) => {
     syncthingService.getMeta(req, res);
   });
   app.get('/syncthing/deviceid', cache('30 seconds'), (req, res) => {
-    syncthingService.getDeviceID(req, res);
+    syncthingService.getDeviceIdApi(req, res);
   });
   app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
@@ -605,6 +607,34 @@ module.exports = (app, expressWs) => {
   });
   app.get('/syncthing/debug/file', cache('30 seconds'), (req, res) => {
     syncthingService.debugFile(req, res);
+  });
+  // BACKUP & RESTORE
+
+  app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', (req, res) => {
+    backupRestoreService.getVolumeDataOfComponent(req, res);
+  });
+  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?/:number?/:appname?', (req, res) => {
+    backupRestoreService.getRemoteFileSize(req, res);
+  });
+  app.get('/backup/getlocalbackuplist/:path?/:multiplier?/:decimal?/:number?/:appname?', (req, res) => {
+    backupRestoreService.getLocalBackupList(req, res);
+  });
+  app.get('/backup/removebackupfile/:filepath?/:appname?', (req, res) => {
+    backupRestoreService.removeBackupFile(req, res);
+  });
+  app.get('/backup/downloadlocalfile/:filepath?/:appname?', (req, res) => {
+    backupRestoreService.downloadLocalFile(req, res);
+  });
+  app.post('/apps/appendbackuptask', (req, res) => {
+    appsService.appendBackupTask(req, res);
+  });
+
+  app.post('/apps/appendrestoretask', (req, res) => {
+    appsService.appendRestoreTask(req, res);
+  });
+
+  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
+    IOUtils.fileUpload(req, res);
   });
 
   // GET PROTECTED API - Fluxnode Owner
@@ -847,9 +877,6 @@ module.exports = (app, expressWs) => {
     idService.logoutAllUsers(req, res);
   });
 
-  app.get('/flux/adjustcruxid/:cruxid?', (req, res) => { // note this essentially rebuilds flux use with caution!
-    fluxService.adjustCruxID(req, res);
-  });
   app.get('/flux/adjustkadena/:account?/:chainid?', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustKadenaAccount(req, res);
   });
@@ -994,7 +1021,7 @@ module.exports = (app, expressWs) => {
     fluxCommunication.addOutgoingPeer(req, res);
   });
   app.get('/flux/removeincomingpeer/:ip?', (req, res) => {
-    fluxCommunication.removeIncomingPeer(req, res, expressWs.getWss('/ws/flux'));
+    fluxCommunication.removeIncomingPeer(req, res);
   });
   app.get('/flux/allowport/:port?', (req, res) => {
     fluxNetworkHelper.allowPortApi(req, res);
@@ -1077,6 +1104,9 @@ module.exports = (app, expressWs) => {
   app.get('/apps/applog/:appname?/:lines?', (req, res) => {
     appsService.appLog(req, res);
   });
+  app.get('/apps/applogpolling/:appname?/:lines?/:since?', (req, res) => {
+    appsService.appLogPolling(req, res);
+  });
   app.get('/apps/appinspect/:appname?', (req, res) => {
     appsService.appInspect(req, res);
   });
@@ -1100,6 +1130,9 @@ module.exports = (app, expressWs) => {
   });
   app.get('/apps/installapplocally/:appname?', (req, res) => {
     appsService.installAppLocally(req, res);
+  });
+  app.get('/apps/testappinstall/:appname?', (req, res) => {
+    appsService.testAppInstall(req, res);
   });
   app.get('/apps/createfluxnetwork', (req, res) => {
     appsService.createFluxNetworkAPI(req, res);
@@ -1187,6 +1220,9 @@ module.exports = (app, expressWs) => {
   });
   app.post('/daemon/getaddressmempool', (req, res) => {
     daemonServiceAddressRpcs.getAddressMempool(req, res);
+  });
+  app.post('/flux/streamchain', (req, res) => {
+    fluxService.streamChain(req, res);
   });
 
   // POST PROTECTED API - USER LEVEL
@@ -1316,25 +1352,6 @@ module.exports = (app, expressWs) => {
     syncthingService.postDbScan(req, res);
   });
 
-  // WebSockets PUBLIC
-  app.ws('/ws/id/:loginphrase', (ws, req) => {
-    idService.wsRespondLoginPhrase(ws, req);
-  });
-  app.ws('/ws/zelid/:loginphrase', (ws, req) => { // DEPRECATED
-    idService.wsRespondLoginPhrase(ws, req);
-  });
-  app.ws('/ws/sign/:message', (ws, req) => {
-    idService.wsRespondSignature(ws, req);
-  });
-
-  // communication between multiple flux solution is on this:
-  app.ws('/ws/flux/:port', (ws, req) => {
-    fluxCommunication.handleIncomingConnection(ws, req);
-  });
-  app.ws('/ws/flux', (ws, req) => {
-    fluxCommunication.handleIncomingConnection(ws, req);
-  });
-
   // FluxShare
   app.get('/apps/fluxshare/getfile/:file?/:token?', (req, res) => {
     fluxshareService.fluxShareDownloadFile(req, res);
@@ -1374,5 +1391,24 @@ module.exports = (app, expressWs) => {
   });
   app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
     fluxshareService.fluxShareDownloadFolder(req, res);
+  });
+  // Volume Browser
+  app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {
+    appsService.getAppsFolder(req, res);
+  });
+  app.get('/apps/createfolder/:appname?/:component?/:folder?', (req, res) => {
+    appsService.createAppsFolder(req, res);
+  });
+  app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', (req, res) => {
+    appsService.renameAppsObject(req, res);
+  });
+  app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
+    appsService.removeAppsObject(req, res);
+  });
+  app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {
+    appsService.downloadAppsFile(req, res);
+  });
+  app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
+    appsService.downloadAppsFolder(req, res);
   });
 };

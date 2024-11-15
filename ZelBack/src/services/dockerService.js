@@ -5,7 +5,6 @@ const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
-const generalService = require('./generalService');
 const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
 
@@ -168,13 +167,13 @@ async function getDockerContainerByIdOrName(idOrName) {
  * Returns low-level information about a container.
  *
  * @param {string} idOrName
+ * @param {object} options
  * @returns {object}
  */
-async function dockerContainerInspect(idOrName) {
+async function dockerContainerInspect(idOrName, options = {}) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
-
-  const response = await dockerContainer.inspect();
+  const response = await dockerContainer.inspect(options);
   return response;
 }
 
@@ -217,6 +216,7 @@ async function dockerContainerStatsStream(idOrName, req, res, callback) {
     function onProgress(event) {
       if (res) {
         res.write(serviceHelper.ensureString(event));
+        if (res.flush) res.flush();
       }
       log.info(event);
     }
@@ -252,10 +252,10 @@ async function dockerContainerChanges(idOrName) {
  * @param {function} callback Callback.
  */
 function dockerPullStream(pullConfig, res, callback) {
-  const { repoTag, authToken } = pullConfig;
+  const { repoTag, provider, authToken } = pullConfig;
   let pullOptions;
-  const { provider } = generalService.parseDockerTag(repoTag);
 
+  // fix this auth token stuff upstream
   if (authToken) {
     if (authToken.includes(':')) { // specified by username:token
       pullOptions = {
@@ -282,6 +282,7 @@ function dockerPullStream(pullConfig, res, callback) {
     function onProgress(event) {
       if (res) {
         res.write(serviceHelper.ensureString(event));
+        if (res.flush) res.flush();
       }
       log.info(event);
     }
@@ -325,6 +326,7 @@ async function dockerContainerExec(container, cmd, env, res, callback) {
       mystream.on('data', (data) => {
         resultString = serviceHelper.dockerBufferToString(data);
         res.write(resultString);
+        if (res.flush) res.flush();
       });
       mystream.on('end', () => callback(null));
     });
@@ -349,6 +351,7 @@ async function dockerContainerLogsStream(idOrName, res, callback) {
     const logStream = new stream.PassThrough();
     logStream.on('data', (chunk) => {
       res.write(serviceHelper.ensureString(chunk.toString('utf8')));
+      if (res.flush) res.flush();
     });
 
     dockerContainer.logs(
@@ -402,6 +405,96 @@ async function dockerContainerLogs(idOrName, lines) {
   };
   const logs = await dockerContainer.logs(options);
   return logs;
+}
+
+async function dockerContainerLogsPolling(idOrName, lineCount, sinceTimestamp, callback) {
+  try {
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+    const logStream = new stream.PassThrough();
+    let logBuffer = '';
+
+    logStream.on('data', (chunk) => {
+      logBuffer += chunk.toString('utf8');
+      const lines = logBuffer.split('\n');
+      logBuffer = lines.pop();
+      // eslint-disable-next-line no-restricted-syntax
+      for (const line of lines) {
+        if (line.trim()) {
+          if (callback) {
+            callback(null, line);
+          }
+        }
+      }
+    });
+
+    logStream.on('error', (error) => {
+      log.error('Log stream encountered an error:', error);
+      if (callback) {
+        callback(error);
+      }
+    });
+
+    logStream.on('end', () => {
+      if (callback) {
+        callback(null, 'Stream ended'); // Notify end of logs
+      }
+    });
+
+    const logOptions = {
+      follow: true,
+      stdout: true,
+      stderr: true,
+      tail: lineCount,
+      timestamps: true,
+    };
+
+    if (sinceTimestamp) {
+      logOptions.since = new Date(sinceTimestamp).getTime() / 1000;
+    }
+    await new Promise((resolve, reject) => {
+      // eslint-disable-next-line consistent-return
+      dockerContainer.logs(logOptions, (err, mystream) => {
+        if (err) {
+          log.error('Error fetching logs:', err);
+          if (callback) {
+            callback(err);
+          }
+          return reject(err);
+        }
+        try {
+          dockerContainer.modem.demuxStream(mystream, logStream, logStream);
+          setTimeout(() => {
+            logStream.end();
+          }, 1500);
+          mystream.on('end', () => {
+            logStream.end();
+            resolve();
+          });
+
+          mystream.on('error', (error) => {
+            log.error('Stream error:', error);
+            logStream.end();
+            if (callback) {
+              callback(error);
+            }
+            reject(error);
+          });
+        } catch (error) {
+          log.error('Error during stream processing:', error);
+          if (callback) {
+            callback(new Error('An error occurred while processing the log stream'));
+          }
+          reject(error);
+        }
+      });
+    });
+  } catch (error) {
+    log.error('Error in dockerContainerLogsPolling:', error);
+    if (callback) {
+      callback(error);
+    }
+    throw error;
+  }
 }
 
 async function obtainPayloadFromStorage(url, appName) {
@@ -537,13 +630,13 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     if (Array.isArray(arraySecrets)) {
       arraySecrets.forEach((parameter) => {
         if (typeof parameter !== 'string' || parameter.length > 5000000) {
-          throw new Error('Environment parameters from Secrets are invalid');
+          throw new Error('Environment parameters from Secrets are invalid - type or length');
         } else if (parameter !== 'privileged') {
           envParams.push(parameter);
         }
       });
     } else {
-      throw new Error('Environment parameters from Secrets are invalid');
+      throw new Error('Environment parameters from Secrets are invalid - not an array');
     }
   }
   const adjustedCommands = [];
@@ -555,6 +648,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
+    Hostname: appSpecifications.name,
     AttachStdin: true,
     AttachStdout: true,
     AttachStderr: true,
@@ -563,9 +657,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Tty: false,
     ExposedPorts: exposedPorts,
     HostConfig: {
-      NanoCPUs: appSpecifications.cpu * 1e9,
-      Memory: appSpecifications.ram * 1024 * 1024,
-      MemorySwap: (appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024, // default 2GB swap
+      NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
+      Memory: Math.round(appSpecifications.ram * 1024 * 1024),
+      MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
       Binds: constructedVolumes,
       Ulimits: [
@@ -598,16 +692,11 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const backingFs = driverStatus.find((status) => status[0] === 'Backing Filesystem'); // d_type must be true for overlay, docker would not work if not
   if (backingFs && backingFs[1] === 'xfs') {
     // check that we have quota
-    const getDevice = await deviceHelper.getDfDevice('/var/lib/docker').catch((error) => {
-      log.error(error);
-    });
-    if (getDevice && getDevice !== false) {
-      const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForDevice(getDevice).catch((error) => {
-        log.error(error);
-      });
-      if (hasQuotaPossibility === true) {
-        options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
-      }
+
+    const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForMountTarget('/var/lib/docker');
+
+    if (hasQuotaPossibility) {
+      options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
     }
   }
 
@@ -665,17 +754,46 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
 }
 
 /**
+ * Updates the CPU limits of a Docker container.
+ *
+ * @param {string} idOrName - The ID or name of the Docker container.
+ * @param {number} nanoCpus - The CPU limit in nanoCPUs (1 CPU = 1,000,000,000 nanoCPUs).
+ * @returns {Promise<string>} message
+ */
+async function appDockerUpdateCpu(idOrName, nanoCpus) {
+  try {
+    // Get the Docker container by ID or name
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+    // Update the container's CPU resources
+    await dockerContainer.update({
+      NanoCpus: nanoCpus,
+    });
+
+    return `Flux App ${idOrName} successfully updated with ${nanoCpus / 1e9} CPUs.`;
+  } catch (error) {
+    log.error(error);
+    throw new Error(`Failed to update CPU resources for ${idOrName}: ${error.message}`);
+  }
+}
+
+/**
  * Starts app's docker.
  *
  * @param {string} idOrName
  * @returns {string} message
  */
 async function appDockerStart(idOrName) {
-  // container ID or name
-  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+  try {
+    // container ID or name
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
-  await dockerContainer.start(); // may throw
-  return `Flux App ${idOrName} successfully started.`;
+    await dockerContainer.start(); // may throw
+    return `Flux App ${idOrName} successfully started.`;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
 }
 
 /**
@@ -821,6 +939,46 @@ async function createFluxDockerNetwork() {
 }
 
 /**
+ *
+ * @returns {Promise<Docker.NetworkInspectInfo[]>}
+ */
+async function getFluxDockerNetworks() {
+  const fluxNetworks = await docker.listNetworks({
+    filters: JSON.stringify({
+      name: ['fluxDockerNetwork'],
+    }),
+  });
+
+  return fluxNetworks;
+}
+
+/**
+ *
+ * @returns {Promise<string[]>}
+ */
+async function getFluxDockerNetworkPhysicalInterfaceNames() {
+  const fluxNetworks = await getFluxDockerNetworks();
+
+  const interfaceNames = fluxNetworks.map((network) => {
+    // the physical interface name is br-<first 12 chars of Id>
+    const intName = `br-${network.Id.slice(0, 12)}`;
+    return intName;
+  });
+
+  return interfaceNames;
+}
+
+/**
+ *
+ * @returns {Promise<string[]>}
+ */
+async function getFluxDockerNetworkSubnets() {
+  const fluxNetworks = await getFluxDockerNetworks();
+  const subnets = fluxNetworks.map((network) => network.IPAM.Config[0].Subnet);
+  return subnets;
+}
+
+/**
  * Creates flux application docker network if doesn't exist
  *
  * @returns {object} response
@@ -942,44 +1100,70 @@ async function dockerGetUsage() {
   return df;
 }
 
+/**
+ * Fix docker logs.
+ * @returns {Promise<void>}
+ */
+async function dockerLogsFix() {
+  try {
+    const cwd = path.join(__dirname, '../../../helpers');
+    const scriptPath = path.join(cwd, 'dockerLogsFix.sh');
+    const { stdout } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+    // we do this so we don't log empty lines if there is no output
+    const lines = stdout.split('\n');
+    // this always has length
+    if (lines.slice(-1)[0] === '') lines.pop();
+
+    lines.forEach((line) => log.info(line));
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
-  getDockerContainer,
-  getAppIdentifier,
-  getAppDockerNameIdentifier,
-  dockerCreateNetwork,
-  dockerRemoveNetwork,
-  dockerNetworkInspect,
-  dockerListContainers,
-  dockerListImages,
-  dockerContainerInspect,
-  dockerContainerStats,
-  dockerContainerStatsStream,
-  dockerContainerChanges,
-  dockerPullStream,
-  dockerContainerExec,
-  dockerContainerLogsStream,
-  dockerContainerLogs,
   appDockerCreate,
+  appDockerUpdateCpu,
+  appDockerImageRemove,
+  appDockerKill,
+  appDockerPause,
+  appDockerRemove,
+  appDockerRestart,
   appDockerStart,
   appDockerStop,
-  appDockerRestart,
-  appDockerKill,
-  appDockerRemove,
-  appDockerImageRemove,
-  appDockerPause,
-  appDockerUnpause,
   appDockerTop,
-  createFluxDockerNetwork,
-  getDockerContainerOnly,
-  getDockerContainerByIdOrName,
+  appDockerUnpause,
   createFluxAppDockerNetwork,
-  removeFluxAppDockerNetwork,
-  pruneNetworks,
-  pruneVolumes,
-  pruneImages,
-  pruneContainers,
-  dockerInfo,
-  dockerVersion,
+  createFluxDockerNetwork,
+  dockerContainerChanges,
+  dockerContainerExec,
+  dockerContainerInspect,
+  dockerContainerLogs,
+  dockerContainerLogsPolling,
+  dockerContainerLogsStream,
+  dockerContainerStats,
+  dockerContainerStatsStream,
+  dockerCreateNetwork,
   dockerGetEvents,
   dockerGetUsage,
+  dockerInfo,
+  dockerListContainers,
+  dockerListImages,
+  dockerLogsFix,
+  dockerNetworkInspect,
+  dockerPullStream,
+  dockerRemoveNetwork,
+  dockerVersion,
+  getAppDockerNameIdentifier,
+  getAppIdentifier,
+  getDockerContainer,
+  getDockerContainerByIdOrName,
+  getDockerContainerOnly,
+  getFluxDockerNetworkPhysicalInterfaceNames,
+  getFluxDockerNetworkSubnets,
+  pruneContainers,
+  pruneImages,
+  pruneNetworks,
+  pruneVolumes,
+  removeFluxAppDockerNetwork,
 };

@@ -1,4 +1,3 @@
-/* global userconfig */
 /**
  * @module
  * Contains utility functions to be used only by verificationHelper.
@@ -63,7 +62,7 @@ async function verifyUserSession(headers) {
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   // if not logged, check if not older than 16 hours
   if (!loggedUser) {
-    const timestamp = new Date().getTime();
+    const timestamp = Date.now();
     const message = auth.loginPhrase;
     const maxHours = 16 * 60 * 60 * 1000;
     if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
@@ -96,7 +95,7 @@ async function verifyFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamZelId) return false;
+  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== config.fluxSupportTeamFluxID) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -130,7 +129,7 @@ async function verifyAdminAndFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  if (auth.zelid !== config.fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false; // admin is considered as fluxTeam
+  if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid && auth.zelid !== config.fluxSupportTeamFluxID) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -139,7 +138,6 @@ async function verifyAdminAndFluxTeamSession(headers) {
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   if (!loggedUser) return false;
-
   // check if signature corresponds to message with that zelid
   let valid = false;
   try {
@@ -164,8 +162,8 @@ async function verifyAppOwnerSession(headers, appName) {
   if (!headers || !headers.zelidauth || !appName) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID) return false;
+  const ownerFluxID = await serviceHelper.getApplicationOwner(appName);
+  if (auth.zelid !== ownerFluxID) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -175,7 +173,7 @@ async function verifyAppOwnerSession(headers, appName) {
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   // if not logged, check if not older than 2 hours
   if (!loggedUser) {
-    const timestamp = new Date().getTime();
+    const timestamp = Date.now();
     const message = auth.loginPhrase;
     const twoHours = 2 * 60 * 60 * 1000;
     if (Number(message.substring(0, 13)) < (timestamp - twoHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
@@ -206,8 +204,8 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   if (!headers || !headers.zelidauth || !appName) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  const ownerZelID = await serviceHelper.getApplicationOwner(appName);
-  if (auth.zelid !== ownerZelID && auth.zelid !== config.fluxTeamZelId && auth.zelid !== userconfig.initial.zelid) return false;
+  const ownerFluxID = await serviceHelper.getApplicationOwner(appName);
+  if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid && auth.zelid !== config.fluxSupportTeamFluxID) return false;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -217,7 +215,7 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
   // if not logged, check if not older than 2 hours
   if (!loggedUser) {
-    const timestamp = new Date().getTime();
+    const timestamp = Date.now();
     const message = auth.loginPhrase;
     const maxHours = 2 * 60 * 60 * 1000;
     if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {

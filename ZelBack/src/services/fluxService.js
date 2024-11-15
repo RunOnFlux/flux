@@ -1,12 +1,9 @@
-/* global userconfig */
-const nodecmd = require('node-cmd');
-const path = require('path');
-const config = require('config');
-const fullnode = require('fullnode');
-const util = require('util');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const { promisify } = require('node:util');
 
-const fsPromises = fs.promises;
+const config = require('config');
 
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
@@ -14,6 +11,7 @@ const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
+const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
@@ -24,14 +22,48 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
+const syncthingService = require('./syncthingService');
+const dockerService = require('./dockerService');
+
+// for streamChain endpoint
+const zlib = require('node:zlib');
+const tar = require('tar/create');
+// use non promises stream for node 14.x compatibility
+// const stream = require('node:stream/promises');
+const stream = require('node:stream');
+
+/**
+ * Stream chain lock, so only one request at a time
+ */
+let lock = false;
+
+/**
+ * For testing
+ */
+function getStreamLock() {
+  return lock;
+}
+
+/**
+ * For testing
+ */
+function unlockStreamLock() {
+  lock = false;
+}
+
+/**
+ * For testing
+ */
+function lockStreamLock() {
+  lock = true;
+}
 
 /**
  * To show the directory on the node machine where FluxOS files are stored.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
-// eslint-disable-next-line consistent-return
 async function fluxBackendFolder(req, res) {
   const fluxBackFolder = path.join(__dirname, '../../');
   const message = messageHelper.createDataMessage(fluxBackFolder);
@@ -39,13 +71,13 @@ async function fluxBackendFolder(req, res) {
 }
 
 /**
- * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
+ * To show the current short commit id.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
-// eslint-disable-next-line consistent-return
-async function enterMaster(req, res) {
+async function getCurrentCommitId(req, res) {
+  // Fix - this breaks if head in detached state? (or something, can't remember)
   if (req) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized !== true) {
@@ -53,24 +85,119 @@ async function enterMaster(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run entermaster`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error entering master branch of Flux: ${err.message}`, err.name, err.code);
+
+  const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
+    logError: false, params: ['rev-parse', '--short', 'HEAD'],
+  });
+
+  if (error) {
+    const errMsg = messageHelper.createErrorMessage(
+      `Error getting current commit id of Flux: ${error.message}`,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errMsg) : errMsg;
+  }
+
+  const successMsg = messageHelper.createSuccessMessage(commitId.trim());
+  return res ? res.json(successMsg) : successMsg;
+}
+
+/**
+ * To show the currently selected branch.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
+ */
+async function getCurrentBranch(req, res) {
+  // ToDo: Fix - this breaks if head in detached state (or something similar)
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errMessage) : errMessage;
     }
-    const message = messageHelper.createSuccessMessage('Master branch successfully entered');
-    return res ? res.json(message) : message;
+  }
+
+  const { stdout: commitId, error } = await serviceHelper.runCommand('git', {
+    logError: false, params: ['rev-parse', '--abbrev-ref', 'HEAD'],
   });
+
+  if (error) {
+    const errMsg = messageHelper.createErrorMessage(
+      `Error getting current branch of Flux: ${error.message}`,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errMsg) : errMsg;
+  }
+
+  const successMsg = messageHelper.createSuccessMessage(commitId.trim());
+  return res ? res.json(successMsg) : successMsg;
+}
+
+/**
+ * Check out branch if it exists locally
+ * @param {string} branch The branch to checkout
+ * @param {{pull?: Boolean}} options
+ * @returns {Promise<Boolean>}
+ */
+async function checkoutBranch(branch, options = {}) {
+  // ToDo: this will break if multiple remotes
+  const { error: verifyError } = await serviceHelper.runCommand('git', {
+    params: ['rev-parse', '--verify', branch],
+  });
+
+  if (verifyError) return false;
+
+  const { error: checkoutError } = await serviceHelper.runCommand('git', {
+    params: ['checkout', branch],
+  });
+
+  if (checkoutError) return false;
+
+  if (options.pull) {
+    const { error: pullError } = await serviceHelper.runCommand('git', { params: ['pull'] });
+    if (pullError) return false;
+  }
+
+  return true;
 }
 
 /**
  * To switch to master branch of FluxOS. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
+ */
+// eslint-disable-next-line consistent-return
+async function enterMaster(req, res) {
+  // why use npm for this?
+  if (req) {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+  }
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'entermaster'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error entering master branch of Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Master branch successfully entered');
+  return res ? res.json(message) : message;
+}
+
+/**
+ * To switch to development branch of FluxOS. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function enterDevelopment(req, res) {
@@ -81,24 +208,24 @@ async function enterDevelopment(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run enterdevelopment`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error entering development branch of Flux: ${err.message}`, err.name, err.code);
-      return res ? res.json(errMessage) : errMessage;
-    }
-    const message = messageHelper.createSuccessMessage('Development branch successfully entered');
-    return res ? res.json(message) : message;
-  });
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'enterdevelopment'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error entering development branch of Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Development branch successfully entered');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To update FluxOS version (executes the command `npm run updateflux` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Proimse<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function updateFlux(req, res) {
@@ -107,24 +234,25 @@ async function updateFlux(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run updateflux`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully updated');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'updateflux'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error updating Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux successfully updated');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To soft update FluxOS version (executes the command `npm run softupdate` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function softUpdateFlux(req, res) {
@@ -135,23 +263,25 @@ async function softUpdateFlux(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run softupdate`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux: ${err.message}`, err.name, err.code);
-      return res ? res.json(errMessage) : errMessage;
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully updated using soft method');
-    return res ? res.json(message) : message;
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'softupdate'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error soft updating Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux successfully soft updated');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To install the soft update of FluxOS (executes the command `npm run softupdateinstall` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function softUpdateFluxInstall(req, res) {
@@ -162,23 +292,25 @@ async function softUpdateFluxInstall(req, res) {
       return res ? res.json(errMessage) : errMessage;
     }
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run softupdateinstall`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error softly updating Flux with installation: ${err.message}`, err.name, err.code);
-      return res ? res.json(errMessage) : errMessage;
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully updated softly with installation');
-    return res ? res.json(message) : message;
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'softupdateinstall'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error soft updating Flux with installation: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux successfully soft updated with installation');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To hard update FluxOS version (executes the command `npm run hardupdateflux` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function hardUpdateFlux(req, res) {
@@ -187,23 +319,25 @@ async function hardUpdateFlux(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run hardupdateflux`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error hardupdating Flux: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully updating');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'hardupdateflux'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error hard updating Flux: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux successfully hard updated');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To rebuild FluxOS (executes the command `npm run homebuild` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function rebuildHome(req, res) {
@@ -212,23 +346,25 @@ async function rebuildHome(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../');
-  const exec = `cd ${nodedpath} && npm run homebuild`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Flux successfully rebuilt');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../');
+
+  const { error } = await serviceHelper.runCommand('npm', { cwd, params: ['run', 'homebuild'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error rebuilding Flux UI: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Flux UI successfully rebuilt');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To update Flux daemon version (executes the command `bash updateDaemon.sh` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function updateDaemon(req, res) {
@@ -237,23 +373,26 @@ async function updateDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash updateDaemon.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Daemon successfully updated');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'updateDaemon.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error updating Daemon: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Daemon successfully updated');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To update Flux benchmark version (executes the command `bash updateBenchmark.sh` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function updateBenchmark(req, res) {
@@ -262,23 +401,26 @@ async function updateBenchmark(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash updateBenchmark.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'updateBenchmark.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error updating Benchmark: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Benchmark successfully updated');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To start Flux benchmark (executes the command `fluxbenchd -daemon` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function startBenchmark(req, res) {
@@ -287,20 +429,21 @@ async function startBenchmark(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  let exec = 'zelbenchd -daemon';
-  if (fs.existsSync('/usr/local/bin/fluxbenchd')) {
-    exec = 'fluxbenchd -daemon';
+
+  const bin = await fs
+    .access('/usr/local/bin/fluxbenchd', fs.constants.F_OK)
+    .then(() => 'fluxbenchd')
+    .catch(() => 'zelbenchd');
+
+  const { error } = await serviceHelper.runCommand(bin, { params: ['-daemon'] });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
   }
-  nodecmd.get(exec, (err, data) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error starting Benchmark: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    console.log(data);
-    const message = messageHelper.createSuccessMessage('Benchmark successfully started');
-    return res.json(message);
-  });
+
+  const message = messageHelper.createSuccessMessage('Benchmark successfully started');
+  return res ? res.json(message) : message;
 }
 
 /**
@@ -316,23 +459,26 @@ async function restartBenchmark(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash restartBenchmark.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'restartBenchmark.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error restarting Benchmark: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Benchmark successfully restarted');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To start Flux daemon (executes the command `fluxd` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function startDaemon(req, res) {
@@ -341,27 +487,28 @@ async function startDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  let exec = 'zelcashd';
-  if (fs.existsSync('/usr/local/bin/fluxd')) {
-    exec = 'fluxd';
+
+  const bin = await fs
+    .access('/usr/local/bin/fluxd', fs.constants.F_OK)
+    .then(() => 'fluxd')
+    .catch(() => 'zelcashd');
+
+  const { error } = await serviceHelper.runCommand(bin);
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
   }
-  nodecmd.get(exec, (err, data) => {
-    if (err) {
-      log.error(err);
-      const errMessage = messageHelper.createErrorMessage(`Error starting Daemon: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    console.log(data);
-    const message = messageHelper.createSuccessMessage('Daemon successfully started');
-    return res.json(message);
-  });
+
+  const message = messageHelper.createSuccessMessage('Daemon successfully started');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To restart Flux daemon (executes the command `bash restartDaemon.sh` on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function restartDaemon(req, res) {
@@ -370,23 +517,26 @@ async function restartDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash restartDaemon.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'restartDaemon.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error restarting Daemon: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Daemon successfully restarted');
+  return res ? res.json(message) : message;
 }
 
 /**
  * To reindex Flux daemon database (executes the command `bash reindexDaemon.sh` on the node machine). Only accessible by admins.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Proise<object>} Message.
  */
 // eslint-disable-next-line consistent-return
 async function reindexDaemon(req, res) {
@@ -395,16 +545,19 @@ async function reindexDaemon(req, res) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
-  const nodedpath = path.join(__dirname, '../../../helpers');
-  const exec = `cd ${nodedpath} && bash reindexDaemon.sh`;
-  nodecmd.get(exec, (err) => {
-    if (err) {
-      const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${err.message}`, err.name, err.code);
-      return res.json(errMessage);
-    }
-    const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
-    return res.json(message);
-  });
+
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'reindexDaemon.sh');
+
+  const { error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error reindexing Daemon: ${error.message}`, error.name, error.code);
+    return res ? res.json(errMessage) : errMessage;
+  }
+
+  const message = messageHelper.createSuccessMessage('Daemon successfully reindexing');
+  return res ? res.json(message) : message;
 }
 
 /**
@@ -420,10 +573,22 @@ function getFluxVersion(req, res) {
 }
 
 /**
- * To show FluxOS IP address.
+ * To show NodeJS version.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
+ */
+function getNodeJsVersions(req, res) {
+  const { versions } = process;
+  const message = messageHelper.createDataMessage(versions);
+  return res ? res.json(message) : message;
+}
+
+/**
+ * To show FluxOS IP address.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {Promise<object>} Message.
  */
 async function getFluxIP(req, res) {
   const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
@@ -439,7 +604,7 @@ async function getFluxIP(req, res) {
 }
 
 /**
- * To show the current user's ZelID that is being used to access FluxOS.
+ * To show the current user's Flux ID that is being used to access FluxOS.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -483,18 +648,6 @@ function getFluxGeolocation(req, res) {
 function getFluxPGPidentity(req, res) {
   const pgp = userconfig.initial.pgpPublicKey;
   const message = messageHelper.createDataMessage(pgp);
-  return res ? res.json(message) : message;
-}
-
-/**
- * To show the current CruxID that is being used with FluxOS.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-function getFluxCruxID(req, res) {
-  const cruxID = userconfig.initial.cruxid || null;
-  const message = messageHelper.createDataMessage(cruxID);
   return res ? res.json(message) : message;
 }
 
@@ -578,16 +731,16 @@ function getMarketplaceURL(req, res) {
  * To download Flux daemon debug logs. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Debug.log file for Flux daemon.
+ * @returns {Promise<object>} Debug.log file for Flux daemon.
  */
 async function daemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (!authorized) {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
   // check daemon datadir
-  const defaultDir = new fullnode.Config().defaultFolder();
+  const defaultDir = daemonServiceUtils.getFluxdDir();
   const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
   const filepath = `${datadir}/debug.log`;
 
@@ -598,21 +751,23 @@ async function daemonDebug(req, res) {
  * To download Flux benchmark debug logs. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Debug.log file for Flux benchmark.
+ * @returns {Promise<object>} Debug.log file for Flux benchmark.
  */
 async function benchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (!authorized) {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     return res.json(errMessage);
   }
   const homeDirPath = path.join(__dirname, '../../../../');
   const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
-  let datadir = `${homeDirPath}.zelbenchmark`;
-  if (fs.existsSync(newBenchmarkPath)) {
-    datadir = newBenchmarkPath;
-  }
-  const filepath = `${datadir}/debug.log`;
+
+  const datadir = await fs
+    .access(newBenchmarkPath, fs.constants.F_OK)
+    .then(() => newBenchmarkPath)
+    .catch(() => path.join(homeDirPath, '.zelbenchmark'));
+
+  const filepath = path.join(datadir, 'debug.log');
 
   return res.download(filepath, 'debug.log');
 }
@@ -624,24 +779,28 @@ async function benchmarkDebug(req, res) {
  */
 async function tailDaemonDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const defaultDir = new fullnode.Config().defaultFolder();
-    const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
-    const filepath = `${datadir}/debug.log`;
-    const exec = `tail -n 100 ${filepath}`;
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${err.message}`, err.name, err.code);
-        res.json(errMessage);
-        return;
-      }
-      const message = messageHelper.createSuccessMessage(data);
-      res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
+    return;
   }
+
+  const defaultDir = daemonServiceUtils.getFluxdDir();
+  const datadir = daemonServiceUtils.getConfigValue('datadir') || defaultDir;
+  const filepath = path.join(datadir, 'debug.log');
+
+  const { stdout, error } = await serviceHelper.runCommand('tail', {
+    params: ['-n', '100', filepath],
+  });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Daemon debug file: ${error.message}`, error.name, error.code);
+    res.json(errMessage);
+    return;
+  }
+
+  const message = messageHelper.createSuccessMessage(stdout);
+  res.json(message);
 }
 
 /**
@@ -651,35 +810,41 @@ async function tailDaemonDebug(req, res) {
  */
 async function tailBenchmarkDebug(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../../');
-    const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
-    let datadir = `${homeDirPath}.zelbenchmark`;
-    if (fs.existsSync(newBenchmarkPath)) {
-      datadir = newBenchmarkPath;
-    }
-    const filepath = `${datadir}/debug.log`;
-    const exec = `tail -n 100 ${filepath}`;
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${err.message}`, err.name, err.code);
-        res.json(errMessage);
-        return;
-      }
-      const message = messageHelper.createSuccessMessage(data);
-      res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
+    return;
   }
+
+  const homeDirPath = path.join(__dirname, '../../../../');
+  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+
+  const datadir = await fs
+    .access(newBenchmarkPath, fs.constants.F_OK)
+    .then(() => newBenchmarkPath)
+    .catch(() => path.join(homeDirPath, '.zelbenchmark'));
+
+  const filepath = path.join(datadir, 'debug.log');
+
+  const { stdout, error } = await serviceHelper.runCommand('tail', {
+    params: ['-n', '100', filepath],
+  });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Benchmark debug file: ${error.message}`, error.name, error.code);
+    res.json(errMessage);
+    return;
+  }
+
+  const message = messageHelper.createSuccessMessage(stdout);
+  res.json(message);
 }
 
 /**
  * To download a specified FluxOS log file.
  * @param {object} res Response.
  * @param {string} filelog Log file name (excluding `.log`).
- * @returns {object} FluxOS .log file.
+ * @returns {Promise<object>} FluxOS .log file.
  */
 async function fluxLog(res, filelog) {
   const homeDirPath = path.join(__dirname, '../../../');
@@ -697,7 +862,7 @@ async function fluxLog(res, filelog) {
 async function fluxErrorLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
@@ -712,12 +877,12 @@ async function fluxErrorLog(req, res) {
  * To download FluxOS warn log. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function fluxWarnLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
@@ -732,12 +897,12 @@ async function fluxWarnLog(req, res) {
  * To download FluxOS info log. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function fluxInfoLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
@@ -752,12 +917,12 @@ async function fluxInfoLog(req, res) {
  * To download FluxOS debug log. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function fluxDebugLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
@@ -772,27 +937,31 @@ async function fluxDebugLog(req, res) {
  * To get a specified FluxOS tail log file (executes the command `tail -n 100` for the specified .log file on the node machine). Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @param {string} logfile Log file name (excluding `.log`).
+ * @param {Promise<string>} logfile Log file name (excluding `.log`).
  */
 async function tailFluxLog(req, res, logfile) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-  if (authorized === true) {
-    const homeDirPath = path.join(__dirname, '../../../');
-    const filepath = `${homeDirPath}${logfile}.log`;
-    const exec = `tail -n 100 ${filepath}`;
-    nodecmd.get(exec, (err, data) => {
-      if (err) {
-        const errMessage = messageHelper.createErrorMessage(`Error obtaining Flux ${logfile} file: ${err.message}`, err.name, err.code);
-        res.json(errMessage);
-        return;
-      }
-      const message = messageHelper.createSuccessMessage(data);
-      res.json(message);
-    });
-  } else {
+  if (authorized !== true) {
     const errMessage = messageHelper.errUnauthorizedMessage();
     res.json(errMessage);
+    return;
   }
+
+  const homeDirPath = path.join(__dirname, '../../../');
+  const filepath = path.join(homeDirPath, `${logfile}.log`);
+
+  const { stdout, error } = await serviceHelper.runCommand('tail', {
+    params: ['-n', '100', filepath],
+  });
+
+  if (error) {
+    const errMessage = messageHelper.createErrorMessage(`Error obtaining Flux log file: ${error.message}`, error.name, error.code);
+    res.json(errMessage);
+    return;
+  }
+
+  const message = messageHelper.createSuccessMessage(stdout);
+  res.json(message);
 }
 
 /**
@@ -804,7 +973,7 @@ async function tailFluxErrorLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      tailFluxLog(req, res, 'error');
+      await tailFluxLog(req, res, 'error');
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -823,7 +992,7 @@ async function tailFluxWarnLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      tailFluxLog(req, res, 'warn');
+      await tailFluxLog(req, res, 'warn');
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -842,7 +1011,7 @@ async function tailFluxInfoLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      tailFluxLog(req, res, 'info');
+      await tailFluxLog(req, res, 'info');
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -861,7 +1030,7 @@ async function tailFluxDebugLog(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      tailFluxLog(req, res, 'debug');
+      await tailFluxLog(req, res, 'debug');
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -875,7 +1044,7 @@ async function tailFluxDebugLog(req, res) {
  * To get FluxOS time zone.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 function getFluxTimezone(req, res) {
   try {
@@ -893,7 +1062,7 @@ function getFluxTimezone(req, res) {
  * To get info (version, status etc.) for daemon, node, benchmark, FluxOS and apps.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<object>} Message.
  */
 async function getFluxInfo(req, res) {
   try {
@@ -910,12 +1079,25 @@ async function getFluxInfo(req, res) {
       throw versionRes.data;
     }
     info.flux.version = versionRes.data;
+    const nodeJsVersionsRes = await getNodeJsVersions();
+    if (nodeJsVersionsRes.status === 'error') {
+      throw nodeJsVersionsRes.data;
+    }
+    info.flux.nodeJsVersion = nodeJsVersionsRes.data.node;
+    const syncthingVersion = await syncthingService.systemVersion();
+    if (syncthingVersion.status === 'error') {
+      throw syncthingVersion.data;
+    }
+    info.flux.syncthingVersion = syncthingVersion.data.version;
+    const dockerVersion = await dockerService.dockerVersion();
+    info.flux.dockerVersion = dockerVersion.Version;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
     }
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
+    info.flux.maxNumberOfIpChanges = fluxNetworkHelper.getMaxNumberOfIpChanges();
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
       throw zelidRes.data;
@@ -925,12 +1107,6 @@ async function getFluxInfo(req, res) {
     if (pgp.status === 'error') {
       throw pgp.data;
     }
-    info.flux.pgp = pgp.data;
-    const cruxidRes = await getFluxCruxID();
-    if (cruxidRes.status === 'error') {
-      throw cruxidRes.data;
-    }
-    info.flux.cruxid = cruxidRes.data;
     const timeResult = await getFluxTimezone();
     if (timeResult.status === 'error') {
       throw timeResult.data;
@@ -941,26 +1117,24 @@ async function getFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.flux.dos = dosResult.data;
-
     const dosAppsResult = await appsService.getAppsDOSState();
     if (dosResult.status === 'error') {
       throw dosAppsResult.data;
     }
     info.flux.appsDos = dosAppsResult.data;
     info.flux.development = userconfig.initial.development || false;
-
     const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
     if (daemonInfoRes.status === 'error') {
       throw daemonInfoRes.data;
     }
     info.daemon.info = daemonInfoRes.data;
-
+    const zmqEnabled = Boolean(daemonServiceUtils.getConfigValue('zmqpubhashblock'));
+    info.daemon.zmqEnabled = zmqEnabled;
     const daemonNodeStatusRes = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
     if (daemonNodeStatusRes.status === 'error') {
       throw daemonNodeStatusRes.data;
     }
     info.node.status = daemonNodeStatusRes.data;
-
     const benchmarkInfoRes = await benchmarkService.getInfo();
     if (benchmarkInfoRes.status === 'error') {
       throw benchmarkInfoRes.data;
@@ -1030,58 +1204,6 @@ async function getFluxInfo(req, res) {
 }
 
 /**
- * To adjust the current CruxID that is being used with FluxOS. Only accessible by admins.
- * @param {object} req Request.
- * @param {object} res Response.
- */
-async function adjustCruxID(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized === true) {
-      let { cruxid } = req.params;
-      cruxid = cruxid || req.query.cruxid;
-      if (!cruxid) {
-        throw new Error('No Crux ID provided');
-      }
-      if (!cruxid.includes('@')) {
-        throw new Error('Invalid Crux ID provided');
-      }
-      if (!cruxid.includes('.crux')) {
-        throw new Error('Invalid Crux ID provided');
-      }
-      const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      const dataToWrite = `module.exports = {
-        initial: {
-          ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
-          kadena: '${userconfig.initial.kadena || ''}',
-          testnet: ${userconfig.initial.testnet || false},
-          development: ${userconfig.initial.development || false},
-          apiport: ${Number(userconfig.initial.apiport || config.server.apiport)},
-          routerIP: '${userconfig.initial.routerIP || ''}',
-          pgpPrivateKey: \`${userconfig.initial.pgpPrivateKey || ''}\`,
-          pgpPublicKey: \`${userconfig.initial.pgpPublicKey || ''}\`,
-          blockedPorts: ${JSON.stringify(userconfig.initial.blockedPorts || [])},
-          blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
-        }
-      }`;
-
-      await fsPromises.writeFile(fluxDirPath, dataToWrite);
-
-      const successMessage = messageHelper.createSuccessMessage('CruxID adjusted');
-      res.json(successMessage);
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
-    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    res.json(errMessage);
-  }
-}
-
-/**
  * To update the current Kadena account (address/public key and chain ID) that is being used with FluxOS. Only accessible by admins.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1109,7 +1231,7 @@ async function adjustKadenaAccount(req, res) {
       const dataToWrite = `module.exports = {
   initial: {
     ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-    zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+    zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
     kadena: '${kadenaURI}',
     testnet: ${userconfig.initial.testnet || false},
     development: ${userconfig.initial.development || false},
@@ -1122,7 +1244,7 @@ async function adjustKadenaAccount(req, res) {
   }
 }`;
 
-      await fsPromises.writeFile(fluxDirPath, dataToWrite);
+      await fs.writeFile(fluxDirPath, dataToWrite);
 
       const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
@@ -1152,7 +1274,7 @@ async function adjustRouterIP(req, res) {
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
@@ -1165,7 +1287,7 @@ async function adjustRouterIP(req, res) {
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      await fsPromises.writeFile(fluxDirPath, dataToWrite);
+      await fs.writeFile(fluxDirPath, dataToWrite);
 
       const successMessage = messageHelper.createSuccessMessage('Router IP adjusted');
       res.json(successMessage);
@@ -1186,28 +1308,28 @@ async function adjustRouterIP(req, res) {
  * @param {object} res Response.
  */
 async function adjustBlockedPorts(req, res) {
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+
+  if (authorized !== true) {
+    const errMessage = messageHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+    return;
+  }
+
   try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized === true) {
-      let body = '';
-      req.on('data', (data) => {
-        body += data;
-      });
-      req.on('end', async () => {
-        try {
-          if (!body) {
-            throw new Error('Missing Blocked Ports Information.');
-          }
-          const processedBody = serviceHelper.ensureObject(body);
-          const { blockedPorts } = processedBody;
-          log.info(`blockedPorts: ${JSON.stringify(blockedPorts)}`);
-          if (!Array.isArray(blockedPorts)) {
-            throw new Error('Blocked Ports is not a valid array');
-          }
-          const dataToWrite = `module.exports = {
+    if (!req.body) {
+      throw new Error('Missing Blocked Ports Information.');
+    }
+    const processedBody = serviceHelper.ensureObject(req.body);
+    const { blockedPorts } = processedBody;
+    log.info(`blockedPorts: ${JSON.stringify(blockedPorts)}`);
+    if (!Array.isArray(blockedPorts)) {
+      throw new Error('Blocked Ports is not a valid array');
+    }
+    const dataToWrite = `module.exports = {
             initial: {
               ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+              zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
               kadena: '${userconfig.initial.kadena || ''}',
               testnet: ${userconfig.initial.testnet || false},
               development: ${userconfig.initial.development || false},
@@ -1219,24 +1341,10 @@ async function adjustBlockedPorts(req, res) {
               blockedRepositories: ${JSON.stringify(userconfig.initial.blockedRepositories || []).replace(/"/g, "'")},
             }
           }`;
-          const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-          await fsPromises.writeFile(fluxDirPath, dataToWrite);
-          const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
-          res.json(successMessage);
-        } catch (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.json(errorResponse);
-        }
-      });
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
+    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+    await fs.writeFile(fluxDirPath, dataToWrite);
+    const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
+    res.json(successMessage);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1270,7 +1378,7 @@ async function adjustAPIPort(req, res) {
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-          zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+          zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
           kadena: '${userconfig.initial.kadena || ''}',
           testnet: ${userconfig.initial.testnet || false},
           development: ${userconfig.initial.development || false},
@@ -1283,7 +1391,7 @@ async function adjustAPIPort(req, res) {
         }
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-      await fsPromises.writeFile(fluxDirPath, dataToWrite);
+      await fs.writeFile(fluxDirPath, dataToWrite);
 
       const successMessage = messageHelper.createSuccessMessage('API Port adjusted. A restart of FluxOS is necessary');
       res.json(successMessage);
@@ -1304,35 +1412,36 @@ async function adjustAPIPort(req, res) {
  * @param {object} res Response.
  */
 async function adjustBlockedRepositories(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (authorized === true) {
-      let body = '';
-      req.on('data', (data) => {
-        body += data;
-      });
-      req.on('end', async () => {
-        try {
-          if (!body) {
-            throw new Error('Missing Blocked Repositories Information.');
-          }
-          log.info(`body: ${JSON.stringify(body)}`);
-          const processedBody = serviceHelper.ensureObject(body);
-          const { blockedRepositories } = processedBody;
-          log.info(`blockedRepositories: ${JSON.stringify(blockedRepositories)}`);
-          if (!Array.isArray(blockedRepositories)) {
-            throw new Error('Blocked Repositories is not a valid array');
-          }
-          blockedRepositories.forEach((parameter) => {
-            if (typeof parameter !== 'string') {
-              throw new Error('Blocked Repositories are invalid');
-            }
-          });
+  const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-          const dataToWrite = `module.exports = {
+  if (authorized !== true) {
+    const errMessage = messageHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+    return;
+  }
+
+  try {
+    if (!req.body) {
+      throw new Error('Missing Blocked Repositories Information.');
+    }
+    log.info(`body: ${JSON.stringify(req.body)}`);
+    // this is redundant now
+    const processedBody = serviceHelper.ensureObject(req.body);
+    const { blockedRepositories } = processedBody;
+    log.info(`blockedRepositories: ${JSON.stringify(blockedRepositories)}`);
+    if (!Array.isArray(blockedRepositories)) {
+      throw new Error('Blocked Repositories is not a valid array');
+    }
+    blockedRepositories.forEach((parameter) => {
+      if (typeof parameter !== 'string') {
+        throw new Error('Blocked Repositories are invalid');
+      }
+    });
+
+    const dataToWrite = `module.exports = {
             initial: {
               ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
-              zelid: '${userconfig.initial.zelid || config.fluxTeamZelId}',
+              zelid: '${userconfig.initial.zelid || config.fluxTeamFluxID}',
               kadena: '${userconfig.initial.kadena || ''}',
               testnet: ${userconfig.initial.testnet || false},
               development: ${userconfig.initial.development || false},
@@ -1344,24 +1453,10 @@ async function adjustBlockedRepositories(req, res) {
               blockedRepositories: ${JSON.stringify(blockedRepositories || []).replace(/"/g, "'")},
             }
           }`;
-          const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
-          await fsPromises.writeFile(fluxDirPath, dataToWrite);
-          const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
-          res.json(successMessage);
-        } catch (error) {
-          log.error(error);
-          const errorResponse = messageHelper.createErrorMessage(
-            error.message || error,
-            error.name,
-            error.code,
-          );
-          res.json(errorResponse);
-        }
-      });
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
+    const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
+    await fs.writeFile(fluxDirPath, dataToWrite);
+    const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
+    res.json(successMessage);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1411,15 +1506,18 @@ async function getNodeTier(req, res) {
  * To install Flux Watch Tower (executes the command `bash fluxwatchtower.sh` in the relevent directory on the node machine).
  */
 async function installFluxWatchTower() {
-  try {
-    const nodedpath = path.join(__dirname, '../../../helpers');
-    const exec = `cd ${nodedpath} && bash fluxwatchtower.sh`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const cmdres = await cmdAsync(exec);
-    log.info(cmdres);
-  } catch (error) {
-    log.error(error);
-  }
+  const cwd = path.join(__dirname, '../../../helpers');
+  const scriptPath = path.join(cwd, 'fluxwatchtower.sh');
+
+  const { stdout, error } = await serviceHelper.runCommand(scriptPath, { cwd });
+
+  if (error) return;
+
+  const lines = stdout.split('\n');
+  // this always has length
+  if (lines.slice(-1)[0] === '') lines.pop();
+
+  lines.forEach((line) => log.info(line));
 }
 
 /**
@@ -1428,80 +1526,269 @@ async function installFluxWatchTower() {
  * @param {object} res Response.
  */
 async function restartFluxOS(req, res) {
-  try {
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized === true) {
-      const exec = 'pm2 restart flux';
-      const cmdAsync = util.promisify(nodecmd.get);
-      await cmdAsync(exec);
-      log.info('Restarting FluxOS..');
-      const response = messageHelper.createDataMessage('Restarting FluxOS');
-      res.json(response);
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-    }
-  } catch (error) {
-    log.error(error);
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    const errMessage = messageHelper.errUnauthorizedMessage();
+    res.json(errMessage);
+    return;
+  }
+
+  log.info('Restarting FluxOS..');
+
+  const { error } = await serviceHelper.runCommand('pm2', { params: ['restart', 'flux'] });
+
+  if (error) {
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
+    return;
+  }
+
+  const response = messageHelper.createDataMessage('Restarting FluxOS');
+  res.json(response);
+}
+
+/**
+ * Streams the blockchain via http at breakneck speeds.
+ *
+ * Designed for UPnP nodes.
+ *
+ * Leverages the fact that a lot of nodes run on the same hypervisor, where
+ * they share a brige or v-switch. In this case - the transfer is as fast as your
+ * SSD. Real life testing showed speeds of 3.2Gbps on an Evo 980+ SSD. Able to
+ * download the entire chain UNCOMPRESED in 90 seconds.
+ *
+ * Even in a traditional LAN, most consumer grade hardware is 1Gbps - this should be
+ * easily achievable in your average home network.
+ *
+ * During normal operation, the flux daemon (fluxd) must NOT be running, this is so
+ * the database is in a consistent state when it is read. However, during testing,
+ * and WITHOUT compression, as long as the chain transfer is reasonably fast, there is
+ * minimal risk of a db compaction happening, and corrupting the new data.
+ *
+ * This method can transfer data compressed (using gzip) or uncompressed. It is recommended
+ * to only stream the data uncompressed. If using compression on the fly, this uses a lot of
+ * CPU and will slow the transfers down by 10-20 times, while only saving ~30% on file size.
+ * If the daemon is still running during this time, IT WILL CORRUPT THE NEW DATA. (tested)
+ * Due to this, if compression is used, the daemon MUST not be running.
+ *
+ * There is an unsafe mode, where a user can transfer the chain while the daemon is still
+ * running, USE AT YOUR OWN RISK. Of note, the data being copied will not be corrupted,
+ * only the new chain.
+ *
+ * Only allows one stream at a time - will return 503 if stream in progress.
+ *
+ *  Able to be used by curl. Result is a tarfile.
+ *
+ * If passing in options, the `Content-Type` header must be set to `application/json`
+ *
+ * **Example:**
+ * ```bash
+ *   curl -X POST http://<Node IP>:16187/flux/streamchain -o flux_explorer_bootstrap.tar.gz
+ * ```
+ *
+ * **Post Data:**
+ *
+ * `unsafe:` <boolean> Will overide the flux daemon running check and run anyway. Only
+ *   overideable if compress is not used.
+ *
+ * `compress:` <boolean> If the file stream should use gzip compression. Very slow.
+ *
+ * @param {Request} req HTTP request
+ * @param {Response} res HTTP response
+ * @returns {Promise<void>}
+ */
+async function streamChain(req, res) {
+  if (lock) {
+    res.statusMessage = 'Streaming of chain already in progress, server busy.';
+    res.status(503).end();
+    return;
+  }
+
+  try {
+    lock = true;
+
+    /**
+     * Use the remote address here, don't need to worry about x-forwarded-for headers as
+     * we only allow the local network. Also, using the remote address is fine as FluxOS
+     * won't confirm if the upstream is natting behind a private address. I.e public
+     * connections coming in via a private address. (Flux websockets need the remote address
+     * or they think there is only one inbound connnection)
+     */
+    let ip = req.socket.remoteAddress;
+    if (!ip) {
+      res.statusMessage = 'Socket closed.';
+      res.status(400).end();
+      return;
+    }
+
+    // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
+    ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
+
+    if (!serviceHelper.isPrivateAddress(ip)) {
+      res.statusMessage = 'Request must be from an address on the same private network as the host.';
+      res.status(403).end();
+      return;
+    }
+
+    log.info(`Stream chain request received from: ${ip}`);
+
+    const homeDir = os.homedir();
+    const base = path.join(homeDir, '.flux');
+
+    // the order can matter when doing the stream live, the level db's can be volatile
+    const folders = [
+      'determ_zelnodes',
+      'chainstate',
+      'blocks',
+    ];
+
+    const folderPromises = folders.map(async (f) => {
+      try {
+        const stats = await fs.stat(path.join(base, f));
+        return stats.isDirectory();
+      } catch {
+        return false;
+      }
+    });
+
+    const foldersExist = await Promise.all(folderPromises);
+    const chainExists = foldersExist.every((x) => x);
+
+    if (!chainExists) {
+      res.statusMessage = 'Unable to find chain at $HOME/.flux';
+      res.status(500).end();
+      return;
+    }
+
+    let fluxdRunning = null;
+    let compress = false;
+    let safe = true;
+
+    const processedBody = serviceHelper.ensureObject(req.body);
+
+    // use unsafe for the client end to illistrate that they should think twice before using
+    // it, and use safe here for readability
+    safe = processedBody.unsafe !== true;
+    compress = processedBody.compress || false;
+
+    if (!safe && compress) {
+      res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
+      res.status(422).end();
+      return;
+    }
+
+    if (safe) {
+      const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
+      fluxdRunning = !(blockInfoRes.status === 'error' && blockInfoRes.data.code === 'ECONNREFUSED');
+    }
+
+    if (safe && fluxdRunning) {
+      res.statusMessage = 'Flux daemon still running, unable to clone blockchain.';
+      res.status(503).end();
+      return;
+    }
+
+    const infoPromises = folders.map(
+      (f) => serviceHelper.dirInfo(path.join(base, f), { padFiles: 512 }),
+    );
+    const info = await Promise.all(infoPromises).catch(() => [{ count: 0, size: 0 }]);
+
+    const { count, size } = info.reduce((prev, current) => (
+      { count: prev.count + current.count, size: prev.size + current.size }), { count: 0, size: 0 });
+
+    const tarHeaderSize = count * 512;
+    // if we get an error getting size, just set eof to 0, which will make totalSize 0
+    const tarEof = size ? 512 * 2 : 0;
+
+    const totalSize = size + tarHeaderSize + tarEof;
+
+    // We can't set this as the actual content length. As it can change slightly during transfer.
+    // However we need to set some size, so that the image installer can get a rought idea
+    // how log the transfer will take.
+    res.setHeader('Approx-Content-Length', totalSize.toString());
+
+    const workflow = [];
+
+    const readStream = tar.create({ cwd: base }, folders);
+
+    workflow.push(readStream);
+
+    if (compress) {
+      log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
+      workflow.push(zlib.createGzip());
+    }
+
+    workflow.push(res);
+
+    const pipeline = promisify(stream.pipeline);
+
+    const error = await pipeline(...workflow).catch((err) => err);
+
+    if (error) log.warn(`Stream error: ${error.code}`);
+  } finally {
+    lock = false;
   }
 }
 
 module.exports = {
-  startDaemon,
-  updateFlux,
-  softUpdateFlux,
-  softUpdateFluxInstall,
-  hardUpdateFlux,
-  rebuildHome,
-  updateDaemon,
-  updateBenchmark,
-  restartDaemon,
-  reindexDaemon,
-  getFluxVersion,
-  getFluxIP,
-  getFluxZelID,
-  getFluxPGPidentity,
-  getFluxCruxID,
-  getFluxKadena,
-  daemonDebug,
-  benchmarkDebug,
-  getFluxTimezone,
-  getFluxInfo,
-  startBenchmark,
-  restartBenchmark,
-  tailDaemonDebug,
-  tailBenchmarkDebug,
-  tailFluxErrorLog,
-  tailFluxWarnLog,
-  tailFluxDebugLog,
-  tailFluxInfoLog,
-  fluxErrorLog,
-  fluxWarnLog,
-  fluxInfoLog,
-  fluxDebugLog,
-  adjustCruxID,
+  adjustAPIPort,
+  adjustBlockedPorts,
+  adjustBlockedRepositories,
   adjustKadenaAccount,
   adjustRouterIP,
-  adjustBlockedPorts,
-  adjustAPIPort,
-  adjustBlockedRepositories,
-  fluxBackendFolder,
-  getNodeTier,
-  installFluxWatchTower,
+  benchmarkDebug,
+  checkoutBranch,
+  daemonDebug,
   enterDevelopment,
   enterMaster,
-  isStaticIPapi,
-  getFluxGeolocation,
-  getRouterIP,
-  getBlockedPorts,
+  fluxBackendFolder,
+  fluxDebugLog,
+  fluxErrorLog,
+  fluxInfoLog,
+  fluxWarnLog,
   getAPIPort,
+  getBlockedPorts,
   getBlockedRepositories,
+  getCurrentBranch,
+  getCurrentCommitId,
+  getFluxGeolocation,
+  getFluxInfo,
+  getFluxIP,
+  getFluxKadena,
+  getFluxPGPidentity,
+  getFluxTimezone,
+  getFluxVersion,
+  getFluxZelID,
   getMarketplaceURL,
+  getNodeJsVersions,
+  getNodeTier,
+  getRouterIP,
+  hardUpdateFlux,
+  installFluxWatchTower,
+  isStaticIPapi,
+  rebuildHome,
+  reindexDaemon,
+  restartBenchmark,
+  restartDaemon,
   restartFluxOS,
-
+  softUpdateFlux,
+  softUpdateFluxInstall,
+  startBenchmark,
+  startDaemon,
+  streamChain,
+  tailBenchmarkDebug,
+  tailDaemonDebug,
+  tailFluxDebugLog,
+  tailFluxErrorLog,
+  tailFluxInfoLog,
+  tailFluxWarnLog,
+  updateBenchmark,
+  updateDaemon,
+  updateFlux,
   // Exports for testing purposes
   fluxLog,
+  getStreamLock,
+  lockStreamLock,
   tailFluxLog,
+  unlockStreamLock,
 };

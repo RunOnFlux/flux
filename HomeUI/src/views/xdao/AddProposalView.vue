@@ -152,7 +152,7 @@
                   <br><br>
                   {{ registrationHash }}
                   <br><br>
-                  The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
+                  The transaction must be sent by {{ new Date(validTill).toLocaleString('en-GB', timeoptions) }}
                 </div>
               </b-col>
               <b-col
@@ -169,8 +169,8 @@
                     >
                       <img
                         class="zelidLogin"
-                        src="@/assets/images/zelID.svg"
-                        alt="Zel ID"
+                        src="@/assets/images/FluxID.svg"
+                        alt="Flux ID"
                         height="100%"
                         width="100%"
                       >

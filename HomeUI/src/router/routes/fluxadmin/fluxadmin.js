@@ -1,5 +1,22 @@
 export default [
   {
+    path: '/apps/localapps',
+    name: 'apps-localapps',
+    component: () => import('@/views/apps/LocalApps.vue'),
+    meta: {
+      pageTitle: 'Local Apps',
+      breadcrumb: [
+        {
+          text: 'Administration',
+        },
+        {
+          text: 'Local Apps',
+          active: true,
+        },
+      ],
+    },
+  },
+  {
     path: '/fluxadmin/loggedsessions',
     name: 'fluxadmin-loggedsessions',
     component: () => import('@/views/fluxadmin/LoggedSessions.vue'),
@@ -7,7 +24,7 @@ export default [
       pageTitle: 'Logged Sessions',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Logged Sessions',
@@ -25,7 +42,7 @@ export default [
       pageTitle: 'Manage Flux',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Manage Flux',
@@ -43,7 +60,7 @@ export default [
       pageTitle: 'Manage Daemon',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Manage Daemon',
@@ -61,7 +78,7 @@ export default [
       pageTitle: 'Manage Benchmark',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Manage Benchmark',
@@ -79,7 +96,7 @@ export default [
       pageTitle: 'Manage Users',
       breadcrumb: [
         {
-          text: 'Flux Admin',
+          text: 'Administration',
         },
         {
           text: 'Manage Users',
@@ -87,6 +104,24 @@ export default [
         },
       ],
       privilege: ['admin', 'fluxteam'],
+    },
+  },
+  {
+    path: '/apps/fluxsharestorage',
+    name: 'apps-fluxsharestorage',
+    component: () => import('@/views/apps/MyFluxShare.vue'),
+    meta: {
+      pageTitle: 'My FluxShare Storage',
+      breadcrumb: [
+        {
+          text: 'Administration',
+        },
+        {
+          text: 'My FluxShare Storage',
+          active: true,
+        },
+      ],
+      privilege: ['admin'],
     },
   },
 ];

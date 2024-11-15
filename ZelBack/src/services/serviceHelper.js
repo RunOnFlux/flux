@@ -1,10 +1,33 @@
-const axios = require('axios');
+const util = require('node:util');
+const path = require('node:path');
+const fs = require('node:fs/promises');
+const execFile = util.promisify(require('node:child_process').execFile);
+
+const axios = require('axios').default;
 const config = require('config');
 const splitargs = require('splitargs');
 const qs = require('qs');
 
+const asyncLock = require('./utils/asyncLock');
 const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
+
+const fluxController = require('./utils/fluxController');
+
+/**
+ * The Service Helper controller
+ */
+const shc = new fluxController.FluxController();
+
+/**
+ * The max time a child process can run for (15 minutes)
+ */
+const MAX_CHILD_PROCESS_TIME = 15 * 60 * 1000;
+
+/**
+ * Allows for exclusive locks when running child processes
+ */
+const locks = new Map();
 
 /**
  * To delay by a number of milliseconds.
@@ -142,29 +165,60 @@ function isDecimalLimit(value, decimals = 8) {
 }
 
 /**
- * To handle timeouts on axios connection.
- * @param {string} url URL.
- * @param {object} options Options object.
- * @returns {object} Response.
+ * A central place for axios get requests. The defaults are set in apiServer.js
+ * @param {string} url The request URL
+ * @param {*} userOptions Standard axios options
+ * @returns
  */
-// helper function for timeout on axios connection
-const axiosGet = (url, options = {}) => {
-  if (!options.timeout) {
-    // eslint-disable-next-line no-param-reassign
-    options.timeout = 20000;
+async function axiosGet(url, userOptions = {}) {
+  const options = { ...userOptions };
+
+  if (!options.signal) options.signal = shc.signal;
+
+  return axios.get(url, options);
+}
+
+/**
+ * A central place for axios post requests. The defaults are set in apiServer.js
+ * @param {string} url The request URL
+ * @param {object} userOptions Standard axios options
+ * @param {any} data The data to post
+ * @returns {Proimse<AxiosResponse>}
+ */
+async function axiosPost(url, data, userOptions = {}) {
+  const options = { ...userOptions };
+
+  if (!options.signal) options.signal = shc.signal;
+
+  return axios.post(url, data, options);
+}
+
+/**
+ * A generic axios instance. This allows for a central place to manage
+ * all axios instance creations. All instances have the global interceptors
+ * merged (if debug enabled this logs outbound requests). If no abort signal
+ * is passed in, the global service helper controller signal is used.
+ *
+ * @param {object} options Standard axios options with extra disableGlobalInterceptors Boolean
+ * @returns {object} AxiosInstance
+ */
+function axiosInstance(userOptions = {}) {
+  const { disableGlobalInterceptors, ...options } = userOptions;
+
+  if (!options.signal) options.signal = shc.signal;
+
+  const instance = axios.create({
+    ...axios.defaults,
+    ...options,
+  });
+
+  if (!disableGlobalInterceptors) {
+    axios.interceptors.request.handlers.forEach((h) => { instance.interceptors.request.handlers.push(h); });
+    axios.interceptors.response.handlers.forEach((h) => { instance.interceptors.response.handlers.push(h); });
   }
-  const abort = axios.CancelToken.source();
-  const id = setTimeout(
-    () => abort.cancel(`Timeout of ${options.timeout}ms.`),
-    options.timeout,
-  );
-  return axios
-    .get(url, { cancelToken: abort.token, ...options })
-    .then((res) => {
-      clearTimeout(id);
-      return res;
-    });
-};
+
+  return instance;
+}
 
 /**
  * To convert a docker steam buffer to a string
@@ -200,16 +254,264 @@ function commandStringToArray(command) {
   return splitargs(command);
 }
 
+/**
+ *
+ * @param {*} ip ip address to check
+ * @returns {Boolean}
+ */
+function validIpv4Address(ip) {
+  // first octet must start with 1-9, then next 3 can be 0.
+  const ipv4Regex = /^[1-9]\d{0,2}\.(\d{0,3}\.){2}\d{0,3}$/;
+
+  if (!ipv4Regex.test(ip)) return false;
+
+  const octets = ip.split('.');
+  const isValid = octets.every((octet) => parseInt(octet, 10) < 256);
+  return isValid;
+}
+
+/**
+ * Check if an Ipv4 address is in the RFC1918 range. I.e. NOT routable on
+ * the internet.
+ * @param {string} ip Target IP
+ * @returns {Boolean}
+ */
+function isPrivateAddress(ip) {
+  if (!(validIpv4Address(ip))) return false;
+
+  const quads = ip.split('.').map((quad) => +quad);
+
+  if (quads.length !== 4) return false;
+
+  if ((quads[0] === 10)) return true;
+  if ((quads[0] === 192) && (quads[1] === 168)) return true;
+  if ((quads[0] === 172) && (quads[1] >= 16) && (quads[1] <= 31)) return true;
+
+  return false;
+}
+
+/**
+ * To confirm if ip is in subnet
+ * @param {string} ip
+ * @param {string} subnet
+ * @returns {Boolean}
+ */
+function ipInSubnet(ip, subnet) {
+  const [network, mask] = subnet.split('/');
+
+  if (!validIpv4Address(ip) || !validIpv4Address(network)) return false;
+
+  // eslint-disable-next-line no-bitwise
+  const ipAsInt = Number(ip.split('.').reduce((ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0));
+  // eslint-disable-next-line no-bitwise
+  const networkAsInt = Number(network.split('.').reduce((ipInt, octet) => (ipInt << 8) + parseInt(octet || 0, 10), 0));
+  const maskAsInt = parseInt('1'.repeat(mask) + '0'.repeat(32 - mask), 2);
+  // eslint-disable-next-line no-bitwise
+  return (ipAsInt & maskAsInt) === (networkAsInt & maskAsInt);
+}
+
+/**
+ * Runs a command as a child process, without a shell by default.
+ * Using a shell is possible with the `shell` option.
+ * @param {string} cmd The binary to run. Must be in PATH
+ * @param {{params?: string[], runAsRoot?: Boolean, exclusive?: Boolean, logError?: Boolean, cwd?: string, timeout?: number, signal?: AbortSignal, shell?: (Boolean|string)}} options
+   @returns {Promise<{error: (Error|null), stdout: (string|null), stderr: (string|null)}>}
+ */
+async function runCommand(userCmd, options = {}) {
+  const res = { error: null, stdout: '', stderr: '' };
+  const {
+    runAsRoot, logError, exclusive, ...execOptions
+  } = options;
+
+  const params = options.params || [];
+  delete execOptions.params;
+
+  // Default max of 15 minutes
+  if (!Object.prototype.hasOwnProperty.call(execOptions, 'timeout')) {
+    execOptions.timeout = MAX_CHILD_PROCESS_TIME;
+  }
+
+  if (!userCmd) {
+    res.error = new Error('Command must be present');
+    return res;
+  }
+
+  // number seems to get coerced to string in the execFile command, so have allowed
+  if (!Array.isArray(params) || !params.every((p) => typeof p === 'string' || typeof p === 'number')) {
+    res.error = new Error('Invalid params for command, must be an Array of strings');
+    return res;
+  }
+
+  let cmd;
+  if (runAsRoot) {
+    params.unshift(userCmd);
+    cmd = 'sudo';
+  } else {
+    cmd = userCmd;
+  }
+
+  log.debug(`Run Cmd: ${cmd} ${params.join(' ')}`);
+
+  // delete the locks after no waiters?
+  if (exclusive) {
+    if (!locks.has(userCmd)) {
+      locks.set(userCmd, new asyncLock.AsyncLock());
+    }
+    await locks.get(userCmd).enable();
+
+    log.info(`Exclusive lock enabled for command: ${userCmd}`);
+  }
+
+  const { stdout, stderr } = await execFile(cmd, params, execOptions).catch((err) => {
+    // do this so we can standardize the return value for errors vs non errors
+    const { stdout: errStdout, stderr: errStderr } = err;
+
+    // eslint-disable-next-line no-param-reassign
+    delete err.stdout;
+    // eslint-disable-next-line no-param-reassign
+    delete err.stderr;
+
+    res.error = err;
+    if (logError !== false) log.error(err);
+    return { stdout: errStdout, stderr: errStderr };
+  });
+
+  if (exclusive) {
+    locks.get(userCmd).disable();
+    log.info(`Exclusive lock disabled for command: ${userCmd}`);
+  }
+
+  res.stdout = stdout;
+  res.stderr = stderr;
+
+  return res;
+}
+
+/**
+ * Parses a raw version string from dpkg-query into an object
+ * @param {string} rawVersion version string from dpkg-query. Eg:
+ * 0.36.1-4ubuntu0.1 (ufw)
+ * @returns {{version, major, minor, patch} | null} The parsed version
+ */
+function parseVersion(rawVersion) {
+  // modified this to allow for just major and minor or just major. (and also ~ instead of - after version)
+  // I.e:
+  //    dpkg-query --showformat='${Version}' --show netcat-openbsd    1.218-4ubuntu1
+  //    dpkg-query --showformat='${Version}' --show ca-certificates   20230311ubuntu0.22.04.1
+
+  const versionRegex = /^[^\d]?(?:(?<epoch>[0-9]+):)?(?<version>(?<major>0|[1-9][0-9]*)(?:\.(?<minor>0|[1-9][0-9]*)(?:\.(?<patch>0|[1-9][0-9]*))?)?)/;
+
+  const match = versionRegex.exec(rawVersion);
+
+  if (match) {
+    const {
+      groups: {
+        epoch, version, major, minor, patch,
+      },
+    } = match;
+    return {
+      epoch, version, major, minor, patch,
+    };
+  }
+  return null;
+}
+
+/**
+ * Check if semantic version is bigger or equal to minimum version
+ * @param {string} targetVersion Version to check
+ * @param {string} minimumVersion minimum version that version must meet
+ * @returns {boolean} True if version is equal or higher to minimum version otherwise false.
+ */
+function minVersionSatisfy(targetVersion, minimumVersion) {
+  // remove any leading character that is not a digit i.e. v1.2.6 -> 1.2.6
+  const version = targetVersion.replace(/[^\d.]/g, '');
+
+  const splittedVersion = version.split('.');
+  const major = Number(splittedVersion[0]);
+  const minor = Number(splittedVersion[1]);
+  const patch = Number(splittedVersion[2]);
+
+  const splittedVersionMinimum = minimumVersion.split('.');
+  const majorMinimum = Number(splittedVersionMinimum[0]);
+  const minorMinimum = Number(splittedVersionMinimum[1]);
+  const patchMinimum = Number(splittedVersionMinimum[2]);
+  if (major < majorMinimum) {
+    return false;
+  }
+  if (major > majorMinimum) {
+    return true;
+  }
+  if (minor < minorMinimum) {
+    return false;
+  }
+  if (minor > minorMinimum) {
+    return true;
+  }
+  if (patch < patchMinimum) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Recursively sum size of directory and children, in bytes
+ * @param {string} dir The directory we want the size of
+ * @param {{padFiles?: number}} options If the files are to be padded to size
+ * @returns {Promise<number>}
+ */
+async function dirInfo(dir, options = {}) {
+  const padFiles = options.padFiles || null;
+
+  const files = await fs.readdir(dir, { withFileTypes: true });
+
+  const pathPromises = files.map(async (file) => {
+    const targetpath = path.join(dir, file.name);
+
+    if (file.isDirectory()) return dirInfo(targetpath, options);
+
+    if (file.isFile()) {
+      const { size } = await fs.stat(targetpath);
+
+      return size;
+    }
+
+    return 0;
+  });
+
+  const paths = await Promise.all(pathPromises);
+
+  const response = paths.flat(Infinity).reduce((prev, current) => {
+    // the paths are either a number, i.e. a file, or a directory, with a count and aggregate size
+    const { count, size } = typeof current === 'number' ? { count: 1, size: current } : current;
+
+    // we only pad if it's a file (a dir has already been padded)
+    const padding = padFiles && count > 1 ? size % 512 : 0;
+
+    return { count: prev.count + count, size: prev.size + size + padding };
+  }, { count: 0, size: 0 });
+
+  return response;
+}
+
 module.exports = {
+  axiosGet,
+  axiosPost,
+  commandStringToArray,
+  axiosInstance,
+  delay,
+  deleteLoginPhrase,
+  dirInfo,
+  dockerBufferToString,
   ensureBoolean,
   ensureNumber,
   ensureObject,
   ensureString,
-  axiosGet,
-  delay,
   getApplicationOwner,
-  deleteLoginPhrase,
+  ipInSubnet,
   isDecimalLimit,
-  dockerBufferToString,
-  commandStringToArray,
+  isPrivateAddress,
+  minVersionSatisfy,
+  parseVersion,
+  runCommand,
+  validIpv4Address,
 };

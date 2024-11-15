@@ -1,8 +1,38 @@
 <template>
   <div>
+    <b-modal
+      v-model="progressVisable"
+      hide-footer
+      centered
+      hide-header-close
+      no-close-on-backdrop
+      no-close-on-esc
+      size="lg"
+      header-bg-variant="primary"
+      :title="operationTitle"
+      title-tag="h5"
+    >
+      <div class="d-flex flex-column justify-content-center align-items-center" style="height: 100%;">
+        <div class="d-flex align-items-center mb-2">
+          <b-spinner label="Loading..." />
+          <div class="ml-1">
+            Waiting for the operation to be completed...
+          </div>
+        </div>
+      </div>
+    </b-modal>
     <b-card>
       <b-card-sub-title>
-        Note: Only verified images can currently run on Flux. To whitelist your image, please contact the Flux Team via
+        Note: Mining of any sort including bandwidth mining is prohibited as well as any illegal activites. Please read through
+        <b-link
+          href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+          target="_blank"
+          active-class="primary"
+          rel="noopener noreferrer"
+        >
+          Terms of Service
+        </b-link>
+        before deploying your application. In case of any question please contact the Flux Community via
         <b-link
           href="https://discord.gg/runonflux"
           target="_blank"
@@ -11,1063 +41,1110 @@
         >
           Discord
         </b-link>
-        or submit a Pull Request directly to
+        or submit an issue directly to
         <b-link
           href="https://github.com/RunOnFlux/flux"
           target="_blank"
           active-class="primary"
           rel="noopener noreferrer"
         >
-          Flux repository
+          Flux repository.
         </b-link>.
       </b-card-sub-title>
     </b-card>
-    <div v-if="specificationVersion >= 4">
-      <b-row class="match-height">
-        <b-col xs="6">
-          <b-card title="Details">
-            <b-button
-              v-b-tooltip.hover.top="'Import Application Specification'"
-              variant="outline-primary"
-              class="importSpecsButton"
-              @click="importAppSpecs = true"
-            >
-              <v-icon name="cloud-download-alt" /> Import
-            </b-button>
-            <b-form-group
-              label-cols="2"
-              label-cols-lg="1"
-              label="Version"
-              label-for="version"
-            >
-              <b-form-input
-                id="version"
-                v-model="appRegistrationSpecification.version"
-                :placeholder="appRegistrationSpecification.version.toString()"
-                readonly
-              />
-            </b-form-group>
-            <b-form-group
-              label-cols="2"
-              label-cols-lg="1"
-              label="Name"
-              label-for="name"
-            >
-              <b-form-input
-                id="name"
-                v-model="appRegistrationSpecification.name"
-                placeholder="Application Name"
-              />
-            </b-form-group>
-            <b-form-group
-              label-cols="2"
-              label-cols-lg="1"
-              label="Desc."
-              label-for="desc"
-            >
-              <b-form-textarea
-                id="desc"
-                v-model="appRegistrationSpecification.description"
-                placeholder="Description"
-                rows="3"
-              />
-            </b-form-group>
-            <b-form-group
-              label-cols="2"
-              label-cols-lg="1"
-              label="Owner"
-              label-for="owner"
-            >
-              <b-form-input
-                id="owner"
-                v-model="appRegistrationSpecification.owner"
-                placeholder="ZelID of Application Owner"
-              />
-            </b-form-group>
-            <div v-if="specificationVersion >= 5">
-              <div class="form-row form-group">
-                <label class="col-1 col-form-label">
-                  Contacts
-                  <v-icon
-                    v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications ex. app about to expire, app spawns. Contacts are also PUBLIC information.'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
-                  <b-form-input
-                    id="contacs"
-                    v-model="appRegistrationSpecification.contacts"
-                  />
-                </div>
-                <div class="col-0">
-                  <b-button
-                    id="upload-contacts"
-                    v-b-tooltip.hover.top="
-                      'Uploads Contacts to Flux Storage. Contacts will be replaced with a link to Flux Storage instead. This increases maximum allowed contacts while adding enhanced privacy - nobody except FluxOS Team maintaining notifications system has access to contacts.'
-                    "
-                    variant="outline-primary"
-                  >
-                    <v-icon name="cloud-upload-alt" />
-                  </b-button>
-                  <confirm-dialog
-                    target="upload-contacts"
-                    confirm-button="Upload Contacts"
-                    :width="600"
-                    @confirm="uploadContactsToFluxStorage()"
-                  />
-                </div>
-              </div>
-              <div v-if="specificationVersion >= 5 && !isPrivateApp">
-                <h4>Allowed Geolocation</h4>
-                <div
-                  v-for="n in numberOfGeolocations"
-                  :key="`${n}pos`"
-                >
-                  <b-form-group
-                    label-cols="3"
-                    label-cols-lg="1"
-                    :label="`Continent - ${n}`"
-                    label-for="Continent"
-                  >
-                    <b-form-select
-                      id="Continent"
-                      v-model="allowedGeolocations[`selectedContinent${n}`]"
-                      :options="continentsOptions(false)"
-                      @change="adjustMaxInstancesPossible()"
-                    >
-                      <template #first>
-                        <b-form-select-option
-                          :value="undefined"
-                          disabled
-                        >
-                          -- Select to restrict Continent --
-                        </b-form-select-option>
-                      </template>
-                    </b-form-select>
-                  </b-form-group>
-                  <b-form-group
-                    v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
-                    label-cols="3"
-                    label-cols-lg="1"
-                    :label="`Country - ${n}`"
-                    label-for="Country"
-                  >
-                    <b-form-select
-                      id="country"
-                      v-model="allowedGeolocations[`selectedCountry${n}`]"
-                      :options="countriesOptions(allowedGeolocations[`selectedContinent${n}`], false)"
-                      @change="adjustMaxInstancesPossible()"
-                    >
-                      <template #first>
-                        <b-form-select-option
-                          :value="undefined"
-                          disabled
-                        >
-                          -- Select to restrict Country --
-                        </b-form-select-option>
-                      </template>
-                    </b-form-select>
-                  </b-form-group>
-                  <b-form-group
-                    v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
-                    label-cols="3"
-                    label-cols-lg="1"
-                    :label="`Region - ${n}`"
-                    label-for="Region"
-                  >
-                    <b-form-select
-                      id="Region"
-                      v-model="allowedGeolocations[`selectedRegion${n}`]"
-                      :options="regionsOptions(allowedGeolocations[`selectedContinent${n}`], allowedGeolocations[`selectedCountry${n}`], false)"
-                      @change="adjustMaxInstancesPossible()"
-                    >
-                      <template #first>
-                        <b-form-select-option
-                          :value="undefined"
-                          disabled
-                        >
-                          -- Select to restrict Region --
-                        </b-form-select-option>
-                      </template>
-                    </b-form-select>
-                  </b-form-group>
-                </div>
-                <div class="text-center">
-                  <b-button
-                    v-if="numberOfGeolocations > 1"
-                    v-b-tooltip.hover.bottom="'Remove Allowed Geolocation Restriction'"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-secondary"
-                    size="sm"
-                    class="m-1"
-                    @click="numberOfGeolocations = numberOfGeolocations - 1; adjustMaxInstancesPossible()"
-                  >
-                    <v-icon name="minus" />
-                  </b-button>
-                  <b-button
-                    v-if="numberOfGeolocations < 5"
-                    v-b-tooltip.hover.bottom="'Add Allowed Geolocation Restriction'"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-secondary"
-                    size="sm"
-                    class="m-1"
-                    @click="numberOfGeolocations = numberOfGeolocations + 1; adjustMaxInstancesPossible()"
-                  >
-                    <v-icon name="plus" />
-                  </b-button>
-                </div>
-              </div>
-              <br><br>
-              <div v-if="specificationVersion >= 5 && !isPrivateApp">
-                <h4>Forbidden Geolocation</h4>
-                <div
-                  v-for="n in numberOfNegativeGeolocations"
-                  :key="`${n}posB`"
-                >
-                  <b-form-group
-                    label-cols="3"
-                    label-cols-lg="1"
-                    :label="`Continent - ${n}`"
-                    label-for="Continent"
-                  >
-                    <b-form-select
-                      id="Continent"
-                      v-model="forbiddenGeolocations[`selectedContinent${n}`]"
-                      :options="continentsOptions(true)"
-                    >
-                      <template #first>
-                        <b-form-select-option
-                          :value="undefined"
-                          disabled
-                        >
-                          -- Select to ban Continent --
-                        </b-form-select-option>
-                      </template>
-                    </b-form-select>
-                  </b-form-group>
-                  <b-form-group
-                    v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
-                    label-cols="3"
-                    label-cols-lg="1"
-                    :label="`Country - ${n}`"
-                    label-for="Country"
-                  >
-                    <b-form-select
-                      id="country"
-                      v-model="forbiddenGeolocations[`selectedCountry${n}`]"
-                      :options="countriesOptions(forbiddenGeolocations[`selectedContinent${n}`], true)"
-                    >
-                      <template #first>
-                        <b-form-select-option
-                          :value="undefined"
-                          disabled
-                        >
-                          -- Select to ban Country --
-                        </b-form-select-option>
-                      </template>
-                    </b-form-select>
-                  </b-form-group>
-                  <b-form-group
-                    v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
-                    label-cols="3"
-                    label-cols-lg="1"
-                    :label="`Region - ${n}`"
-                    label-for="Region"
-                  >
-                    <b-form-select
-                      id="Region"
-                      v-model="forbiddenGeolocations[`selectedRegion${n}`]"
-                      :options="regionsOptions(forbiddenGeolocations[`selectedContinent${n}`], forbiddenGeolocations[`selectedCountry${n}`], true)"
-                    >
-                      <template #first>
-                        <b-form-select-option
-                          :value="undefined"
-                          disabled
-                        >
-                          -- Select to ban Region --
-                        </b-form-select-option>
-                      </template>
-                    </b-form-select>
-                  </b-form-group>
-                </div>
-                <div class="text-center">
-                  <b-button
-                    v-if="numberOfNegativeGeolocations > 1"
-                    v-b-tooltip.hover.bottom="'Remove Forbidden Geolocation Restriction'"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-secondary"
-                    size="sm"
-                    class="m-1"
-                    @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations - 1"
-                  >
-                    <v-icon name="minus" />
-                  </b-button>
-                  <b-button
-                    v-if="numberOfNegativeGeolocations < 5"
-                    v-b-tooltip.hover.bottom="'Add Forbidden Geolocation Restriction'"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-secondary"
-                    size="sm"
-                    class="m-1"
-                    @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations + 1"
-                  >
-                    <v-icon name="plus" />
-                  </b-button>
-                </div>
-              </div>
-            </div>
-            <br>
-            <b-form-group
-              v-if="appRegistrationSpecification.version >= 3"
-              label-cols="2"
-              label-cols-lg="1"
-              label="Instances"
-              label-for="instances"
-            >
-              <div class="mx-1">
-                {{ appRegistrationSpecification.instances }}
-              </div>
-              <b-form-input
-                id="instances"
-                v-model="appRegistrationSpecification.instances"
-                placeholder="Minimum number of application instances to be spawned"
-                type="range"
-                :min="minInstances"
-                :max="maxInstances"
-                step="1"
-              />
-            </b-form-group>
-            <br>
-            <b-form-group
-              v-if="appRegistrationSpecification.version >= 6"
-              label-cols="2"
-              label-cols-lg="1"
-              label="Period"
-              label-for="period"
-            >
-              <div class="mx-1">
-                {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
-              </div>
-              <b-form-input
-                id="period"
-                v-model="expirePosition"
-                placeholder="How long an application will live on Flux network"
-                type="range"
-                :min="0"
-                :max="5"
-                :step="1"
-              />
-            </b-form-group>
-            <br>
-            <div
-              v-if="appRegistrationSpecification.version >= 7"
-              class="form-row form-group"
-            >
-              <label class="col-form-label">
-                Static IP
-                <v-icon
-                  v-b-tooltip.hover.top="'Select if your application strictly requires static IP address'"
-                  name="info-circle"
-                  class="mr-1"
-                />
-              </label>
-              <div class="col">
-                <b-form-checkbox
-                  id="staticip"
-                  v-model="appRegistrationSpecification.staticip"
-                  switch
-                  class="custom-control-primary inline"
-                />
-              </div>
-            </div>
-            <div
-              v-if="appRegistrationSpecification.version >= 7"
-              class="form-row form-group"
-            >
-              <label class="col-form-label">
-                Enterprise Application
-                <v-icon
-                  v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run. Geolocation targetting is not possible in this case.'"
-                  name="info-circle"
-                  class="mr-1"
-                />
-              </label>
-              <div class="col">
-                <b-form-checkbox
-                  id="enterpriseapp"
-                  v-model="isPrivateApp"
-                  switch
-                  class="custom-control-primary inline"
-                />
-              </div>
-            </div>
-          </b-card>
-        </b-col>
-      </b-row>
-      <b-card
-        v-for="(component, index) in appRegistrationSpecification.compose"
-        :key="index"
+    <div
+      v-if="specificationVersion >= 4"
+      @dragover="dragover"
+      @dragleave="dragleave"
+      @drop="drop"
+    >
+      <b-overlay
+        no-center
+        variant="transparent"
+        opacity="1"
+        blur="3px"
+        :show="isDragging"
+        rounded="sm"
       >
-        <b-card-title>
-          Component {{ component.name }}
-          <b-button
-            v-if="appRegistrationSpecification.compose.length > 1"
-            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="warning"
-            aria-label="Remove Component"
-            class="float-right"
-            size="sm"
-            @click="removeComponent(index)"
-          >
-            Remove
-          </b-button>
-        </b-card-title>
+        <template #overlay>
+          <div id="fileDropOverlay" class="text-center">
+            <b-icon icon="folder" font-scale="8" animation="cylon" />
+            <div class="text bd-highlight" style="font-size: 20px">
+              Drop your docker-compose.yaml here
+            </div>
+          </div>
+        </template>
         <b-row class="match-height">
-          <b-col
-            xs="12"
-            xl="6"
-          >
+          <b-col xs="6">
+            <b-form-file
+              ref="uploadSpecs"
+              class="d-none"
+              @input="loadFile"
+            />
             <b-card>
-              <b-card-title>
-                General
-              </b-card-title>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Name
-                  <v-icon
-                    v-b-tooltip.hover.top="'Name of Application Component'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
-                  <b-form-input
-                    id="repo"
-                    v-model="component.name"
-                    placeholder="Component name"
-                  />
+              <b-row align-h="end">
+                <b-col>
+                  <b-card-title>
+                    Details
+                  </b-card-title>
+                </b-col>
+                <b-col sm="auto" class="pr-0 mb-1">
+                  <b-button
+                    v-b-tooltip.hover.top="'Upload Docker Compose File'"
+                    class="mr-0"
+                    variant="outline-primary"
+                    @click="uploadFile"
+                  >
+                    <v-icon name="cloud-download-alt" /> Upload
+                  </b-button>
+                </b-col>
+                <b-col sm="auto" class="pl-1 mb-1">
+                  <b-button
+                    v-b-tooltip.hover.top="'Import Application Specification'"
+                    class="ml-0"
+                    variant="outline-primary"
+                    @click="importAppSpecs = true"
+                  >
+                    <v-icon name="cloud-download-alt" /> Import
+                  </b-button>
+                </b-col>
+              </b-row>
+              <b-form-group
+                label-cols="2"
+                label-cols-lg="1"
+                label="Version"
+                label-for="version"
+              >
+                <b-form-input
+                  id="version"
+                  v-model="appRegistrationSpecification.version"
+                  :placeholder="appRegistrationSpecification.version.toString()"
+                  readonly
+                />
+              </b-form-group>
+              <b-form-group
+                label-cols="2"
+                label-cols-lg="1"
+                label="Name"
+                label-for="name"
+              >
+                <b-form-input
+                  id="name"
+                  v-model="appRegistrationSpecification.name"
+                  placeholder="Application Name"
+                />
+              </b-form-group>
+              <b-form-group
+                label-cols="2"
+                label-cols-lg="1"
+                label="Desc."
+                label-for="desc"
+              >
+                <b-form-textarea
+                  id="desc"
+                  v-model="appRegistrationSpecification.description"
+                  placeholder="Description"
+                  rows="3"
+                />
+              </b-form-group>
+              <b-form-group
+                label-cols="2"
+                label-cols-lg="1"
+                label="Owner"
+                label-for="owner"
+              >
+                <b-form-input
+                  id="owner"
+                  v-model="appRegistrationSpecification.owner"
+                  placeholder="Flux ID of Application Owner"
+                />
+              </b-form-group>
+              <div v-if="specificationVersion >= 5">
+                <div class="form-row form-group">
+                  <label class="col-1 col-form-label">
+                    Contacts
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of strings of emails Contacts to get notifications ex. app about to expire, app spawns. Contacts are also PUBLIC information.'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="contacs"
+                      v-model="appRegistrationSpecification.contacts"
+                    />
+                  </div>
+                  <div class="col-0">
+                    <b-button
+                      id="upload-contacts"
+                      v-b-tooltip.hover.top="
+                        'Uploads Contacts to Flux Storage. Contacts will be replaced with a link to Flux Storage instead. This increases maximum allowed contacts while adding enhanced privacy - nobody except FluxOS Team maintaining notifications system has access to contacts.'
+                      "
+                      variant="outline-primary"
+                    >
+                      <v-icon name="cloud-upload-alt" />
+                    </b-button>
+                    <confirm-dialog
+                      target="upload-contacts"
+                      confirm-button="Upload Contacts"
+                      :width="600"
+                      @confirm="uploadContactsToFluxStorage()"
+                    />
+                  </div>
+                </div>
+                <div v-if="specificationVersion >= 5 && !isPrivateApp">
+                  <h4>Allowed Geolocation</h4>
+                  <div
+                    v-for="n in numberOfGeolocations"
+                    :key="`${n}pos`"
+                  >
+                    <b-form-group
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="`Continent - ${n}`"
+                      label-for="Continent"
+                    >
+                      <b-form-select
+                        id="Continent"
+                        v-model="allowedGeolocations[`selectedContinent${n}`]"
+                        :options="continentsOptions(false)"
+                        @change="adjustMaxInstancesPossible()"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to restrict Continent --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                    <b-form-group
+                      v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL'"
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="`Country - ${n}`"
+                      label-for="Country"
+                    >
+                      <b-form-select
+                        id="country"
+                        v-model="allowedGeolocations[`selectedCountry${n}`]"
+                        :options="countriesOptions(allowedGeolocations[`selectedContinent${n}`], false)"
+                        @change="adjustMaxInstancesPossible()"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to restrict Country --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                    <b-form-group
+                      v-if="allowedGeolocations[`selectedContinent${n}`] && allowedGeolocations[`selectedContinent${n}`] !== 'ALL' && allowedGeolocations[`selectedCountry${n}`] && allowedGeolocations[`selectedCountry${n}`] !== 'ALL'"
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="`Region - ${n}`"
+                      label-for="Region"
+                    >
+                      <b-form-select
+                        id="Region"
+                        v-model="allowedGeolocations[`selectedRegion${n}`]"
+                        :options="regionsOptions(allowedGeolocations[`selectedContinent${n}`], allowedGeolocations[`selectedCountry${n}`], false)"
+                        @change="adjustMaxInstancesPossible()"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to restrict Region --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                  </div>
+                  <div class="text-center">
+                    <b-button
+                      v-if="numberOfGeolocations > 1"
+                      v-b-tooltip.hover.bottom="'Remove Allowed Geolocation Restriction'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      size="sm"
+                      class="m-1"
+                      @click="numberOfGeolocations = numberOfGeolocations - 1; adjustMaxInstancesPossible()"
+                    >
+                      <v-icon name="minus" />
+                    </b-button>
+                    <b-button
+                      v-if="numberOfGeolocations < 5"
+                      v-b-tooltip.hover.bottom="'Add Allowed Geolocation Restriction'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      size="sm"
+                      class="m-1"
+                      @click="numberOfGeolocations = numberOfGeolocations + 1; adjustMaxInstancesPossible()"
+                    >
+                      <v-icon name="plus" />
+                    </b-button>
+                  </div>
+                </div>
+                <br><br>
+                <div v-if="specificationVersion >= 5 && !isPrivateApp">
+                  <h4>Forbidden Geolocation</h4>
+                  <div
+                    v-for="n in numberOfNegativeGeolocations"
+                    :key="`${n}posB`"
+                  >
+                    <b-form-group
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="`Continent - ${n}`"
+                      label-for="Continent"
+                    >
+                      <b-form-select
+                        id="Continent"
+                        v-model="forbiddenGeolocations[`selectedContinent${n}`]"
+                        :options="continentsOptions(true)"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to ban Continent --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                    <b-form-group
+                      v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE'"
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="`Country - ${n}`"
+                      label-for="Country"
+                    >
+                      <b-form-select
+                        id="country"
+                        v-model="forbiddenGeolocations[`selectedCountry${n}`]"
+                        :options="countriesOptions(forbiddenGeolocations[`selectedContinent${n}`], true)"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to ban Country --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                    <b-form-group
+                      v-if="forbiddenGeolocations[`selectedContinent${n}`] && forbiddenGeolocations[`selectedContinent${n}`] !== 'NONE' && forbiddenGeolocations[`selectedCountry${n}`] && forbiddenGeolocations[`selectedCountry${n}`] !== 'ALL'"
+                      label-cols="3"
+                      label-cols-lg="1"
+                      :label="`Region - ${n}`"
+                      label-for="Region"
+                    >
+                      <b-form-select
+                        id="Region"
+                        v-model="forbiddenGeolocations[`selectedRegion${n}`]"
+                        :options="regionsOptions(forbiddenGeolocations[`selectedContinent${n}`], forbiddenGeolocations[`selectedCountry${n}`], true)"
+                      >
+                        <template #first>
+                          <b-form-select-option
+                            :value="undefined"
+                            disabled
+                          >
+                            -- Select to ban Region --
+                          </b-form-select-option>
+                        </template>
+                      </b-form-select>
+                    </b-form-group>
+                  </div>
+                  <div class="text-center">
+                    <b-button
+                      v-if="numberOfNegativeGeolocations > 1"
+                      v-b-tooltip.hover.bottom="'Remove Forbidden Geolocation Restriction'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      size="sm"
+                      class="m-1"
+                      @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations - 1"
+                    >
+                      <v-icon name="minus" />
+                    </b-button>
+                    <b-button
+                      v-if="numberOfNegativeGeolocations < 5"
+                      v-b-tooltip.hover.bottom="'Add Forbidden Geolocation Restriction'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      size="sm"
+                      class="m-1"
+                      @click="numberOfNegativeGeolocations = numberOfNegativeGeolocations + 1"
+                    >
+                      <v-icon name="plus" />
+                    </b-button>
+                  </div>
                 </div>
               </div>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Description
-                  <v-icon
-                    v-b-tooltip.hover.top="'Description of Application Component'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
-                  <b-form-input
-                    id="repo"
-                    v-model="component.description"
-                    placeholder="Component description"
-                  />
+              <br>
+              <b-form-group
+                v-if="appRegistrationSpecification.version >= 3"
+                label-cols="2"
+                label-cols-lg="1"
+                label="Instances"
+                label-for="instances"
+              >
+                <div class="mx-1">
+                  {{ appRegistrationSpecification.instances }}
                 </div>
-              </div>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Repository
+                <b-form-input
+                  id="instances"
+                  v-model="appRegistrationSpecification.instances"
+                  placeholder="Minimum number of application instances to be spawned"
+                  type="range"
+                  :min="minInstances"
+                  :max="maxInstances"
+                  step="1"
+                />
+              </b-form-group>
+              <br>
+              <b-form-group
+                v-if="appRegistrationSpecification.version >= 6"
+                label-cols="2"
+                label-cols-lg="1"
+                label="Period"
+                label-for="period"
+              >
+                <div class="mx-1">
+                  {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
+                </div>
+                <b-form-input
+                  id="period"
+                  v-model="expirePosition"
+                  placeholder="How long an application will live on Flux network"
+                  type="range"
+                  :min="0"
+                  :max="5"
+                  :step="1"
+                />
+              </b-form-group>
+              <br>
+              <div
+                v-if="appRegistrationSpecification.version >= 7"
+                class="form-row form-group"
+              >
+                <label class="col-form-label">
+                  Static IP
                   <v-icon
-                    v-b-tooltip.hover.top="'Docker image namespace/repository:tag for component'"
+                    v-b-tooltip.hover.top="'Select if your application strictly requires static IP address'"
                     name="info-circle"
                     class="mr-1"
                   />
                 </label>
                 <div class="col">
-                  <b-form-input
-                    id="repo"
-                    v-model="component.repotag"
-                    placeholder="Docker image namespace/repository:tag"
+                  <b-form-checkbox
+                    id="staticip"
+                    v-model="appRegistrationSpecification.staticip"
+                    switch
+                    class="custom-control-primary inline"
                   />
                 </div>
               </div>
               <div
-                v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
+                v-if="appRegistrationSpecification.version >= 7"
                 class="form-row form-group"
               >
-                <label class="col-3 col-form-label">
-                  Repository Authentication
+                <label class="col-form-label">
+                  Enterprise Application
                   <v-icon
-                    v-b-tooltip.hover.top="'Docker image authentication for private images in the format of username:apikey. This field will be encrypted and accessible to selected enterprise nodes only.'"
+                    v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run. Geolocation targetting is not possible in this case.'"
                     name="info-circle"
                     class="mr-1"
                   />
                 </label>
                 <div class="col">
-                  <b-form-input
-                    id="repoauth"
-                    v-model="component.repoauth"
-                    placeholder="Docker authentication username:apikey"
-                  />
-                </div>
-              </div>
-              <br>
-              <b-card-title>
-                Connectivity
-              </b-card-title>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Ports
-                  <v-icon
-                    v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
-                  <b-form-input
-                    id="ports"
-                    v-model="component.ports"
-                  />
-                </div>
-              </div>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Domains
-                  <v-icon
-                    v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
-                  <b-form-input
-                    id="domains"
-                    v-model="component.domains"
-                  />
-                </div>
-              </div>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Cont. Ports
-                  <v-icon
-                    v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
-                  <b-form-input
-                    id="containerPorts"
-                    v-model="component.containerPorts"
+                  <b-form-checkbox
+                    id="enterpriseapp"
+                    v-model="isPrivateApp"
+                    switch
+                    class="custom-control-primary inline"
                   />
                 </div>
               </div>
             </b-card>
           </b-col>
-          <b-col
-            xs="12"
-            xl="6"
-          >
-            <b-card>
-              <b-card-title>
-                Environment
-              </b-card-title>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
+        </b-row>
+        <b-card
+          v-for="(component, index) in appRegistrationSpecification.compose"
+          :key="index"
+          ref="components"
+        >
+          <b-card-title>
+            Component {{ component.name }}
+            <b-button
+              v-if="appRegistrationSpecification.compose.length > 1"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="warning"
+              aria-label="Remove Component"
+              class="float-right"
+              size="sm"
+              @click="removeComponent(index)"
+            >
+              Remove
+            </b-button>
+          </b-card-title>
+          <b-row class="match-height">
+            <b-col
+              xs="12"
+              xl="6"
+            >
+              <b-card>
+                <b-card-title>
+                  General
+                </b-card-title>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Name
+                    <v-icon
+                      v-b-tooltip.hover.top="'Name of Application Component'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="repo"
+                      v-model="component.name"
+                      placeholder="Component name"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Description
+                    <v-icon
+                      v-b-tooltip.hover.top="'Description of Application Component'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="repo"
+                      v-model="component.description"
+                      placeholder="Component description"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Repository
+                    <v-icon
+                      v-b-tooltip.hover.top="'Docker image namespace/repository:tag for component'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="repo"
+                      v-model="component.repotag"
+                      placeholder="Docker image namespace/repository:tag"
+                    />
+                  </div>
+                </div>
+                <div
+                  v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
+                  class="form-row form-group"
+                >
+                  <label class="col-3 col-form-label">
+                    Repository Authentication
+                    <v-icon
+                      v-b-tooltip.hover.top="'Docker image authentication for private images in the format of username:apikey. This field will be encrypted and accessible to selected enterprise nodes only.'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="repoauth"
+                      v-model="component.repoauth"
+                      placeholder="Docker authentication username:apikey"
+                    />
+                  </div>
+                </div>
+                <br>
+                <b-card-title>
+                  Connectivity
+                </b-card-title>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Ports
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of Ports on which application will be available'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="ports"
+                      v-model="component.ports"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Domains
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of strings of Domains managed by Flux Domain Manager (FDM). Length must correspond to available ports. Use empty strings for no domains'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="domains"
+                      v-model="component.domains"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Cont. Ports
+                    <v-icon
+                      v-b-tooltip.hover.top="'Container Ports - Array of ports which your container has'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="containerPorts"
+                      v-model="component.containerPorts"
+                    />
+                  </div>
+                </div>
+              </b-card>
+            </b-col>
+            <b-col
+              xs="12"
+              xl="6"
+            >
+              <b-card>
+                <b-card-title>
                   Environment
-                  <v-icon
-                    v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
+                </b-card-title>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Environment
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of strings of Environmental Parameters'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="environmentParameters"
+                      v-model="component.environmentParameters"
+                    />
+                  </div>
+                  <div class="col-0">
+                    <b-button
+                      id="upload-env"
+                      v-b-tooltip.hover.top="
+                        'Uploads Enviornment to Flux Storage. Environment parameters will be replaced with a link to Flux Storage instead. This increases maximum allowed size of Env. parameters while adding basic privacy - instead of parameters, link to Flux Storage will be visible.'
+                      "
+                      variant="outline-primary"
+                    >
+                      <v-icon name="cloud-upload-alt" />
+                    </b-button>
+                    <confirm-dialog
+                      target="upload-env"
+                      confirm-button="Upload Environment Parameters"
+                      :width="600"
+                      @confirm="uploadEnvToFluxStorage(index)"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Commands
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of strings of Commands'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="commands"
+                      v-model="component.commands"
+                    />
+                  </div>
+                  <div class="col-0">
+                    <b-button
+                      id="upload-cmd"
+                      v-b-tooltip.hover.top="'Uploads Commands to Flux Storage. Commands will be replaced with a link to Flux Storage instead. This increases maximum allowed size of Commands while adding basic privacy - instead of commands, link to Flux Storage will be visible.'"
+                      variant="outline-primary"
+                    >
+                      <v-icon name="cloud-upload-alt" />
+                    </b-button>
+                    <confirm-dialog
+                      target="upload-cmd"
+                      confirm-button="Upload Commands"
+                      :width="600"
+                      @confirm="uploadCmdToFluxStorage(index)"
+                    />
+                  </div>
+                </div>
+                <div class="form-row form-group">
+                  <label class="col-3 col-form-label">
+                    Cont. Data
+                    <v-icon
+                      v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and primary/standby solution. Ex. g:/data'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="containerData"
+                      v-model="component.containerData"
+                    />
+                  </div>
+                </div>
+                <div
+                  v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
+                  class="form-row form-group"
+                >
+                  <label class="col-3 col-form-label">
+                    Secrets
+                    <v-icon
+                      v-b-tooltip.hover.top="'Array of strings of Secret Environmental Parameters. This will be encrypted and accessible to selected Enterprise Nodes only'"
+                      name="info-circle"
+                      class="mr-1"
+                    />
+                  </label>
+                  <div class="col">
+                    <b-form-input
+                      id="secrets"
+                      v-model="component.secrets"
+                      placeholder="[]"
+                    />
+                  </div>
+                </div>
+                <br>
+                <b-card-title>
+                  Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                    Tiered:
+                    <b-form-checkbox
+                      id="tiered"
+                      v-model="component.tiered"
+                      switch
+                      class="custom-control-primary inline"
+                    />
+                  </h6>
+                </b-card-title>
+                <b-form-group
+                  v-if="!component.tiered"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="CPU"
+                  label-for="cpu"
+                >
+                  <div class="mx-1">
+                    {{ component.cpu }}
+                  </div>
                   <b-form-input
-                    id="environmentParameters"
-                    v-model="component.environmentParameters"
+                    id="cpu"
+                    v-model="component.cpu"
+                    placeholder="CPU cores to use by default"
+                    type="range"
+                    min="0.1"
+                    max="15"
+                    step="0.1"
                   />
-                </div>
-                <div class="col-0">
-                  <b-button
-                    id="upload-env"
-                    v-b-tooltip.hover.top="
-                      'Uploads Enviornment to Flux Storage. Environment parameters will be replaced with a link to Flux Storage instead. This increases maximum allowed size of Env. parameters while adding basic privacy - instead of parameters, link to Flux Storage will be visible.'
-                    "
-                    variant="outline-primary"
-                  >
-                    <v-icon name="cloud-upload-alt" />
-                  </b-button>
-                  <confirm-dialog
-                    target="upload-env"
-                    confirm-button="Upload Environment Parameters"
-                    :width="600"
-                    @confirm="uploadEnvToFluxStorage(index)"
-                  />
-                </div>
-              </div>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Commands
-                  <v-icon
-                    v-b-tooltip.hover.top="'Array of strings of Commands'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
+                </b-form-group>
+                <b-form-group
+                  v-if="!component.tiered"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="RAM"
+                  label-for="ram"
+                >
+                  <div class="mx-1">
+                    {{ component.ram }}
+                  </div>
                   <b-form-input
-                    id="commands"
-                    v-model="component.commands"
+                    id="ram"
+                    v-model="component.ram"
+                    placeholder="RAM in MB value to use by default"
+                    type="range"
+                    min="100"
+                    max="59000"
+                    step="100"
                   />
-                </div>
-                <div class="col-0">
-                  <b-button
-                    id="upload-cmd"
-                    v-b-tooltip.hover.top="'Uploads Commands to Flux Storage. Commands will be replaced with a link to Flux Storage instead. This increases maximum allowed size of Commands while adding basic privacy - instead of commands, link to Flux Storage will be visible.'"
-                    variant="outline-primary"
-                  >
-                    <v-icon name="cloud-upload-alt" />
-                  </b-button>
-                  <confirm-dialog
-                    target="upload-cmd"
-                    confirm-button="Upload Commands"
-                    :width="600"
-                    @confirm="uploadCmdToFluxStorage(index)"
-                  />
-                </div>
-              </div>
-              <div class="form-row form-group">
-                <label class="col-3 col-form-label">
-                  Cont. Data
-                  <v-icon
-                    v-b-tooltip.hover.top="'Data folder that is shared by application to App volume. Prepend with r: for synced data between instances. Ex. r:/data. Prepend with g: for synced data and master/slave solution. Ex. g:/data'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
+                </b-form-group>
+                <b-form-group
+                  v-if="!component.tiered"
+                  label-cols="2"
+                  label-cols-lg="1"
+                  label="SSD"
+                  label-for="ssd"
+                >
+                  <div class="mx-1">
+                    {{ component.hdd }}
+                  </div>
                   <b-form-input
-                    id="containerData"
-                    v-model="component.containerData"
+                    id="ssd"
+                    v-model="component.hdd"
+                    placeholder="SSD in GB value to use by default"
+                    type="range"
+                    min="1"
+                    max="820"
+                    step="1"
                   />
-                </div>
-              </div>
-              <div
-                v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
-                class="form-row form-group"
-              >
-                <label class="col-3 col-form-label">
-                  Secrets
-                  <v-icon
-                    v-b-tooltip.hover.top="'Array of strings of Secret Environmental Parameters. This will be encrypted and accessible to selected Enterprise Nodes only'"
-                    name="info-circle"
-                    class="mr-1"
-                  />
-                </label>
-                <div class="col">
-                  <b-form-input
-                    id="secrets"
-                    v-model="component.secrets"
-                    placeholder="[]"
-                  />
-                </div>
-              </div>
-              <br>
-              <b-card-title>
-                Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
-                  Tiered:
-                  <b-form-checkbox
-                    id="tiered"
-                    v-model="component.tiered"
-                    switch
-                    class="custom-control-primary inline"
-                  />
-                </h6>
-              </b-card-title>
-              <b-form-group
-                v-if="!component.tiered"
-                label-cols="2"
-                label-cols-lg="1"
-                label="CPU"
-                label-for="cpu"
-              >
-                <div class="mx-1">
-                  {{ component.cpu }}
+                </b-form-group>
+              </b-card>
+            </b-col>
+          </b-row>
+          <b-row v-if="component.tiered">
+            <b-col
+              xs="12"
+              md="6"
+              lg="4"
+            >
+              <b-card title="Cumulus">
+                <div>
+                  CPU: {{ component.cpubasic }}
                 </div>
                 <b-form-input
-                  id="cpu"
-                  v-model="component.cpu"
-                  placeholder="CPU cores to use by default"
+                  v-model="component.cpubasic"
+                  type="range"
+                  min="0.1"
+                  max="3"
+                  step="0.1"
+                />
+                <div>
+                  RAM: {{ component.rambasic }}
+                </div>
+                <b-form-input
+                  v-model="component.rambasic"
+                  type="range"
+                  min="100"
+                  max="5000"
+                  step="100"
+                />
+                <div>
+                  SSD: {{ component.hddbasic }}
+                </div>
+                <b-form-input
+                  v-model="component.hddbasic"
+                  type="range"
+                  min="1"
+                  max="180"
+                  step="1"
+                />
+              </b-card>
+            </b-col>
+            <b-col
+              xs="12"
+              md="6"
+              lg="4"
+            >
+              <b-card title="Nimbus">
+                <div>
+                  CPU: {{ component.cpusuper }}
+                </div>
+                <b-form-input
+                  v-model="component.cpusuper"
+                  type="range"
+                  min="0.1"
+                  max="7"
+                  step="0.1"
+                />
+                <div>
+                  RAM: {{ component.ramsuper }}
+                </div>
+                <b-form-input
+                  v-model="component.ramsuper"
+                  type="range"
+                  min="100"
+                  max="28000"
+                  step="100"
+                />
+                <div>
+                  SSD: {{ component.hddsuper }}
+                </div>
+                <b-form-input
+                  v-model="component.hddsuper"
+                  type="range"
+                  min="1"
+                  max="400"
+                  step="1"
+                />
+              </b-card>
+            </b-col>
+            <b-col
+              xs="12"
+              lg="4"
+            >
+              <b-card title="Stratus">
+                <div>
+                  CPU: {{ component.cpubamf }}
+                </div>
+                <b-form-input
+                  v-model="component.cpubamf"
                   type="range"
                   min="0.1"
                   max="15"
                   step="0.1"
                 />
-              </b-form-group>
-              <b-form-group
-                v-if="!component.tiered"
-                label-cols="2"
-                label-cols-lg="1"
-                label="RAM"
-                label-for="ram"
-              >
-                <div class="mx-1">
-                  {{ component.ram }}
+                <div>
+                  RAM: {{ component.rambamf }}
                 </div>
                 <b-form-input
-                  id="ram"
-                  v-model="component.ram"
-                  placeholder="RAM in MB value to use by default"
+                  v-model="component.rambamf"
                   type="range"
                   min="100"
                   max="59000"
                   step="100"
                 />
-              </b-form-group>
-              <b-form-group
-                v-if="!component.tiered"
-                label-cols="2"
-                label-cols-lg="1"
-                label="SSD"
-                label-for="ssd"
-              >
-                <div class="mx-1">
-                  {{ component.hdd }}
+                <div>
+                  SSD: {{ component.hddbamf }}
                 </div>
                 <b-form-input
-                  id="ssd"
-                  v-model="component.hdd"
-                  placeholder="SSD in GB value to use by default"
+                  v-model="component.hddbamf"
                   type="range"
                   min="1"
                   max="820"
                   step="1"
                 />
+              </b-card>
+            </b-col>
+          </b-row>
+        </b-card>
+        <b-card
+          v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
+          title="Enterprise Nodes"
+        >
+          Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able to access your private image and secrets.<br>
+          Changing the node list after the message is computed and encrypted will result in a failure to run. Secrets and Repository Authentication would need to be adjusted again.<br>
+          The score determines how reputable a node and node operator are. The higher the score, the higher the reputation on the network.<br>
+          Secrets and Repository Authentication need to be set again if this node list changes.<br>
+          The more nodes can run your application, the more stable it is. On the other hand, more nodes will have access to your private data!<br>
+          <b-row>
+            <b-col
+              md="4"
+              sm="4"
+              class="my-1"
+            >
+              <b-form-group class="mb-0">
+                <label class="d-inline-block text-left mr-50">Per page</label>
+                <b-form-select
+                  id="perPageSelect"
+                  v-model="entNodesTable.perPage"
+                  size="sm"
+                  :options="entNodesTable.pageOptions"
+                  class="w-50"
+                />
               </b-form-group>
-            </b-card>
-          </b-col>
-        </b-row>
-        <b-row v-if="component.tiered">
-          <b-col
-            xs="12"
-            md="6"
-            lg="4"
-          >
-            <b-card title="Cumulus">
-              <div>
-                CPU: {{ component.cpubasic }}
-              </div>
-              <b-form-input
-                v-model="component.cpubasic"
-                type="range"
-                min="0.1"
-                max="3"
-                step="0.1"
-              />
-              <div>
-                RAM: {{ component.rambasic }}
-              </div>
-              <b-form-input
-                v-model="component.rambasic"
-                type="range"
-                min="100"
-                max="5000"
-                step="100"
-              />
-              <div>
-                SSD: {{ component.hddbasic }}
-              </div>
-              <b-form-input
-                v-model="component.hddbasic"
-                type="range"
-                min="1"
-                max="180"
-                step="1"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            xs="12"
-            md="6"
-            lg="4"
-          >
-            <b-card title="Nimbus">
-              <div>
-                CPU: {{ component.cpusuper }}
-              </div>
-              <b-form-input
-                v-model="component.cpusuper"
-                type="range"
-                min="0.1"
-                max="7"
-                step="0.1"
-              />
-              <div>
-                RAM: {{ component.ramsuper }}
-              </div>
-              <b-form-input
-                v-model="component.ramsuper"
-                type="range"
-                min="100"
-                max="28000"
-                step="100"
-              />
-              <div>
-                SSD: {{ component.hddsuper }}
-              </div>
-              <b-form-input
-                v-model="component.hddsuper"
-                type="range"
-                min="1"
-                max="400"
-                step="1"
-              />
-            </b-card>
-          </b-col>
-          <b-col
-            xs="12"
-            lg="4"
-          >
-            <b-card title="Stratus">
-              <div>
-                CPU: {{ component.cpubamf }}
-              </div>
-              <b-form-input
-                v-model="component.cpubamf"
-                type="range"
-                min="0.1"
-                max="15"
-                step="0.1"
-              />
-              <div>
-                RAM: {{ component.rambamf }}
-              </div>
-              <b-form-input
-                v-model="component.rambamf"
-                type="range"
-                min="100"
-                max="59000"
-                step="100"
-              />
-              <div>
-                SSD: {{ component.hddbamf }}
-              </div>
-              <b-form-input
-                v-model="component.hddbamf"
-                type="range"
-                min="1"
-                max="820"
-                step="1"
-              />
-            </b-card>
-          </b-col>
-        </b-row>
-      </b-card>
-      <b-card
-        v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
-        title="Enterprise Nodes"
-      >
-        Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able to access your private image and secrets.<br>
-        Changing the node list after the message is computed and encrypted will result in a failure to run. Secrets and Repository Authentication would need to be adjusted again.<br>
-        The score determines how reputable a node and node operator are. The higher the score, the higher the reputation on the network.<br>
-        Secrets and Repository Authentication need to be set again if this node list changes.<br>
-        The more nodes can run your application, the more stable it is. On the other hand, more nodes will have access to your private data!<br>
-        <b-row>
-          <b-col
-            md="4"
-            sm="4"
-            class="my-1"
-          >
-            <b-form-group class="mb-0">
-              <label class="d-inline-block text-left mr-50">Per page</label>
-              <b-form-select
-                id="perPageSelect"
-                v-model="entNodesTable.perPage"
-                size="sm"
-                :options="entNodesTable.pageOptions"
-                class="w-50"
-              />
-            </b-form-group>
-          </b-col>
-          <b-col
-            md="8"
-            class="my-1"
-          >
-            <b-form-group
-              label="Filter"
-              label-cols-sm="1"
-              label-align-sm="right"
-              label-for="filterInput"
-              class="mb-0"
+            </b-col>
+            <b-col
+              md="8"
+              class="my-1"
             >
-              <b-input-group size="sm">
-                <b-form-input
-                  id="filterInput"
-                  v-model="entNodesTable.filter"
-                  type="search"
-                  placeholder="Type to Search"
-                />
-                <b-input-group-append>
-                  <b-button
-                    :disabled="!entNodesTable.filter"
-                    @click="entNodesTable.filter = ''"
-                  >
-                    Clear
-                  </b-button>
-                </b-input-group-append>
-              </b-input-group>
-            </b-form-group>
-          </b-col>
-
-          <b-col cols="12">
-            <b-table
-              class="app-enterprise-nodes-table"
-              striped
-              hover
-              responsive
-              :per-page="entNodesTable.perPage"
-              :current-page="entNodesTable.currentPage"
-              :items="selectedEnterpriseNodes"
-              :fields="entNodesTable.fields"
-              :sort-by.sync="entNodesTable.sortBy"
-              :sort-desc.sync="entNodesTable.sortDesc"
-              :sort-direction="entNodesTable.sortDirection"
-              :filter="entNodesTable.filter"
-              :filter-included-fields="entNodesTable.filterOn"
-              show-empty
-              :empty-text="'No Enterprise Nodes selected'"
-            >
-              <template #cell(show_details)="row">
-                <a @click="row.toggleDetails">
-                  <v-icon
-                    v-if="!row.detailsShowing"
-                    name="chevron-down"
+              <b-form-group
+                label="Filter"
+                label-cols-sm="1"
+                label-align-sm="right"
+                label-for="filterInput"
+                class="mb-0"
+              >
+                <b-input-group size="sm">
+                  <b-form-input
+                    id="filterInput"
+                    v-model="entNodesTable.filter"
+                    type="search"
+                    placeholder="Type to Search"
                   />
-                  <v-icon
-                    v-if="row.detailsShowing"
-                    name="chevron-up"
-                  />
-                </a>
-              </template>
-              <template #row-details="row">
-                <b-card class="mx-2">
-                  <list-entry
-                    title="IP Address"
-                    :data="row.item.ip"
-                  />
-                  <list-entry
-                    title="Public Key"
-                    :data="row.item.pubkey"
-                  />
-                  <list-entry
-                    title="Node Address"
-                    :data="row.item.payment_address"
-                  />
-                  <list-entry
-                    title="Collateral"
-                    :data="`${row.item.txhash}:${row.item.outidx}`"
-                  />
-                  <list-entry
-                    title="Tier"
-                    :data="row.item.tier"
-                  />
-                  <list-entry
-                    title="Overall Score"
-                    :data="row.item.score.toString()"
-                  />
-                  <list-entry
-                    title="Collateral Score"
-                    :data="row.item.collateralPoints.toString()"
-                  />
-                  <list-entry
-                    title="Maturity Score"
-                    :data="row.item.maturityPoints.toString()"
-                  />
-                  <list-entry
-                    title="Public Key Score"
-                    :data="row.item.pubKeyPoints.toString()"
-                  />
-                  <list-entry
-                    title="Enterprise Apps Assigned"
-                    :data="row.item.enterpriseApps.toString()"
-                  />
-                  <div>
+                  <b-input-group-append>
                     <b-button
-                      size="sm"
-                      class="mr-0"
-                      variant="primary"
-                      @click="openNodeFluxOS(row.item.ip.split(':')[0], row.item.ip.split(':')[1] ? +row.item.ip.split(':')[1] - 1 : 16126)"
+                      :disabled="!entNodesTable.filter"
+                      @click="entNodesTable.filter = ''"
                     >
-                      Visit FluxNode
+                      Clear
                     </b-button>
-                  </div>
-                </b-card>
-              </template>
-              <template #cell(ip)="row">
-                {{ row.item.ip }}
-              </template>
-              <template #cell(payment_address)="row">
-                {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
-              </template>
-              <template #cell(tier)="row">
-                {{ row.item.tier }}
-              </template>
-              <template #cell(score)="row">
-                {{ row.item.score }}
-              </template>
-              <template #cell(actions)="locationRow">
-                <b-button
-                  :id="`remove-${locationRow.item.ip}`"
-                  size="sm"
-                  class="mr-1 mb-1"
-                  variant="danger"
-                >
-                  Remove
-                </b-button>
-                <confirm-dialog
-                  :target="`remove-${locationRow.item.ip}`"
-                  confirm-button="Remove FluxNode"
-                  @confirm="removeFluxNode(locationRow.item.ip)"
-                />
-                <b-button
-                  size="sm"
-                  class="mr-1 mb-1"
-                  variant="primary"
-                  @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
-                >
-                  Visit
-                </b-button>
-              </template>
-            </b-table>
-          </b-col>
-          <b-col cols="12">
-            <b-pagination
-              v-model="entNodesTable.currentPage"
-              :total-rows="selectedEnterpriseNodes.length"
-              :per-page="entNodesTable.perPage"
-              align="center"
-              size="sm"
-              class="my-0"
-            />
-            <span class="table-total">Total: {{ selectedEnterpriseNodes.length }}</span>
-          </b-col>
-        </b-row>
-        <br>
-        <br>
-        <div class="text-center">
-          <b-button
-            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="primary"
-            aria-label="Auto Select Enterprise Nodes"
-            class="mb-2 mr-2"
-            @click="autoSelectNodes"
-          >
-            Auto Select Enterprise Nodes
-          </b-button>
-          <b-button
-            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="primary"
-            aria-label="Choose Enterprise Nodes"
-            class="mb-2 mr-2"
-            @click="chooseEnterpriseDialog = true"
-          >
-            Choose Enterprise Nodes
-          </b-button>
-        </div>
-      </b-card>
+                  </b-input-group-append>
+                </b-input-group>
+              </b-form-group>
+            </b-col>
+
+            <b-col cols="12">
+              <b-table
+                class="app-enterprise-nodes-table"
+                striped
+                hover
+                responsive
+                :per-page="entNodesTable.perPage"
+                :current-page="entNodesTable.currentPage"
+                :items="selectedEnterpriseNodes"
+                :fields="entNodesTable.fields"
+                :sort-by.sync="entNodesTable.sortBy"
+                :sort-desc.sync="entNodesTable.sortDesc"
+                :sort-direction="entNodesTable.sortDirection"
+                :filter="entNodesTable.filter"
+                :filter-included-fields="entNodesTable.filterOn"
+                show-empty
+                :empty-text="'No Enterprise Nodes selected'"
+              >
+                <template #cell(show_details)="row">
+                  <a @click="row.toggleDetails">
+                    <v-icon
+                      v-if="!row.detailsShowing"
+                      name="chevron-down"
+                    />
+                    <v-icon
+                      v-if="row.detailsShowing"
+                      name="chevron-up"
+                    />
+                  </a>
+                </template>
+                <template #row-details="row">
+                  <b-card class="mx-2">
+                    <list-entry
+                      title="IP Address"
+                      :data="row.item.ip"
+                    />
+                    <list-entry
+                      title="Public Key"
+                      :data="row.item.pubkey"
+                    />
+                    <list-entry
+                      title="Node Address"
+                      :data="row.item.payment_address"
+                    />
+                    <list-entry
+                      title="Collateral"
+                      :data="`${row.item.txhash}:${row.item.outidx}`"
+                    />
+                    <list-entry
+                      title="Tier"
+                      :data="row.item.tier"
+                    />
+                    <list-entry
+                      title="Overall Score"
+                      :data="row.item.score.toString()"
+                    />
+                    <list-entry
+                      title="Collateral Score"
+                      :data="row.item.collateralPoints.toString()"
+                    />
+                    <list-entry
+                      title="Maturity Score"
+                      :data="row.item.maturityPoints.toString()"
+                    />
+                    <list-entry
+                      title="Public Key Score"
+                      :data="row.item.pubKeyPoints.toString()"
+                    />
+                    <list-entry
+                      title="Enterprise Apps Assigned"
+                      :data="row.item.enterpriseApps.toString()"
+                    />
+                    <div>
+                      <b-button
+                        size="sm"
+                        class="mr-0"
+                        variant="primary"
+                        @click="openNodeFluxOS(row.item.ip.split(':')[0], row.item.ip.split(':')[1] ? +row.item.ip.split(':')[1] - 1 : 16126)"
+                      >
+                        Visit FluxNode
+                      </b-button>
+                    </div>
+                  </b-card>
+                </template>
+                <template #cell(ip)="row">
+                  {{ row.item.ip }}
+                </template>
+                <template #cell(payment_address)="row">
+                  {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
+                </template>
+                <template #cell(tier)="row">
+                  {{ row.item.tier }}
+                </template>
+                <template #cell(score)="row">
+                  {{ row.item.score }}
+                </template>
+                <template #cell(actions)="locationRow">
+                  <b-button
+                    :id="`remove-${locationRow.item.ip}`"
+                    size="sm"
+                    class="mr-1 mb-1"
+                    variant="danger"
+                  >
+                    Remove
+                  </b-button>
+                  <confirm-dialog
+                    :target="`remove-${locationRow.item.ip}`"
+                    confirm-button="Remove FluxNode"
+                    @confirm="removeFluxNode(locationRow.item.ip)"
+                  />
+                  <b-button
+                    size="sm"
+                    class="mr-1 mb-1"
+                    variant="primary"
+                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                  >
+                    Visit
+                  </b-button>
+                </template>
+              </b-table>
+            </b-col>
+            <b-col cols="12">
+              <b-pagination
+                v-model="entNodesTable.currentPage"
+                :total-rows="selectedEnterpriseNodes.length"
+                :per-page="entNodesTable.perPage"
+                align="center"
+                size="sm"
+                class="my-0"
+              />
+              <span class="table-total">Total: {{ selectedEnterpriseNodes.length }}</span>
+            </b-col>
+          </b-row>
+          <br>
+          <br>
+          <div class="text-center">
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="primary"
+              aria-label="Auto Select Enterprise Nodes"
+              class="mb-2 mr-2"
+              @click="autoSelectNodes"
+            >
+              Auto Select Enterprise Nodes
+            </b-button>
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="primary"
+              aria-label="Choose Enterprise Nodes"
+              class="mb-2 mr-2"
+              @click="chooseEnterpriseDialog = true"
+            >
+              Choose Enterprise Nodes
+            </b-button>
+          </div>
+        </b-card>
+      </b-overlay>
     </div>
     <div v-else>
       <b-row class="match-height">
@@ -1130,7 +1207,7 @@
               <b-form-input
                 id="owner"
                 v-model="appRegistrationSpecification.owner"
-                placeholder="ZelID of Application Owner"
+                placeholder="Flux ID of Application Owner"
               />
             </b-form-group>
           </b-card>
@@ -1501,12 +1578,23 @@
         label="Registration Message"
         label-for="registrationmessage"
       >
-        <b-form-textarea
-          id="registrationmessage"
-          v-model="dataToSign"
-          rows="6"
-          readonly
-        />
+        <div class="text-wrap">
+          <b-form-textarea
+            id="registrationmessage"
+            v-model="dataToSign"
+            style="padding-top: 15px;"
+            rows="6"
+            readonly
+          />
+          <b-icon
+            ref="copyButtonRef"
+            v-b-tooltip="tooltipText"
+            class="clipboard icon"
+            scale="1.5"
+            icon="clipboard"
+            @click="copyMessageToSign"
+          />
+        </div>
       </b-form-group>
       <b-form-group
         label-cols="3"
@@ -1524,21 +1612,38 @@
           xs="6"
           lg="8"
         >
-          <b-card title="Register App">
+          <b-card
+            class="text-center"
+            title="Register Application"
+          >
             <b-card-text>
-              Price: {{ applicationPrice }} FLUX
+              <h5>
+                &nbsp;<b-icon
+                  class="mr-1 mt-2"
+                  scale="1.4"
+                  icon="cash-coin"
+                />Price: <b>{{ applicationPriceUSD }} USD + VAT</b>
+              </h5>
             </b-card-text>
             <b-card-text>
-              Subscription period: {{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}
+              <h5>
+                &nbsp;<b-icon
+                  class="mr-1"
+                  scale="1.4"
+                  icon="clock"
+                />Subscription period: <b>{{ getExpireLabel || (appRegistrationSpecification.expire ? `${appRegistrationSpecification.expire} blocks` : '1 month') }}</b>
+              </h5>
             </b-card-text>
             <b-button
               v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
+              :disabled="!signature"
+              variant="outline-success"
               aria-label="Register Flux App"
-              class="my-1"
+              class="mt-3"
+              style="width: 300px"
               @click="register"
             >
-              Register Flux App
+              Register
             </b-button>
           </b-card>
         </b-col>
@@ -1546,24 +1651,25 @@
           xs="6"
           lg="4"
         >
-          <b-card title="Sign with">
+          <b-card
+            ref="signContainer"
+            class="text-center highlight-container"
+            title="Sign with"
+          >
             <div class="loginRow">
-              <a
-                :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
-                @click="initiateSignWS"
-              >
+              <a @click="initiateSignWS">
                 <img
-                  class="zelidLogin"
-                  src="@/assets/images/zelID.svg"
-                  alt="Zel ID"
+                  class="walletIcon"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
                   height="100%"
                   width="100%"
                 >
               </a>
               <a @click="initSSP">
                 <img
-                  class="sspLogin"
-                  src="@/assets/images/ssp-logo-white.svg"
+                  class="walletIcon"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
                   alt="SSP"
                   height="100%"
                   width="100%"
@@ -1573,7 +1679,7 @@
             <div class="loginRow">
               <a @click="initWalletConnect">
                 <img
-                  class="walletconnectLogin"
+                  class="walletIcon"
                   src="@/assets/images/walletconnect.svg"
                   alt="WalletConnect"
                   height="100%"
@@ -1582,7 +1688,7 @@
               </a>
               <a @click="initMetamask">
                 <img
-                  class="metamaskLogin"
+                  class="walletIcon"
                   src="@/assets/images/metamask.svg"
                   alt="Metamask"
                   height="100%"
@@ -1590,11 +1696,51 @@
                 >
               </a>
             </div>
+            <div class="loginRow">
+              <b-button
+                v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                variant="primary"
+                aria-label="Flux Single Sign On"
+                class="my-1"
+                style="width: 250px"
+                @click="initSignFluxSSO"
+              >
+                Flux Single Sign On (SSO)
+              </b-button>
+            </div>
           </b-card>
         </b-col>
       </b-row>
-      <b-row
+      <div
         v-if="registrationHash"
+        class="match-height"
+      >
+        <b-row>
+          <b-card title="Test Application Installation">
+            <b-card-text>
+              <div>
+                It's now time to test your application install/launch. It's very important to test the app install/launch to make sure your application specifications work.
+                You will get the application install/launch log at the bottom of this page once it's completed, if the app starts you can proceed with the payment, if not, you need to fix/change the specifications and try again before you can pay the app subscription.
+              </div>
+              <span v-if="testError" style="color: red">
+                <br>
+                <b>WARNING: Test failed! Check logs at the bottom. If the error is related with your application specifications try to fix it before you pay your registration subscription.</b>
+              </span>
+            </b-card-text>
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Test Launch"
+              class="my-1"
+              @click="testAppInstall(registrationHash)"
+            >
+              Test Installation
+            </b-button>
+          </b-card>
+        </b-row>
+      </div>
+      <b-row
+        v-if="testFinished"
         class="match-height"
       >
         <b-col
@@ -1603,53 +1749,117 @@
         >
           <b-card>
             <b-card-text>
-              To finish the application update, please make a transaction of {{ applicationPrice }} FLUX to address
-              '{{ deploymentAddress }}'
-              with the following message:
-              '{{ registrationHash }}'
+              <b>Everything is ready, your payment option links, both for fiat and flux, are valid for the next 30 minutes.</b>
             </b-card-text>
             <br>
-            The transaction must be mined by {{ new Date(validTill).toLocaleString('en-GB', timeoptions.shortDate) }}
-            <br><br>
-            The application will be subscribed until {{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}
+            The application will be subscribed until <b>{{ new Date(subscribedTill).toLocaleString('en-GB', timeoptions.shortDate) }}</b>
+            <br>
+            To finish the application registration, pay your application with your prefered payment method or check below how to pay with Flux crypto currency.
           </b-card>
         </b-col>
         <b-col
           xs="6"
           lg="4"
         >
-          <b-card title="Pay with Zelcore">
-            <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
-              <img
-                class="zelidLogin"
-                src="@/assets/images/zelID.svg"
-                alt="Zel ID"
-                height="100%"
-                width="100%"
+          <b-card
+            class="text-center"
+            title="Pay with Stripe/PayPal"
+          >
+            <div class="loginRow">
+              <a v-if="stripeEnabled" @click="initStripePay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
+                <img
+                  class="stripePay"
+                  src="@/assets/images/Stripe.svg"
+                  alt="Stripe"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a v-if="paypalEnabled" @click="initPaypalPay(registrationHash, appRegistrationSpecification.name, applicationPriceUSD, appRegistrationSpecification.description)">
+                <img
+                  class="paypalPay"
+                  src="@/assets/images/PayPal.png"
+                  alt="PayPal"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <span v-if="!paypalEnabled && !stripeEnabled">Fiat Gateways Unavailable.</span>
+            </div>
+            <div
+              v-if="checkoutLoading"
+              className="loginRow"
+            >
+              <b-spinner variant="primary" />
+              <div class="text-center">
+                Checkout Loading ...
+              </div>
+            </div>
+            <div
+              v-if="fiatCheckoutURL"
+              className="loginRow"
+            >
+              <a
+                :href="fiatCheckoutURL"
+                target="_blank"
+                rel="noopener noreferrer"
               >
-            </a>
+                Click here for checkout if not redirected
+              </a>
+            </div>
           </b-card>
         </b-col>
       </b-row>
-    </div>
-    <div v-if="registrationHash && !isPrivateApp">
-      <b-row>
-        <b-card title="Test Launch">
-          <b-card-text>
-            You can now test launch your application locally. It will run on this particular node for a few hours, so you can spot and tune your app specifications.
-            <br>
-            Application will run on IP: {{ nodeIP || 'Sorry, something went wrong, check IP manually' }}
-          </b-card-text>
-          <b-button
-            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="success"
-            aria-label="Test Launch"
-            class="my-1"
-            @click="installAppLocally(registrationHash)"
-          >
-            Test Launch
-          </b-button>
-        </b-card>
+      <b-row
+        v-if="testFinished && !applicationPriceFluxError"
+        class="match-height"
+      >
+        <b-col
+          xs="6"
+          lg="8"
+        >
+          <b-card>
+            <b-card-text>
+              To pay in FLUX, please make a transaction of <b>{{ applicationPrice }} FLUX</b> to address
+              <b>'{{ deploymentAddress }}'</b>
+              with the following message:
+              <b>'{{ registrationHash }}'</b>
+            </b-card-text>
+          </b-card>
+        </b-col>
+        <b-col
+          xs="6"
+          lg="4"
+        >
+          <b-card>
+            <h4 v-if="applicationPriceFluxDiscount > 0">
+              <kbd class="d-flex justify-content-center bg-primary mb-2">Discount - {{ applicationPriceFluxDiscount }}%</kbd>
+            </h4>
+            <h4 class="text-center mb-2">
+              Pay with Zelcore/SSP
+            </h4>
+            <div class="loginRow">
+              <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                <img
+                  class="walletIcon"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a @click="initSSPpay">
+                <img
+                  class="walletIcon"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
+          </b-card>
+        </b-col>
       </b-row>
     </div>
     <div
@@ -1668,7 +1878,7 @@
           />
         </b-col>
         <b-col
-          v-if="downloading"
+          v-if="downloadOutputReturned"
           cols="3"
         >
           <h3>Downloads</h3>
@@ -1938,6 +2148,13 @@ import ListEntry from '@/views/components/ListEntry.vue';
 
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
+import useAppConfig from '@core/app-config/useAppConfig';
+import { useClipboard } from '@vueuse/core';
+import { getUser } from '@/libs/firebase';
+import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
+
+import topologicalSort from '@/utils/topologicalSort';
+import yaml from 'js-yaml';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -1997,6 +2214,11 @@ export default {
   },
   data() {
     return {
+      progressVisable: false,
+      operationTitle: '',
+      isDragging: false,
+      reader: new FileReader(),
+      tooltipText: 'Copy to clipboard',
       importAppSpecs: false,
       importedSpecs: '',
       timeoptions,
@@ -2232,6 +2454,9 @@ export default {
       },
       dataForAppRegistration: {},
       applicationPrice: 0,
+      applicationPriceFluxError: false,
+      applicationPriceFluxDiscount: '',
+      applicationPriceUSD: 0,
       deploymentAddress: '',
       minInstances: 3,
       maxInstances: 100,
@@ -2277,6 +2502,7 @@ export default {
       numberOfNegativeGeolocations: 1,
       output: [],
       downloading: false,
+      downloadOutputReturned: false,
       downloadOutput: {},
       nodeIP: '',
       tosAgreed: false,
@@ -2324,6 +2550,13 @@ export default {
       },
       chooseEnterpriseDialog: false,
       signClient: null,
+      fiatCheckoutURL: '',
+      checkoutLoading: false,
+      ipAccess: false,
+      stripeEnabled: true,
+      paypalEnabled: true,
+      testError: false,
+      testFinished: false,
     };
   },
   computed: {
@@ -2331,6 +2564,9 @@ export default {
       'config',
       'privilege',
     ]),
+    skin() {
+      return useAppConfig().skin.value;
+    },
     validTill() {
       const expTime = this.timestamp + 60 * 60 * 1000; // 1 hour
       return expTime;
@@ -2357,7 +2593,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -2383,21 +2628,31 @@ export default {
       }
       return null;
     },
+    immutableAppSpecs() {
+      return JSON.stringify(this.appRegistrationSpecification);
+    },
   },
   watch: {
-    appRegistrationSpecification: {
+    // changed this to watch a string. Whenever checkFluxSpecificationsAndFormatMessage was
+    // being run, it was reassigning properties which was causing this watcher to fire, even if
+    // the properties were the same (empty fields). This would cause the viewport to jump to the
+    // top of the screen if you click compute registration message twice. Should probably just disable
+    // the button once clicked, then re-enable if specs change.
+    immutableAppSpecs: {
       handler() {
         this.dataToSign = '';
         this.signature = '';
         this.timestamp = null;
         this.dataForAppRegistration = {};
         this.registrationHash = '';
+        this.output = [];
+        this.testError = false;
+        this.testFinished = false;
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
         }
       },
-      deep: true,
     },
     expirePosition: {
       handler() {
@@ -2406,6 +2661,9 @@ export default {
         this.timestamp = null;
         this.dataForAppRegistration = {};
         this.registrationHash = '';
+        this.output = [];
+        this.testError = false;
+        this.testFinished = false;
         if (this.websocket !== null) {
           this.websocket.close();
           this.websocket = null;
@@ -2442,6 +2700,13 @@ export default {
     this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
   },
   mounted() {
+    const { hostname } = window.location;
+    const regex = /[A-Za-z]/g;
+    if (hostname.match(regex)) {
+      this.ipAccess = false;
+    } else {
+      this.ipAccess = true;
+    }
     this.initMMSDK();
     this.getGeolocationData();
     this.getDaemonInfo();
@@ -2553,6 +2818,7 @@ export default {
           }
         }
       } catch (error) {
+        this.generalMultiplier = 10;
         console.log(error);
       }
     },
@@ -2567,7 +2833,13 @@ export default {
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
+        if (this.appRegistrationSpecification.compose.find((comp) => comp.repotag.toLowerCase().includes('presearch/node')
+          || comp.repotag.toLowerCase().includes('thijsvanloef/palworld-server-docker'))) {
+          throw new Error('This application is configured and needs to be bought directly from marketplace.');
+        }
         // formation, pre verificaiton
+        this.operationTitle = ' Compute registration message...';
+        this.progressVisable = true;
         const appSpecification = this.appRegistrationSpecification;
         let secretsPresent = false;
         if (appSpecification.version >= 7) {
@@ -2612,8 +2884,12 @@ export default {
           // time to encrypt
           // eslint-disable-next-line no-restricted-syntax
           for (const component of this.appRegistrationSpecification.compose) {
+            component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
+            component.commands = component.commands.replace('\\“', '\\"');
+            component.domains = component.domains.replace('\\“', '\\"');
             if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
+              component.secrets = component.secrets.replace('\\“', '\\"');
               // eslint-disable-next-line no-await-in-loop
               const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
               if (!encryptedMessage) {
@@ -2655,16 +2931,34 @@ export default {
           throw new Error(responseAppSpecs.data.data.message || responseAppSpecs.data.data);
         }
         const appSpecFormatted = responseAppSpecs.data.data;
-        const response = await AppsService.appPrice(appSpecFormatted);
         this.applicationPrice = 0;
+        this.applicationPriceUSD = 0;
+        this.applicationPriceFluxDiscount = '';
+        this.applicationPriceFluxError = false;
+
+        const response = await AppsService.appPriceUSDandFlux(appSpecFormatted);
         if (response.data.status === 'error') {
           throw new Error(response.data.data.message || response.data.data);
         }
-        this.applicationPrice = (Math.ceil(((+response.data.data * this.generalMultiplier) * 100))) / 100;
-        this.timestamp = new Date().getTime();
+        this.applicationPriceUSD = +response.data.data.usd;
+        if (Number.isNaN(+response.data.data.fluxDiscount)) {
+          this.applicationPriceFluxError = true;
+          this.showToast('danger', 'Not possible to complete payment with Flux crypto currency');
+        } else {
+          this.applicationPrice = +response.data.data.flux;
+          this.applicationPriceFluxDiscount = +response.data.data.fluxDiscount;
+        }
+        this.progressVisable = false;
+        this.timestamp = Date.now();
         this.dataForAppRegistration = appSpecFormatted;
         this.dataToSign = this.registrationtype + this.version + JSON.stringify(appSpecFormatted) + this.timestamp;
+        this.$nextTick(() => {
+          if (!this.isElementInViewport(this.$refs.signContainer)) {
+            this.$refs.signContainer.scrollIntoView({ behavior: 'smooth' });
+          }
+        });
       } catch (error) {
+        this.progressVisable = false;
         console.log(error);
         this.showToast('danger', error.message || error);
       }
@@ -2724,14 +3018,63 @@ export default {
       this.appRegistrationSpecification.owner = auth.zelid;
     },
 
-    initiateSignWS() {
+    async initSignFluxSSO() {
+      try {
+        const message = this.dataToSign;
+        const firebaseUser = getUser();
+        if (!firebaseUser) {
+          this.showToast('warning', 'Not logged in as SSO. Login with SSO or use different signing method.');
+          return;
+        }
+        const token = firebaseUser.auth.currentUser.accessToken;
+        const headers = {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        };
+        const signSSO = await axios.post('https://service.fluxcore.ai/api/signMessage', { message }, { headers });
+        if (signSSO.data?.status !== 'success' && signSSO.data?.signature) {
+          this.showToast('warning', 'Failed to sign message, please try again.');
+          return;
+        }
+        this.signature = signSSO.data.signature;
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
+      }
+    },
+
+    async initiateSignWS() {
+      if (this.dataToSign.length > 1800) {
+        const message = this.dataToSign;
+        // upload to flux storage
+        const data = {
+          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+          public: message,
+        };
+        await axios.post(
+          'https://storage.runonflux.io/v1/public',
+          data,
+        );
+        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+        window.location.href = zelProtocol;
+      } else {
+        window.location.href = `zel:?action=sign&message=${this.dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+      }
       const self = this;
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -2788,7 +3131,8 @@ export default {
         timestamp: this.timestamp,
         signature: this.signature,
       };
-      this.showToast('info', 'Propagating message accross Flux network...');
+      this.progressVisable = true;
+      this.operationTitle = 'Propagating message accross Flux network...';
       const response = await AppsService.registerApp(zelidauth, data).catch((error) => {
         this.showToast('danger', error.message || error);
       });
@@ -2799,6 +3143,12 @@ export default {
       } else {
         this.showToast('danger', response.data.data.message || response.data.data);
       }
+      const fiatGateways = await getPaymentGateways();
+      if (fiatGateways) {
+        this.stripeEnabled = fiatGateways.stripe;
+        this.paypalEnabled = fiatGateways.paypal;
+      }
+      this.progressVisable = false;
     },
 
     async appsDeploymentInformation() {
@@ -2892,7 +3242,7 @@ export default {
         });
 
         // fetch locations from stats
-        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation');
+        const response = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geo');
         if (response.data.status === 'success') {
           const geoData = response.data.data;
           if (geoData.length > 5000) { // all went well
@@ -3032,86 +3382,115 @@ export default {
         if (output.status === 'success') {
           string += `${output.data.message || output.data}\r\n`;
         } else if (output.status === 'Downloading') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'danger',
           });
         } else if (output.status === 'Verifying Checksum') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'warning',
           });
         } else if (output.status === 'Download complete') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'info',
           });
         } else if (output.status === 'Extracting') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: output.progressDetail,
             variant: 'primary',
           });
         } else if (output.status === 'Pull complete') {
+          this.downloadOutputReturned = true;
           this.downloadOutput[output.id] = ({
             id: output.id,
             detail: { current: 1, total: 1 },
             variant: 'success',
           });
+        } else if (output.status === 'error') {
+          string += `Error: ${JSON.stringify(output.data)}\r\n`;
         } else {
           string += `${output.status}\r\n`;
         }
       });
       return string;
     },
-    async installAppLocally(app) {
+    async testAppInstall(app) {
       if (this.downloading) {
-        this.showToast('danger', 'Test launch was already initiated');
+        this.showToast('danger', 'Test install/launch was already initiated');
         return;
       }
       const self = this;
       this.output = [];
       this.downloadOutput = {};
+      this.downloadOutputReturned = false;
       this.downloading = true;
-      this.showToast('warning', `Installing ${app}`);
+      this.testError = false;
+      this.testFinished = false;
+      this.showToast('warning', `Testing ${app} installation, please wait`);
       const zelidauth = localStorage.getItem('zelidauth');
-      // const response = await AppsService.installAppLocally(zelidauth, app);
       const axiosConfig = {
         headers: {
           zelidauth,
         },
         onDownloadProgress(progressEvent) {
-          console.log(progressEvent.target.response);
-          self.output = JSON.parse(`[${progressEvent.target.response.replace(/}{/g, '},{')}]`);
+          console.log(progressEvent.event.target.response);
+          self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
         },
       };
-      const response = await AppsService.justAPI().get(`/apps/installapplocally/${app}`, axiosConfig);
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
-      } else {
-        console.log(response);
-        this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
-        console.log(this.output);
-        for (let i = 0; i < this.output.length; i += 1) {
-          if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
-            // error is defined one line above
-            if (this.output[i - 1] && this.output[i - 1].data) {
-              this.showToast('danger', this.output[i - 1].data.message || this.output[i - 1].data);
-              return;
+      let response;
+      try {
+        if (this.appRegistrationSpecification.nodes.length > 0) {
+          const nodeip = this.appRegistrationSpecification.nodes[Math.floor(Math.random() * this.appRegistrationSpecification.nodes.length)];
+          const ip = nodeip.split(':')[0];
+          const port = Number(nodeip.split(':')[1] || 16127);
+          const url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/apps/testappinstall/${app}`;
+          response = await axios.get(url, axiosConfig);
+        } else {
+          response = await AppsService.justAPI().get(`/apps/testappinstall/${app}`, axiosConfig);
+        }
+        if (response.data.status === 'error') {
+          this.showToast('danger', response.data.data.message || response.data.data);
+          this.testError = true;
+        } else {
+          console.log(response);
+          this.output = JSON.parse(`[${response.data.replace(/}{/g, '},{')}]`);
+          console.log(this.output);
+          for (let i = 0; i < this.output.length; i += 1) {
+            if (this.output[i] && this.output[i].data && this.output[i].data.message && this.output[i].data.message.includes('Error occured')) {
+              // error is defined one line above
+              if (this.output[i - 1] && this.output[i - 1].data) {
+                this.showToast('danger', 'Error on Test, check logs');
+                this.testError = true;
+                return;
+              }
             }
           }
+          if (this.output[this.output.length - 1].status === 'error') {
+            this.testError = true;
+            this.showToast('danger', 'Error on Test, check logs');
+          } else if (this.output[this.output.length - 1].status === 'warning') {
+            this.testError = true;
+            this.showToast('warning', 'Warning on Test, check logs');
+          } else {
+            this.showToast('success', 'Test passed, you can continue with app payment');
+            this.testError = false;
+          }
         }
-        if (this.output[this.output.length - 1].status === 'error') {
-          this.showToast('danger', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        } else if (this.output[this.output.length - 1].status === 'warning') {
-          this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        } else {
-          this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-        }
+      } catch (error) {
+        this.showToast('danger', error.message || error);
       }
+      this.testFinished = true;
+      this.downloading = false;
     },
     async uploadEnvToFluxStorage(componentIndex) {
       try {
@@ -3306,7 +3685,11 @@ export default {
         // const agent = new https.Agent({
         //   rejectUnauthorized: false,
         // });
-        const response = await axios.get(`https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`); // ip with port
+        let queryUrl = `https://${node.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/pgp`;
+        if (this.ipAccess) {
+          queryUrl = `http://${node}:${port}/flux/pgp`;
+        }
+        const response = await axios.get(queryUrl); // ip with port
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
         } else {
@@ -3330,7 +3713,7 @@ export default {
         const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         console.log(encryptionKeys);
         console.log(message);
-        const pgpMessage = await openpgp.createMessage({ text: message });
+        const pgpMessage = await openpgp.createMessage({ text: message.replace('\\“', '\\"') });
         const encryptedMessage = await openpgp.encrypt({
           message: pgpMessage, // input as Message object
           encryptionKeys: publicKeys,
@@ -3416,11 +3799,145 @@ export default {
         }
         const responseData = await window.ssp.request('sspwid_sign_message', { message: this.dataToSign });
         if (responseData.status === 'ERROR') {
-          throw new Error(responseData.data);
+          throw new Error(responseData.data || responseData.result);
         }
         this.signature = responseData.signature;
       } catch (error) {
         this.showToast('danger', error.message);
+      }
+    },
+    async initSSPpay() {
+      try {
+        if (!window.ssp) {
+          this.showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const data = {
+          message: this.registrationHash,
+          amount: (+this.applicationPrice || 0).toString(),
+          address: this.deploymentAddress,
+          chain: 'flux',
+        };
+        const responseData = await window.ssp.request('pay', data);
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        } else {
+          this.showToast('success', `${responseData.data}: ${responseData.txid}`);
+        }
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
+    async initStripePay(hash, name, price, description) {
+      try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            success_url: 'https://home.runonflux.io/successcheckout',
+            cancel_url: 'https://home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: false,
+              registration: true,
+            },
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/stripe/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create stripe checkout');
+          this.checkoutLoading = false;
+          return;
+        }
+        this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
+        try {
+          this.openSite(checkoutURL.data.data);
+        } catch (error) {
+          console.log(error);
+          this.showToast('error', 'Failed to open Stripe checkout, pop-up blocked?');
+        }
+      } catch (error) {
+        console.log(error);
+        this.showToast('error', 'Failed to create stripe checkout');
+        this.checkoutLoading = false;
+      }
+    },
+    async initPaypalPay(hash, name, price, description) {
+      try {
+        this.fiatCheckoutURL = '';
+        this.checkoutLoading = true;
+        let clientIP = null;
+        let clientIPResponse = await axios.get('https://api.ipify.org?format=json').catch(() => {
+          console.log('Error geting clientIp from api.ipify.org from');
+        });
+        if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+          clientIP = clientIPResponse.data.ip;
+        } else {
+          clientIPResponse = await axios.get('https://ipinfo.io').catch(() => {
+            console.log('Error geting clientIp from ipinfo.io from');
+          });
+          if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+            clientIP = clientIPResponse.data.ip;
+          } else {
+            clientIPResponse = await axios.get('https://api.ip2location.io').catch(() => {
+              console.log('Error geting clientIp from api.ip2location.io from');
+            });
+            if (clientIPResponse && clientIPResponse.data && clientIPResponse.data.ip) {
+              clientIP = clientIPResponse.data.ip;
+            }
+          }
+        }
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        const data = {
+          zelid: auth.zelid,
+          signature: auth.signature,
+          loginPhrase: auth.loginPhrase,
+          details: {
+            clientIP,
+            name,
+            description,
+            hash,
+            price,
+            productName: name,
+            return_url: 'home.runonflux.io/successcheckout',
+            cancel_url: 'home.runonflux.io',
+            kpi: {
+              origin: 'FluxOS',
+              marketplace: false,
+              registration: true,
+            },
+          },
+        };
+        const checkoutURL = await axios.post(`${paymentBridge}/api/v1/paypal/checkout/create`, data);
+        if (checkoutURL.data.status === 'error') {
+          this.showToast('error', 'Failed to create PayPal checkout');
+          this.checkoutLoading = false;
+          return;
+        }
+        this.fiatCheckoutURL = checkoutURL.data.data;
+        this.checkoutLoading = false;
+        try {
+          this.openSite(checkoutURL.data.data);
+        } catch (error) {
+          console.log(error);
+          this.showToast('error', 'Failed to open Paypal checkout, pop-up blocked?');
+        }
+      } catch (error) {
+        console.log(error);
+        this.showToast('error', 'Failed to create PayPal checkout');
+        this.checkoutLoading = false;
       }
     },
     importSpecs(appSpecs) {
@@ -3530,11 +4047,283 @@ export default {
         this.showToast('warning', 'Please log in first before registering an application');
       }
     },
+    copyMessageToSign() {
+      const { copy } = useClipboard({ source: this.dataToSign, legacy: true });
+      copy();
+      this.tooltipText = 'Copied!';
+      setTimeout(() => {
+        if (this.$refs.copyButtonRef) {
+          this.$refs.copyButtonRef.blur();
+          this.tooltipText = '';
+        }
+      }, 1000);
+      setTimeout(() => {
+        this.tooltipText = 'Copy to clipboard';
+      }, 1500);
+    },
+    byteValueAsMb(value) {
+      const multipliers = {
+        k: 1 / 1024,
+        kb: 1 / 1024,
+        mb: 1,
+        m: 1,
+        gb: 1024,
+        g: 1024,
+      };
+
+      const separated = value.match(/[0-9]+(?:\.[0-9]+)?|[a-zA-Z]+/g);
+      if (separated.length !== 2) return 0;
+      const unscaledValue = +separated[0];
+      const multiplier = separated[1].toLowerCase();
+      if (!(multiplier in multipliers)) return 0;
+      return Math.ceil(unscaledValue * multipliers[multiplier]);
+    },
+    dragover(e) {
+      e.preventDefault();
+      this.isDragging = true;
+    },
+    dragleave() {
+      this.isDragging = false;
+    },
+    drop(e) {
+      e.preventDefault();
+      this.isDragging = false;
+
+      if (!e?.dataTransfer?.files || !e.dataTransfer.files.length) return;
+
+      const file = e.dataTransfer.files[0];
+
+      if (file?.type !== 'application/x-yaml') {
+        this.showToast('warning', 'File must be in yaml format. Ignoring.');
+        return;
+      }
+
+      this.loadFile(file);
+    },
+    loadFile(file) {
+      this.reader.addEventListener('load', this.parseCompose, { once: true });
+      this.reader.readAsText(file);
+    },
+    uploadFile() {
+      this.$refs.uploadSpecs.$el.childNodes[0].click();
+    },
+    isElementInViewport(el) {
+      const rect = el.getBoundingClientRect();
+
+      return (
+        rect.top >= 0
+        && rect.left >= 0
+        && rect.bottom <= (window.innerHeight || document.documentElement.clientHeight)
+        && rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+      );
+    },
+    parseCompose() {
+      let parsed;
+      try {
+        parsed = yaml.load(this.reader.result);
+      } catch (err) {
+        this.showToast('warning', 'Unable to parse yaml file. Ignoring.');
+      }
+
+      if (!parsed) return;
+      if (!parsed.services) {
+        this.showToast('warning', 'Yaml parsed, but no services found. Ignoring.');
+        return;
+      }
+
+      try {
+        const range = (start, stop, step) => Array.from({ length: (stop - start) / step + 1 }, (_, i) => start + i * step);
+
+        const fluxApp = { compose: [] };
+        const dependsOnDag = {};
+
+        Object.entries(parsed.services).forEach((entry) => {
+          const [componentName, config] = entry;
+
+          const component = { name: componentName };
+          fluxApp.compose.push(component);
+          if (!(componentName in dependsOnDag)) dependsOnDag[componentName] = new Set();
+
+          if (config.depends_on) {
+            let dependsOn = config.depends_on;
+
+            // assume we have an object and use the keys
+            if (!(Array.isArray(dependsOn))) {
+              dependsOn = Object.keys(dependsOn);
+            }
+
+            dependsOn.forEach((dependee) => {
+              if (!(dependee in dependsOnDag)) {
+                dependsOnDag[dependee] = new Set();
+              }
+
+              dependsOnDag[dependee].add(componentName);
+            });
+          }
+
+          component.repotag = config.image || '';
+
+          if (config.deploy?.resources?.limits) {
+            const { limits } = config.deploy.resources;
+            // round up to nearest 0.1
+            if (limits.cpus) component.cpu = Math.max((Math.ceil(+limits.cpus * 10) / 10).toFixed(1), 0.1);
+            if (limits.memory) {
+              const parsedMemory = this.byteValueAsMb(limits.memory);
+              // round up to nearest 100 (with 100 min)
+              const roundedMemory = Math.max(Math.ceil(parsedMemory / 100) * 100, 100);
+              component.ram = roundedMemory;
+            }
+          }
+
+          let parsedCommand = '';
+          if (config.command) {
+            // p = previous
+            // c = current
+            parsedCommand = config.command.match(/\\?.|^$/g).reduce(
+              (p, c) => {
+                if (c === '"') {
+                  // eslint-disable-next-line no-bitwise, no-param-reassign
+                  p.quote ^= 1;
+                } else if (!p.quote && c === ' ') {
+                  p.a.push('');
+                } else {
+                  // eslint-disable-next-line no-param-reassign
+                  p.a[p.a.length - 1] += c.replace(/\\(.)/, '$1');
+                }
+                return p;
+              },
+              { a: [''] },
+            ).a;
+          } else {
+            parsedCommand = [];
+          }
+
+          component.commands = this.ensureString(parsedCommand);
+
+          if (config.environment) {
+            let env = config.environment;
+            // env is a map, convert
+            if (!(env instanceof Array)) {
+              env = Object.keys(env).map((key) => `${key}=${env[key]}`);
+            }
+            component.environmentParameters = this.ensureString(env);
+          } else {
+            component.environmentParameters = '[]';
+          }
+
+          if (config.ports && config.ports.length) {
+            let parsedHostPorts = [];
+            let parsedContainerPorts = [];
+            let parsedDomains = [];
+
+            config.ports.forEach((composePort) => {
+              // don't allow long form port mapping
+              if (typeof composePort !== 'string') return;
+              // we don't allow random host port assignment
+              // maybe we should assign out of a range though
+              if (!composePort.includes(':')) return;
+
+              let [ports, containerPorts] = composePort.split(':');
+              if (ports.includes('-')) {
+                const [portsStart, portsEnd] = ports.split('-');
+                ports = range(+portsStart, +portsEnd, 1);
+              }
+
+              if (containerPorts.includes('-')) {
+                const [cPortsStart, cPortsEnd] = containerPorts.split('-');
+                containerPorts = range(+cPortsStart, +cPortsEnd, 1);
+              }
+
+              if (typeof ports === 'string') ports = [ports];
+              if (typeof containerPorts === 'string') containerPorts = [containerPorts];
+
+              if (ports.length !== containerPorts.length) return;
+
+              const domains = Array.from({ length: ports.length }, () => '');
+
+              parsedHostPorts = parsedHostPorts.concat(ports.map((p) => +p));
+              parsedContainerPorts = parsedContainerPorts.concat(containerPorts.map((p) => +p));
+              parsedDomains = parsedDomains.concat(domains);
+            });
+
+            component.ports = this.ensureString(parsedHostPorts);
+            component.containerPorts = this.ensureString(parsedContainerPorts);
+            component.domains = this.ensureString(parsedDomains);
+          } else {
+            component.ports = '[]';
+            component.containerPorts = '[]';
+            component.domains = '[]';
+          }
+          // add in defaults. I was cloning the v7 compose specs, but we can't do this as it gets
+          // set to the main app specs which is mutating the template. We should be using @ungap/structured-clone
+          // as a polyfill for NodeJS < 17, then cloning the template.
+          component.hdd = 40;
+          if (!component.ram) component.ram = 2000;
+          if (!component.cpu) component.cpu = 0.5;
+
+          component.description = '';
+          component.repoauth = '';
+          component.containerData = '/tmp';
+          component.tiered = false;
+          component.secrets = '';
+          component.cpubasic = 0.5;
+          component.rambasic = 500;
+          component.hddbasic = 10;
+          component.cpusuper = 1.5;
+          component.ramsuper = 2500;
+          component.hddsuper = 60;
+          component.cpubamf = 3.5;
+          component.rambamf = 14000;
+          component.hddbamf = 285;
+        });
+
+        const order = topologicalSort(dependsOnDag);
+        if (order.length === fluxApp.compose.length) {
+          fluxApp.compose.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+        }
+
+        this.appRegistrationSpecification.compose = fluxApp.compose;
+
+        if (this.$refs.components.length && !this.isElementInViewport(this.$refs.components[0])) {
+          this.$refs.components[0].scrollIntoView({ behavior: 'smooth' });
+        }
+      } catch (err) {
+        console.log(err);
+        this.showToast('Error', 'Unable to parse compose specifications.');
+      }
+    },
   },
 };
 </script>
 
 <style scoped>
+#registrationmessage {
+  padding-right: 25px !important;
+}
+#fileDropOverlay {
+  position:fixed;
+  top:50%;
+  left:50%;
+  margin-top:-y;
+  margin-left:-x;
+}
+.text-wrap {
+  position: relative;
+  padding: 0em;
+}
+.clipboard.icon {
+  position: absolute;
+  top: 0.4em;
+  right: 1.7em;
+  margin-top: 4px;
+  margin-left: 4px;
+  width: 12px;
+  height: 12px;
+  border: solid 1px #333333;
+  border-top: none;
+  border-radius: 1px;
+  cursor: pointer;
+}
 .inline {
   display: inline;
   padding-left: 5px;
@@ -3546,54 +4335,56 @@ export default {
   align-items: center;
   margin-bottom: 10px;
 }
-.zelidLogin {
+.walletIcon {
+  height: 90px;
+  width: 90px;
+  padding: 10px;
+}
+.walletIcon img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.stripePay {
   margin-left: 5px;
   height: 90px;
   padding: 10px;
 }
-.zelidLogin img {
+.stripePay img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.walletconnectLogin {
-  height: 100px;
+.paypalPay {
+  margin-left: 5px;
+  height: 90px;
   padding: 10px;
 }
-.walletconnectLogin img {
+.paypalPay img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
-.metamaskLogin {
-  height: 80px;
-  padding: 10px;
-}
-.metamaskLogin img {
-  -webkit-app-region: no-drag;
-  transition: 0.1s;
-}
-.sspLogin {
+.fluxSSO {
   height: 90px;
   padding: 10px;
   margin-left: 5px;
 }
-.sspLogin img {
+.fluxSSO img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }
-
 a img {
   transition: all 0.05s ease-in-out;
 }
-
 a:hover img {
   filter: opacity(70%);
   transform: scale(1.1);
 }
-
-.importSpecsButton {
-  float: right;
-  margin-top: -50px;
+.highlight-container {
+  animation: highlight 2s ease-in 0.4s;
 }
+@keyframes highlight {
+  from {
+    background-color: rgb(225, 224, 221);
+  }
+}
+
 </style>

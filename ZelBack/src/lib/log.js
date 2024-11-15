@@ -39,6 +39,9 @@ function ensureString(parameter) {
 }
 
 function writeToFile(filepath, args) {
+  // this function was raising if args are undefined, i.e. no message propery
+  if (!args) return;
+
   const size = getFilesizeInBytes(filepath);
   let flag = 'a+';
   if (size > 25 * 1024 * 1024) {

@@ -4,8 +4,11 @@ import {
   LayoutPlugin,
   ToastPlugin,
   ModalPlugin,
+  BootstrapVue,
+  IconsPlugin,
 } from 'bootstrap-vue';
 
+import DOMPurify from 'dompurify';
 import router from './router';
 import store from './store';
 import App from './App.vue';
@@ -26,6 +29,13 @@ Vue.use(BVConfigPlugin, {
 Vue.use(LayoutPlugin);
 Vue.use(ToastPlugin);
 Vue.use(ModalPlugin);
+Vue.use(BootstrapVue);
+Vue.use(IconsPlugin);
+
+Vue.directive('sane-html', (el, binding) => {
+  // eslint-disable-next-line no-param-reassign
+  el.innerHTML = DOMPurify.sanitize(binding.value);
+});
 
 // import core styles
 require('@core/scss/core.scss');

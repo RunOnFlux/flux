@@ -2,6 +2,7 @@
 node_modules/
 /dist/
 /docs/
+certs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -262,7 +263,7 @@ ClientBin/
 *.publishsettings
 orleans.codegen.cs
 
-# Including strong name files can present a security risk 
+# Including strong name files can present a security risk
 # (https://github.com/github/gitignore/pull/2483#issue-259490424)
 #*.snk
 
@@ -357,7 +358,7 @@ __pycache__/
 # OpenCover UI analysis results
 OpenCover/
 
-# Azure Stream Analytics local run output 
+# Azure Stream Analytics local run output
 ASALocalRun/
 
 # MSBuild Binary and Structured Log
@@ -366,3 +367,8 @@ ASALocalRun/
 # NVidia Nsight GPU debugger configuration file
 *.nvuser
 
+# Testing package.json hash
+tests/images/.package_hash
+
+# Local development folder
+dev/

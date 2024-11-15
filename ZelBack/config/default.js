@@ -74,53 +74,96 @@ module.exports = {
     rpcport: 16124,
     porttestnet: 26125,
     rpcporttestnet: 26124,
+    zmqport: 16123,
   },
-  minimumFluxBenchAllowedVersion: '3.9.0',
-  minimumFluxOSAllowedVersion: '4.5.0',
-  fluxTeamZelId: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+  minimumFluxBenchAllowedVersion: '4.0.0',
+  minimumFluxOSAllowedVersion: '5.4.0',
+  minimumSyncthingAllowedVersion: '1.27.6',
+  minimumDockerAllowedVersion: '26.1.2',
+  fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
+  fluxSupportTeamFluxID: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
   deterministicNodesStart: 558000,
+  messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
   fluxapps: {
     // in flux main chain per month (blocksLasting)
-    price: [{ // any price fork can be done by adjusting object similarily.
+    price: [
+      { // any price fork can be done by adjusting object similarily.
+        height: -1, // height from which price spec is valid
+        cpu: 3, // per 0.1 cpu core,
+        ram: 1, // per 100mb,
+        hdd: 0.5, // per 1gb,
+        minPrice: 1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 2, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      {
+        height: 983000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
+        cpu: 0.3, // per 0.1 cpu core,
+        ram: 0.1, // per 100mb,
+        hdd: 0.05, // per 1gb,
+        minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 2, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      {
+        height: 1004000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.06, // per 0.1 cpu core,
+        ram: 0.02, // per 100mb,
+        hdd: 0.01, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 2, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      {
+        height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.15, // per 0.1 cpu core,
+        ram: 0.05, // per 100mb,
+        hdd: 0.02, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 2, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      // soft fork 1
+      {
+        height: 1594832, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.15, // per 0.1 cpu core,
+        ram: 0.05, // per 100mb,
+        hdd: 0.02, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 1.5, // additional price per enterprise port
+        scope: 6, // additional price for application targetting specific nodes, private images
+        staticip: 3, // additional price per application for targetting nodes that have static ip address
+      },
+      // soft fork 2
+      {
+        height: 1597156, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
+        cpu: 0.03, // per 0.1 cpu core,
+        ram: 0.01, // per 100mb,
+        hdd: 0.004, // per 1gb,
+        minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
+        port: 0.4, // additional price per enterprise port
+        scope: 0.8, // additional price for application targetting specific nodes, private images
+        staticip: 0.4, // additional price per application for targetting nodes that have static ip address
+      },
+    ],
+    fluxUSDRate: 0.6,
+    usdprice: {
       height: -1, // height from which price spec is valid
-      cpu: 3, // per 0.1 cpu core,
-      ram: 1, // per 100mb,
-      hdd: 0.5, // per 1gb,
-      minPrice: 1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
-      port: 2, // additional price per enterprise port
-      scope: 6, // additional price for application targetting specific nodes, private images
-      staticip: 3, // additional price per application for targetting nodes that have static ip address
-    },
-    {
-      height: 983000, // height from which price spec is valid. Counts from when app was registerd on blockchain!
-      cpu: 0.3, // per 0.1 cpu core,
-      ram: 0.1, // per 100mb,
-      hdd: 0.05, // per 1gb,
-      minPrice: 0.1, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
-      port: 2, // additional price per enterprise port
-      scope: 6, // additional price for application targetting specific nodes, private images
-      staticip: 3, // additional price per application for targetting nodes that have static ip address
-    },
-    {
-      height: 1004000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
-      cpu: 0.06, // per 0.1 cpu core,
-      ram: 0.02, // per 100mb,
-      hdd: 0.01, // per 1gb,
-      minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
-      port: 2, // additional price per enterprise port
-      scope: 6, // additional price for application targetting specific nodes, private images
-      staticip: 3, // additional price per application for targetting nodes that have static ip address
-    },
-    {
-      height: 1288000, // height from which price spec is valid. Counts from when app was registerd on blockchain! 1004000
       cpu: 0.15, // per 0.1 cpu core,
       ram: 0.05, // per 100mb,
       hdd: 0.02, // per 1gb,
       minPrice: 0.01, // minimum price that has to be paid for registration or update. Flux listens only to message above or equal this price
       port: 2, // additional price per enterprise port
-      scope: 6, // additional price for application targetting specific nodes, private images
-      staticip: 3, // additional price per application for targetting nodes that have static ip address
-    }],
+      scope: 4, // additional price for application targetting specific nodes, private images
+      staticip: 2, // additional price per application for targetting nodes that have static ip address
+      fluxmultiplier: 0.9, // discount given if payed with flux 1 would be 0%
+      multiplier: 1, // multiplier in case we want to increase prices globaly
+      minUSDPrice: 0.99, // min. usd price that can be paid with stripe/paypal.
+    },
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
@@ -132,7 +175,10 @@ module.exports = {
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
+    addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
     addressDevelopment: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
+    multisigAddressChange: 1670000,
+    fluxAppRequestV2: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
@@ -141,12 +187,11 @@ module.exports = {
     portMinNew: 1,
     portMaxNew: 65535,
     bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444, 123, 53],
-    enterprisePorts: ['0-1023', 8080, 8081, 8443, 25565, 6667],
+    enterprisePorts: ['0-1023', 8080, 8081, 8443, 6667],
     upnpBannedPorts: [],
     maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
     maximumInstances: 100,
-    maximumAdditionalInstances: 1, // max instances above subscribed amount. In case of min instances, this is minimumInstances + maximumAdditionalInstances
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
     minIncoming: 4,
@@ -167,8 +212,11 @@ module.exports = {
     },
     blocksLasting: 22000, // by default registered app will live for 22000 of blocks 44000 minutes ~= 1 month
     minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
+    newMinBlocksAllowance: 100, // app can be registered for a minimum of this blocks ~ 3 hours - to allow users to cancel application subscription
+    newMinBlocksAllowanceBlock: 1630040, // block where we will start looking at new min blocks allowance. block expected on 26th of April 2024
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
+    removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
     ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
     temporaryAppAllowance: 200, // in case of any user installing some temporary app message for testing purposes, the app will run for this many blocks
     expireFluxAppsPeriod: 100, // every 100 blocks we run a check that deletes apps specifications and stops/removes the application from existence if it has been lastly updated more than 22k blocks ago
@@ -176,14 +224,14 @@ module.exports = {
     removeFluxAppsPeriod: 11, // every 11 blocks we check for more than maximum number of instances of an application
     reconstructAppMessagesHashPeriod: 3600, // every 5 days we ask for old messages
     benchUpnpPeriod: 6480, // every 9 days execute upnp bench
-    apprunningv2: 1444444, // daemon block height when version 2 of fluxapprunning type messages start propagating on the network (around August 10th)
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
+    applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
     ram: 2000, // 2000mb
-    hdd: 40, // 40gb // this value is likely to raise
+    hdd: 60, // 60gb // this value is likely to raise
     extrahdd: 20, // extra 20gb to be left on a node // this value is likely to raise
   },
   fluxSpecifics: { // tbd during forks
@@ -229,5 +277,8 @@ module.exports = {
     '043c4fe1606c543ca28f107245166321fae026300747a608db94deecbcd2d945f86b29c52a33416464e7823a6c2e3e45c26733f6378be973959cbf9ee4bff79e66',
     '04a898a0bc768ad0b8456b4da7c1e653a715477926fefb47ef20d8bd841854ddf4e1f59c1c3d55f0088eaca53b850e6ab03d0bd00d0b5a70d17ffbc0554b6188d5',
     '0455a20efde6a0685fa15b020e694674170376bc7c23d203e96fb927717db38011b87c36b2f81c5cf68123c5567abf2b29788231966ea4c43c4f5cb759e4c5cdbb',
+    '04c765d054bcded999c404145c7396725df81973fe803b3da5e9455173410743f43e20294e17bb41adff8b4ff1ab5540b8bcd98521b438840b6a38e904eb0b247f',
+    '03cf1d8b708ca7f5979accb4d0dba35a90391e3dfc4422cf12670c929bb58d16ac',
+    '03e29783936a36b396c28706494dbfd35f3d087f2addeb3df32e451f71bf9a53f3',
   ],
 };

@@ -197,7 +197,7 @@ describe('dockerService tests', () => {
 
       const result = await dockerService.dockerListImages();
       result.forEach((image) => {
-        if (image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
+        if (image.RepoTags.length && image.RepoTags[0].includes('runonflux/website')) fluxImage = image;
       });
 
       expect(fluxImage).to.exist;
@@ -681,6 +681,7 @@ describe('dockerService tests', () => {
       const expectedConfig = {
         ...baseExpectedConfig,
         name: 'fluxwebsite_fluxwebsite',
+        Hostname: 'website',
         ExposedPorts: {
           '31113/tcp': {},
           '31113/udp': {},
@@ -739,6 +740,7 @@ describe('dockerService tests', () => {
       const expectedConfig = {
         ...baseExpectedConfig,
         name: 'fluxwebsite',
+        Hostname: 'website',
         ExposedPorts: {
           '31113/tcp': {},
           '31113/udp': {},
@@ -788,6 +790,7 @@ describe('dockerService tests', () => {
       };
       const expectedConfig = {
         ...baseExpectedConfig,
+        Hostname: 'website',
         name: 'fluxwebsite_fluxwebsite',
         ExposedPorts: {
           '31112/tcp': {}, '9933/tcp': {}, '31112/udp': {}, '9933/udp': {},

@@ -220,17 +220,14 @@
               <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
               <div>
                 <p>
-                  To vote you need to first sign a message with Zelcore with your ZelID corresponding to your Flux Nodes.
+                  To vote you need to first sign a message with Zelcore with your Flux ID corresponding to your Flux Nodes.
                 </p>
                 <div>
-                  <a
-                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`"
-                    @click="initiateSignWS"
-                  >
+                  <a @click="initiateSignWS">
                     <img
                       class="zelidLogin"
-                      src="@/assets/images/zelID.svg"
-                      alt="Zel ID"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
                       height="100%"
                       width="100%"
                     >
@@ -274,7 +271,7 @@
                     <b-form-input
                       id="h-address"
                       v-model="userZelid"
-                      placeholder="Insert ZelID"
+                      placeholder="Insert Flux ID"
                     />
                   </b-form-group>
                 </b-col>
@@ -537,7 +534,16 @@ export default {
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');
@@ -577,13 +583,38 @@ export default {
       console.log(evt);
     };
 
-    const initiateSignWS = () => {
+    const initiateSignWS = async () => {
+      if (dataToSign.value.length > 1800) {
+        const message = dataToSign.value;
+        // upload to flux storage
+        const data = {
+          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+          public: message,
+        };
+        await axios.post(
+          'https://storage.runonflux.io/v1/public',
+          data,
+        );
+        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`;
+        window.location.href = zelProtocol;
+      } else {
+        window.location.href = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`;
+      }
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
       mybackend += '//';
       const regex = /[A-Za-z]/g;
-      if (hostname.match(regex)) {
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
         const names = hostname.split('.');
         names[0] = 'api';
         mybackend += names.join('.');

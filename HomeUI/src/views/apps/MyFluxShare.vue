@@ -33,6 +33,7 @@
           centered
           ok-only
           ok-title="Create Folder"
+          header-bg-variant="primary"
           @ok="createFolder(newDirName)"
         >
           <b-form-group
@@ -53,6 +54,7 @@
           size="lg"
           centered
           hide-footer
+          header-bg-variant="primary"
           @close="refreshFolder()"
         >
           <file-upload
@@ -64,14 +66,18 @@
       </b-button-group>
     </b-button-toolbar>
     <b-table
-      class="fluxshare-table"
+      class="fluxshare-table mt-1"
       hover
       responsive
+      outlined
+      small
       :items="folderContentFilter"
       :fields="fields"
       :busy="loadingFolder"
-      :sort-compare="sort"
       sort-by="name"
+      sort-icon-left
+      show-empty
+      empty-text="Directory is empty."
     >
       <template #table-busy>
         <div class="text-center text-danger my-2">
@@ -128,22 +134,6 @@
           {{ beautifyValue((data.item.size / 1000).toFixed(0)) }} KB
         </div>
       </template>
-      <template #cell(delete)="data">
-        <b-button
-          :id="`delete-${data.item.name}`"
-          v-b-tooltip.hover.left="'Delete'"
-          v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-          variant="gradient-danger"
-          class="btn-icon action-icon"
-        >
-          <v-icon name="trash-alt" />
-        </b-button>
-        <confirm-dialog
-          :target="`delete-${data.item.name}`"
-          :confirm-button="data.item.isFile ? 'Delete File' : 'Delete Folder'"
-          @confirm="data.item.isFile ? deleteFile(data.item.name) : deleteFolder(data.item.name)"
-        />
-      </template>
       <template #cell(actions)="data">
         <b-button-group size="sm">
           <b-button
@@ -180,6 +170,19 @@
           >
             <v-icon name="envelope" />
           </b-button>
+          <b-button
+            :id="`delete-${data.item.name}`"
+            v-b-tooltip.hover.left="'Delete'"
+            v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+            variant="outline-secondary"
+          >
+            <v-icon name="trash-alt" />
+          </b-button>
+          <confirm-dialog
+            :target="`delete-${data.item.name}`"
+            :confirm-button="data.item.isFile ? 'Delete File' : 'Delete Folder'"
+            @confirm="data.item.isFile ? deleteFile(data.item.name) : deleteFolder(data.item.name)"
+          />
         </b-button-group>
         <confirm-dialog
           :target="`download-${data.item.name}`"
@@ -292,12 +295,11 @@ export default {
   data() {
     return {
       fields: [
-        { key: 'name', label: 'Name', sortable: true },
-        { key: 'modifiedAt', label: 'Modified', sortable: true },
-        { key: 'type', label: 'Type', sortable: true },
-        { key: 'size', label: 'Size', sortable: true },
-        { key: 'actions', label: '' },
-        { key: 'delete', label: '' },
+        { key: 'name', label: ' Name', sortable: true },
+        { key: 'modifiedAt', label: ' Modified', sortable: true },
+        { key: 'type', label: ' Type', sortable: true },
+        { key: 'size', label: ' Size', sortable: true },
+        { key: 'actions', label: '', sortable: false },
       ],
       timeoptions: {
         year: 'numeric',
@@ -508,8 +510,8 @@ export default {
             self.$set(self.downloaded, name, progressEvent.loaded);
             if (progressEvent.total) {
               self.$set(self.total, name, progressEvent.total);
-            } else if (progressEvent.target && progressEvent.target.response && progressEvent.target.response.size) {
-              self.$set(self.total, name, progressEvent.target.response.size);
+            } else if (progressEvent.target && progressEvent.event.target.response && progressEvent.event.target.response.size) {
+              self.$set(self.total, name, progressEvent.event.target.response.size);
             } else {
               self.$set(self.total, name, maxTotalSize);
             }
@@ -688,7 +690,6 @@ export default {
     },
     upFolder() {
       this.changeFolder('..');
-      this.sortTableByNameManual();
     },
     showToast(variant, title, icon = 'InfoIcon') {
       this.$toast({
@@ -738,5 +739,8 @@ export default {
 }
 .fluxshare-table th:nth-child(6) {
   width: 50px;
+}
+.b-table-sort-icon-left {
+  padding-left:  20px !important;
 }
 </style>

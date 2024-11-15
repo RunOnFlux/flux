@@ -7,6 +7,9 @@ export default [
       pageTitle: 'Get Status',
       breadcrumb: [
         {
+          text: 'Administration',
+        },
+        {
           text: 'Benchmark',
         },
         {
@@ -26,6 +29,9 @@ export default [
     meta: {
       pageTitle: 'Restart Node Benchmarks',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Benchmark',
         },
@@ -47,6 +53,9 @@ export default [
     meta: {
       pageTitle: 'Sign FluxNode Transaction',
       breadcrumb: [
+        {
+          text: 'Administration',
+        },
         {
           text: 'Benchmark',
         },

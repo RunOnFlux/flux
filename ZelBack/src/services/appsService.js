@@ -1,4 +1,3 @@
-/* global userconfig */
 const config = require('config');
 const https = require('https');
 const axios = require('axios');
@@ -8,11 +7,14 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const nodecmd = require('node-cmd');
+const archiver = require('archiver');
 const df = require('node-df');
 const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
+const fs = require('fs').promises;
+const execShell = util.promisify(require('child_process').exec);
 const httpShutdown = require('http-shutdown');
 const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -34,9 +36,14 @@ const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
+const imageVerifier = require('./utils/imageVerifier');
+// eslint-disable-next-line no-unused-vars
+const backupRestoreService = require('./backupRestoreService');
+const IOUtils = require('./IOUtils');
 const log = require('../lib/log');
-
+const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
+const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolder = `${fluxDirPath}ZelApps/`;
@@ -55,6 +62,8 @@ const globalAppsInformation = config.database.appsglobal.collections.appsInforma
 const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
+const supportedArchitectures = ['amd64', 'arm64'];
+
 const testingAppExpress = express();
 let testingAppserver = http.createServer(testingAppExpress);
 testingAppserver = httpShutdown(testingAppserver);
@@ -63,6 +72,11 @@ const GlobalAppsSpawnLRUoptions = {
   max: 2000,
   ttl: 1000 * 60 * 60 * 2, // 2 hours
   maxAge: 1000 * 60 * 60 * 2, // 2 hours
+};
+const shortCache = {
+  max: 500,
+  ttl: 1000 * 60 * 5, // 5 minutes
+  maxAge: 1000 * 60 * 5, // 5 minutes
 };
 const longCache = {
   max: 500,
@@ -86,18 +100,32 @@ const stopedAppsCache = {
   maxAge: 1000 * 60 * 60 * 1.5, // 1.5 hours
 };
 
+const syncthingDevicesCache = {
+  max: 5000,
+  ttl: 1000 * 60 * 60 * 24, // 24 hours
+  maxAge: 1000 * 60 * 60 * 24, // 24 hours
+};
+
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
+const myShortCache = new LRUCache(shortCache);
 const myLongCache = new LRUCache(longCache);
 const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
 const appsStopedCache = new LRUCache(stopedAppsCache);
+const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
+const backupInProgress = [];
+const restoreInProgress = [];
 
 const hashesNumberOfSearchs = new Map();
+const mastersRunningGSyncthingApps = new Map();
+const timeTostartNewMasterApp = new Map();
+
+const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
 const nodeSpecs = {
   cpuCores: 0,
@@ -317,18 +345,25 @@ async function listAppsImages(req, res) {
  * @param {string} command What command to execute, api route to be done.
  * @param {object} zelidauth What zelidauth headers to send with request for authentication purposes.
  * @param {(object|boolean|string)} paramA first parameter that a command may need
+ * @param {boolean} bypassMyIp Indicates if method should not be made to the ip of the fluxnode from where the call was made
  */
-async function executeAppGlobalCommand(appname, command, zelidauth, paramA) {
+async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypassMyIp) {
   try {
     // get a list of the specific app locations
     // eslint-disable-next-line no-use-before-define
     const locations = await appLocation(appname);
-    let i = 1;
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    const myUrl = myIP.split(':')[0];
+    const myUrlPort = myIP.split(':')[1] || 16127;
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
       const ip = appInstance.ip.split(':')[0];
       const port = appInstance.ip.split(':')[1] || 16127;
+      if (bypassMyIp && myUrl === ip && myUrlPort === port) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       const axiosConfig = {
         headers: {
           zelidauth,
@@ -338,14 +373,15 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA) {
       if (paramA) {
         url += `/${paramA}`;
       }
-      axios.get(url, axiosConfig);// do not wait, we do not care of the response
+      axios.get(url, axiosConfig)
+        .then((response) => {
+          log.info(`Successfully sent command to ${url}: ${response.status}`);
+        })
+        .catch((error) => {
+          log.error(`Axios request failed for ${url}`, error);
+        });
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(500);
-      if (command === 'redeploy' && !paramA && i < 4) {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(i * 60 * 1000);
-      }
-      i += 1;
     }
   } catch (error) {
     log.error(error);
@@ -842,7 +878,6 @@ async function appLog(req, res) {
     res.json(errorResponse);
   }
 }
-
 /**
  * To show an app's Docker container log stream. Only accessible by app owner, admins and flux team members.
  * @param {object} req Request.
@@ -875,6 +910,66 @@ async function appLogStream(req, res) {
         } else {
           res.end();
         }
+      });
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * Polling an app's Docker container logs. Only accessible by app owner, admins and flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function appLogPolling(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    let { lines } = req.params;
+    lines = lines || req.query.lineCount || 'all';
+    let { since } = req.params;
+    since = since || req.query.since || '';
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    const mainAppName = appname.split('_')[1] || appname;
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (authorized === true) {
+      let parsedLineCount;
+      if (lines === 'all') {
+        parsedLineCount = 'all';
+      } else {
+        parsedLineCount = parseInt(lines, 10) || 100;
+      }
+      const logs = [];
+      await new Promise((resolve, reject) => {
+        dockerService.dockerContainerLogsPolling(appname, parsedLineCount, since, (err, logLine) => {
+          if (err) {
+            reject(err);
+          } else if (logLine === 'Stream ended') {
+            resolve();
+          } else if (logLine) {
+            logs.push(logLine);
+          }
+        });
+      });
+      res.json({
+        logs,
+        lineCount: parsedLineCount,
+        logCount: logs.length,
+        sinceTimestamp: since,
+        truncated: parsedLineCount === 'all' ? false : logs.length >= parsedLineCount,
+        status: 'success',
       });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -946,6 +1041,11 @@ async function appStats(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       const response = await dockerService.dockerContainerStats(appname);
+      // eslint-disable-next-line no-use-before-define
+      const containerStorageInfo = await getContainerStorage(appname);
+      response.disk_stats = containerStorageInfo;
+      const inspect = await dockerService.dockerContainerInspect(appname);
+      response.nanoCpus = inspect.HostConfig.NanoCpus;
       const appResponse = messageHelper.createDataMessage(response);
       res.json(appResponse);
     } else {
@@ -982,11 +1082,7 @@ async function appMonitor(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       if (appsMonitored[appname]) {
-        const response = {
-          lastHour: appsMonitored[appname].oneMinuteStatsStore,
-          lastDay: appsMonitored[appname].fifteenMinStatsStore,
-        };
-
+        const response = appsMonitored[appname].statsStore;
         const appResponse = messageHelper.createDataMessage(response);
         res.json(appResponse);
       } else throw new Error('No data available');
@@ -1059,6 +1155,74 @@ async function getAppFolderSize(appName) {
 }
 
 /**
+ * Retrieves the storage usage of a specified Docker container, including bind mounts and volume mounts.
+ * @param {string} appName The name of the Docker container to inspect.
+ * @returns {Promise<object>} An object containing the sizes of bind mounts, volume mounts, root filesystem, total used storage, and status.
+ *   - bind: Size of bind mounts in bytes.
+ *   - volume: Size of volume mounts in bytes.
+ *   - rootfs: Size of the container's root filesystem in bytes.
+ *   - used: Total used size (sum of bind, volume, and rootfs sizes) in bytes.
+ *   - status: 'success' if the operation succeeded, 'error' otherwise.
+ *   - message: An error message if the operation failed.
+ */
+async function getContainerStorage(appName) {
+  try {
+    const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
+    let bindMountsSize = 0;
+    let volumeMountsSize = 0;
+    const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
+    if (containerInfo?.Mounts?.length) {
+      await Promise.all(containerInfo.Mounts.map(async (mount) => {
+        let source = mount?.Source;
+        const mountType = mount?.Type;
+        if (source) {
+          if (mountType === 'bind') {
+            source = source.replace('/appdata', '');
+            const exec = `sudo du -sb ${source}`;
+            const mountInfo = await cmdAsync(exec);
+            if (mountInfo) {
+              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
+              bindMountsSize += sizeNum;
+            } else {
+              log.warn(`No mount info returned for source: ${source}`);
+            }
+          } else if (mountType === 'volume') {
+            const exec = `sudo du -sb ${source}`;
+            const mountInfo = await cmdAsync(exec);
+            if (mountInfo) {
+              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
+              volumeMountsSize += sizeNum;
+            } else {
+              log.warn(`No mount info returned for source: ${source}`);
+            }
+          } else {
+            log.warn(`Unsupported mount type or source: Type: ${mountType}, Source: ${source}`);
+          }
+        }
+      }));
+    }
+    const usedSize = bindMountsSize + volumeMountsSize + containerRootFsSize;
+    return {
+      bind: bindMountsSize,
+      volume: volumeMountsSize,
+      rootfs: containerRootFsSize,
+      used: usedSize,
+      status: 'success',
+    };
+  } catch (error) {
+    log.error(`Error fetching container storage: ${error.message}`);
+    return {
+      bind: 0,
+      volume: 0,
+      rootfs: 0,
+      used: 0,
+      status: 'error',
+      message: error.message,
+    };
+  }
+}
+
+/**
  * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
  * @param {object} appName monitored component name
  */
@@ -1066,14 +1230,17 @@ function startAppMonitoring(appName) {
   if (!appName) {
     throw new Error('No App specified');
   } else {
-    appsMonitored[appName] = {}; // oneMinuteInterval, fifteenMinInterval, oneMinuteStatsStore, fifteenMinStatsStore
-    if (!appsMonitored[appName].fifteenMinStatsStore) {
-      appsMonitored[appName].fifteenMinStatsStore = [];
+    log.info('Initialize Monitoring...');
+    appsMonitored[appName] = {}; // Initialize the app's monitoring object
+    if (!appsMonitored[appName].statsStore) {
+      appsMonitored[appName].statsStore = [];
     }
-    if (!appsMonitored[appName].oneMinuteStatsStore) {
-      appsMonitored[appName].oneMinuteStatsStore = [];
+    if (!appsMonitored[appName].lastHourstatsStore) {
+      appsMonitored[appName].lastHourstatsStore = [];
     }
+    // Clear previous interval for this app to prevent multiple intervals
     clearInterval(appsMonitored[appName].oneMinuteInterval);
+    appsMonitored[appName].run = 0;
     appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
       try {
         if (!appsMonitored[appName]) {
@@ -1088,49 +1255,30 @@ function startAppMonitoring(appName) {
           stopAppMonitoring(appName, true);
           return;
         }
+        appsMonitored[appName].run += 1;
         const statsNow = await dockerService.dockerContainerStats(appName);
-        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
-        const folderSize = await getAppFolderSize(appFolderName);
-        statsNow.disk_stats = {
-          used: folderSize,
-        };
-        appsMonitored[appName].oneMinuteStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        if (appsMonitored[appName].oneMinuteStatsStore.length > 60) {
-          appsMonitored[appName].oneMinuteStatsStore.length = 60; // Store stats every 1 min for the last hour only
+        const containerStorageInfo = await getContainerStorage(appName);
+        statsNow.disk_stats = containerStorageInfo;
+        const now = Date.now();
+        if (appsMonitored[appName].run % 3 === 0) {
+          const inspect = await dockerService.dockerContainerInspect(appName);
+          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
+          appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
+          const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
+          const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
+          log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
+          appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
+            (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
+          );
         }
+        appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
+        appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
+          (stat) => now - stat.timestamp <= 60 * 60 * 1000,
+        );
       } catch (error) {
         log.error(error);
       }
     }, 1 * 60 * 1000);
-    clearInterval(appsMonitored[appName].fifteenMinInterval);
-    appsMonitored[appName].fifteenMinInterval = setInterval(async () => {
-      try {
-        if (!appsMonitored[appName]) {
-          log.error(`Monitoring of ${appName} already stopped`);
-          clearInterval(appsMonitored[appName].fifteenMinInterval);
-          return;
-        }
-        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
-        if (!dockerContainer) {
-          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
-          // eslint-disable-next-line no-use-before-define
-          stopAppMonitoring(appName, true);
-          return;
-        }
-        const statsNow = await dockerService.dockerContainerStats(appName);
-        const appFolderName = dockerService.getAppDockerNameIdentifier(appName).substring(1);
-        const folderSize = await getAppFolderSize(appFolderName);
-        statsNow.disk_stats = {
-          used: folderSize,
-        };
-        appsMonitored[appName].fifteenMinStatsStore.unshift({ timestamp: new Date().getTime(), data: statsNow }); // Most recent stats object is at position 0 in the array
-        if (appsMonitored[appName].oneMinuteStatsStore.length > 96) {
-          appsMonitored[appName].fifteenMinStatsStore.length = 96; // Store stats every 15 mins for the last day only
-        }
-      } catch (error) {
-        log.error(error);
-      }
-    }, 15 * 60 * 1000);
   }
 }
 
@@ -1143,7 +1291,6 @@ function startAppMonitoring(appName) {
 function stopAppMonitoring(appName, deleteData) {
   if (appsMonitored[appName]) {
     clearInterval(appsMonitored[appName].oneMinuteInterval);
-    clearInterval(appsMonitored[appName].fifteenMinInterval);
   }
   if (deleteData) {
     delete appsMonitored[appName];
@@ -1737,6 +1884,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   log.info(searchSpace);
   if (res) {
     res.write(serviceHelper.ensureString(searchSpace));
+    if (res.flush) res.flush();
   }
 
   // we want whole numbers in GB
@@ -1758,7 +1906,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
 
   await getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
-  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
+  const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const resourcesLocked = await appsResources();
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux App. Aborting.');
@@ -1776,7 +1924,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     usedSpace += serviceHelper.ensureNumber(volume.used);
     availableSpace += serviceHelper.ensureNumber(volume.available);
   });
-  // space that is further reserved for flux os and that will be later substracted from available space. Max 40 + 20.
+  // space that is further reserved for flux os and that will be later substracted from available space. Max 60 + 20.
   const fluxSystemReserve = config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace > 0 ? config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace : 0;
   const minSystemReserve = Math.max(config.lockedSystemResources.extrahdd, fluxSystemReserve);
   const totalAvailableSpaceLeft = availableSpace - minSystemReserve;
@@ -1807,6 +1955,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   log.info(searchSpace2);
   if (res) {
     res.write(serviceHelper.ensureString(searchSpace2));
+    if (res.flush) res.flush();
   }
 
   try {
@@ -1816,6 +1965,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(allocateSpace);
     if (res) {
       res.write(serviceHelper.ensureString(allocateSpace));
+      if (res.flush) res.flush();
     }
 
     let execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted
@@ -1830,6 +1980,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(allocateSpace2);
     if (res) {
       res.write(serviceHelper.ensureString(allocateSpace2));
+      if (res.flush) res.flush();
     }
 
     const makeFilesystem = {
@@ -1838,6 +1989,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(makeFilesystem);
     if (res) {
       res.write(serviceHelper.ensureString(makeFilesystem));
+      if (res.flush) res.flush();
     }
     let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
     if (useThisVolume.mount === '/') {
@@ -1850,6 +2002,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(makeFilesystem2);
     if (res) {
       res.write(serviceHelper.ensureString(makeFilesystem2));
+      if (res.flush) res.flush();
     }
 
     const makeDirectory = {
@@ -1858,8 +2011,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(makeDirectory);
     if (res) {
       res.write(serviceHelper.ensureString(makeDirectory));
+      if (res.flush) res.flush();
     }
-    const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
+    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
     await cmdAsync(execDIR);
     const makeDirectory2 = {
       status: 'Directory made',
@@ -1867,6 +2021,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(makeDirectory2);
     if (res) {
       res.write(serviceHelper.ensureString(makeDirectory2));
+      if (res.flush) res.flush();
     }
 
     const mountingStatus = {
@@ -1875,6 +2030,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(mountingStatus);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus));
+      if (res.flush) res.flush();
     }
     let execMount = `sudo mount -o loop ${useThisVolume.mount}/${appId}FLUXFSVOL ${appsFolder + appId}`;
     if (useThisVolume.mount === '/') {
@@ -1887,6 +2043,26 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(mountingStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(mountingStatus2));
+      if (res.flush) res.flush();
+    }
+
+    const makeDirectoryB = {
+      status: 'Making application data directory...',
+    };
+    log.info(makeDirectoryB);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectoryB));
+      if (res.flush) res.flush();
+    }
+    const execDIR2 = `sudo mkdir -p ${appsFolder + appId}/appdata`;
+    await cmdAsync(execDIR2);
+    const makeDirectoryB2 = {
+      status: 'Application data directory made',
+    };
+    log.info(makeDirectoryB2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectoryB2));
+      if (res.flush) res.flush();
     }
 
     const permissionsDirectory = {
@@ -1895,15 +2071,19 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(permissionsDirectory);
     if (res) {
       res.write(serviceHelper.ensureString(permissionsDirectory));
+      if (res.flush) res.flush();
     }
     const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
     await cmdAsync(execPERM);
+    const execPERMdata = `sudo chmod 777 ${appsFolder + appId}/appdata`;
+    await cmdAsync(execPERMdata);
     const permissionsDirectory2 = {
       status: 'Permissions adjusted',
     };
     log.info(permissionsDirectory2);
     if (res) {
       res.write(serviceHelper.ensureString(permissionsDirectory2));
+      if (res.flush) res.flush();
     }
 
     // if s flag create .stfolder
@@ -1920,6 +2100,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         log.info(stFolderCreation);
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation));
+          if (res.flush) res.flush();
         }
         const execDIRst = `sudo mkdir -p ${appsFolder + appId + containerFolder}/.stfolder`;
         // eslint-disable-next-line no-await-in-loop
@@ -1930,9 +2111,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         log.info(stFolderCreation2);
         if (res) {
           res.write(serviceHelper.ensureString(stFolderCreation2));
+          if (res.flush) res.flush();
         }
-        /* if (appId.toLowerCase().includes('minecraft')) {
-          const stignore = `sudo echo '*.paused' >| ${appsFolder + appId + containerFolder}/.stignore`;
+        if (i === 0) {
+          const stignore = `sudo echo '/backup' >| ${appsFolder + appId + containerFolder}/.stignore`;
           log.info(stignore);
           // eslint-disable-next-line no-await-in-loop
           await cmdAsync(stignore);
@@ -1942,8 +2124,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           log.info(stiFileCreation);
           if (res) {
             res.write(serviceHelper.ensureString(stiFileCreation));
+            if (res.flush) res.flush();
           }
-        } */
+        }
       }
     }
 
@@ -1953,6 +2136,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(cronStatus);
     if (res) {
       res.write(serviceHelper.ensureString(cronStatus));
+      if (res.flush) res.flush();
     }
     const crontab = await crontabLoad();
     const jobs = crontab.jobs();
@@ -1984,6 +2168,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(cronStatusB);
     if (res) {
       res.write(serviceHelper.ensureString(cronStatusB));
+      if (res.flush) res.flush();
     }
     const message = messageHelper.createSuccessMessage('Flux App volume creation completed.');
     return message;
@@ -1997,6 +2182,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(cleaningRemoval);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningRemoval));
+      if (res.flush) res.flush();
     }
     let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${appId}FLUXFSVOL`;
     if (useThisVolume.mount === '/') {
@@ -2011,6 +2197,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(aloocationRemoval2);
     if (res) {
       res.write(serviceHelper.ensureString(aloocationRemoval2));
+      if (res.flush) res.flush();
     }
     throw error;
   }
@@ -2031,6 +2218,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(stopStatus);
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus));
+    if (res.flush) res.flush();
   }
   let monitoredName = appName;
   if (isComponent) {
@@ -2045,6 +2233,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
     }
   });
   const stopStatus2 = {
@@ -2053,6 +2242,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(stopStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
+    if (res.flush) res.flush();
   }
 
   // eslint-disable-next-line no-use-before-define
@@ -2064,6 +2254,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(removeStatus);
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus));
+    if (res.flush) res.flush();
   }
   await dockerService.appDockerRemove(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
@@ -2074,6 +2265,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
     }
   });
   const removeStatus2 = {
@@ -2082,6 +2274,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(removeStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus2));
+    if (res.flush) res.flush();
   }
 
   const imageStatus = {
@@ -2090,6 +2283,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus));
+    if (res.flush) res.flush();
   }
   await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
@@ -2100,6 +2294,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
     }
   });
   const imageStatus2 = {
@@ -2108,6 +2303,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus2));
+    if (res.flush) res.flush();
   }
 
   const portStatus = {
@@ -2116,6 +2312,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(portStatus);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus));
+    if (res.flush) res.flush();
   }
   if (appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -2151,6 +2348,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(portStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
+    if (res.flush) res.flush();
   }
 
   const unmuontStatus = {
@@ -2159,6 +2357,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(unmuontStatus);
   if (res) {
     res.write(serviceHelper.ensureString(unmuontStatus));
+    if (res.flush) res.flush();
   }
   const execUnmount = `sudo umount ${appsFolder + appId}`;
   await cmdAsync(execUnmount).then(() => {
@@ -2168,6 +2367,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(unmuontStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(unmuontStatus2));
+      if (res.flush) res.flush();
     }
   }).catch((e) => {
     log.error(e);
@@ -2177,6 +2377,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(unmuontStatus3);
     if (res) {
       res.write(serviceHelper.ensureString(unmuontStatus3));
+      if (res.flush) res.flush();
     }
   });
 
@@ -2186,6 +2387,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(cleaningStatus);
   if (res) {
     res.write(serviceHelper.ensureString(cleaningStatus));
+    if (res.flush) res.flush();
   }
   const execDelete = `sudo rm -rf ${appsFolder + appId}`;
   await cmdAsync(execDelete).catch((e) => {
@@ -2196,6 +2398,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(cleaningStatusE);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningStatusE));
+      if (res.flush) res.flush();
     }
   });
   const cleaningStatus2 = {
@@ -2204,6 +2407,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(cleaningStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(cleaningStatus2));
+    if (res.flush) res.flush();
   }
 
   let volumepath;
@@ -2214,6 +2418,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(cronStatus);
   if (res) {
     res.write(serviceHelper.ensureString(cronStatus));
+    if (res.flush) res.flush();
   }
 
   const crontab = await crontabLoad().catch((e) => {
@@ -2224,6 +2429,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(cronE);
     if (res) {
       res.write(serviceHelper.ensureString(cronE));
+      if (res.flush) res.flush();
     }
   });
   if (crontab) {
@@ -2258,6 +2464,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
         log.info(cronE);
         if (res) {
           res.write(serviceHelper.ensureString(cronE));
+          if (res.flush) res.flush();
         }
       }
       const cronStatusDone = {
@@ -2266,6 +2473,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       log.info(cronStatusDone);
       if (res) {
         res.write(serviceHelper.ensureString(cronStatusDone));
+        if (res.flush) res.flush();
       }
     } else {
       const cronStatusNotFound = {
@@ -2274,6 +2482,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       log.info(cronStatusNotFound);
       if (res) {
         res.write(serviceHelper.ensureString(cronStatusNotFound));
+        if (res.flush) res.flush();
       }
     }
   }
@@ -2285,6 +2494,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(cleaningVolumeStatus);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningVolumeStatus));
+      if (res.flush) res.flush();
     }
     const execVolumeDelete = `sudo rm -rf ${volumepath}`;
     await cmdAsync(execVolumeDelete).catch((e) => {
@@ -2295,6 +2505,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       log.info(cleaningVolumeStatusE);
       if (res) {
         res.write(serviceHelper.ensureString(cleaningVolumeStatusE));
+        if (res.flush) res.flush();
       }
     });
     const cleaningVolumeStatus2 = {
@@ -2303,6 +2514,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     log.info(cleaningVolumeStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
+      if (res.flush) res.flush();
     }
   }
   const appRemovalResponse = {
@@ -2311,6 +2523,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(appRemovalResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appRemovalResponse));
+    if (res.flush) res.flush();
   }
 }
 
@@ -2334,6 +2547,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         log.warn(warnResponse);
         if (res) {
           res.write(serviceHelper.ensureString(warnResponse));
+          if (res.flush) res.flush();
           if (endResponse) {
             res.end();
           }
@@ -2345,6 +2559,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         log.warn(warnResponse);
         if (res) {
           res.write(serviceHelper.ensureString(warnResponse));
+          if (res.flush) res.flush();
           if (endResponse) {
             res.end();
           }
@@ -2433,7 +2648,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     if (sendMessage) {
       const ip = await fluxNetworkHelper.getMyFluxIPandPort();
       if (ip) {
-        const broadcastedAt = new Date().getTime();
+        const broadcastedAt = Date.now();
         const appRemovedMessage = {
           type: 'fluxappremoved',
           version: 1,
@@ -2456,6 +2671,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       log.info(dockerNetworkStatus);
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworkStatus));
+        if (res.flush) res.flush();
       }
       await dockerService.removeFluxAppDockerNetwork(appName).catch((error) => log.error(error));
       const dockerNetworkStatus2 = {
@@ -2464,6 +2680,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       log.info(dockerNetworkStatus2);
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworkStatus2));
+        if (res.flush) res.flush();
       }
       const databaseStatus = {
         status: 'Cleaning up database...',
@@ -2471,6 +2688,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       log.info(databaseStatus);
       if (res) {
         res.write(serviceHelper.ensureString(databaseStatus));
+        if (res.flush) res.flush();
       }
       await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
       const databaseStatus2 = {
@@ -2479,15 +2697,15 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       log.info(databaseStatus2);
       if (res) {
         res.write(serviceHelper.ensureString(databaseStatus2));
+        if (res.flush) res.flush();
       }
     }
-    const appRemovalResponseDone = {
-      status: `Removal step done. Result: Flux App ${appName} was successfuly removed`,
-    };
+    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was successfuly removed`);
     log.info(appRemovalResponseDone);
 
     if (res) {
       res.write(serviceHelper.ensureString(appRemovalResponseDone));
+      if (res.flush) res.flush();
     }
     if (res && endResponse) {
       res.end();
@@ -2503,6 +2721,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     );
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
       if (endResponse) {
         res.end();
       }
@@ -2525,13 +2744,24 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(stopStatus);
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus));
+    if (res.flush) res.flush();
   }
   let monitoredName = appName;
   if (isComponent) {
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
   stopAppMonitoring(monitoredName, false);
-  await dockerService.appDockerStop(appId);
+  await dockerService.appDockerStop(appId).catch((error) => {
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
+    }
+  });
 
   const stopStatus2 = {
     status: isComponent ? `Flux App Component ${appSpecifications.name} stopped` : `Flux App ${appName} stopped`,
@@ -2539,6 +2769,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(stopStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
+    if (res.flush) res.flush();
   }
 
   const removeStatus = {
@@ -2547,6 +2778,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(removeStatus);
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus));
+    if (res.flush) res.flush();
   }
 
   await dockerService.appDockerRemove(appId);
@@ -2557,6 +2789,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(removeStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus2));
+    if (res.flush) res.flush();
   }
 
   const imageStatus = {
@@ -2565,6 +2798,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus));
+    if (res.flush) res.flush();
   }
   await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
@@ -2575,6 +2809,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
     }
   });
   const imageStatus2 = {
@@ -2583,6 +2818,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus2));
+    if (res.flush) res.flush();
   }
 
   const portStatus = {
@@ -2591,6 +2827,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(portStatus);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus));
+    if (res.flush) res.flush();
   }
   if (appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -2626,6 +2863,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(portStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(portStatus2));
+    if (res.flush) res.flush();
   }
   const appRemovalResponse = {
     status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
@@ -2633,6 +2871,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   log.info(appRemovalResponse);
   if (res) {
     res.write(serviceHelper.ensureString(appRemovalResponse));
+    if (res.flush) res.flush();
   }
 }
 
@@ -2701,6 +2940,7 @@ async function softRemoveAppLocally(app, res) {
     log.info(databaseStatus);
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus));
+      if (res.flush) res.flush();
     }
     await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     const databaseStatus2 = {
@@ -2709,14 +2949,13 @@ async function softRemoveAppLocally(app, res) {
     log.info(databaseStatus2);
     if (res) {
       res.write(serviceHelper.ensureString(databaseStatus2));
+      if (res.flush) res.flush();
     }
-
-    const appRemovalResponseDone = {
-      status: `Removal step done. Result: Flux App ${appName} was partially removed`,
-    };
+    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
     log.info(appRemovalResponseDone);
     if (res) {
       res.write(serviceHelper.ensureString(appRemovalResponseDone));
+      if (res.flush) res.flush();
     }
   }
 
@@ -2945,7 +3184,7 @@ async function checkAppHWRequirements(appSpecs) {
   if (totalSpaceOnNode === 0) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
-  const useableSpaceOnNode = totalSpaceOnNode - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
+  const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const hddLockedByApps = resourcesLocked.data.appsHddLocked;
   const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
   // bigger or equal so we have the 1 gb free...
@@ -2993,51 +3232,84 @@ async function checkAppRequirements(appSpecs) {
 }
 
 /**
+ * To get system architecture type (ARM64 or AMD64).
+ * @returns {Promise<string>} Architecture type (ARM64 or AMD64).
+ */
+async function systemArchitecture() {
+  // get benchmark architecture - valid are arm64, amd64
+  const benchmarkBenchRes = await benchmarkService.getBenchmarks();
+  if (benchmarkBenchRes.status === 'error') {
+    throw benchmarkBenchRes.data;
+  }
+  return benchmarkBenchRes.data.architecture;
+}
+
+/**
  * To hard install an app. Pulls image/s, creates data volumes, creates components/app, assigns ports to components/app and starts all containers.
  * @param {object} appSpecifications App specifications.
  * @param {string} appName App name.
  * @param {boolean} isComponent True if a Docker Compose component.
  * @param {object} res Response.
+ * @param {boolean} test indicates if we are just testing the install of the app.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+
+async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
   // check image and its architecture
   // eslint-disable-next-line no-use-before-define
   const architecture = await systemArchitecture();
-  if (architecture !== 'arm64' && architecture !== 'amd64') {
+  if (!supportedArchitectures.includes(architecture)) {
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
-  // eslint-disable-next-line no-use-before-define
-  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag, appSpecifications.repoauth);
-  if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
-    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
-  }
-  // check repository whitelisted
-  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
-  // check repotag if available for download
-  // eslint-disable-next-line no-use-before-define
-  await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth);
   // check blacklist
   // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
-  // pull image
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    appSpecifications.repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
+
   const pullConfig = { repoTag: appSpecifications.repotag };
-  // decode repoauth if exists
+
+  let authToken = null;
+
   if (appSpecifications.repoauth) {
-    const authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+
     if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
+
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
+    }
+
+    imgVerifier.addCredentials(authToken);
     pullConfig.authToken = authToken;
   }
+
+  await imgVerifier.verifyImage();
+  imgVerifier.throwIfError();
+
+  if (!imgVerifier.supported) {
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
+
+  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
+  pullConfig.provider = imgVerifier.provider;
+
   // eslint-disable-next-line no-unused-vars
   await dockerPullStreamPromise(pullConfig, res);
+
   const pullStatus = {
     status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,
   };
+
   if (res) {
     res.write(serviceHelper.ensureString(pullStatus));
+    if (res.flush) res.flush();
   }
 
   await createAppVolume(appSpecifications, appName, isComponent, res);
@@ -3048,6 +3320,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   log.info(createApp);
   if (res) {
     res.write(serviceHelper.ensureString(createApp));
+    if (res.flush) res.flush();
   }
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
@@ -3058,8 +3331,9 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   log.info(portStatusInitial);
   if (res) {
     res.write(serviceHelper.ensureString(portStatusInitial));
+    if (res.flush) res.flush();
   }
-  if (appSpecifications.ports) {
+  if (!test && appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
       // eslint-disable-next-line no-restricted-syntax
@@ -3073,6 +3347,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
           log.info(portStatus);
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
+            if (res.flush) res.flush();
           }
         } else {
           throw new Error(`Error: Port ${port} FAILed to open.`);
@@ -3095,13 +3370,14 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
           log.info(portStatus);
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
+            if (res.flush) res.flush();
           }
         } else {
           throw new Error(`Error: Port ${port} FAILed to map.`);
         }
       }
     }
-  } else if (appSpecifications.port) {
+  } else if (!test && appSpecifications.port) {
     // v1 compatibility
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
     if (firewallActive) {
@@ -3113,6 +3389,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
         }
       } else {
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
@@ -3131,6 +3408,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
         }
       } else {
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
@@ -3143,21 +3421,23 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   log.info(startStatus);
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
+    if (res.flush) res.flush();
   }
-  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  const app = await dockerService.appDockerStart(identifier);
-  if (!app) {
-    return;
-  }
-  startAppMonitoring(identifier);
-  const appResponse = messageHelper.createDataMessage(app);
-  log.info(appResponse);
-  if (appSpecifications.containerData.includes('r:') || appSpecifications.containerData.includes('g:')) {
-    dockerService.appDockerStop(identifier).catch((error) => log.error(`Error stopping app docker after installApplicationHard:${error}`));
-    stopAppMonitoring(identifier, false);
-  }
-  if (res) {
-    res.write(serviceHelper.ensureString(appResponse));
+  if (test || (!appSpecifications.containerData.includes('r:') && !appSpecifications.containerData.includes('g:'))) {
+    const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+    const app = await dockerService.appDockerStart(identifier);
+    if (!app) {
+      return;
+    }
+    if (!test) {
+      startAppMonitoring(identifier);
+    }
+    const appResponse = messageHelper.createDataMessage(app);
+    log.info(appResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(appResponse));
+      if (res.flush) res.flush();
+    }
   }
 }
 
@@ -3166,9 +3446,10 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
+ * @param {boolean} test indicates if it is just to test the app install.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res) {
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -3231,6 +3512,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     log.info(precheckForInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(precheckForInstallation));
+      if (res.flush) res.flush();
     }
     // connect to mongodb
     const dbOpenTest = {
@@ -3239,6 +3521,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     log.info(dbOpenTest);
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
+      if (res.flush) res.flush();
     }
     const dbopen = dbHelper.databaseConnection();
 
@@ -3258,6 +3541,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     log.info(checkDb);
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
+      if (res.flush) res.flush();
     }
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
@@ -3308,6 +3592,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       log.info(dockerContainers);
       if (res) {
         res.write(serviceHelper.ensureString(dockerContainers));
+        if (res.flush) res.flush();
       }
       await dockerService.pruneContainers();
       const dockerContainers2 = {
@@ -3315,6 +3600,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(dockerContainers2));
+        if (res.flush) res.flush();
       }
 
       const dockerNetworks = {
@@ -3323,6 +3609,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       log.info(dockerNetworks);
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworks));
+        if (res.flush) res.flush();
       }
       await dockerService.pruneNetworks();
       const dockerNetworks2 = {
@@ -3330,6 +3617,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(dockerNetworks2));
+        if (res.flush) res.flush();
       }
 
       const dockerVolumes = {
@@ -3338,6 +3626,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       log.info(dockerVolumes);
       if (res) {
         res.write(serviceHelper.ensureString(dockerVolumes));
+        if (res.flush) res.flush();
       }
       await dockerService.pruneVolumes();
       const dockerVolumes2 = {
@@ -3345,6 +3634,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(dockerVolumes2));
+        if (res.flush) res.flush();
       }
 
       const dockerImages = {
@@ -3353,6 +3643,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       log.info(dockerImages);
       if (res) {
         res.write(serviceHelper.ensureString(dockerImages));
+        if (res.flush) res.flush();
       }
       await dockerService.pruneImages();
       const dockerImages2 = {
@@ -3360,32 +3651,51 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       };
       if (res) {
         res.write(serviceHelper.ensureString(dockerImages2));
+        if (res.flush) res.flush();
       }
     }
 
     if (!isComponent) {
-      // last character of appName determines gateway
-      const lastCharCode = appName.charCodeAt(appName.length - 1);
-
-      const dockerNetworkAddrValue = lastCharCode;
-
+      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
+      }
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
       };
       log.info(fluxNetworkStatus);
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetworkStatus));
+        if (res.flush) res.flush();
       }
-      const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+      let fluxNet = null;
+      for (let i = 0; i <= 20; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+        if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+          break;
+        }
+        dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      }
       if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application.`);
+        throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
+      const accessRemovedRes = {
+        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(accessRemovedRes));
+        if (res.flush) res.flush();
+      }
       const fluxNetResponse = {
         status: `Docker network of ${appName} initiated.`,
       };
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetResponse));
+        if (res.flush) res.flush();
       }
     }
 
@@ -3395,6 +3705,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     log.info(appInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(appInstallation));
+      if (res.flush) res.flush();
     }
     if (!isComponent) {
       // register the app
@@ -3402,16 +3713,16 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
-      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+      appSpecifications.cpu = test ? 0.2 : appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = test ? 300 : appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = test ? 2 : appSpecifications[hddTier] || appSpecifications.hdd;
     } else {
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
-      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
-      appComponent.ram = appComponent[ramTier] || appComponent.ram;
-      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+      appComponent.cpu = test ? 0.2 : appComponent[cpuTier] || appComponent.cpu;
+      appComponent.ram = test ? 300 : appComponent[ramTier] || appComponent.ram;
+      appComponent.hdd = test ? 2 : appComponent[hddTier] || appComponent.hdd;
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
@@ -3423,34 +3734,37 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
         const hddTier = `hdd${tier}`;
         const ramTier = `ram${tier}`;
         const cpuTier = `cpu${tier}`;
-        appComponentSpecs.cpu = appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
-        appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
-        appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
+        appComponentSpecs.cpu = test ? 0.2 : appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
+        appComponentSpecs.ram = test ? 300 : appComponentSpecs[ramTier] || appComponentSpecs.ram;
+        appComponentSpecs.hdd = test ? 2 : appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications);
+        await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test);
       }
     } else {
-      await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications);
+      await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
     }
-    const broadcastedAt = new Date().getTime();
-    const newAppRunningMessage = {
-      type: 'fluxapprunning',
-      version: 1,
-      name: appSpecifications.name,
-      hash: appSpecifications.hash, // hash of application specifics that are running
-      ip: myIP,
-      broadcastedAt,
-      runningSince: broadcastedAt,
-    };
+    if (!test) {
+      const broadcastedAt = Date.now();
+      const newAppRunningMessage = {
+        type: 'fluxapprunning',
+        version: 1,
+        name: appSpecifications.name,
+        hash: appSpecifications.hash, // hash of application specifics that are running
+        ip: myIP,
+        broadcastedAt,
+        runningSince: broadcastedAt,
+      };
 
-    // store it in local database first
-    // eslint-disable-next-line no-await-in-loop, no-use-before-define
-    await storeAppRunningMessage(newAppRunningMessage);
-    // broadcast messages about running apps to all peers
-    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-    await serviceHelper.delay(500);
-    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
-    // broadcast messages about running apps to all peers
+      // store it in local database first
+      // eslint-disable-next-line no-await-in-loop, no-use-before-define
+      await storeAppRunningMessage(newAppRunningMessage);
+      // broadcast messages about running apps to all peers
+      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+      await serviceHelper.delay(500);
+      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+      // broadcast messages about running apps to all peers
+    }
+
     // all done message
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
     log.info(successStatus);
@@ -3469,13 +3783,17 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
     }
-    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
-    log.info(removeStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(removeStatus));
+    if (!test) {
+      const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+      log.info(removeStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(removeStatus));
+        if (res.flush) res.flush();
+      }
+      removeAppLocally(appSpecs.name, res, true, true, false);
     }
-    removeAppLocally(appSpecs.name, res, true, true, false);
     return false;
   }
   return true;
@@ -3490,43 +3808,57 @@ async function registerAppLocally(appSpecs, componentSpecs, res) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
-  // check image and its architecture
-  // eslint-disable-next-line no-use-before-define
   const architecture = await systemArchitecture();
-  if (architecture !== 'arm64' && architecture !== 'amd64') {
+  if (!supportedArchitectures.includes(architecture)) {
     throw new Error(`Invalid architecture ${architecture} detected.`);
   }
-  // eslint-disable-next-line no-use-before-define
-  const repoArchitectures = await repositoryArchitectures(appSpecifications.repotag, appSpecifications.repoauth);
-  if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
-    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
-  }
-  // check repository whitelisted
-  await generalService.checkWhitelistedRepository(appSpecifications.repotag);
 
-  // check repotag if available for download
-  // eslint-disable-next-line no-use-before-define
-  await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth);
   // check blacklist
   // eslint-disable-next-line no-use-before-define
   await checkApplicationImagesComplience(fullAppSpecs);
-  // pull image
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    appSpecifications.repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
+
   const pullConfig = { repoTag: appSpecifications.repotag };
-  // decode repoauth if exists
+
+  let authToken = null;
+
   if (appSpecifications.repoauth) {
-    const authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+
     if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
+
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
+    }
+
+    imgVerifier.addCredentials(authToken);
     pullConfig.authToken = authToken;
   }
-  // eslint-disable-next-line no-unused-vars
+
+  await imgVerifier.verifyImage();
+  imgVerifier.throwIfError();
+
+  if (!imgVerifier.supported) {
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
+
+  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
+  pullConfig.provider = imgVerifier.provider;
+
   await dockerPullStreamPromise(pullConfig, res);
+
   const pullStatus = {
     status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
   };
   if (res) {
     res.write(serviceHelper.ensureString(pullStatus));
+    if (res.flush) res.flush();
   }
 
   const createApp = {
@@ -3535,6 +3867,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   log.info(createApp);
   if (res) {
     res.write(serviceHelper.ensureString(createApp));
+    if (res.flush) res.flush();
   }
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
@@ -3545,6 +3878,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   log.info(portStatusInitial);
   if (res) {
     res.write(serviceHelper.ensureString(portStatusInitial));
+    if (res.flush) res.flush();
   }
   if (appSpecifications.ports) {
     const firewallActive = await fluxNetworkHelper.isFirewallActive();
@@ -3560,6 +3894,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
           log.info(portStatus);
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
+            if (res.flush) res.flush();
           }
         } else {
           throw new Error(`Error: Port ${port} FAILed to open.`);
@@ -3582,6 +3917,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
           log.info(portStatus);
           if (res) {
             res.write(serviceHelper.ensureString(portStatus));
+            if (res.flush) res.flush();
           }
         } else {
           throw new Error(`Error: Port ${port} FAILed to map.`);
@@ -3600,6 +3936,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
         }
       } else {
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
@@ -3618,6 +3955,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
         log.info(portStatus);
         if (res) {
           res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
         }
       } else {
         throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
@@ -3630,17 +3968,21 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   log.info(startStatus);
   if (res) {
     res.write(serviceHelper.ensureString(startStatus));
+    if (res.flush) res.flush();
   }
-  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
-  const app = await dockerService.appDockerStart(identifier);
-  if (!app) {
-    return;
-  }
-  startAppMonitoring(identifier);
-  const appResponse = messageHelper.createDataMessage(app);
-  log.info(appResponse);
-  if (res) {
-    res.write(serviceHelper.ensureString(appResponse));
+  if (!appSpecifications.containerData.includes('g:')) {
+    const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+    const app = await dockerService.appDockerStart(identifier);
+    if (!app) {
+      return;
+    }
+    startAppMonitoring(identifier);
+    const appResponse = messageHelper.createDataMessage(app);
+    log.info(appResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(appResponse));
+      if (res.flush) res.flush();
+    }
   }
 }
 
@@ -3697,6 +4039,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.info(precheckForInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(precheckForInstallation));
+      if (res.flush) res.flush();
     }
     // connect to mongodb
     const dbOpenTest = {
@@ -3705,6 +4048,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.info(dbOpenTest);
     if (res) {
       res.write(serviceHelper.ensureString(dbOpenTest));
+      if (res.flush) res.flush();
     }
     const dbopen = dbHelper.databaseConnection();
 
@@ -3724,6 +4068,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.info(checkDb);
     if (res) {
       res.write(serviceHelper.ensureString(checkDb));
+      if (res.flush) res.flush();
     }
     const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (appResult && !isComponent) {
@@ -3738,28 +4083,46 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
 
     if (!isComponent) {
-      // last character of appName determines gateway
-      const lastCharCode = appName.charCodeAt(appName.length - 1);
-
-      const dockerNetworkAddrValue = lastCharCode;
-
+      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
+      }
       const fluxNetworkStatus = {
         status: `Checking Flux App network of ${appName}...`,
       };
       log.info(fluxNetworkStatus);
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetworkStatus));
+        if (res.flush) res.flush();
       }
-      const fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+      let fluxNet = null;
+      for (let i = 0; i <= 20; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+        if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+          break;
+        }
+        dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      }
       if (!fluxNet) {
-        throw new Error(`Flux App network of ${appName} failed to initiate. Range already assigned to different application`);
+        throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
       }
       log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
+      const accessRemovedRes = {
+        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(accessRemovedRes));
+        if (res.flush) res.flush();
+      }
       const fluxNetResponse = {
         status: `Docker network of ${appName} initiated.`,
       };
       if (res) {
         res.write(serviceHelper.ensureString(fluxNetResponse));
+        if (res.flush) res.flush();
       }
     }
 
@@ -3769,6 +4132,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.info(appInstallation);
     if (res) {
       res.write(serviceHelper.ensureString(appInstallation));
+      if (res.flush) res.flush();
     }
     if (!isComponent) {
       // register the app
@@ -3824,11 +4188,13 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.error(errorResponse);
     if (res) {
       res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
     }
     const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
+      if (res.flush) res.flush();
     }
     removeAppLocally(appSpecs.name, res, true);
   }
@@ -3878,6 +4244,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
           }
         });
         totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
+      }
+      if (height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+        totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
       }
       let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
       if (instancesAdditional > 0) {
@@ -3948,6 +4317,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     totalPrice += priceSpecifications.staticip;
   }
   totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
+  if (height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+    totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
+  }
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
   if (instancesAdditional > 0) {
     const additionalPrice = (appPrice * instancesAdditional) / 3;
@@ -4373,191 +4745,48 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
 }
 
 /**
- * To fetch an auth token from registry auth provider.
- * @param {object} authDetails Parsed www-authenticate header.
- * @param {object} AxiosConfig axios Auth object.
+ * Checks that the supplied Docker Image Tag is in the Flux Whitelist, if auth is provided,
+ * that it is in the correct format, and verifies that the image can run on the Flux network,
+ * and that it can run on this specific node (architecture match). Throws if requirements not met.
+ * @param {string} repotag The Docker Image Tag
+ * @param {{repoauth?:string, skipVerification?:boolean, architecture:string}} options
+ * @returns {Promise<void>}
  */
-async function getAuthToken(authDetails, axiosConfig) {
-  const { realm, service, scope } = authDetails;
-  const authTokenRes = await serviceHelper.axiosGet(`${realm}?service=${service}&scope=${scope}`, axiosConfig).catch((error) => {
-    log.warn(error);
-    throw new Error(`Authentication token from ${realm} for ${scope} not available`);
-  });
-  if (!authTokenRes) {
-    throw new Error(`Unable to communicate with authentication token provider ${realm}! Try again later.`);
-  }
-  return authTokenRes.data.token;
-}
+async function verifyRepository(repotag, options = {}) {
+  const repoauth = options.repoauth || null;
+  const skipVerification = options.skipVerification || false;
+  const architecture = options.architecture || null;
 
-async function verifyRepository(repotag, repoauth, skipVerification = false) {
-  const {
-    provider, namespace, repository, tag,
-  } = generalService.parseDockerTag(repotag);
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
 
-  const image = repository;
+  // ToDo: fix this upstream
   if (repoauth && skipVerification) {
-    return true;
+    return;
   }
-  let decryptedRepoAuth;
+
   if (repoauth) {
-    decryptedRepoAuth = await pgpService.decryptMessage(repoauth);
-    if (!decryptedRepoAuth) {
+    const authToken = await pgpService.decryptMessage(repoauth);
+
+    if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
+
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
+    }
+
+    imgVerifier.addCredentials(authToken);
   }
-  if (provider === 'hub.docker.com') { // favor docker hub api
-    // if we are using private image, we need to authenticate first
-    const axiosConfig = {};
-    if (decryptedRepoAuth) {
-      let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:token
-        loginData = {
-          username: decryptedRepoAuth.split(':')[0],
-          password: decryptedRepoAuth.split(':')[1],
-        };
-      } else {
-        throw new Error('Invalid login credentials for docker provided');
-      }
-      const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
-        log.warn(error);
-      });
-      const { token } = loginResp.data;
-      axiosConfig.headers = {
-        Authorization: `Bearer ${token}`,
-      };
-    }
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
-      log.warn(error);
-      throw new Error(`Repository ${repotag} is not found on ${provider} in expected format`);
-    });
-    if (!resDocker) {
-      throw new Error(`Unable to communicate with ${provider}! Try again later.`);
-    }
-    if (resDocker.data.errinfo) {
-      throw new Error('Docker image not found');
-    }
-    if (!resDocker.data.images) {
-      throw new Error('Docker image not found2');
-    }
-    if (!resDocker.data.images[0]) {
-      throw new Error('Docker image not found3');
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const img of resDocker.data.images) {
-      if (img.size > config.fluxapps.maxImageSize) {
-        throw new Error(`Docker image ${repotag} of architecture ${img.architecture} size is over Flux limit`);
-      }
-    }
-    if (resDocker.data.full_size > config.fluxapps.maxImageSize) {
-      throw new Error(`Docker image ${repotag} size is over Flux limit`);
-    }
-  } else { // use docker v2 api, general for any public docker repositories
-    // if we are using private image, we need to authenticate first
-    const axiosAuthConfig = {};
-    if (decryptedRepoAuth) {
-      let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:token
-        loginData = {
-          username: decryptedRepoAuth.split(':')[0],
-          password: decryptedRepoAuth.split(':')[1],
-        };
-      } else {
-        throw new Error('Invalid login credentials for docker provided');
-      }
-      axiosAuthConfig.auth = loginData;
-    }
 
-    const axiosOptionsManifest = {
-      timeout: 20000,
-      headers: {
-        // eslint-disable-next-line max-len
-        // need to accept both media types here, some registries (google artifact registry)
-        // will respond with error if only the manifest exists and not the manifest list (instead
-        // of just returning the manifest list)
-        Accept: 'application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json',
-      },
-    };
+  await imgVerifier.verifyImage();
+  imgVerifier.throwIfError();
 
-    let manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch(async (error) => {
-      let authToken;
-      // unauthorized
-      if (error.response && error.response.status === 401) {
-        const authDetails = generalService.parseAuthHeader(error.response.headers['www-authenticate']);
-        if (!authDetails) {
-          log.warn(error);
-          throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-        }
-        authToken = await getAuthToken(authDetails, axiosAuthConfig);
-      }
-
-      if (!authToken) {
-        log.warn(error);
-        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-      }
-      axiosOptionsManifest.headers.Authorization = `Bearer ${authToken}`;
-    });
-
-    // we got challenged on the first try, and now have auth details
-    if (!manifestsListResp && axiosOptionsManifest.headers.Authorization) {
-      manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch((error) => {
-        log.warn(error);
-        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-      });
-    }
-
-    if (!manifestsListResp) {
-      throw new Error(`Unable to communicate with manifest list provider ${provider}! Try again later.`);
-    }
-    if (manifestsListResp.data.schemaVersion !== 2) {
-      throw new Error(`Unsupported manifest list version from ${provider} for ${namespace}/${image}:${tag}.`);
-    }
-    const manifests = manifestsListResp.data.manifests || [];
-
-    if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') {
-      // returned not a list like we wanted
-      // treat as single platform amd64
-      let size = 0;
-      manifestsListResp.data.layers.forEach((layer) => {
-        size += layer.size;
-      });
-      if (size > config.fluxapps.maxImageSize) {
-        throw new Error(`Docker image ${repotag} size is over Flux limit`);
-      }
-    } else if (manifestsListResp.data.mediaType !== 'application/vnd.docker.distribution.manifest.list.v2+json') { // we only want v2 or list
-      throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifestsListResp.data.mediaType}`);
-    }
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const mnfst of manifests) {
-      // rate limit precaution
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(1000); // catch for potential rate limit
-      const { digest } = mnfst;
-      // eslint-disable-next-line no-await-in-loop
-      const manifestResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${digest}`, axiosOptionsManifest).catch((error) => {
-        log.warn(error);
-        throw new Error(`Manifest from ${provider} for ${namespace}/${image}:${digest} not available`);
-      });
-      if (!manifestResp) {
-        throw new Error(`Unable to communicate with manifest provider ${provider}! Try again later.`);
-      }
-      const manifest = manifestResp.data;
-      if (manifest.schemaVersion !== 2) {
-        throw new Error(`Unsupported manifest version from ${provider} for ${namespace}/${image}:${digest}.`);
-      }
-      if (manifest.mediaType !== 'application/vnd.docker.distribution.manifest.v2+json') {
-        throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifest.mediaType}`);
-      }
-      let size = 0;
-      manifest.layers.forEach((layer) => {
-        size += layer.size;
-      });
-      if (size > config.fluxapps.maxImageSize) {
-        throw new Error(`Docker image ${repotag} size is over Flux limit`);
-      }
-    }
+  if (architecture && !imgVerifier.supported) {
+    throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
   }
-  return true;
 }
 
 async function getBlockedRepositores() {
@@ -4597,7 +4826,7 @@ async function getUserBlockedRepositores() {
     const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
     const response = await axios.get(marketPlaceUrl);
     console.log(response);
-    if (response.data.status === 'success') {
+    if (response && response.data && response.data.status === 'success') {
       const visibleApps = response.data.data.filter((val) => val.visible);
       for (let i = 0; i < userBlockedRepos.length; i += 1) {
         const userRepo = userBlockedRepos[i];
@@ -4615,14 +4844,50 @@ async function getUserBlockedRepositores() {
     return [];
   } catch (error) {
     log.error(error);
-    return null;
+    return [];
+  }
+}
+
+/**
+ * Check secrets, if they are being used return exception
+ * @param {string} appName App name.
+ * @param {object} appSpecs App specifications.
+ * @param {boolean} registration informs if it's an app registration or not.
+ */
+async function checkAppSecrets(appName, appComponentSpecs, registration = false) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = {};
+  const projection = { projection: { _id: 0 } };
+  const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+  let foundSecretsWithSameAppName = false;
+  let foundSecretsWithDifferentAppName = false;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const app of results) {
+    if (app.version >= 7 && app.nodes.length > 0) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of app.compose) {
+        if (component.secrets.length > 0 && JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))) {
+          if (registration) {
+            throw new Error(`Provided component ${component.name} secrets are not valid`);
+          } else if (app.name !== appName) {
+            foundSecretsWithDifferentAppName = true;
+          } else if (app.name === appName) {
+            foundSecretsWithSameAppName = true;
+          }
+        }
+      }
+    }
+  }
+  if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
+    throw new Error('Provided component(s) secrets are not valid');
   }
 }
 
 /**
  * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
  * @param {object} appSpecs App specifications.
- * @returns {boolean} True if no errors are thrown.
+ * @returns {Promise<boolean>} True if no errors are thrown.
  */
 async function checkApplicationImagesComplience(appSpecs) {
   const repos = await getBlockedRepositores();
@@ -5426,14 +5691,20 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   }
 
   if (appSpecifications.version >= 6) {
-    if (appSpecifications.expire < config.fluxapps.minBlocksAllowance) {
-      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
+    if (height < config.fluxapps.newMinBlocksAllowanceBlock) {
+      if (appSpecifications.expire < config.fluxapps.minBlocksAllowance) {
+        throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
+      }
+    } else if (appSpecifications.expire < config.fluxapps.newMinBlocksAllowance) {
+      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 3 hours`);
     }
     if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
     }
-    if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
-      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+    if (height < config.fluxapps.removeBlocksAllowanceIntervalBlock) {
+      if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
+        throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
+      }
     }
   }
 
@@ -5688,34 +5959,24 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     checkHWParameters(appSpecifications);
   } else {
     checkComposeHWParameters(appSpecifications);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appComponent of appSpecifications.compose) {
-      checkHWParameters(appComponent);
-    }
   }
 
   // Whitelist, repository checks
   if (checkDockerAndWhitelist) {
-    if (appSpecifications.version <= 3) {
-      // check repository whitelisted
-      await generalService.checkWhitelistedRepository(appSpecifications.repotag);
+    // check blacklist
+    await checkApplicationImagesComplience(appSpecifications);
 
-      // check repotag if available for download
-      await verifyRepository(appSpecifications.repotag, appSpecifications.repoauth, true);
+    if (appSpecifications.version <= 3) {
+      // check repository whitelisted and repotag is available for download
+      await verifyRepository(appSpecifications.repotag, { repoauth: appSpecifications.repoauth, skipVerification: true });
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
-        // check repository whitelisted
+        // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
-        await generalService.checkWhitelistedRepository(appComponent.repotag);
-
-        // check repotag if available for download
-        // eslint-disable-next-line no-await-in-loop
-        await verifyRepository(appComponent.repotag, appComponent.repoauth, true);
+        await verifyRepository(appComponent.repotag, { repoauth: appComponent.repoauth, skipVerification: true });
       }
     }
-    // check blacklist
-    await checkApplicationImagesComplience(appSpecifications);
   }
 }
 
@@ -5943,186 +6204,6 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
     }
   }
   return true;
-}
-
-/**
- * To get Docker image architectures.
- * @param {string} repotag Docker Hub repository tag.
- * @returns {string[]} List of Docker image architectures.
- */
-async function repositoryArchitectures(repotag, repoauth) {
-  const {
-    provider, namespace, repository, tag,
-  } = generalService.parseDockerTag(repotag);
-
-  const image = repository;
-  const architectures = [];
-  let decryptedRepoAuth;
-  if (repoauth) {
-    decryptedRepoAuth = await pgpService.decryptMessage(repoauth);
-    if (!decryptedRepoAuth) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
-  }
-  if (provider === 'hub.docker.com') { // favor docker hub api
-    // if we are using private image, we need to authenticate first
-    const axiosConfig = {};
-    if (decryptedRepoAuth) {
-      let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:token
-        loginData = {
-          username: decryptedRepoAuth.split(':')[0],
-          password: decryptedRepoAuth.split(':')[1],
-        };
-      } else {
-        throw new Error('Invalid login credentials for docker provided');
-      }
-      const loginResp = await axios.post('https://hub.docker.com/v2/users/login', loginData).catch((error) => {
-        log.warn(error);
-      });
-      const { token } = loginResp.data;
-      axiosConfig.headers = {
-        Authorization: `Bearer ${token}`,
-      };
-    }
-    const resDocker = await serviceHelper.axiosGet(`https://hub.docker.com/v2/repositories/${namespace}/${image}/tags/${tag}`, axiosConfig).catch((error) => {
-      log.warn(error);
-      throw new Error(`Repository ${repotag} is not found on ${provider} in expected format`);
-    });
-    if (!resDocker) {
-      throw new Error(`Unable to communicate with ${provider}! Try again later.`);
-    }
-    if (resDocker.data.errinfo) {
-      throw new Error('Docker image not found');
-    }
-    if (!resDocker.data.images) {
-      throw new Error('Docker image not found2');
-    }
-    if (!resDocker.data.images[0]) {
-      throw new Error('Docker image not found3');
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const img of resDocker.data.images) {
-      architectures.push(img.architecture);
-    }
-  } else { // use docker v2 api, general for any public docker repositories
-    // if we are using private image, we need to authenticate first
-    const axiosAuthConfig = {};
-    if (decryptedRepoAuth) {
-      let loginData = {};
-      if (decryptedRepoAuth.includes(':')) { // specified by username:token
-        loginData = {
-          username: decryptedRepoAuth.split(':')[0],
-          password: decryptedRepoAuth.split(':')[1],
-        };
-      } else {
-        throw new Error('Invalid login credentials for docker provided');
-      }
-      axiosAuthConfig.auth = loginData;
-    }
-
-    const axiosOptionsManifest = {
-      timeout: 20000,
-      headers: {
-        // eslint-disable-next-line max-len
-        // need to accept both media types here, some registries (google artifact registry)
-        // will respond with error if only the manifest exists and not the manifest list (instead
-        // of just returning the manifest list)
-        Accept: 'application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json',
-      },
-    };
-
-    let manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch(async (error) => {
-      let authToken;
-      // unauthorized
-      if (error.response && error.response.status === 401) {
-        const authDetails = generalService.parseAuthHeader(error.response.headers['www-authenticate']);
-        if (!authDetails) {
-          log.warn(error);
-          throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-        }
-        authToken = await getAuthToken(authDetails, axiosAuthConfig);
-      }
-
-      if (!authToken) {
-        log.warn(error);
-        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-      }
-      axiosOptionsManifest.headers.Authorization = `Bearer ${authToken}`;
-    });
-
-    // we got challenged on the first try, and now have auth details
-    if (!manifestsListResp && axiosOptionsManifest.headers.Authorization) {
-      manifestsListResp = await serviceHelper.axiosGet(`https://${provider}/v2/${namespace}/${image}/manifests/${tag}`, axiosOptionsManifest).catch((error) => {
-        log.warn(error);
-        throw new Error(`Manifests List from ${provider} for ${namespace}/${image}:${tag} not available`);
-      });
-    }
-
-    if (!manifestsListResp) {
-      throw new Error(`Unable to communicate with manifest list provider ${provider}! Try again later.`);
-    }
-    if (manifestsListResp.data.schemaVersion !== 2) {
-      throw new Error(`Unsupported manifest list version from ${provider} for ${namespace}/${image}:${tag}.`);
-    }
-    const manifests = manifestsListResp.data.manifests || [];
-
-    if (manifestsListResp.data.mediaType === 'application/vnd.docker.distribution.manifest.v2+json') {
-      // handle as single platform amd64.
-      architectures.push('amd64');
-    } else if (manifestsListResp.data.mediaType !== 'application/vnd.docker.distribution.manifest.list.v2+json') { // we only want v2 or list
-      throw new Error(`Unsupported manifest from ${provider} for ${namespace}/${image}:${tag} media type ${manifestsListResp.data.mediaType}`);
-    }
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const mnfst of manifests) {
-      architectures.push(mnfst.platform.architecture);
-    }
-  }
-  return architectures;
-}
-
-/**
- * To get system architecture type (ARM64 or AMD64).
- * @returns {string} Architecture type (ARM64 or AMD64).
- */
-async function systemArchitecture() {
-  // get benchmark architecture - valid are arm64, amd64
-  const benchmarkBenchRes = await benchmarkService.getBenchmarks();
-  if (benchmarkBenchRes.status === 'error') {
-    throw benchmarkBenchRes.data;
-  }
-  return benchmarkBenchRes.data.architecture;
-}
-
-/**
- * To ensure that all app images are of a consistent architecture type. Architecture must be either ARM64 or AMD64.
- * @param {object} appSpecFormatted App specifications.
- * @returns {boolean} True if all apps have the same system architecture.
- */
-async function ensureApplicationImagesExistsForPlatform(appSpecFormatted) {
-  const architecture = await systemArchitecture();
-  if (architecture !== 'arm64' && architecture !== 'amd64') {
-    throw new Error(`Invalid architecture ${architecture} detected.`);
-  }
-  if (appSpecFormatted.version <= 3) {
-    const repoArchitectures = await repositoryArchitectures(appSpecFormatted.repotag, appSpecFormatted.repoauth); // repoauth is undefined
-    if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
-      return false;
-    }
-  } else {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appComponent of appSpecFormatted.compose) {
-      // eslint-disable-next-line no-await-in-loop
-      const repoArchitectures = await repositoryArchitectures(appComponent.repotag, appComponent.repoauth);
-      if (!repoArchitectures.includes(architecture)) { // if my system architecture is not in the image
-        return false;
-      }
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(500); // catch for potential rate limit
-    }
-  }
-  return true; // all images have my system architecture
 }
 
 /**
@@ -6489,13 +6570,11 @@ async function storeAppRunningMessage(message) {
   }
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
+    log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
     // reject old message
     return false;
   }
-
-  const randomDelay = Math.floor((Math.random() * 1280)) + 240;
-  await serviceHelper.delay(randomDelay);
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -6518,12 +6597,14 @@ async function storeAppRunningMessage(message) {
     // eslint-disable-next-line no-await-in-loop
     const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
-      // found a message that was already stored/bad message
+      // found a message that was already stored/probably from duplicated message processsed
       messageNotOk = true;
       break;
     }
     if (message.runningSince) {
       newAppRunningMessage.runningSince = new Date(message.runningSince);
+    } else if (app.runningSince) {
+      newAppRunningMessage.runningSince = new Date(app.runningSince);
     } else if (result && result.runningSince) {
       newAppRunningMessage.runningSince = result.runningSince;
     }
@@ -6577,7 +6658,7 @@ async function storeIPChangedMessage(message) {
   log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -6585,7 +6666,7 @@ async function storeIPChangedMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const query = { ip: message.oldIP };
-  const update = { $set: { ip: message.newIP } };
+  const update = { $set: { ip: message.newIP, broadcastedAt: new Date(message.broadcastedAt) } };
   await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
 
   // all stored, rebroadcast
@@ -6626,7 +6707,7 @@ async function storeAppRemovedMessage(message) {
   log.info(message);
 
   const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < new Date().getTime()) {
+  if (validTill < Date.now()) {
     // reject old message
     return false;
   }
@@ -6656,6 +6737,26 @@ async function requestAppMessage(hash) {
   await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
   await serviceHelper.delay(500);
   await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
+}
+
+/**
+ * To request app message.
+ * @param {string} apps list of apps, apps[i].hash have the message hash of each app.
+ * @param {boolean} incoming If true the message will be asked to a incoming peer, if false to an outgoing peer.
+ */
+async function requestAppsMessage(apps, incoming) {
+  // some message type request app message, message hash
+  // peer responds with data from permanent database or temporary database. If does not have it requests further
+  const message = {
+    type: 'fluxapprequest',
+    version: 2,
+    hashes: apps.map((a) => a.hash),
+  };
+  if (incoming) {
+    await fluxCommunicationMessagesSender.broadcastMessageToRandomIncoming(message);
+  } else {
+    await fluxCommunicationMessagesSender.broadcastMessageToRandomOutgoing(message);
+  }
 }
 
 /**
@@ -7120,14 +7221,8 @@ function specificationFormatter(appSpecification) {
     if (Number.isInteger(expire) !== true) {
       throw new Error('Invalid instances specified');
     }
-    if (expire < config.fluxapps.minBlocksAllowance) {
-      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
-    }
     if (expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
-    }
-    if (expire % config.fluxapps.blocksAllowanceInterval !== 0) {
-      throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
     }
     appSpecFormatted.expire = expire;
   }
@@ -7206,6 +7301,13 @@ async function registerAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
       const appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -7216,6 +7318,16 @@ async function registerAppGlobalyApi(req, res) {
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets.length > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, true);
+          }
+        }
+      }
 
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
@@ -7321,6 +7433,13 @@ async function updateAppGlobalyApi(req, res) {
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
       const appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -7331,6 +7450,16 @@ async function updateAppGlobalyApi(req, res) {
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets.length > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, false);
+          }
+        }
+      }
 
       // verify that app exists, does not change repotag and is signed by app owner.
       const db = dbHelper.databaseConnection();
@@ -7510,6 +7639,116 @@ async function installAppLocally(req, res) {
       error.code,
     );
     res.json(errorResponse);
+  }
+}
+
+/**
+* Test will be used on UI for app owners to test their app specifications are good and the app installs and start
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function testAppInstall(req, res) {
+  try {
+    // appname can be app name or app hash of specific app version
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    log.info(`testAppInstall: ${appname}`);
+    let blockAllowance = config.fluxapps.ownerAppAllowance;
+    // needs to be logged in
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (authorized) {
+      let appSpecifications;
+      // anyone can deploy temporary app
+      // favor temporary to launch test temporary apps
+      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      if (tempMessage) {
+        // eslint-disable-next-line prefer-destructuring
+        appSpecifications = tempMessage.appSpecifications;
+        blockAllowance = config.fluxapps.temporaryAppAllowance;
+      }
+      if (!appSpecifications) {
+        // only owner can deploy permanent message or existing app
+        const ownerAuthorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+        if (!ownerAuthorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+      }
+      if (!appSpecifications) {
+        const allApps = await availableApps();
+        appSpecifications = allApps.find((app) => app.name === appname);
+      }
+      if (!appSpecifications) {
+        // eslint-disable-next-line no-use-before-define
+        appSpecifications = await getApplicationGlobalSpecifications(appname);
+      }
+      // search in permanent messages for the specific apphash to launch
+      if (!appSpecifications) {
+        const permMessage = await checkAppMessageExistence(appname);
+        if (permMessage) {
+          // eslint-disable-next-line prefer-destructuring
+          appSpecifications = permMessage.appSpecifications;
+        }
+      }
+      if (!appSpecifications) {
+        throw new Error(`Application Specifications of ${appname} not found`);
+      }
+      // get current height
+      const dbopen = dbHelper.databaseConnection();
+      if (!appSpecifications.height && appSpecifications.height !== 0) {
+        // precaution for old temporary apps. Set up for custom test specifications.
+        const database = dbopen.db(config.database.daemon.database);
+        const query = { generalScannedHeight: { $gte: 0 } };
+        const projection = {
+          projection: {
+            _id: 0,
+            generalScannedHeight: 1,
+          },
+        };
+        const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+        if (!result) {
+          throw new Error('Scanning not initiated');
+        }
+        const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
+        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + blockAllowance; // allow running for this amount of blocks
+      }
+
+      const appsDatabase = dbopen.db(config.database.appslocal.database);
+      const appsQuery = {}; // all
+      const appsProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
+      };
+      const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      const appExists = apps.find((app) => app.name === appSpecifications.name);
+      if (appExists) { // double checked in installation process.
+        throw new Error(`Application ${appname} is already installed`);
+      }
+      appSpecifications.name += 'Test';
+      res.setHeader('Content-Type', 'application/json');
+      await registerAppLocally(appSpecifications, undefined, res, true); // can throw
+      removeAppLocally(appSpecifications.name, null, true, false, false);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  } finally {
+    res.end();
   }
 }
 
@@ -7738,12 +7977,12 @@ async function appHashHasMessageNotFound(hash) {
  * @param {number} height Block height.
  * @param {number} valueSat Satoshi denomination (100 millionth of 1 Flux).
  * @param {number} i Defaults to value of 0.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {boolean} Return true if app message is already present otherwise else.
  */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
-      return;
+      return false;
     }
     const appMessageExists = await checkAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
@@ -7844,7 +8083,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const messageInfo = latestPermanentRegistrationMessage;
           if (!messageInfo) {
             log.error(`Last permanent message for ${specifications.name} not found`);
-            return;
+            return true;
           }
           const previousSpecs = messageInfo.appSpecifications || messageInfo.zelAppSpecifications;
           // here comparison of height differences and specifications
@@ -7884,7 +8123,9 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
           }
         }
-      } else if (i < 2) {
+        return true;
+      }
+      if (i < 2) {
         // request the message and broadcast the message further to our connected peers.
         // rerun this after 1 min delay
         // We ask to the connected nodes 2 times in 1 minute interval for the app message, if connected nodes don't
@@ -7892,12 +8133,44 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         // in total we ask to the connected nodes 10 (30m interval) x 2 (1m interval) = 20 times before apphash is marked as not found
         await requestAppMessage(hash);
         await serviceHelper.delay(60 * 1000);
-        checkAndRequestApp(hash, txid, height, valueSat, i + 1);
+        return checkAndRequestApp(hash, txid, height, valueSat, i + 1);
         // additional requesting of missing app messages is done on rescans
       }
-    } else {
-      // update apphashes that we already have it stored
-      await appHashHasMessage(hash);
+      return false;
+    }
+    // update apphashes that we already have it stored
+    await appHashHasMessage(hash);
+    return true;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ * To check and request an app. Handles fluxappregister type and fluxappupdate type.
+ * Verification of specification was already done except the price which is done here
+ * @param {object} apps array list with list of apps that are missing.
+ * @param {boolean} incoming If true the message will be asked to a incoming peer, if false to an outgoing peer.
+ * @param {number} i Defaults to value of 1.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
+  try {
+    await requestAppsMessage(apps, incoming);
+    await serviceHelper.delay(30 * 1000);
+    const appsToRemove = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      // eslint-disable-next-line no-await-in-loop
+      const messageReceived = await checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+      if (messageReceived) {
+        appsToRemove.push(app);
+      }
+    }
+    apps.filter((item) => !appsToRemove.includes(item));
+    if (apps.length > 0 && i < 5) {
+      await checkAndRequestMultipleApps(apps, i % 2 === 0, i + 1);
     }
   } catch (error) {
     log.error(error);
@@ -7906,6 +8179,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
 
 /**
  * To check Docker accessibility. Only accessible by users.
+ *
+ * This function no longer makes sense since it's possible to use auth.
+ * It's also not used anywhere (it's referenced in appsService HomeUI but not used)
+ *
+ * Schedule to remove
+ *
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
@@ -7929,8 +8208,9 @@ async function checkDockerAccessibility(req, res) {
         throw new Error('No repotag specifiec');
       }
 
-      await verifyRepository(processedBody.repotag);
-      const message = messageHelper.createSuccessMessage('Repotag is accessible');
+      const message = messageHelper.createSuccessMessage('deprecated');
+      // await verifyRepository(processedBody.repotag);
+      // const message = messageHelper.createSuccessMessage('Repotag is accessible');
       return res.json(message);
     } catch (error) {
       log.warn(error);
@@ -8201,7 +8481,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     log.info('Requesting missing Flux App messages');
     continuousFluxAppHashesCheckRunning = true;
     const numberOfPeers = fluxCommunication.getNumberOfPeers();
-    if (numberOfPeers < 20) {
+    if (numberOfPeers < 12) {
       log.info('Not enough connected peers to request missing Flux App messages');
       continuousFluxAppHashesCheckRunning = false;
       return;
@@ -8233,9 +8513,12 @@ async function continuousFluxAppHashesCheck(force = false) {
         messageNotFound: 1,
       },
     };
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // sort it by height, so we request oldest messages first
     results.sort((a, b) => a.height - b.height);
+    let appsMessagesMissing = [];
     // eslint-disable-next-line no-restricted-syntax
     for (const result of results) {
       if (!result.messageNotFound || force || firstContinuousFluxAppHashesCheckRun) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
@@ -8261,15 +8544,34 @@ async function continuousFluxAppHashesCheck(force = false) {
         log.info('Requesting missing Flux App message:');
         log.info(`${result.hash}, ${result.txid}, ${result.height}`);
         if (numberOfSearches <= 20) { // up to 10 searches
-          checkAndRequestApp(result.hash, result.txid, result.height, result.value);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay((Math.random() + 1) * 1000); // delay between 1 and 2 seconds max
+          if (daemonHeight >= config.fluxapps.fluxAppRequestV2 && numberOfSearches + 2 <= 20) {
+            const appMessageInformation = {
+              hash: result.hash,
+              txid: result.txid,
+              height: result.height,
+              value: result.value,
+            };
+            appsMessagesMissing.push(appMessageInformation);
+            if (appsMessagesMissing.length === 500) {
+              checkAndRequestMultipleApps(appsMessagesMissing);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay((60 + (Math.random() * 15)) * 1000); // delay 60 and 75 seconds
+              appsMessagesMissing = [];
+            }
+          } else {
+            checkAndRequestApp(result.hash, result.txid, result.height, result.value);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay((Math.random() + 1) * 1000); // delay between 1 and 2 seconds max
+          }
         } else {
           // eslint-disable-next-line no-await-in-loop
           await appHashHasMessageNotFound(result.hash); // mark message as not found
           hashesNumberOfSearchs.delete(result.hash); // remove from our map
         }
       }
+    }
+    if (appsMessagesMissing.length > 0) {
+      checkAndRequestMultipleApps(appsMessagesMissing);
     }
     continuousFluxAppHashesCheckRunning = false;
     firstContinuousFluxAppHashesCheckRun = false;
@@ -8678,6 +8980,9 @@ function getAppPorts(appSpecs) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 let firstExecutionAfterItsSynced = true;
+let fluxNodeWasAlreadyConfirmed = false;
+let fluxNodeWasNotConfirmedOnLastCheck = false;
+const appsToBeCheckedLater = [];
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function?
@@ -8700,10 +9005,21 @@ async function trySpawningGlobalApplication() {
     const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Global applications will not be installed');
+      fluxNodeWasNotConfirmedOnLastCheck = true;
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
     }
+    if (fluxNodeWasAlreadyConfirmed && fluxNodeWasNotConfirmedOnLastCheck) {
+      fluxNodeWasNotConfirmedOnLastCheck = false;
+      setTimeout(() => {
+        // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
+        // 125 minutes should give enough time for node receive currently two times the apprunning messages
+        trySpawningGlobalApplication();
+      }, 125 * 60 * 1000);
+      return;
+    }
+    fluxNodeWasAlreadyConfirmed = true;
 
     const benchmarkResponse = await benchmarkService.getBenchmarks();
     if (benchmarkResponse.status === 'error') {
@@ -8770,6 +9086,7 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    let appFromAppsToBeCheckedLater = false;
     // no scoped applicaton, run some global app
     if (!appToRun) {
       // pick a random one
@@ -8786,6 +9103,13 @@ async function trySpawningGlobalApplication() {
           const randomGeoAppNumber = Math.floor((Math.random() * numberOfMyNodeGeoApps));
           // install geo location restricted app instead
           appToRun = appsInMyLocation[randomGeoAppNumber].name;
+        }
+      } else if (appToRunNumber % 9 === 0) { // we will be checking every few runs if there are apps on appsToBeCheckedLater to be installed that previously passed all checks but were prioritize to be installed on lower tier nodes
+        const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
+        if (appIndex >= 0) {
+          appToRun = appsToBeCheckedLater[appIndex].appName;
+          appsToBeCheckedLater.splice(appIndex, 1);
+          appFromAppsToBeCheckedLater = true;
         }
       }
     }
@@ -8860,32 +9184,6 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    // TODO evaluate later to move to more broad check as image can be shared among multiple apps
-    const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
-    // eslint-disable-next-line no-restricted-syntax
-    for (const componentToInstall of compositedSpecification) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const installedApp of apps) {
-        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of installedAppCompositedSpecification) {
-          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
-            log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(adjustedDelay);
-            trySpawningGlobalApplication();
-            return;
-          }
-        }
-      }
-      // check repository whitelisted
-      // eslint-disable-next-line no-await-in-loop
-      await generalService.checkWhitelistedRepository(componentToInstall.repotag);
-
-      // check repotag if available for download
-      // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(componentToInstall.repotag, componentToInstall.repoauth);
-    }
 
     // verify app compliance
     await checkApplicationImagesComplience(appSpecifications);
@@ -8900,17 +9198,8 @@ async function trySpawningGlobalApplication() {
     runningAppsIp.forEach((app) => {
       runningAppsNames.push(app.name);
     });
+
     await ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
-
-    // ensure images exists for platform
-    const imagesArchitectureMatches = await ensureApplicationImagesExistsForPlatform(appSpecifications);
-
-    if (imagesArchitectureMatches !== true) {
-      log.info(`Application ${appToRun} does not support our node architecture, installation aborted.`);
-      await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalApplication();
-      return;
-    }
 
     const appPorts = getAppPorts(appSpecifications);
     // check port is not user blocked
@@ -8939,12 +9228,88 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    let syncthingApp = false;
+    if (appSpecifications.version <= 3) {
+      syncthingApp = appSpecifications.containerData.includes('g:') || appSpecifications.containerData.includes('r:') || appSpecifications.containerData.includes('s:');
+    } else {
+      syncthingApp = appSpecifications.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+    }
+
+    if (syncthingApp) {
+      const myIpWithoutPort = myIP.split(':')[0];
+      const lastIndex = myIpWithoutPort.lastIndexOf('.');
+      const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, lastIndex)));
+      if (sameIpRangeNode) {
+        log.info(`Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
+        await serviceHelper.delay(adjustedDelay);
+        trySpawningGlobalApplication();
+        return;
+      }
+    }
+
+    // ToDo: Move this to global
+    const architecture = await systemArchitecture();
+
+    // TODO evaluate later to move to more broad check as image can be shared among multiple apps
+    const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const componentToInstall of compositedSpecification) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of apps) {
+        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of installedAppCompositedSpecification) {
+          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
+            log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(adjustedDelay);
+            trySpawningGlobalApplication();
+            return;
+          }
+        }
+      }
+
+      // check image is whitelisted and repotag is available for download
+      // eslint-disable-next-line no-await-in-loop
+      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture });
+    }
+
+    if (!appFromAppsToBeCheckedLater) {
+      const tier = await generalService.nodeTier();
+      const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
+      if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        const appToCheck = {
+          timeToCheck: Date.now() + 1.5 * 60 * 60 * 1000,
+          appName: appToRun,
+        };
+        log.info(`App ${appToRun} specs are from cumulus, will check in 1.5h if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appToRun);
+      } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+        const appToCheck = {
+          timeToCheck: Date.now() + 1 * 60 * 60 * 1000,
+          appName: appToRun,
+        };
+        log.info(`App ${appToRun} specs are from nimbus, will check in 1h if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appToRun);
+      } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        const appToCheck = {
+          timeToCheck: Date.now() + 0.75 * 60 * 60 * 1000,
+          appName: appToRun,
+        };
+        log.info(`App ${appToRun} specs are from cumulus, will check in 45m if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appToRun);
+      }
+    }
+
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
     const registerOk = await registerAppLocally(appSpecifications); // can throw
     if (!registerOk) {
       log.info('Error on registerAppLocally');
-      const broadcastedAt = new Date().getTime();
+      const broadcastedAt = Date.now();
       const appRemovedMessage = {
         type: 'fluxappremoved',
         version: 1,
@@ -8965,12 +9330,9 @@ async function trySpawningGlobalApplication() {
     // double check if app is installed in more of the instances requested
     runningAppList = await getRunningAppList(appToRun);
     minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
-    if (runningAppList.length >= minInstances) {
+    if (runningAppList.length > minInstances) {
       log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances, will unninstall it`);
       removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
-      await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
-      trySpawningGlobalApplication();
-      return;
     }
 
     await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
@@ -8988,6 +9350,11 @@ async function trySpawningGlobalApplication() {
  */
 async function checkAndNotifyPeersOfRunningApps() {
   try {
+    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      log.info('checkAndNotifyPeersOfRunningApps - FluxNode is not Confirmed');
+      return;
+    }
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
@@ -9051,7 +9418,12 @@ async function checkAndNotifyPeersOfRunningApps() {
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!
-            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
+            const backupSkip = backupInProgress.some((backupItem) => stoppedApp === backupItem);
+            const restoreSkip = restoreInProgress.some((backupItem) => stoppedApp === backupItem);
+            if (backupSkip || restoreSkip) {
+              log.warn(`Application ${stoppedApp} backup/restore is in progress...`);
+            }
+            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
               if (!appsStopedCache.has(stoppedApp)) {
                 appsStopedCache.set(stoppedApp, stoppedApp);
@@ -9061,7 +9433,7 @@ async function checkAndNotifyPeersOfRunningApps() {
                 startAppMonitoring(stoppedApp);
               }
             } else {
-              log.warn(`Not starting ${stoppedApp} as application removal or installation is in progress`);
+              log.warn(`Not starting ${stoppedApp} as application removal or installation or backup/restore is in progress`);
             }
           }
         } catch (err) {
@@ -9094,13 +9466,23 @@ async function checkAndNotifyPeersOfRunningApps() {
       }
     });
     installedAndRunning.push(...masterSlaveAppsInstalled);
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height || 0;
+    const applicationsToBroadcast = [...new Set(installedAndRunning)];
     const apps = [];
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
     try {
       // eslint-disable-next-line no-restricted-syntax
-      for (const application of installedAndRunning) {
-        log.info(`${application.name} is running properly. Broadcasting status.`);
+      for (const application of applicationsToBroadcast) {
+        const queryFind = { name: application.name, ip: myIP };
+        const projection = { _id: 0, runningSince: 1 };
+        let runningOnMyNodeSince = Date.now();
+        // we already have the exact same data
+        // eslint-disable-next-line no-await-in-loop
+        const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+        if (result && result.runningSince) {
+          runningOnMyNodeSince = result.runningSince;
+        }
+        log.info(`${application.name} is running/installed properly. Broadcasting status.`);
         // eslint-disable-next-line no-await-in-loop
         // we can distinguish pure local apps from global with hash and height
         const newAppRunningMessage = {
@@ -9109,17 +9491,19 @@ async function checkAndNotifyPeersOfRunningApps() {
           name: application.name,
           hash: application.hash, // hash of application specifics that are running
           ip: myIP,
-          broadcastedAt: new Date().getTime(),
+          broadcastedAt: Date.now(),
+          runningSince: runningOnMyNodeSince,
         };
         const app = {
           name: application.name,
           hash: application.hash,
+          runningSince: runningOnMyNodeSince,
         };
         apps.push(app);
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop
         await storeAppRunningMessage(newAppRunningMessage);
-        if (daemonHeight < config.fluxapps.apprunningv2 || installedAndRunning.length === 1) {
+        if (installedAndRunning.length === 1) {
           // eslint-disable-next-line no-await-in-loop
           await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
           // eslint-disable-next-line no-await-in-loop
@@ -9127,16 +9511,17 @@ async function checkAndNotifyPeersOfRunningApps() {
           // eslint-disable-next-line no-await-in-loop
           await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
           // broadcast messages about running apps to all peers
+          log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessage)}`);
         }
       }
-      if (daemonHeight >= config.fluxapps.apprunningv2 && installedAndRunning.length > 1) {
+      if (installedAndRunning.length > 1) {
         // send v2 unique message instead
         const newAppRunningMessageV2 = {
           type: 'fluxapprunning',
           version: 2,
           apps,
           ip: myIP,
-          broadcastedAt: new Date().getTime(),
+          broadcastedAt: Date.now(),
         };
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
@@ -9145,12 +9530,12 @@ async function checkAndNotifyPeersOfRunningApps() {
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
         // broadcast messages about running apps to all peers
+        log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
       }
     } catch (err) {
       log.error(err);
       // removeAppLocally(stoppedApp);
     }
-
     log.info('Running Apps broadcasted');
   } catch (error) {
     log.error(error);
@@ -9180,7 +9565,10 @@ async function expireGlobalApplications() {
       throw new Error('Scanning not initiated');
     }
     const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
-    const minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
+    let minExpirationHeight = explorerHeight - config.fluxapps.newMinBlocksAllowance; // do a pre search in db as every app has to live for at least newMinBlocksAllowance
+    if (explorerHeight < config.fluxapps.newMinBlocksAllowanceBlock) {
+      minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
+    }
     // get global applications specification that have up to date data
     // find applications that have specifications height lower than minExpirationHeight
     const databaseApps = dbopen.db(config.database.appsglobal.database);
@@ -9284,6 +9672,140 @@ async function checkApplicationsCompliance() {
 }
 
 /**
+ * check if app cpu is throttling
+ */
+async function checkApplicationsCpuUSage() {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    let stats;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      if (app.version <= 3) {
+        stats = appsMonitored[app.name].lastHourstatsStore;
+        // eslint-disable-next-line no-await-in-loop
+        const inspect = await dockerService.dockerContainerInspect(app.name);
+        if (inspect && stats && stats.length > 4) {
+          const nanoCpus = inspect.HostConfig.NanoCpus;
+          let cpuThrottlingRuns = 0;
+          let cpuThrottling = false;
+          const cpuPercentage = nanoCpus / app.cpu / 1e9;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const stat of stats) {
+            const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
+            const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
+            const cpu = ((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / app.cpu || 0;
+            const realCpu = cpu / cpuPercentage;
+            if (realCpu >= 92) {
+              cpuThrottlingRuns += 1;
+            }
+          }
+          if (cpuThrottlingRuns >= stats.length * 0.8) {
+            // cpu was high on 80% of the checks
+            cpuThrottling = true;
+          }
+          appsMonitored[app.name].lastHourstatsStore = [];
+          log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
+          log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+          if (cpuThrottling && app.cpu > 1) {
+            if (cpuPercentage === 1) {
+              if (app.cpu > 2) {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.8));
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
+              }
+              log.info(`checkApplicationsCpuUSage ${app.name} lowering cpu.`);
+            }
+          } else if (cpuPercentage <= 0.8) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 85.`);
+          } else if (cpuPercentage <= 0.85) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 90.`);
+          } else if (cpuPercentage <= 0.9) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.95));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 95.`);
+          } else if (cpuPercentage < 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 100.`);
+          }
+        }
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of app.compose) {
+          stats = appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore;
+          // eslint-disable-next-line no-await-in-loop
+          const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
+          if (inspect && stats && stats.length > 4) {
+            const nanoCpus = inspect.HostConfig.NanoCpus;
+            let cpuThrottlingRuns = 0;
+            let cpuThrottling = false;
+            const cpuPercentage = nanoCpus / appComponent.cpu / 1e9;
+            // eslint-disable-next-line no-restricted-syntax
+            for (const stat of stats) {
+              const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
+              const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
+              const cpu = ((cpuUsage / systemCpuUsage) * 100 * stat.data.cpu_stats.online_cpus) / appComponent.cpu || 0;
+              const realCpu = cpu / cpuPercentage;
+              if (realCpu >= 92) {
+                cpuThrottlingRuns += 1;
+              }
+            }
+            if (cpuThrottlingRuns >= stats.length * 0.8) {
+              // cpu was high on 80% of the checks
+              cpuThrottling = true;
+            }
+            appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
+            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
+            log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+            if (cpuThrottling && appComponent.cpu > 1) {
+              if (cpuPercentage === 1) {
+                if (appComponent.cpu > 2) {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.8));
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
+                }
+                log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} lowering cpu.`);
+              }
+            } else if (cpuPercentage <= 0.8) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.85));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 85.`);
+            } else if (cpuPercentage <= 0.85) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 90.`);
+            } else if (cpuPercentage <= 0.9) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.95));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 95.`);
+            } else if (cpuPercentage < 1) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 100.`);
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To find and remove apps that are spawned more than maximum number of instances allowed locally.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
@@ -9308,21 +9830,43 @@ async function checkAndRemoveApplicationInstance() {
       // eslint-disable-next-line no-await-in-loop
       const runningAppList = await getRunningAppList(installedApp.name);
       const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
-      if (runningAppList.length > (minInstances + config.fluxapps.maximumAdditionalInstances)) {
+      if (runningAppList.length > minInstances) {
         // eslint-disable-next-line no-await-in-loop
         const appDetails = await getApplicationGlobalSpecifications(installedApp.name);
         if (appDetails) {
-          log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking removal availability..`);
-          const randomNumber = Math.floor((Math.random() * config.fluxapps.removal.probability));
-          if (randomNumber === 0) {
+          log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking if should be unninstalled from the FluxNode..`);
+          runningAppList.sort((a, b) => {
+            if (!a.runningSince && b.runningSince) {
+              return 1;
+            }
+            if (a.runningSince && !b.runningSince) {
+              return -1;
+            }
+            if (a.runningSince < b.runningSince) {
+              return 1;
+            }
+            if (a.runningSince > b.runningSince) {
+              return -1;
+            }
+            if (a.ip < b.ip) {
+              return 1;
+            }
+            if (a.ip > b.ip) {
+              return -1;
+            }
+            return 0;
+          });
+          // eslint-disable-next-line no-await-in-loop
+          const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          const index = runningAppList.findIndex((x) => x.ip === myIP);
+          if (index === 0) {
+            log.info(`Application ${installedApp.name} going to be removed from node as it was the latest one running it to install it..`);
             log.warn(`Removing application ${installedApp.name} locally`);
             // eslint-disable-next-line no-await-in-loop
             await removeAppLocally(installedApp.name, null, false, true, true);
             log.warn(`Application ${installedApp.name} locally removed`);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
-          } else {
-            log.info(`Other Fluxes are evaluating application ${installedApp.name} removal.`);
           }
         }
       }
@@ -9345,6 +9889,7 @@ async function softRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
       }
       return;
     }
@@ -9353,9 +9898,11 @@ async function softRedeploy(appSpecs, res) {
       const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
       if (res) {
         res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
       }
       return;
     }
+    log.info('Starting softRedeploy');
     try {
       await softRemoveAppLocally(appSpecs.name, res);
     } catch (error) {
@@ -9367,6 +9914,7 @@ async function softRedeploy(appSpecs, res) {
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
+      if (res.flush) res.flush();
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
@@ -9375,6 +9923,7 @@ async function softRedeploy(appSpecs, res) {
     await softRegisterAppLocally(appSpecs, undefined, res);
     log.info('Application softly redeployed');
   } catch (error) {
+    log.info('Error on softRedeploy');
     log.error(error);
     removeAppLocally(appSpecs.name, res, true, true, true);
   }
@@ -9392,6 +9941,7 @@ async function hardRedeploy(appSpecs, res) {
     log.info(appRedeployResponse);
     if (res) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
+      if (res.flush) res.flush();
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
@@ -9616,12 +10166,134 @@ async function reinstallOldApplications() {
 }
 
 /**
+ * To get app flux onchain price.
+ * @param {object} appSpecification Request.
+ * @returns {number} Flux Chain Price.
+ */
+async function getAppFluxOnChainPrice(appSpecification) {
+  try {
+    const appSpecFormatted = specificationFormatter(appSpecification);
+
+    // check if app exists or its a new registration price
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    // may throw
+    const query = { name: appSpecFormatted.name };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+    const daemonHeight = syncStatus.data.height;
+    const appPrices = await getChainParamsPriceUpdates();
+    const intervals = appPrices.filter((i) => i.height < daemonHeight);
+    const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+    let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+    const expireIn = appSpecFormatted.expire || defaultExpire;
+    // app prices are ceiled to highest 0.01
+    const multiplier = expireIn / defaultExpire;
+    actualPriceToPay *= multiplier;
+    actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
+    if (appInfo) {
+      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+      let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+      if (daemonHeight > 1315000) {
+        previousExpireIn = appInfo.expire || defaultExpire;
+      }
+      const multiplierPrevious = previousExpireIn / defaultExpire;
+      previousSpecsPrice *= multiplierPrevious;
+      previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+      // what is the height difference
+      const heightDifference = daemonHeight - appInfo.height;
+      const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+      if (perc > 0) {
+        actualPriceToPay -= (perc * previousSpecsPrice);
+      }
+    }
+    actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+    if (actualPriceToPay < priceSpecifications.minPrice) {
+      actualPriceToPay = priceSpecifications.minPrice;
+    }
+    return Number(actualPriceToPay).toFixed(2);
+  } catch (error) {
+    log.warn(error);
+    throw error;
+  }
+}
+
+/**
+ * To verify if app update have free network update
+ * @param {object} appSpecFormatted appSpecFormatted.
+ * @param {number} daemonHeight daemonHeight.
+ * @returns {boolean} yes if update message is network free.
+ */
+async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
+  // check if it's a free app update offered by the network
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  // may throw
+  let query = { name: appSpecFormatted.name };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (appInfo && appInfo.expire && appInfo.height && appSpecFormatted.expire) {
+    const blocksToExtend = (appSpecFormatted.expire + Number(daemonHeight)) - appInfo.height - appInfo.expire;
+    if (((!appSpecFormatted.nodes && !appInfo.nodes) || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length))
+      && appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 2) { // free updates should not extend app subscription
+      if (appSpecFormatted.compose.length === appInfo.compose.length) {
+        let changes = false;
+        for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
+          const compA = appSpecFormatted.compose[i];
+          const compB = appInfo.compose[i];
+          if (compA.cpu > compB.cpu || compA.ram > compB.ram || compA.hdd > compB.hdd) {
+            changes = true;
+            break;
+          }
+        }
+        if (!changes) {
+          query = { 'appSpecifications.name': appSpecFormatted.name };
+          const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          let messagesInLasDays = permanentAppMessage.filter((message) => (message.type === 'fluxappupdate' || message.type === 'zelappupdate') && message.height > daemonHeight - 3600);
+          // we will give a maximum of 10 free updates in 5 days, 8 in two days, 5 in one day
+          if (!messagesInLasDays) {
+            // eslint-disable-next-line no-param-reassign
+            appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
+            return true;
+          }
+          if (messagesInLasDays.length < 11) {
+            messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 1440);
+            if (messagesInLasDays.length < 9) {
+              messagesInLasDays = messagesInLasDays.filter((message) => message.height > daemonHeight - 720);
+              if (messagesInLasDays.length < 6) {
+                // eslint-disable-next-line no-param-reassign
+                appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
+                return true;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * To get app price.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {object} Message.
  */
-async function getAppPrice(req, res) {
+async function getAppFiatAndFluxPrice(req, res) {
   let body = '';
   req.on('data', (data) => {
     body += data;
@@ -9651,17 +10323,43 @@ async function getAppPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
-      const appPrices = await getChainParamsPriceUpdates();
-      const intervals = appPrices.filter((i) => i.height < daemonHeight);
-      const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+
+      if (await checkFreeAppUpdate(appSpecFormatted, daemonHeight)) {
+        const price = {
+          usd: 0,
+          flux: 0,
+          fluxDiscount: 0,
+        };
+        const respondPrice = messageHelper.createDataMessage(price);
+        return res.json(respondPrice);
+      }
+
+      const axiosConfig = {
+        timeout: 5000,
+      };
+      const appPrices = [];
+      if (myLongCache.has('appPrices')) {
+        appPrices.push(myLongCache.get('appPrices'));
+      } else {
+        let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
+        if (response && response.data && response.data.status === 'success') {
+          myLongCache.set('appPrices', response.data.data);
+          appPrices.push(response.data.data);
+        } else {
+          response = config.fluxapps.usdprice;
+          myLongCache.set('appPrices', response);
+          appPrices.push(response);
+        }
+      }
+      let actualPriceToPay = 0;
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-      let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
       const expireIn = appSpecFormatted.expire || defaultExpire;
       // app prices are ceiled to highest 0.01
       const multiplier = expireIn / defaultExpire;
       actualPriceToPay *= multiplier;
-      actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
+      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo) {
         let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
         let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
@@ -9670,7 +10368,7 @@ async function getAppPrice(req, res) {
         }
         const multiplierPrevious = previousExpireIn / defaultExpire;
         previousSpecsPrice *= multiplierPrevious;
-        previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+        previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
         // what is the height difference
         const heightDifference = daemonHeight - appInfo.height;
         const perc = (previousExpireIn - heightDifference) / previousExpireIn;
@@ -9678,11 +10376,70 @@ async function getAppPrice(req, res) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
-      actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-      if (actualPriceToPay < priceSpecifications.minPrice) {
-        actualPriceToPay = priceSpecifications.minPrice;
+      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
+      let marketPlaceApps = [];
+      if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
+        marketPlaceApps = marketplaceResponse.data.data;
+      } else {
+        log.error('Unable to get marketplace information');
       }
-      const respondPrice = messageHelper.createDataMessage(actualPriceToPay);
+
+      if (appSpecification.priceUSD) {
+        if (appSpecification.priceUSD < actualPriceToPay) {
+          log.info(appSpecification.priceUSD);
+          log.info(actualPriceToPay);
+          throw new Error('USD price is not valid');
+        }
+        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
+      } else {
+        const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
+        if (marketPlaceApp) {
+          if (marketPlaceApp.multiplier > 1) {
+            actualPriceToPay *= marketPlaceApp.multiplier;
+          }
+        }
+        actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
+        if (actualPriceToPay < appPrices[0].minUSDPrice) {
+          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+        }
+      }
+      let fiatRates;
+      let fluxUSDRate;
+      if (myShortCache.has('fluxRates')) {
+        fluxUSDRate = myShortCache.get('fluxRates');
+      } else {
+        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
+        if (fiatRates && fiatRates.data) {
+          const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
+          if (!rateObj) {
+            throw new Error('Unable to get USD rate.');
+          }
+          const btcRateforFlux = fiatRates.data[1].FLUX;
+          if (btcRateforFlux === undefined) {
+            throw new Error('Unable to get Flux USD Price.');
+          }
+          fluxUSDRate = rateObj.rate * btcRateforFlux;
+          myShortCache.set('fluxRates', fluxUSDRate);
+        } else {
+          fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
+          if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
+            fluxUSDRate = fiatRates.data.zelcash.usd;
+            myShortCache.set('fluxRates', fluxUSDRate);
+          } else {
+            // eslint-disable-next-line prefer-destructuring
+            fluxUSDRate = config.fluxapps.fluxUSDRate;
+            myShortCache.set('fluxRates', fluxUSDRate);
+          }
+        }
+      }
+      const fluxPrice = Number(((actualPriceToPay / fluxUSDRate) * appPrices[0].fluxmultiplier));
+      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
+      const price = {
+        usd: Number(actualPriceToPay),
+        flux: fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2)),
+        fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : Number(100 - (appPrices[0].fluxmultiplier * 100)),
+      };
+      const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
     } catch (error) {
       log.warn(error);
@@ -9694,6 +10451,16 @@ async function getAppPrice(req, res) {
       return res.json(errorResponse);
     }
   });
+}
+
+/**
+ * DEPRECATED: To get app price. Should be used getAppFiatAndFluxPrice method instead
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getAppPrice(req, res) {
+  return getAppFiatAndFluxPrice(req, res);
 }
 
 /**
@@ -9716,6 +10483,12 @@ async function redeployAPI(req, res) {
 
     if (appname.includes('_')) {
       throw new Error('Component cannot be redeployed manually');
+    }
+
+    const redeploySkip = restoreInProgress.some((backupItem) => appname === backupItem);
+    if (redeploySkip) {
+      log.info(`Restore is running for ${appname}, redeploy skipped...`);
+      return;
     }
 
     let { force } = req.params;
@@ -9787,6 +10560,16 @@ async function verifyAppRegistrationParameters(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
+      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets.length > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, true);
+          }
+        }
+      }
+
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
@@ -9834,8 +10617,18 @@ async function verifyAppUpdateParameters(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
+      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets.length > 0) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, false);
+          }
+        }
+      }
+
       // check if name is not yet registered
-      const timestamp = new Date().getTime();
+      const timestamp = Date.now();
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
       // app is valid and can be registered
@@ -9867,6 +10660,9 @@ async function deploymentInformation(req, res) {
     let deployAddr = config.fluxapps.address;
     if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
       deployAddr = config.fluxapps.addressMultisig;
+    }
+    if (daemonHeight >= config.fluxapps.multisigAddressChange) {
+      deployAddr = config.fluxapps.addressMultisigB;
     }
     // search in chainparams db for chainmessages of p version
     const appPrices = await getChainParamsPriceUpdates();
@@ -10050,11 +10846,11 @@ async function forceAppRemovals() {
   }
 }
 
-async function stopSyncthingApp(appComponentName, res) {
+async function stopSyncthingApp(appComponentName, res, isBackRestore) {
   try {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
-    if (receiveOnlySyncthingAppsCache.has(appId)) {
+    if (!isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
       receiveOnlySyncthingAppsCache.delete(appId);
     }
     const folder = `${appsFolder + appId}`;
@@ -10075,17 +10871,25 @@ async function stopSyncthingApp(appComponentName, res) {
         // remove folder from syncthing
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+        // check if restart is needed
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.systemRestart();
+        const restartRequired = await syncthingService.getConfigRestartRequired();
+        if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+          log.info('Syncthing restart required, restarting...');
+          // eslint-disable-next-line no-await-in-loop
+          await syncthingService.systemRestart();
+        }
         const adjustSyncthingB = {
           status: 'Syncthing adjusted',
         };
         log.info(adjustSyncthingA);
         if (res) {
           res.write(serviceHelper.ensureString(adjustSyncthingA));
+          if (res.flush) res.flush();
         }
         if (res) {
           res.write(serviceHelper.ensureString(adjustSyncthingB));
+          if (res.flush) res.flush();
         }
       }
       folderId = null;
@@ -10138,6 +10942,41 @@ async function appDockerRestart(appname) {
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * To start an app. Start each component if the app is using Docker Compose.
+ * @param {string} appname Request.
+ */
+async function appDockerStart(appname) {
+  try {
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
+    if (isComponent) {
+      await dockerService.appDockerStart(appname);
+      startAppMonitoring(appname);
+    } else {
+      // ask for restarting entire composed application
+      // eslint-disable-next-line no-use-before-define
+      const appSpecs = await getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerStart(appname);
+        startAppMonitoring(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
           startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
       }
@@ -10218,14 +11057,21 @@ async function syncthingApps() {
     const folderIds = [];
     const foldersConfiguration = [];
     const newFoldersConfiguration = [];
-    const myDeviceID = await syncthingService.getDeviceID();
-    if (myDeviceID.status !== 'success') {
-      return;
-    }
+    const myDeviceId = await syncthingService.getDeviceId();
+
+    if (!myDeviceId) return;
+
     const allFoldersResp = await syncthingService.getConfigFolders();
     const allDevicesResp = await syncthingService.getConfigDevices();
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
+      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      if (backupSkip || restoreSkip) {
+        log.info(`Backup is running for ${installedApp.name}, syncthing disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (installedApp.version <= 3) {
         const containersData = installedApp.containerData.split('|');
         // eslint-disable-next-line no-restricted-syntax
@@ -10239,22 +11085,39 @@ async function syncthingApps() {
             const folder = `${appsFolder + appId + containerFolder}`;
             const id = appId;
             const label = appId;
-            const devices = [{ deviceID: myDeviceID.data }];
+            const devices = [{ deviceID: myDeviceId }];
             const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execDIRst);
             // eslint-disable-next-line no-await-in-loop
             const locations = await appLocation(installedApp.name);
+            locations.sort((a, b) => {
+              if (a.ip < b.ip) {
+                return -1;
+              }
+              if (a.ip > b.ip) {
+                return 1;
+              }
+              return 0;
+            });
             // eslint-disable-next-line no-restricted-syntax
             for (const appInstance of locations) {
               const ip = appInstance.ip.split(':')[0];
               const port = appInstance.ip.split(':')[1] || 16127;
               const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
               const name = `${ip}:${port}`;
-              // eslint-disable-next-line no-await-in-loop
-              const deviceID = await getDeviceID(name);
+              let deviceID;
+              if (syncthingDevicesIDCache.has(name)) {
+                deviceID = syncthingDevicesIDCache.get(name);
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                deviceID = await getDeviceID(name);
+                if (deviceID) {
+                  syncthingDevicesIDCache.set(name, deviceID);
+                }
+              }
               if (deviceID) {
-                if (deviceID !== myDeviceID.data) { // skip my id, already present
+                if (deviceID !== myDeviceId) { // skip my id, already present
                   const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                   if (!folderDeviceExists) { // double check if not multiple the same ids
                     devices.push({ deviceID });
@@ -10269,7 +11132,7 @@ async function syncthingApps() {
                     autoAcceptFolders: true,
                   };
                   devicesIds.push(deviceID);
-                  if (deviceID !== myDeviceID.data) {
+                  if (deviceID !== myDeviceId) {
                     const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
                     if (!syncthingDeviceExists) {
                       devicesConfiguration.push(newDevice);
@@ -10286,6 +11149,7 @@ async function syncthingApps() {
               paused: false,
               type: 'sendreceive',
               rescanIntervalS: 900,
+              maxConflicts: 0,
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
@@ -10322,6 +11186,18 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   const runningAppList = await getRunningAppList(installedApp.name);
                   runningAppList.sort((a, b) => {
+                    if (!a.runningSince && b.runningSince) {
+                      return -1;
+                    }
+                    if (a.runningSince && !b.runningSince) {
+                      return 1;
+                    }
+                    if (a.runningSince < b.runningSince) {
+                      return -1;
+                    }
+                    if (a.runningSince > b.runningSince) {
+                      return 1;
+                    }
                     if (a.broadcastedAt < b.broadcastedAt) {
                       return -1;
                     }
@@ -10353,10 +11229,13 @@ async function syncthingApps() {
                 if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                   syncthingFolder.type = 'sendreceive';
                 } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
-                  log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                  log.info(`SyncthingApps changing syncthing type to sendreceive for appIdentifier ${appId}`);
                   syncthingFolder.type = 'sendreceive';
-                  // eslint-disable-next-line no-await-in-loop
-                  await appDockerRestart(id);
+                  if (containerDataFlags.includes('r')) {
+                    log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerRestart(id);
+                  }
                   cache.restarted = true;
                 }
                 receiveOnlySyncthingAppsCache.set(appId, cache);
@@ -10381,7 +11260,7 @@ async function syncthingApps() {
             foldersConfiguration.push(syncthingFolder);
             if (!syncFolder) {
               newFoldersConfiguration.push(syncthingFolder);
-            } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type)) {
+            } else if (syncFolder && (syncFolder.maxConflicts !== 0 || syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
               newFoldersConfiguration.push(syncthingFolder);
             }
           }
@@ -10401,22 +11280,39 @@ async function syncthingApps() {
               const folder = `${appsFolder + appId + containerFolder}`;
               const id = appId;
               const label = appId;
-              const devices = [{ deviceID: myDeviceID.data }];
+              const devices = [{ deviceID: myDeviceId }];
               const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
               // eslint-disable-next-line no-await-in-loop
               await cmdAsync(execDIRst);
               // eslint-disable-next-line no-await-in-loop
               const locations = await appLocation(installedApp.name);
+              locations.sort((a, b) => {
+                if (a.ip < b.ip) {
+                  return -1;
+                }
+                if (a.ip > b.ip) {
+                  return 1;
+                }
+                return 0;
+              });
               // eslint-disable-next-line no-restricted-syntax
               for (const appInstance of locations) {
                 const ip = appInstance.ip.split(':')[0];
                 const port = appInstance.ip.split(':')[1] || 16127;
                 const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
                 const name = `${ip}:${port}`;
-                // eslint-disable-next-line no-await-in-loop
-                const deviceID = await getDeviceID(name);
+                let deviceID;
+                if (syncthingDevicesIDCache.has(name)) {
+                  deviceID = syncthingDevicesIDCache.get(name);
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  deviceID = await getDeviceID(name);
+                  if (deviceID) {
+                    syncthingDevicesIDCache.set(name, deviceID);
+                  }
+                }
                 if (deviceID) {
-                  if (deviceID !== myDeviceID.data) { // skip my id, already present
+                  if (deviceID !== myDeviceId) { // skip my id, already present
                     const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
                     if (!folderDeviceExists) { // double check if not multiple the same ids
                       devices.push({ deviceID });
@@ -10431,7 +11327,7 @@ async function syncthingApps() {
                       autoAcceptFolders: true,
                     };
                     devicesIds.push(deviceID);
-                    if (deviceID !== myDeviceID.data) {
+                    if (deviceID !== myDeviceId) {
                       const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
                       if (!syncthingDeviceExists) {
                         devicesConfiguration.push(newDevice);
@@ -10448,6 +11344,7 @@ async function syncthingApps() {
                 paused: false,
                 type: 'sendreceive',
                 rescanIntervalS: 900,
+                maxConflicts: 0,
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
@@ -10485,6 +11382,18 @@ async function syncthingApps() {
                     const runningAppList = await getRunningAppList(installedApp.name);
                     log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                     runningAppList.sort((a, b) => {
+                      if (!a.runningSince && b.runningSince) {
+                        return -1;
+                      }
+                      if (a.runningSince && !b.runningSince) {
+                        return 1;
+                      }
+                      if (a.runningSince < b.runningSince) {
+                        return -1;
+                      }
+                      if (a.runningSince > b.runningSince) {
+                        return 1;
+                      }
                       if (a.broadcastedAt < b.broadcastedAt) {
                         return -1;
                       }
@@ -10520,8 +11429,11 @@ async function syncthingApps() {
                   } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
                     log.info(`SyncthingApps starting appIdentifier ${appId}`);
                     syncthingFolder.type = 'sendreceive';
-                    // eslint-disable-next-line no-await-in-loop
-                    await appDockerRestart(id);
+                    if (containerDataFlags.includes('r')) {
+                      log.info(`SyncthingApps starting appIdentifier ${appId}`);
+                      // eslint-disable-next-line no-await-in-loop
+                      await appDockerRestart(id);
+                    }
                     cache.restarted = true;
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
@@ -10546,7 +11458,7 @@ async function syncthingApps() {
               foldersConfiguration.push(syncthingFolder);
               if (!syncFolder) {
                 newFoldersConfiguration.push(syncthingFolder);
-              } else if (syncFolder && (syncFolder.paused || syncFolder.type !== syncthingFolder.type)) {
+              } else if (syncFolder && (syncFolder.maxConflicts !== 0 || syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
                 newFoldersConfiguration.push(syncthingFolder);
               }
             }
@@ -10568,7 +11480,7 @@ async function syncthingApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
       // exclude our deviceID
-      if (nonUsedDevice.deviceID !== myDeviceID.data) {
+      if (nonUsedDevice.deviceID !== myDeviceId) {
         log.info(`Removing unused Syncthing device ${nonUsedDevice.deviceID}`);
         // eslint-disable-next-line no-await-in-loop
         await syncthingService.adjustConfigDevices('delete', undefined, nonUsedDevice.deviceID);
@@ -10655,20 +11567,27 @@ async function masterSlaveApps() {
     };
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
-      let fdmOk = false;
+      let fdmOk = true;
       let identifier;
       let needsToBeChecked = false;
       let appId;
+      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      if (backupSkip || restoreSkip) {
+        log.info(`masterSlaveApps: Backup/Restore is running for ${installedApp.name}, syncthing masterSlave check is disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (installedApp.version <= 3) {
         identifier = installedApp.name;
         appId = dockerService.getAppIdentifier(identifier);
-        needsToBeChecked = installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.get(appId).restarted;
+        needsToBeChecked = installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
       } else {
         const componentUsingMasterSlave = installedApp.compose.find((comp) => comp.containerData.includes('g:'));
         if (componentUsingMasterSlave) {
           identifier = `${componentUsingMasterSlave.name}_${installedApp.name}`;
           appId = dockerService.getAppIdentifier(identifier);
-          needsToBeChecked = receiveOnlySyncthingAppsCache.get(appId).restarted;
+          needsToBeChecked = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
         }
       }
       if (needsToBeChecked) {
@@ -10682,65 +11601,179 @@ async function masterSlaveApps() {
           fdmIndex = 4;
         }
         let ip = null;
-        let serverStatus = null;
         // eslint-disable-next-line no-await-in-loop
-        let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
+        let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
           log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
+          fdmOk = false;
         });
-        fdmEUData = fdmEUData.data;
-        fdmOk = true;
-        if (fdmEUData && fdmEUData.length > 0) {
-          const ipElement = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-          if (ipElement) {
-            ip = ipElement.value.value.split(':')[0];
-            serverStatus = fdmEUData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
-          }
-        }
-        if (!ip || !serverStatus) {
-          // eslint-disable-next-line no-await-in-loop
-          let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
-            log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
-          });
-          fdmUSAData = fdmUSAData.data;
-          fdmOk = true;
-          if (fdmUSAData && fdmUSAData.length > 0) {
-            const ipElement = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-            if (ipElement) {
-              ip = ipElement.value.value.split(':')[0];
-              serverStatus = fdmUSAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+        if (fdmOk) {
+          fdmEUData = fdmEUData.data;
+          if (fdmEUData && fdmEUData.length > 0) {
+            // eslint-disable-next-line no-restricted-syntax
+            for (const fdmData of fdmEUData) {
+              const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
+              if (serviceName) {
+                const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                if (ipElement) {
+                  ip = ipElement.value.value;
+                }
+                break;
+              }
             }
           }
         }
-        if (!ip || !serverStatus) {
-          // eslint-disable-next-line no-await-in-loop
-          let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name};json;norefresh`, axiosOptions).catch((error) => {
-            log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
-          });
-          fdmASIAData = fdmASIAData.data;
+        if (!ip) {
           fdmOk = true;
-          if (fdmASIAData && fdmASIAData.length > 0) {
-            const ipElement = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-            if (ipElement) {
-              ip = ipElement.value.value.split(':')[0];
-              serverStatus = fdmASIAData[0].find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'status').value.value;
+          // eslint-disable-next-line no-await-in-loop
+          let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
+            log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
+            fdmOk = false;
+          });
+          if (fdmOk) {
+            fdmUSAData = fdmUSAData.data;
+            if (fdmUSAData && fdmUSAData.length > 0) {
+              // eslint-disable-next-line no-restricted-syntax
+              for (const fdmData of fdmUSAData) {
+                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
+                if (serviceName) {
+                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                  if (ipElement) {
+                    ip = ipElement.value.value;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+        if (!ip) {
+          fdmOk = true;
+          // eslint-disable-next-line no-await-in-loop
+          let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
+            log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
+            fdmOk = false;
+          });
+          if (fdmOk) {
+            fdmASIAData = fdmASIAData.data;
+            if (fdmASIAData && fdmASIAData.length > 0) {
+              // eslint-disable-next-line no-restricted-syntax
+              for (const fdmData of fdmASIAData) {
+                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
+                if (serviceName) {
+                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                  if (ipElement) {
+                    ip = ipElement.value.value;
+                  }
+                  break;
+                }
+              }
             }
           }
         }
         if (fdmOk) {
           // no ip means there was no row with ip on fdm
           // down means there was a row ip with status down
-          if ((!ip || serverStatus === 'DOWN')) {
+          // eslint-disable-next-line no-await-in-loop
+          let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          if (myIP.indexOf(':') < 0) {
+            myIP += ':16127';
+          }
+          if ((!ip)) {
+            log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
             if (!runningAppsNames.includes(identifier)) {
-              appDockerRestart(installedApp.name);
-              log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
+              // eslint-disable-next-line no-await-in-loop
+              const runningAppList = await getRunningAppList(installedApp.name);
+              runningAppList.sort((a, b) => {
+                if (!a.runningSince && b.runningSince) {
+                  return -1;
+                }
+                if (a.runningSince && !b.runningSince) {
+                  return 1;
+                }
+                if (a.runningSince < b.runningSince) {
+                  return -1;
+                }
+                if (a.runningSince > b.runningSince) {
+                  return 1;
+                }
+                if (a.ip < b.ip) {
+                  return -1;
+                }
+                if (a.ip > b.ip) {
+                  return 1;
+                }
+                return 0;
+              });
+              const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
+              if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
+                appDockerRestart(installedApp.name);
+                log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+              } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
+                const { CancelToken } = axios;
+                const source = CancelToken.source();
+                let isResolved = false;
+                const timeout = 5 * 1000; // 5 seconds
+                setTimeout(() => {
+                  if (!isResolved) {
+                    source.cancel('Operation canceled by the user.');
+                  }
+                }, timeout * 2);
+                const url = mastersRunningGSyncthingApps.get(identifier);
+                const ipToCheckAppRunning = url.split(':')[0];
+                const portToCheckAppRunning = url.split(':')[1] || 16127;
+                // eslint-disable-next-line no-await-in-loop
+                const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
+                isResolved = true;
+                const appsRunning = response.data.data;
+                if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
+                  log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                  return;
+                }
+                // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
+                if (index === 0) {
+                  appDockerRestart(installedApp.name);
+                  log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                } else {
+                  const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier).split(':')[0]);
+                  let timetoStartApp = Date.now();
+                  if (previousMasterIndex >= 0) {
+                    log.info(`masterSlaveApps: app:${installedApp.name} had primary running at index: ${previousMasterIndex}`);
+                    if (index > previousMasterIndex) {
+                      timetoStartApp += (index - 1) * 3 * 60 * 1000;
+                    } else {
+                      timetoStartApp += index * 3 * 60 * 1000;
+                    }
+                  } else {
+                    timetoStartApp += index * 3 * 60 * 1000;
+                  }
+                  if (timetoStartApp <= Date.now()) {
+                    appDockerRestart(installedApp.name);
+                    log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                  } else {
+                    log.info(`masterSlaveApps: will start docker app:${installedApp.name} at ${timetoStartApp.toString()}`);
+                    timeTostartNewMasterApp.set(identifier, timetoStartApp);
+                  }
+                }
+              } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
+                appDockerRestart(installedApp.name);
+                log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+              } else {
+                appDockerRestart(installedApp.name);
+                log.info(`masterSlaveApps: no previous information about primary, starting docker app:${installedApp.name}`);
+              }
             }
           } else {
-            // eslint-disable-next-line no-await-in-loop
-            let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-            myIP = myIP.split(':')[0];
+            mastersRunningGSyncthingApps.set(identifier, ip);
+            if (timeTostartNewMasterApp.has(identifier)) {
+              log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
+              timeTostartNewMasterApp.delete(identifier);
+            }
             if (myIP !== ip && runningAppsNames.includes(identifier)) {
               appDockerStop(installedApp.name);
-              log.info(`masterSlaveApps: stopping docker app:${installedApp.name}`);
+              log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and myIP is: ${myIP}`);
+            } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
+              appDockerRestart(installedApp.name);
+              log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
             }
           }
         }
@@ -11312,7 +12345,7 @@ async function testAppMount() {
     log.info('Mount Test: Filesystem created');
     log.info('Mount Test: Making directory...');
 
-    const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata`;
+    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
     await cmdAsync(execDIR);
     log.info('Mount Test: Directory made');
     log.info('Mount Test: Mounting volume...');
@@ -11489,6 +12522,760 @@ function setInstallationInProgressTrue() {
   installationInProgress = true;
 }
 
+/**
+ * Send a chunk of data as a response to the client with a delay.
+ * @async
+ * @param {object} res - Response object.
+ * @param {string} chunk - Data chunk to be sent.
+ * @returns {Promise<void>} - A Promise that resolves after sending the chunk with a delay.
+ */
+async function sendChunk(res, chunk) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      res.write(`${chunk}\n`);
+      if (res.flush) res.flush();
+      resolve();
+    }, 3000); // Adjust the delay as needed
+  });
+}
+
+/**
+ * Append a backup task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the backup task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
+ */
+async function appendBackupTask(req, res) {
+  let appname;
+  let backup;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    log.info(processedBody);
+    // eslint-disable-next-line prefer-destructuring
+    appname = processedBody.appname;
+    // eslint-disable-next-line prefer-destructuring
+    backup = processedBody.backup;
+    if (!appname || !backup) {
+      throw new Error('appname and backup parameters are mandatory');
+    }
+    const indexBackup = backupInProgress.indexOf(appname);
+    if (indexBackup !== -1) {
+      throw new Error('Backup in progress...');
+    }
+    const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
+    if (hasTrueBackup === false) {
+      throw new Error('No backup jobs...');
+    }
+  } catch (error) {
+    log.error(error);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    if (authorized === true) {
+      backupInProgress.push(appname);
+      // Check if app using syncthing, stop syncthing for all component that using it
+      const appDetails = await getApplicationGlobalSpecifications(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      if (syncthing) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await stopSyncthingApp(appname, res, true);
+      }
+
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+      await serviceHelper.delay(5 * 1000);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of backup) {
+        if (component.backup) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+          if (existStatus === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing exists backup archive for ${component.component.toLowerCase()}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
+          if (tarStatus.status === false) {
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+            throw new Error(`Error: Failed to create backup archive for ${component.component.toLowerCase()}, ${tarStatus.error}`);
+          }
+        }
+      }
+      await serviceHelper.delay(5 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      if (!syncthing) {
+        await appDockerStart(appname);
+      } else {
+        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of componentsWithoutGSyncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await appDockerStart(`${component.name}_${appname}`);
+        }
+      }
+      await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = backupInProgress.indexOf(appname);
+      backupInProgress.splice(indexToRemove, 1);
+      res.end();
+      return true;
+      // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const indexToRemove = backupInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
+      backupInProgress.splice(indexToRemove, 1);
+    }
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+}
+
+/**
+ * Append a restore task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the restore task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
+ */
+async function appendRestoreTask(req, res) {
+  let appname;
+  let restore;
+  let type;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    log.info(processedBody);
+    // eslint-disable-next-line prefer-destructuring
+    appname = processedBody.appname;
+    // eslint-disable-next-line prefer-destructuring
+    restore = processedBody.restore;
+    // eslint-disable-next-line prefer-destructuring
+    type = processedBody.type;
+    if (!appname || !restore || !type) {
+      throw new Error('appname, restore and type parameters are mandatory');
+    }
+    const indexRestore = restoreInProgress.indexOf(appname);
+    if (indexRestore !== -1) {
+      throw new Error(`Restore for app ${appname} is running...`);
+    }
+    const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
+    if (hasTrueRestore === false) {
+      throw new Error('No restore jobs...');
+    }
+  } catch (error) {
+    log.error(error);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    if (authorized === true) {
+      const componentItem = restore.map((restoreItem) => restoreItem);
+      restoreInProgress.push(appname);
+      const appDetails = await getApplicationGlobalSpecifications(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      if (syncthing) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await stopSyncthingApp(appname, res, true);
+      }
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+      await serviceHelper.delay(5 * 1000);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentVolumeInfo = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const appDataPath = `${componentVolumeInfo[0].mount}/appdata`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Removing ${component.component} component data...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2 * 1000);
+          // eslint-disable-next-line no-await-in-loop
+          await IOUtils.removeDirectory(appDataPath, true);
+        }
+      }
+
+      if (type === 'remote') {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const restoreItem of componentItem) {
+          if (restoreItem?.url !== '') {
+            // eslint-disable-next-line no-await-in-loop
+            const componentPath = await IOUtils.getVolumeInfo(appname, restoreItem.component, 'B', 0, 'mount');
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeDirectory(`${componentPath[0].mount}/backup/remote`, true);
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Downloading ${restoreItem.url}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
+            if (downloadStatus !== true) {
+              throw new Error(`Error: Failed to download ${restoreItem.url}...`);
+            }
+          }
+        }
+      }
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component.toLowerCase()}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Unpacking backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
+          if (tarStatus.status === false) {
+            throw new Error(`Error: Failed to unpack archive file for ${component.component.toLowerCase()}, ${tarStatus.error}`);
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing backup file for ${component.component.toLowerCase()}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(tarGzPath);
+          }
+          const syncthingAux = appDetails.compose.find((comp) => comp.name === component.component && (comp.containerData.includes('g:') || comp.containerData.includes('r:')));
+          if (syncthingAux) {
+            const identifier = `${component.component}_${appname}`;
+            const appId = dockerService.getAppIdentifier(identifier);
+            const cache = {
+              restarted: true,
+              numberOfExecutionsRequired: 4,
+              numberOfExecutions: 10,
+            };
+            receiveOnlySyncthingAppsCache.set(appId, cache);
+          }
+        }
+      }
+      await serviceHelper.delay(1 * 5 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      await appDockerStart(appname);
+      if (syncthing) {
+        await sendChunk(res, 'Redeploying other instances...\n');
+        executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
+        await serviceHelper.delay(1 * 60 * 1000);
+      }
+      await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = restoreInProgress.indexOf(appname);
+      restoreInProgress.splice(indexToRemove, 1);
+      res.end();
+      return true;
+      // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const indexToRemove = restoreInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
+      restoreInProgress.splice(indexToRemove, 1);
+    }
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+}
+
+/**
+ * To get a list of files with their details for all files.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const options = {
+        withFileTypes: false,
+      };
+      const files = await fs.readdir(filepath, options);
+      const filesWithDetails = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const file of files) {
+        // eslint-disable-next-line no-await-in-loop
+        const fileStats = await fs.lstat(`${filepath}/${file}`);
+        const isDirectory = fileStats.isDirectory();
+        const isFile = fileStats.isFile();
+        const isSymbolicLink = fileStats.isSymbolicLink();
+        let fileFolderSize = fileStats.size;
+        if (isDirectory) {
+          // eslint-disable-next-line no-await-in-loop
+          fileFolderSize = await IOUtils.getFolderSize(`${filepath}/${file}`);
+        }
+        const detailedFile = {
+          name: file,
+          size: fileFolderSize, // bytes
+          isDirectory,
+          isFile,
+          isSymbolicLink,
+          createdAt: fileStats.birthtime,
+          modifiedAt: fileStats.mtime,
+        };
+        filesWithDetails.push(detailedFile);
+      }
+      const resultsResponse = messageHelper.createDataMessage(filesWithDetails);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To create a folder
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function createAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo mkdir "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To rename a file or folder. Oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function renameAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { oldpath } = req.params;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      oldpath = oldpath || req.query.oldpath;
+      if (!oldpath) {
+        throw new Error('No file nor folder to rename specified');
+      }
+      let { newname } = req.params;
+      newname = newname || req.query.newname;
+      if (!newname) {
+        throw new Error('No new name specified');
+      }
+      if (newname.includes('/')) {
+        throw new Error('New name is invalid');
+      }
+      // stop sharing of ALL files that start with the path
+      const fileURI = encodeURIComponent(oldpath);
+      let oldfullpath;
+      let newfullpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        oldfullpath = `${appVolumePath[0].mount}/appdata/${oldpath}`;
+        newfullpath = `${appVolumePath[0].mount}/appdata/${newname}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const fileURIArray = fileURI.split('%2F');
+      fileURIArray.pop();
+      if (fileURIArray.length > 0) {
+        const renamingFolder = fileURIArray.join('/');
+        newfullpath = `${appVolumePath[0].mount}/appdata/${renamingFolder}/${newname}`;
+      }
+      const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('Rename successful');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To remove a specified shared file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function removeAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { object } = req.params;
+      object = object || req.query.object;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!component) {
+        throw new Error('component parameter is mandatory');
+      }
+      if (!object) {
+        throw new Error('No object specified');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${object}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo rm -rf "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('File Removed');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a zip folder for a specified directory. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {boolean} authorized False until verified as an admin.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!folder || !component) {
+        const errorResponse = messageHelper.createErrorMessage('folder and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let folderpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        folderpath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const zip = archiver('zip');
+      const sizeStream = new PassThrough();
+      let compressedSize = 0;
+      sizeStream.on('data', (chunk) => {
+        compressedSize += chunk.length;
+      });
+      sizeStream.on('end', () => {
+        const folderNameArray = folderpath.split('/');
+        const folderName = folderNameArray[folderNameArray.length - 1];
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-disposition': `attachment; filename=${folderName}.zip`,
+          'Content-Length': compressedSize,
+        });
+        // Now, pipe the compressed data to the response stream
+        const zipFinal = archiver('zip');
+        zipFinal.pipe(res);
+        zipFinal.directory(folderpath, false);
+        zipFinal.finalize();
+      });
+      zip.pipe(sizeStream);
+      zip.directory(folderpath, false);
+      zip.finalize();
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a specified file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFile(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!file || !component) {
+        const errorResponse = messageHelper.createErrorMessage('file and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${file}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo chmod 777 "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // beautify name
+      const fileNameArray = filepath.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+      res.download(filepath, fileName);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To get application specification usd prices.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Returns object with application specification usd prices.
+ */
+async function getAppSpecsUSDPrice(req, res) {
+  try {
+    const resMessage = serviceHelper.createDataMessage(config.fluxapps.usdprice);
+    res.json(resMessage);
+  } catch (error) {
+    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+  }
+}
+
+let nodeConfirmedOnLastCheck = true;
+/**
+ * Method responsable to monitor node status ans uninstall apps if node is not confirmed
+ */
+// eslint-disable-next-line consistent-return
+async function monitorNodeStatus() {
+  try {
+    if (fluxNetworkHelper.getDosStateValue() >= 100) {
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('monitorNodeStatus - Failed to get installed Apps');
+      }
+      const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+      const appsInstalled = installedAppsRes.data;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of appsInstalled) {
+        log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node have DOS state over 100`);
+        log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
+        // eslint-disable-next-line no-await-in-loop
+        await removeAppLocally(installedApp.name, null, true, false, isNodeConfirmed);
+        log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
+      }
+      await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
+    }
+    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    if (!isNodeConfirmed) {
+      log.info('monitorNodeStatus - Node is not Confirmed');
+      if (!nodeConfirmedOnLastCheck) {
+        const installedAppsRes = await installedApps();
+        if (installedAppsRes.status !== 'success') {
+          throw new Error('monitorNodeStatus - Failed to get installed Apps');
+        }
+        const appsInstalled = installedAppsRes.data;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const installedApp of appsInstalled) {
+          log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network`);
+          log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
+          // eslint-disable-next-line no-await-in-loop
+          await removeAppLocally(installedApp.name, null, true, false, false);
+          log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
+        }
+        await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
+      } else {
+        nodeConfirmedOnLastCheck = false;
+        await serviceHelper.delay(5 * 60 * 1000); // 5m delay before next check
+      }
+      return monitorNodeStatus();
+    }
+    log.info('monitorNodeStatus - Node is Confirmed');
+    nodeConfirmedOnLastCheck = true;
+    // lets remove from locations when nodes are no longer confirmed
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const variable = 'ip';
+    // we already have the exact same data
+    const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
+    log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
+    let nodeList = await fluxCommunicationUtils.deterministicFluxList();
+    nodeList = nodeList.map(({ ip }) => ip);
+    const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes(location));
+    log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on determinisct node list`);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const location of appsLocationsNotOnNodelist) {
+      log.info(`monitorNodeStatus - Checking IP ${location}.`);
+      const ip = location.split(':')[0];
+      const port = location.split(':')[1] || 16127;
+      const { CancelToken } = axios;
+      const source = CancelToken.source();
+      let isResolved = false;
+      const timeout = 10 * 1000; // 10 seconds
+      setTimeout(() => {
+        if (!isResolved) {
+          source.cancel('Operation canceled by the user.');
+        }
+      }, timeout * 2);
+      // eslint-disable-next-line no-await-in-loop
+      const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
+      isResolved = true;
+      if (response && response.data && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
+        log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
+      } else {
+        log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
+        const query = { ip: location };
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
+      }
+    }
+    await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
+    monitorNodeStatus();
+  } catch (error) {
+    log.error(error);
+    await serviceHelper.delay(2 * 60 * 1000); // 2m delay before next check
+    monitorNodeStatus();
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -11501,6 +13288,7 @@ module.exports = {
   appUnpause,
   appTop,
   appLog,
+  appLogPolling,
   appLogStream,
   appInspect,
   appStats,
@@ -11523,6 +13311,7 @@ module.exports = {
   checkAppMessageExistence,
   requestAppMessageAPI,
   checkAndRequestApp,
+  checkAndRequestMultipleApps,
   checkDockerAccessibility,
   registrationInformation,
   appPricePerMonth,
@@ -11559,8 +13348,10 @@ module.exports = {
   reindexGlobalAppsLocationAPI,
   expireGlobalApplications,
   installAppLocally,
+  testAppInstall,
   updateAppGlobalyApi,
   getAppPrice,
+  getAppFiatAndFluxPrice,
   reinstallOldApplications,
   checkAndRemoveApplicationInstance,
   checkAppTemporaryMessageExistence,
@@ -11586,7 +13377,15 @@ module.exports = {
   checkApplicationsCompliance,
   testAppMount,
   checkStorageSpaceForApps,
-
+  appendBackupTask,
+  appendRestoreTask,
+  sendChunk,
+  getAppsFolder,
+  createAppsFolder,
+  renameAppsObject,
+  removeAppsObject,
+  downloadAppsFolder,
+  downloadAppsFile,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,
@@ -11610,6 +13409,8 @@ module.exports = {
   setInstallationInProgressTrue,
   checkForNonAllowedAppsOnLocalNetwork,
   triggerAppHashesCheckAPI,
-  getAuthToken,
   masterSlaveApps,
+  getAppSpecsUSDPrice,
+  checkApplicationsCpuUSage,
+  monitorNodeStatus,
 };

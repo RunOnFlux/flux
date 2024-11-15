@@ -45,6 +45,9 @@ const router = new VueRouter({
         pageTitle: 'Explorer',
         breadcrumb: [
           {
+            text: 'Administration',
+          },
+          {
             text: 'Explorer',
             active: true,
           },
@@ -58,6 +61,14 @@ const router = new VueRouter({
     ...apps,
     ...fluxadmin,
     ...xdao,
+    {
+      path: '/successcheckout',
+      name: 'successcheckout',
+      component: () => import('@/views/successcheckout/SuccessCheckout.vue'),
+      meta: {
+        layout: 'full',
+      },
+    },
     {
       path: '/error-404',
       name: 'error-404',

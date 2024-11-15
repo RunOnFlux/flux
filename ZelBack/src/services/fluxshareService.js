@@ -13,6 +13,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const log = require('../lib/log');
+const IOUtils = require('./IOUtils');
 
 /**
  * Delete a specific FluxShare file.
@@ -140,7 +141,7 @@ async function fluxShareDatabaseShareFile(file) {
     if (result) {
       return result;
     }
-    const string = file + new Date().getTime().toString() + Math.floor((Math.random() * 999999999999999)).toString();
+    const string = file + Date.now().toString() + Math.floor((Math.random() * 999999999999999)).toString();
 
     const fileDetail = {
       name: file,
@@ -546,8 +547,8 @@ async function fluxShareRemoveFolder(req, res) {
 
       const dirpath = path.join(__dirname, '../../../');
       const filepath = `${dirpath}ZelApps/ZelShare/${folder}`;
-      await fs.promises.rmdir(filepath);
-
+      // await fs.promises.rmdir(filepath);
+      await IOUtils.removeDirectory(filepath);
       const response = messageHelper.createSuccessMessage('Folder Removed');
       res.json(response);
     } else {
@@ -797,6 +798,7 @@ async function fluxShareUpload(req, res) {
     }
     let { folder } = req.params;
     folder = folder || req.query.folder || '';
+
     if (folder) {
       folder += '/';
     }
@@ -806,9 +808,15 @@ async function fluxShareUpload(req, res) {
       multiples: true,
       uploadDir,
       maxFileSize: 5 * 1024 * 1024 * 1024, // 5gb
-      hash: true,
+      hashAlgorithm: false,
       keepExtensions: true,
+      // eslint-disable-next-line no-unused-vars
+      filename: (name, ext, part, form) => {
+        const { originalFilename } = part;
+        return originalFilename;
+      },
     };
+
     const spaceAvailableForFluxShare = await getSpaceAvailableForFluxShare();
     let spaceUsedByFluxShare = getFluxShareSize();
     spaceUsedByFluxShare = Number(spaceUsedByFluxShare.toFixed(6));
@@ -816,38 +824,34 @@ async function fluxShareUpload(req, res) {
     if (available <= 0) {
       throw new Error('FluxShare Storage is full');
     }
+
     // eslint-disable-next-line no-bitwise
     await fs.promises.access(uploadDir, fs.constants.F_OK | fs.constants.W_OK); // check folder exists and write ability
     const form = formidable(options);
-    form.parse(req)
+
+    form
+      // eslint-disable-next-line no-unused-vars
       .on('fileBegin', (name, file) => {
-        try {
-          res.write(serviceHelper.ensureString(file.name));
-          const filepath = `${dirpath}ZelApps/ZelShare/${folder}${file.name}`;
-          // eslint-disable-next-line no-param-reassign
-          file.path = filepath;
-        } catch (error) {
-          log.error(error);
-        }
+        // eslint-disable-next-line no-param-reassign
+        file.filepath = `${uploadDir}/${name}`;
       })
       .on('progress', (bytesReceived, bytesExpected) => {
         try {
-          // console.log('PROGRESS');
           res.write(serviceHelper.ensureString([bytesReceived, bytesExpected]));
+          if (res.flush) res.flush();
         } catch (error) {
           log.error(error);
         }
       })
+      // eslint-disable-next-line no-unused-vars
       .on('field', (name, field) => {
-        console.log('Field', name, field);
-        // console.log(name);
-        // console.log(field);
-        // res.write(serviceHelper.ensureString(field));
+
       })
+      // eslint-disable-next-line no-unused-vars
       .on('file', (name, file) => {
         try {
-          // console.log('Uploaded file', name, file);
-          res.write(serviceHelper.ensureString(file));
+          res.write(serviceHelper.ensureString(name));
+          if (res.flush) res.flush();
         } catch (error) {
           log.error(error);
         }
@@ -864,7 +868,7 @@ async function fluxShareUpload(req, res) {
         );
         try {
           res.write(serviceHelper.ensureString(errorResponse));
-          res.end();
+          if (res.flush) res.flush();
         } catch (e) {
           log.error(e);
         }
@@ -876,10 +880,11 @@ async function fluxShareUpload(req, res) {
           log.error(error);
         }
       });
+
+    form.parse(req);
   } catch (error) {
     log.error(error);
     if (res) {
-      // res.set('Connection', 'close');
       try {
         res.connection.destroy();
       } catch (e) {

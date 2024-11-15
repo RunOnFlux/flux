@@ -1,20 +1,6 @@
 <template>
-  <div>
-    <b-card>
-      <l-map
-        :zoom="mapData.zoom"
-        :center="mapData.center"
-      >
-        <l-tile-layer :url="mapData.url" />
-        <l-marker
-          v-for="marker in mapData.markers"
-          :key="marker.id"
-          :lat-lng="marker.data"
-        >
-          <l-popup>{{ marker.label }}</l-popup>
-        </l-marker>
-      </l-map>
-    </b-card>
+  <div class="map">
+    <flux-map :nodes="fluxList" class="mb-2 p-0" />
     <b-row>
       <b-col
         md="6"
@@ -58,23 +44,9 @@ import {
   BRow,
   BCol,
 } from 'bootstrap-vue';
-import { Icon } from 'leaflet';
-import {
-  LMap, LTileLayer, LMarker, LPopup,
-} from 'vue2-leaflet';
 import VueApexCharts from 'vue-apexcharts';
 import DashboardService from '@/services/DashboardService';
-import 'leaflet/dist/leaflet.css';
-
-/* eslint-disable global-require */
-// eslint-disable-next-line no-underscore-dangle
-delete Icon.Default.prototype._getIconUrl;
-Icon.Default.mergeOptions({
-  iconRetinaUrl: require('leaflet/dist/images/marker-icon-2x.png'),
-  iconUrl: require('leaflet/dist/images/marker-icon.png'),
-  shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
-});
-/* eslint-enable global-require */
+import FluxMap from '@/views/components/FluxMap.vue';
 
 const axios = require('axios');
 
@@ -83,28 +55,14 @@ export default {
     BCard,
     BRow,
     BCol,
-    LMap,
-    LTileLayer,
-    LMarker,
-    LPopup,
     VueApexCharts,
+    FluxMap,
   },
   data() {
     return {
-      fluxListLoading: true,
       fluxList: [],
       fluxNodeCount: 0,
       self: this,
-      mapData: {
-        url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        zoom: 2,
-        center: [20, 0],
-        markers: [{
-          id: 0,
-          label: 'Hello!',
-          data: [47.313220, -1.319482, { draggable: 'false' }],
-        }],
-      },
       providerData: {
         series: [],
         chartOptions: {
@@ -151,46 +109,15 @@ export default {
   methods: {
     async getFluxList() {
       try {
-        this.fluxListLoading = true;
         const resLoc = await axios.get('https://stats.runonflux.io/fluxinfo?projection=geolocation,ip,tier');
         this.fluxList = resLoc.data.data;
         const resList = await DashboardService.fluxnodeCount();
         this.fluxNodeCount = resList.data.data.total;
-        this.fluxListLoading = false;
-        await this.generateMap();
         await this.generateGeographicPie();
         await this.generateProviderPie();
       } catch (error) {
         console.log(error);
       }
-    },
-    async generateMap() {
-      const nodeData = [];
-      this.fluxList.forEach((flux) => {
-        const existingPoint = nodeData.find((node) => (node.latitude === flux.geolocation.lat && node.longitude === flux.geolocation.lon));
-        if (existingPoint) {
-          if (existingPoint.title.split(['-']).length % 6) {
-            existingPoint.title += `   ${flux.ip} - ${flux.tier}   `;
-          } else {
-            existingPoint.title += `   ${flux.ip} - ${flux.tier}   \n`;
-          }
-        } else {
-          const point = {
-            latitude: flux.geolocation.lat,
-            longitude: flux.geolocation.lon,
-            title: `   ${flux.ip} - ${flux.tier}   `,
-          };
-          nodeData.push(point);
-        }
-      });
-      this.mapData.markers = [];
-      nodeData.forEach((node, index) => {
-        this.mapData.markers.push({
-          id: index,
-          label: node.title,
-          data: [node.latitude, node.longitude, { draggable: 'false' }],
-        });
-      });
     },
     async generateGeographicPie() {
       const labels = [];
@@ -343,9 +270,18 @@ export default {
 </script>
 
 <style lang="scss">
-.vue2leaflet-map{
-  &.leaflet-container{
-    height: 450px;
+  .dark-layout span.apexcharts-legend-text {
+    color: #d0d2d6 !important;
   }
-}
+  .dark-layout .apexcharts-canvas ::-webkit-scrollbar-track {
+    background-color: #2a2a2a;
+    border-radius: 10px;
+  }
+  .dark-layout .apexcharts-canvas ::-webkit-scrollbar-thumb {
+    background-color: #888888;
+  }
+  .apexcharts-canvas ::-webkit-scrollbar-track {
+    background-color: #888888;
+    border-radius: 10px;
+  }
 </style>

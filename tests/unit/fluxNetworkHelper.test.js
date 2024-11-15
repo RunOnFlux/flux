@@ -1,11 +1,10 @@
 /* eslint-disable no-underscore-dangle */
-global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
-const proxyquire = require('proxyquire');
 const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
+const proxyquire = require('proxyquire');
 const fs = require('fs').promises;
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
@@ -18,6 +17,7 @@ const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonServ
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
+
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
@@ -41,7 +41,7 @@ describe('fluxNetworkHelper tests', () => {
     const fluxAvailabilitySuccessResponse = {
       data: {
         status: 'success',
-        data: '4.20.0',
+        data: '5.4.0',
       },
     };
     Object.setPrototypeOf(fluxAvailabilitySuccessResponse.data, { // axios on home expects string
@@ -52,7 +52,7 @@ describe('fluxNetworkHelper tests', () => {
     const fluxAvailabilityErrorResponse = {
       data: {
         status: 'error',
-        data: '4.20.0',
+        data: '5.4.0',
       },
     };
     const generateResponse = () => {
@@ -243,52 +243,6 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('minVersionSatisfy tests', () => {
-    const minimalVersion = '3.4.12';
-
-    it('should return true if major version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('4.0.0', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if minor version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.6.0', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if patch version is higher than minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.13', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return true if patch version is equal to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.12', minimalVersion);
-
-      expect(versionAllowed).to.equal(true);
-    });
-
-    it('should return false if patch version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.4.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if minor version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('3.3.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-
-    it('should return false if major version is below to minimalVersion', async () => {
-      const versionAllowed = await fluxNetworkHelper.minVersionSatisfy('2.3.11', minimalVersion);
-
-      expect(versionAllowed).to.equal(false);
-    });
-  });
-
   describe('isFluxAvailable tests', () => {
     let stub;
     const ip = '127.0.0.1';
@@ -298,14 +252,14 @@ describe('fluxNetworkHelper tests', () => {
     };
 
     afterEach(() => {
-      serviceHelper.axiosGet.restore();
+      sinon.restore();
     });
 
     it('Should return true if node is running flux, port taken from config', async () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '4.20.0',
+          data: '5.4.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
@@ -329,7 +283,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '4.20.2',
+          data: '5.4.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
@@ -338,6 +292,7 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
 
@@ -582,6 +537,11 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('closeConnection tests', () => {
+    before(() => {
+      outgoingConnections.length = 0;
+      outgoingPeers.length = 0;
+    });
+
     const generateWebsocket = (ip, port, readyState) => {
       const ws = {};
       ws.port = port;
@@ -605,12 +565,9 @@ describe('fluxNetworkHelper tests', () => {
       return peer;
     };
 
-    beforeEach(() => {
+    afterEach(() => {
       outgoingConnections.length = 0;
       outgoingPeers.length = 0;
-    });
-
-    afterEach(() => {
       sinon.restore();
     });
 
@@ -626,7 +583,10 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
+      websocket.ip = ip;
+      websocket.port = port;
       addPeerToListOfPeers(ip, port);
+      incomingConnections.push(websocket);
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
@@ -669,12 +629,11 @@ describe('fluxNetworkHelper tests', () => {
           message: `Connection to ${ip}:${port} does not exists.`,
         },
       };
-      const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
       addPeerToListOfPeers(ip2, port);
+      outgoingConnections.push({ ip: ip2, port });
 
       const closeConnectionResult = await fluxNetworkHelper.closeConnection(ip, port);
 
-      sinon.assert.notCalled(websocket.close);
       expect(closeConnectionResult).to.eql(errorMessage);
       expect(outgoingConnections).to.have.length(1);
       expect(outgoingPeers).to.have.length(1);
@@ -704,19 +663,11 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('closeIncomingConnection tests', () => {
-    const generateWebsocket = (ip, port, readyState) => {
-      const ws = {};
-      ws.port = port;
-      ws.ip = ip;
-      ws.readyState = readyState;
-      ws.ping = sinon.stub().returns('pong');
-      ws.close = sinon.stub().returns('okay');
-      ws._socket = {
-        remoteAddress: ip,
-      };
-      incomingConnections.push(ws);
-      return ws;
-    };
+    before(() => {
+      incomingConnections.length = 0;
+      incomingPeers.length = 0;
+    });
+
     const addPeerToListOfPeers = (ip, port) => {
       const peer = {
         ip,
@@ -727,104 +678,10 @@ describe('fluxNetworkHelper tests', () => {
       return peer;
     };
 
-    beforeEach(() => {
+    afterEach(() => {
       incomingConnections.length = 0;
       incomingPeers.length = 0;
-    });
-
-    afterEach(() => {
       sinon.restore();
-    });
-
-    it('should close outgoing connection properly given expressWsList', async () => {
-      const ip = '127.9.9.1';
-      const port = 16127;
-      const successMessage = {
-        status: 'success',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: `Incoming connection to ${ip}:${port} closed`,
-        },
-      };
-      const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
-      addPeerToListOfPeers(ip, port);
-      const expressWsList = { clients: [websocket] };
-
-      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
-
-      sinon.assert.calledOnceWithExactly(websocket.close, 4010, 'purpusfully closed');
-      expect(closeConnectionResult).to.eql(successMessage);
-      expect(incomingConnections).to.have.length(0);
-      expect(incomingPeers).to.have.length(0);
-    });
-
-    it('should close outgoing connection properly given client to close', async () => {
-      const ip = '127.9.9.1';
-      const port = 16127;
-      const successMessage = {
-        status: 'success',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: `Incoming connection to ${ip}:${port} closed`,
-        },
-      };
-      const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
-      addPeerToListOfPeers(ip, port);
-
-      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, [], websocket);
-
-      sinon.assert.calledOnceWithExactly(websocket.close, 4010, 'purpusfully closed');
-      expect(closeConnectionResult).to.eql(successMessage);
-      expect(incomingConnections).to.have.length(0);
-      expect(incomingPeers).to.have.length(0);
-    });
-
-    it('should close outgoing connection properly if it exists and peer is not added to the list', async () => {
-      const ip = '127.9.9.1';
-      const port = 16127;
-      const successMessage = {
-        status: 'success',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: `Incoming connection to ${ip}:${port} closed`,
-        },
-      };
-      const websocket = generateWebsocket(ip, port, WebSocket.OPEN);
-      const expressWsList = { clients: [websocket] };
-
-      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
-
-      sinon.assert.calledOnceWithExactly(websocket.close, 4010, 'purpusfully closed');
-      expect(closeConnectionResult).to.eql(successMessage);
-      expect(incomingConnections).to.have.length(0);
-      expect(incomingPeers).to.have.length(0);
-    });
-
-    it('should return warning message if the websocket does not exist', async () => {
-      const ip = '127.9.9.1';
-      const ip2 = '127.5.5.2';
-      const port = 16127;
-      const errorMessage = {
-        status: 'warning',
-        data: {
-          code: undefined,
-          name: undefined,
-          message: `Connection from ${ip}:${port} does not exists.`,
-        },
-      };
-      const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
-      const expressWsList = { clients: [websocket] };
-      addPeerToListOfPeers(ip2, port);
-
-      const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection(ip, port, expressWsList);
-
-      sinon.assert.notCalled(websocket.close);
-      expect(closeConnectionResult).to.eql(errorMessage);
-      expect(incomingConnections).to.have.length(1);
-      expect(incomingPeers).to.have.length(1);
     });
 
     it('should return warning message if the websocket does not exist', async () => {
@@ -838,12 +695,11 @@ describe('fluxNetworkHelper tests', () => {
           message: 'To close a connection please provide a proper IP number.',
         },
       };
-      const websocket = generateWebsocket(ip2, port, WebSocket.OPEN);
       addPeerToListOfPeers(ip2, port);
+      incomingConnections.push({ ip: ip2, port });
 
       const closeConnectionResult = await fluxNetworkHelper.closeIncomingConnection();
 
-      sinon.assert.notCalled(websocket.close);
       expect(closeConnectionResult).to.eql(errorMessage);
       expect(incomingConnections).to.have.length(1);
       expect(incomingPeers).to.have.length(1);
@@ -915,40 +771,30 @@ describe('fluxNetworkHelper tests', () => {
       res.json = sinon.fake((param) => param);
       return res;
     };
-    const generateWebsocket = (ip, port) => {
-      const ws = {};
-      ws.port = port;
-      ws.ip = ip;
-      ws._socket = {
-        remoteAddress: ip,
-      };
-      return ws;
-    };
 
     afterEach(() => {
+      incomingPeers.length = 0;
       sinon.restore();
     });
 
     it('should return success message with incoming connections\' ips', async () => {
       const ips = ['127.0.0.1', '127.0.0.2'];
       const port = 16127;
-      const websocket1 = generateWebsocket(ips[0], port);
-      const websocket2 = generateWebsocket(ips[1], port);
-      const expressWsList = { clients: [websocket1, websocket2] };
+      ips.forEach((ip) => incomingPeers.push({ ip, port }));
+
       const res = generateResponse();
       const expectedCallArgumeent = { status: 'success', data: ['127.0.0.1', '127.0.0.2'] };
 
-      fluxNetworkHelper.getIncomingConnections(undefined, res, expressWsList);
+      fluxNetworkHelper.getIncomingConnections(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedCallArgumeent);
     });
 
     it('should return success message with empty array if there are no incoming connections', async () => {
-      const expressWsList = { clients: [] };
       const res = generateResponse();
       const expectedCallArgumeent = { status: 'success', data: [] };
 
-      fluxNetworkHelper.getIncomingConnections(undefined, res, expressWsList);
+      fluxNetworkHelper.getIncomingConnections(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedCallArgumeent);
     });
@@ -1009,7 +855,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = '3.9.0';
+    // minimumFluxBenchAllowedVersion = '4.0.0';
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {
@@ -1030,7 +876,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is equal to minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('3.9.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -1064,7 +910,7 @@ describe('fluxNetworkHelper tests', () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '3.9.0',
+          version: '4.0.0',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -1072,7 +918,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('3.9.0');
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('4.0.0');
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {
@@ -1920,7 +1766,7 @@ describe('fluxNetworkHelper tests', () => {
         const dummyPeer = {
           ip: `${baseIp}${i}`,
           port: 16127,
-          lastPingTime: new Date().getTime(),
+          lastPingTime: Date.now(),
           latency: 50,
         };
         incomingPeers.push(dummyPeer);
@@ -1930,7 +1776,7 @@ describe('fluxNetworkHelper tests', () => {
         const dummyPeer = {
           ip: `${baseIp}${i}`,
           port: 16127,
-          lastPingTime: new Date().getTime(),
+          lastPingTime: Date.now(),
           latency: 50,
         };
         outgoingPeers.push(dummyPeer);
@@ -2016,6 +1862,302 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxUptime.data).to.be.gte(ut);
       const utb = process.uptime();
       expect(fluxUptime.data).to.be.lte(utb);
+    });
+  });
+
+  describe('remove flux container access to private address space tests', () => {
+    let utilStub;
+    let funcStub;
+    let infoLogSpy;
+    let errorLogSpy;
+    beforeEach(() => {
+      // hide console output from logs, but still get logging spy
+      sinon.stub(console, 'log');
+      utilStub = sinon.stub(util, 'promisify');
+      infoLogSpy = sinon.spy(log, 'info');
+      errorLogSpy = sinon.spy(log, 'error');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return false if the iptables binary does not exist', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        // chain doesn't exists
+        if (cmd.includes('sudo iptables --version')) {
+          throw new Error();
+        }
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+      expect(result).to.eql(false);
+      sinon.assert.calledOnceWithExactly(funcStub, 'sudo iptables --version');
+      sinon.assert.calledWith(errorLogSpy, 'Unable to find iptables binary');
+    });
+
+    it('should add the DOCKER-USER chain to iptables if it is missing', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        }
+        if (cmd.includes('-L')) {
+          // chain doesn't exists
+          throw new Error();
+        }
+        return null;
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+      expect(result).to.eql(true);
+
+      sinon.assert.calledWith(funcStub, 'sudo iptables -L DOCKER-USER');
+      sinon.assert.calledWith(funcStub, 'sudo iptables -N DOCKER-USER');
+      sinon.assert.calledWith(infoLogSpy, 'IPTABLES: DOCKER-USER chain created');
+      sinon.assert.notCalled(errorLogSpy);
+    });
+
+    it('should skip addding the DOCKER-USER chain to iptables if it already exists', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        }
+        if (cmd.includes('-L')) {
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        }
+        return undefined;
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(true);
+      sinon.assert.calledWith(funcStub, 'sudo iptables -L DOCKER-USER');
+      sinon.assert.neverCalledWith(funcStub, 'sudo iptables -N DOCKER-USER');
+      sinon.assert.calledWith(infoLogSpy, 'IPTABLES: DOCKER-USER chain already created');
+      sinon.assert.notCalled(errorLogSpy);
+    });
+
+    it('should bail out if there is an error addding the DOCKER-USER chain to iptables', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        }
+        // throw for both -L and -N (throwing on -L is normal)
+        throw new Error();
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(false);
+      sinon.assert.calledWith(funcStub, 'sudo iptables -L DOCKER-USER');
+      sinon.assert.calledWith(funcStub, 'sudo iptables -N DOCKER-USER');
+      sinon.assert.notCalled(infoLogSpy);
+      sinon.assert.calledOnceWithExactly(errorLogSpy, 'IPTABLES: Error adding DOCKER-USER chain');
+    });
+
+    it('should add the jump to DOCKER-USER chain from FORWARD chain to iptables if it is missing', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          // chain doesn't exists
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER && echo true')) {
+          throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
+        } else {
+          return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
+        }
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(true);
+      sinon.assert.calledWith(funcStub, 'sudo iptables -C FORWARD -j DOCKER-USER && echo true');
+      sinon.assert.calledWith(funcStub, 'sudo iptables -I FORWARD -j DOCKER-USER');
+
+      sinon.assert.calledWith(infoLogSpy, 'IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
+      sinon.assert.notCalled(errorLogSpy);
+    });
+
+    it('should skip adding the jump to DOCKER-USER chain from FORWARD chain to iptables if it already exists', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        }
+        return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(true);
+      sinon.assert.neverCalledWith(funcStub, 'sudo iptables -I FORWARD -j DOCKER-USER');
+
+      sinon.assert.calledWith(infoLogSpy, 'IPTABLES: Jump to DOCKER-USER chain already enabled');
+      sinon.assert.notCalled(errorLogSpy);
+    });
+
+    it('should bail out if there is an error addding the DOCKER-USER chain to iptables', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+          throw new Error('iptables: Bad rule (does a matching rule exist in that chain?).');
+        } else {
+          throw new Error();
+        }
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(false);
+      sinon.assert.calledWith(funcStub, 'sudo iptables -C FORWARD -j DOCKER-USER && echo true');
+      sinon.assert.calledWith(funcStub, 'sudo iptables -I FORWARD -j DOCKER-USER');
+
+      sinon.assert.neverCalledWith(infoLogSpy, 'IPTABLES: New rule in FORWARD inserted to jump to DOCKER-USER chain');
+      expect(infoLogSpy.callCount).to.eql(1);
+      sinon.assert.calledOnceWithExactly(errorLogSpy, 'IPTABLES: Error inserting FORWARD jump to DOCKER-USER chain');
+    });
+
+    it('should flush the DOCKER-USER chain', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        }
+        return undefined;
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(true);
+      sinon.assert.calledWith(funcStub, 'sudo iptables -F DOCKER-USER');
+      sinon.assert.neverCalledWith(errorLogSpy);
+    });
+
+    it('should bail out if there is an error flushing the DOCKER-USER chain', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER && echo true')) {
+          return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
+        }
+        throw new Error();
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(false);
+      sinon.assert.calledWith(funcStub, 'sudo iptables -F DOCKER-USER');
+      sinon.assert.calledOnceWithExactly(errorLogSpy, 'IPTABLES: Error flushing DOCKER-USER table. Error');
+      expect(funcStub.callCount).to.eql(4);
+    });
+
+    it('should add two allow and one drop rule for each private network', async () => {
+      const networks = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'];
+
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        }
+        return null;
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(true);
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const network of networks) {
+        sinon.assert.calledWith(funcStub, `sudo iptables -I DOCKER-USER -s 172.23.0.0/16 -d ${network} -p udp --dport 53 -j ACCEPT`);
+        sinon.assert.calledWith(funcStub, `sudo iptables -I DOCKER-USER -s 172.23.0.0/16 -d ${network} -m state --state RELATED,ESTABLISHED -j ACCEPT`);
+        sinon.assert.calledWith(funcStub, `sudo iptables -A DOCKER-USER -s 172.23.0.0/16 -d ${network} -j DROP`);
+      }
+
+      // 1 for the CHAIN rules, 1 FLUSH, 1 docker0 allow, 9 for the adds and 1 for the RETURN
+      expect(infoLogSpy.callCount).to.eql(13);
+      sinon.assert.notCalled(errorLogSpy);
+    });
+
+    it('should add an allow for intra-network traffic per docker network', async () => {
+      const interfaces = ['br-aaf87aa57b20', 'br-098bac43a7f1'];
+
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        }
+        return null;
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(interfaces);
+
+      expect(result).to.eql(true);
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const int of interfaces) {
+        sinon.assert.calledWith(funcStub, `sudo iptables -I DOCKER-USER -i ${int} -o ${int} -j ACCEPT`);
+      }
+      sinon.assert.calledWith(funcStub, 'sudo iptables -I DOCKER-USER -i docker0 -o docker0 -j ACCEPT');
+
+      // 1 for the CHAIN rules, 1 FLUSH, 1 docker0 allow 2 interface allows, 9 for the adds and 1 for the RETURN
+      expect(infoLogSpy.callCount).to.eql(15);
+      sinon.assert.notCalled(errorLogSpy);
+    });
+
+    it('should bail out as soon as a rule errors out', async () => {
+      funcStub = sinon.fake(async (cmd) => {
+        if (cmd.includes('sudo iptables --version')) {
+          return 'iptables v1.8.7 (nf_tables)';
+        } if (cmd.includes('sudo iptables -L DOCKER-USER')) {
+          return `Chain DOCKER-USER (0 references)
+          target     prot opt source               destination`;
+        } if (cmd.includes('sudo iptables -C FORWARD -j DOCKER-USER')) {
+          return 'DOCKER-USER  all opt -- in * out *  0.0.0.0/0  -> 0.0.0.0/0';
+        } if (cmd.includes('sudo iptables -F DOCKER-USER')) {
+          // this is the rule under test
+          return undefined;
+        } if (cmd.includes('sudo iptables -I DOCKER-USER -i docker0 -o docker0 -j ACCEPT')) {
+          throw new Error();
+        }
+        return undefined;
+      });
+      utilStub.returns(funcStub);
+
+      const result = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable([]);
+
+      expect(result).to.eql(false);
+      expect(funcStub.callCount).to.eql(5);
+
+      sinon.assert.calledOnceWithExactly(errorLogSpy, 'IPTABLES: Error allowing traffic on Flux interface docker0. Error');
     });
   });
 });

@@ -1,7 +1,5 @@
-global.userconfig = require('../../config/userconfig');
 const sinon = require('sinon');
 const { expect } = require('chai');
-const { LRUCache } = require('lru-cache');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const appsService = require('../../ZelBack/src/services/appsService');
@@ -46,194 +44,6 @@ describe('explorerService tests', () => {
 
       expect(result).to.equal('1ZA123444DD');
       sinon.assert.calledOnceWithExactly(daemonServiceTransactionRpcsStub, { params: { txid: '12345', verbose: 1 } });
-    });
-  });
-
-  describe('getSenderForFluxTxInsight tests', () => {
-    let dbStub;
-    let lruStubGet;
-    let lruStubSet;
-    const txid = '12345';
-    const vout = '444';
-    let daemonServiceTransactionRpcsStub;
-
-    beforeEach(async () => {
-      lruStubGet = sinon.stub(LRUCache.prototype, 'get');
-      lruStubSet = sinon.stub(LRUCache.prototype, 'set');
-      dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
-      daemonServiceTransactionRpcsStub = sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return true if node cache exists', async () => {
-      lruStubGet.returns(true);
-
-      const result = await explorerService.getSenderForFluxTxInsight(txid, vout);
-
-      expect(result).to.equal(true);
-      sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
-    });
-
-    it('should set cache and return sender if there is an entry in the db', async () => {
-      const txContent = {
-        txid,
-        address: 12345,
-        satoshis: 10000,
-      };
-      lruStubGet.returns(false);
-      dbStub.returns(txContent);
-
-      const result = await explorerService.getSenderForFluxTxInsight(txid, vout);
-
-      expect(result).to.equal(txContent);
-      sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
-      sinon.assert.calledOnceWithExactly(lruStubSet, `${txid}-${vout}`, txContent);
-    });
-
-    it('should adjustedTxContent if there is no entry in the db', async () => {
-      const txContent = {
-        txid,
-        vout: [{
-          n: 444,
-          scriptPubKey:
-            { addresses: ['1ZACDE1234567'] },
-          valueSat: 1000,
-        }],
-      };
-      lruStubGet.returns(false);
-      dbStub.returns(false);
-      daemonServiceTransactionRpcsStub.returns({
-        status: 'success',
-        data: { ...txContent },
-      });
-      const result = await explorerService.getSenderForFluxTxInsight(txid, vout);
-
-      expect(result).to.eql({ txid: '12345', address: '1ZACDE1234567', satoshis: 1000 });
-      sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
-      sinon.assert.calledOnceWithExactly(lruStubSet, `${txid}-${vout}`, { txid: '12345', address: '1ZACDE1234567', satoshis: 1000 });
-    });
-
-    it('should adjustedTxContent if there is no entry in the db, transactionOutput not found', async () => {
-      const txContent = {
-        txid,
-        vout: [{
-          n: 443,
-          scriptPubKey:
-            { addresses: ['1ZACDE1234567'] },
-          valueSat: 1000,
-        }],
-      };
-      lruStubGet.returns(false);
-      dbStub.returns(false);
-      daemonServiceTransactionRpcsStub.returns({
-        status: 'success',
-        data: { ...txContent },
-      });
-      const result = await explorerService.getSenderForFluxTxInsight(txid, vout);
-
-      expect(result).to.eql({ txid: '12345', address: undefined, satoshis: undefined });
-      sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
-      sinon.assert.notCalled(lruStubSet);
-    });
-  });
-
-  describe('getSenderForFluxTx tests', () => {
-    let dbStub;
-    let lruStubGet;
-    let lruStubSet;
-    const txid = '12345';
-    const vout = '444';
-
-    beforeEach(async () => {
-      lruStubGet = sinon.stub(LRUCache.prototype, 'get');
-      lruStubSet = sinon.stub(LRUCache.prototype, 'set');
-      dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return true if node cache exists', async () => {
-      lruStubGet.returns(true);
-
-      const result = await explorerService.getSenderForFluxTx(txid, vout);
-
-      expect(result).to.equal(true);
-      sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
-    });
-
-    it('should set cache and return sender if there is an entry in the db', async () => {
-      const txContent = {
-        txid,
-        address: 12345,
-        satoshis: 10000,
-      };
-      lruStubGet.returns(false);
-      dbStub.onCall(0).returns(txContent);
-
-      const result = await explorerService.getSenderForFluxTx(txid, vout);
-
-      expect(result).to.equal(txContent);
-      sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
-      sinon.assert.calledOnceWithExactly(lruStubSet, `${txid}-${vout}`, txContent);
-      sinon.assert.calledOnceWithMatch(
-        dbStub,
-        sinon.match.object,
-        'utxoindex',
-        { txid: '12345', vout: '444' },
-        {
-          projection: {
-            _id: 0, txid: 1, address: 1, satoshis: 1,
-          },
-        },
-      );
-    });
-
-    it('should set cache and return sender if there is an entry in the db found by fluxTransactionCollection', async () => {
-      const txContent = {
-        txid,
-        address: 12345,
-        satoshis: 10000,
-      };
-      lruStubGet.returns(false);
-      dbStub.onCall(0).returns(false);
-      dbStub.onCall(1).returns(txContent);
-
-      const result = await explorerService.getSenderForFluxTx(txid, vout);
-
-      expect(result).to.equal(txContent);
-      sinon.assert.calledOnceWithExactly(lruStubGet, `${txid}-${vout}`);
-      sinon.assert.calledOnceWithExactly(lruStubSet, `${txid}-${vout}`, txContent);
-      sinon.assert.calledWithMatch(
-        dbStub,
-        sinon.match.object,
-        'utxoindex',
-        { txid: '12345', vout: '444' },
-        {
-          projection: {
-            _id: 0, txid: 1, address: 1, satoshis: 1,
-          },
-        },
-      );
-      sinon.assert.calledWithMatch(
-        dbStub,
-        sinon.match.object,
-        'zelnodetransactions',
-        { collateralHash: '12345', collateralIndex: '444' },
-        {
-          projection: {
-            _id: 0, collateralHash: 1, zelAddress: 1, lockedAmount: 1,
-          },
-        },
-      );
     });
   });
 
@@ -546,56 +356,6 @@ describe('explorerService tests', () => {
       sinon.assert.notCalled(dbStubInsert);
     });
 
-    it('save to db if version is >0 and <5 and data is correct', async () => {
-      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
-      const blockVerbose = {
-        tx: [
-          {
-            version: 3,
-            txid: '12345',
-            type: 'send',
-            update_type: 'someType',
-            ip: '192.168.1.1',
-            benchmark_tier: 'stratus',
-            txhash: 'hash1234',
-            outidx: '1111',
-            vin: [],
-            vout: [{
-              n: 0,
-              scriptPubKey:
-              {
-                addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6'],
-              },
-              valueSat: 200000000,
-            },
-            {
-              n: 444,
-              scriptPubKey:
-              {
-                asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
-              },
-            }],
-          },
-        ],
-        height: 983000,
-      };
-      try {
-        await explorerService.processInsight(blockVerbose, database);
-      } catch (error) {
-        console.log(error);
-      }
-
-      sinon.assert.calledWithExactly(dbStubInsert, {}, 'zelappshashes', [
-        {
-          txid: '12345',
-          height: 983000,
-          hash: 'This string is exactly 64 characters long. Including this string',
-          value: 200000000,
-          message: false,
-        },
-      ], { ordered: false });
-    });
-
     it('log error and not call db if version is >0 and <5 and data is correct, but tx exists in db', async () => {
       dbStubFind.returns(true);
       const blockVerbose = {
@@ -690,56 +450,6 @@ describe('explorerService tests', () => {
       await explorerService.processInsight(blockVerbose, database);
 
       sinon.assert.notCalled(dbStubInsert);
-    });
-
-    it('save to db if version == 5 and data is correct', async () => {
-      dbStubFind.returns({
-        txid: 12345,
-        address: 55555,
-        satoshis: 10000,
-      });
-      const blockVerbose = {
-        tx: [
-          {
-            version: 5,
-            txid: '12345',
-            type: 'send',
-            update_type: 'someType',
-            ip: '192.168.1.1',
-            benchmark_tier: 'stratus',
-            txhash: 'hash1234',
-            outidx: '1111',
-            vin: [],
-            vout: [{
-              n: 444,
-              scriptPubKey:
-              {
-                addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6'],
-                asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
-              },
-              valueSat: 20000000,
-            }],
-          },
-        ],
-        height: 983000,
-      };
-      await explorerService.processInsight(blockVerbose, database);
-
-      sinon.assert.calledOnceWithExactly(dbStubInsert, {}, 'zelnodetransactions', [
-        {
-          txid: '12345',
-          version: 5,
-          type: 'send',
-          updateType: 'someType',
-          ip: '192.168.1.1',
-          benchTier: 'stratus',
-          collateralHash: 'hash1234',
-          collateralIndex: '1111',
-          zelAddress: 55555,
-          lockedAmount: 10000,
-          height: 983000,
-        },
-      ], { ordered: false });
     });
   });
 
@@ -926,6 +636,8 @@ describe('explorerService tests', () => {
         },
       });
       dbStubInsert.returns(true);
+      const dbStubInsertMany = sinon.stub(dbHelper, 'insertManyToDatabase');
+      dbStubInsertMany.returns(true);
 
       await explorerService.processStandard(blockVerbose, database);
 
@@ -944,15 +656,18 @@ describe('explorerService tests', () => {
         },
       );
       sinon.assert.calledWithMatch(
-        dbStubInsert,
+        dbStubInsertMany,
         sinon.match.object,
         'zelappshashes',
-        {
+        [{
           txid: 11222233333,
           height: 829000,
           hash: 'This string is exactly 64 characters long. Including this string',
           value: 200000000,
           message: false,
+        }],
+        {
+          ordered: false,
         },
       );
     });
@@ -1027,81 +742,6 @@ describe('explorerService tests', () => {
         },
       );
       sinon.assert.calledWithMatch(logErrorSpy, 'Hash This string is exactly 64 characters long. Including this string already exists. Not adding at height 829000');
-    });
-
-    it('should save to db if version == 5 and data is correct', async () => {
-      const blockVerbose = {
-        tx: [
-          {
-            version: 5,
-            collateral_output: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
-            txid: 11222233333,
-            type: 'someType',
-            update_type: 'update',
-            ip: '192.168.0.0',
-            benchTier: 'cumulus',
-            vin: [
-              {
-                txid: 1,
-                vout: 12345,
-              }, {
-                txid: 2,
-                vout: 555454,
-              },
-            ],
-            vout: [{
-              scriptPubKey: {
-                addresses: ['t1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6', 22222, 3333],
-                hex: 0x1AFFF,
-                asm: 'OP_RETURN 5468697320737472696e672069732065786163746c792036342063686172616374657273206c6f6e672e20496e636c7564696e67207468697320737472696e67',
-              },
-              valueSat: 200000000,
-            }],
-          },
-        ],
-        height: 829000,
-      };
-      dbStubFind.returns(true);
-      sinon.stub(dbHelper, 'findOneAndDeleteInDatabase').returns({
-        txid: 2222,
-        address: 12345,
-        satoshis: 10000,
-        value: 'my test value',
-      });
-      sinon.stub(dbHelper, 'updateOneInDatabase').returns(true);
-      sinon.stub(daemonServiceTransactionRpcs, 'getRawTransaction').returns({
-        status: 'success',
-        data: {
-          txid: 12345,
-          address: 12345,
-          satoshis: 10000,
-          value: 'my test value',
-          vout: {
-            444: {
-              scriptPubKey:
-                { addresses: ['1ZACDE1234567'] },
-              valueSat: 1000,
-            },
-          },
-        },
-      });
-      dbStubInsert.returns(true);
-
-      await explorerService.processStandard(blockVerbose, database);
-
-      sinon.assert.calledWithMatch(dbStubInsert, {}, 'zelnodetransactions', {
-        txid: 11222233333,
-        version: 5,
-        type: 'someType',
-        updateType: 'update',
-        ip: '192.168.0.0',
-        benchTier: undefined,
-        collateralHash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
-        collateralIndex: 0,
-        zelAddress: undefined,
-        lockedAmount: undefined,
-        height: 829000,
-      });
     });
   });
 
@@ -1211,7 +851,6 @@ describe('explorerService tests', () => {
         { upsert: true },
       );
       sinon.assert.calledWith(logInfoSpy, 'Processing Explorer Block Height: 695000');
-      sinon.assert.calledWith(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
     });
 
     it('should update db if all parameters are passed correctly, height == 900009', async () => {
@@ -1374,7 +1013,6 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'utxoindex', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'coinbasefusionindex', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'addresstransactionindex', { transactions: { $exists: true, $size: 0 } });
-      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelnodetransactions', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappshashes', { height: { $gt: height } });
       sinon.assert.calledWithMatch(updateInDatabaseStub, sinon.match.object, 'addresstransactionindex', {}, { $pull: { transactions: { height: sinon.match.object } } });
     });
@@ -1392,7 +1030,6 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'utxoindex', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'coinbasefusionindex', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'addresstransactionindex', { transactions: { $exists: true, $size: 0 } });
-      sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelnodetransactions', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappshashes', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappsmessages', { height: { $gt: height } });
       sinon.assert.calledWithMatch(removeDocumentsFromCollectionStub, sinon.match.object, 'zelappsinformation', { height: { $gt: height } });
@@ -1526,55 +1163,6 @@ describe('explorerService tests', () => {
           satoshis: 1,
           scriptPubKey: 1,
           coinbase: 1,
-        },
-      });
-    });
-  });
-
-  describe('getAllFluxTransactions tests', () => {
-    let findInDatabaseStub;
-    let logErrorSpy;
-
-    const generateResponse = () => {
-      const res = { test: 'testing' };
-      res.status = sinon.stub().returns(res);
-      res.json = sinon.stub().returns(res);
-      return res;
-    };
-
-    beforeEach(async () => {
-      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
-      logErrorSpy = sinon.spy(log, 'error');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return record from db if isInsightExplorer is false', async () => {
-      const res = generateResponse();
-      findInDatabaseStub.returns(['tx1', 'tx2']);
-
-      await explorerService.getAllFluxTransactions(undefined, res);
-
-      sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', {}, {
-        projection: {
-          _id: 0,
-          txid: 1,
-          version: 1,
-          type: 1,
-          updateType: 1,
-          ip: 1,
-          benchTier: 1,
-          collateralHash: 1,
-          collateralIndex: 1,
-          zelAddress: 1,
-          lockedAmount: 1,
-          height: 1,
         },
       });
     });
@@ -1814,185 +1402,6 @@ describe('explorerService tests', () => {
           satoshis: 1,
           scriptPubKey: 1,
           coinbase: 1,
-        },
-      });
-    });
-  });
-
-  describe('getFilteredFluxTxs tests', () => {
-    let findInDatabaseStub;
-    let logErrorSpy;
-
-    const generateResponse = () => {
-      const res = { test: 'testing' };
-      res.status = sinon.stub().returns(res);
-      res.json = sinon.stub().returns(res);
-      return res;
-    };
-
-    beforeEach(async () => {
-      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
-      logErrorSpy = sinon.spy(log, 'error');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return error if filter is not valid - 38 chars long', async () => {
-      const res = generateResponse();
-      findInDatabaseStub.returns(['tx1', 'tx2']);
-      const req = {
-        params: {
-          filter: '12342314324123412312341234123411111111',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      await explorerService.getFilteredFluxTxs(req, res);
-
-      sinon.assert.calledOnce(logErrorSpy);
-      sinon.assert.calledOnceWithExactly(res.json, {
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'It is possible to only filter via IP address, Flux address and Collateral hash.',
-        },
-      });
-    });
-
-    it('should properly filter out records if filter is ip', async () => {
-      const res = generateResponse();
-      findInDatabaseStub.returns(['tx1', 'tx2']);
-      const req = {
-        params: {
-          filter: '192.168.0.0',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      await explorerService.getFilteredFluxTxs(req, res);
-
-      sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { ip: '192.168.0.0' }, {
-        projection: {
-          _id: 0,
-          txid: 1,
-          version: 1,
-          type: 1,
-          updateType: 1,
-          ip: 1,
-          benchTier: 1,
-          collateralHash: 1,
-          collateralIndex: 1,
-          zelAddress: 1,
-          lockedAmount: 1,
-          height: 1,
-        },
-      });
-    });
-
-    it('should properly filter out records if filter is 64 chars long', async () => {
-      const res = generateResponse();
-      findInDatabaseStub.returns(['tx1', 'tx2']);
-      const req = {
-        params: {
-          filter: '123423143241234123123412341234asdfsdfdasfasdfasdfasdfasdfqwqqqee',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      await explorerService.getFilteredFluxTxs(req, res);
-
-      sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { collateralHash: '123423143241234123123412341234asdfsdfdasfasdfasdfasdfasdfqwqqqee' }, {
-        projection: {
-          _id: 0,
-          txid: 1,
-          version: 1,
-          type: 1,
-          updateType: 1,
-          ip: 1,
-          benchTier: 1,
-          collateralHash: 1,
-          collateralIndex: 1,
-          zelAddress: 1,
-          lockedAmount: 1,
-          height: 1,
-        },
-      });
-    });
-
-    it('should properly filter out records if filter is 30 chars long', async () => {
-      const res = generateResponse();
-      findInDatabaseStub.returns(['tx1', 'tx2']);
-      const req = {
-        params: {
-          filter: '123423143241234123123412341234',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      await explorerService.getFilteredFluxTxs(req, res);
-
-      sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { zelAddress: '123423143241234123123412341234' }, {
-        projection: {
-          _id: 0,
-          txid: 1,
-          version: 1,
-          type: 1,
-          updateType: 1,
-          ip: 1,
-          benchTier: 1,
-          collateralHash: 1,
-          collateralIndex: 1,
-          zelAddress: 1,
-          lockedAmount: 1,
-          height: 1,
-        },
-      });
-    });
-
-    it('should properly filter out records if filter is 37 chars long', async () => {
-      const res = generateResponse();
-      findInDatabaseStub.returns(['tx1', 'tx2']);
-      const req = {
-        params: {
-          filter: '1234231432412341231234123412341111111',
-        },
-        query: {
-          test2: 'test2',
-        },
-      };
-      await explorerService.getFilteredFluxTxs(req, res);
-
-      sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: ['tx1', 'tx2'] });
-      sinon.assert.calledOnceWithMatch(findInDatabaseStub, sinon.match.object, 'zelnodetransactions', { zelAddress: '1234231432412341231234123412341111111' }, {
-        projection: {
-          _id: 0,
-          txid: 1,
-          version: 1,
-          type: 1,
-          updateType: 1,
-          ip: 1,
-          benchTier: 1,
-          collateralHash: 1,
-          collateralIndex: 1,
-          zelAddress: 1,
-          lockedAmount: 1,
-          height: 1,
         },
       });
     });
@@ -2408,7 +1817,6 @@ describe('explorerService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
@@ -2437,7 +1845,6 @@ describe('explorerService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
       sinon.assert.calledWithMatch(logInfoSpy, 'Restoring database...');
       sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
@@ -2468,7 +1875,6 @@ describe('explorerService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
       sinon.assert.calledWithMatch(logInfoSpy, 'Deep restoring of database...');
       sinon.assert.calledWithMatch(logInfoSpy, 'Rescan completed');
@@ -2499,7 +1905,6 @@ describe('explorerService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.notCalled(logErrorSpy);
-      sinon.assert.calledWithMatch(logInfoSpy, 'FLUX documents: 10000, 15, 1111');
       sinon.assert.calledWithMatch(logInfoSpy, 'Processing Explorer Block Height: 695000');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparing apps collections');
       sinon.assert.calledWithMatch(logInfoSpy, 'Preparation done');
@@ -2508,7 +1913,6 @@ describe('explorerService tests', () => {
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'coinbasefusionindex');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelappshashes');
       sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'addresstransactionindex');
-      sinon.assert.calledWithMatch(dropCollectionStub, sinon.match.object, 'zelnodetransactions');
     });
   });
 

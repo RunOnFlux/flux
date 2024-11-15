@@ -1,4 +1,3 @@
-global.userconfig = require('../../config/userconfig');
 const chai = require('chai');
 const sinon = require('sinon');
 const proxyquire = require('proxyquire');
@@ -2542,17 +2541,34 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'dockerContainerStats').returns('some data');
+      const mockStats = {
+        data: 1000,
+      };
+      const mockContainer = {
+        Id: 'mockContainerId',
+        Names: ['/test_myappname'],
+        HostConfig: { NanoCpus: 1000 },
+      };
+      const dockerContainerStatsStub = sinon
+        .stub(dockerService, 'dockerContainerStats')
+        .returns(Promise.resolve(mockStats));
+
+      const dockerContainerInspectStub = sinon
+        .stub(dockerService, 'dockerContainerInspect')
+        .returns(Promise.resolve(mockContainer));
+
       const res = generateResponse();
 
       await appsService.appStats(req, res);
-
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerContainerStatsStub, 'test_myappname');
+      sinon.assert.calledTwice(dockerContainerInspectStub);
+      sinon.assert.calledWith(dockerContainerInspectStub, 'test_myappname');
+      sinon.assert.calledWith(dockerContainerInspectStub, 'test_myappname', { size: true });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: 'some data',
+        data: mockStats,
       });
-      sinon.assert.notCalled(logSpy);
-      sinon.assert.calledOnceWithExactly(dockerStub, 'test_myappname');
     });
 
     it('should return app stats, no underscore in the name', async () => {
@@ -2566,17 +2582,34 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'dockerContainerStats').returns('some data');
+      const mockStats = {
+        data: 1000,
+      };
+      const mockContainer = {
+        Id: 'mockContainerId',
+        Names: ['/myappname'],
+        HostConfig: { NanoCpus: 1000 },
+      };
+      const dockerContainerStatsStub = sinon
+        .stub(dockerService, 'dockerContainerStats')
+        .returns(Promise.resolve(mockStats));
+
+      const dockerContainerInspectStub = sinon
+        .stub(dockerService, 'dockerContainerInspect')
+        .returns(Promise.resolve(mockContainer));
+
       const res = generateResponse();
 
       await appsService.appStats(req, res);
-
+      sinon.assert.notCalled(logSpy);
+      sinon.assert.calledOnceWithExactly(dockerContainerStatsStub, 'myappname');
+      sinon.assert.calledTwice(dockerContainerInspectStub);
+      sinon.assert.calledWith(dockerContainerInspectStub, 'myappname');
+      sinon.assert.calledWith(dockerContainerInspectStub, 'myappname', { size: true });
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: 'some data',
+        data: mockStats,
       });
-      sinon.assert.notCalled(logSpy);
-      sinon.assert.calledOnceWithExactly(dockerStub, 'myappname');
     });
   });
 
@@ -2664,14 +2697,13 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'test_myappname',
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
 
       await appsService.appMonitor(req, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { lastHour: 1000, lastDay: 100000 } });
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 1000 });
       sinon.assert.notCalled(logSpy);
     });
 
@@ -2690,14 +2722,13 @@ describe('appsService tests', () => {
       appsService.setAppsMonitored(
         {
           appName: 'myappname',
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
 
       await appsService.appMonitor(req, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { lastHour: 1000, lastDay: 100000 } });
+      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 1000 });
       sinon.assert.notCalled(logSpy);
     });
 
@@ -2887,10 +2918,8 @@ describe('appsService tests', () => {
 
       const appsMonitored = appsService.getAppsMonitored();
       expect(appsMonitored.myAppName).to.be.an('object');
-      expect(appsMonitored.myAppName.fifteenMinStatsStore).to.be.an('array');
-      expect(appsMonitored.myAppName.oneMinuteStatsStore).to.be.an('array');
+      expect(appsMonitored.myAppName.statsStore).to.be.an('array');
       expect(appsMonitored.myAppName.oneMinuteInterval).to.be.an('object');
-      expect(appsMonitored.myAppName.fifteenMinInterval).to.be.an('object');
     });
   });
 
@@ -3010,36 +3039,30 @@ describe('appsService tests', () => {
         {
           appName: 'myAppNamev3',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
+
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
+
         },
       );
 
@@ -3072,36 +3095,30 @@ describe('appsService tests', () => {
         {
           appName: 'myAppNamev3',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
+
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
+
         },
       );
 
@@ -3135,36 +3152,28 @@ describe('appsService tests', () => {
         {
           appName: 'myAppNamev3',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
 
@@ -3194,36 +3203,29 @@ describe('appsService tests', () => {
         {
           appName: 'myAppNamev3',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
+
         },
       );
       appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
-          fifteenMinInterval: setInterval(() => { }, 900000),
-          oneMinuteStatsStore: 1000,
-          fifteenMinStatsStore: 100000,
+          statsStore: 1000,
         },
       );
 
@@ -4258,7 +4260,7 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App FoldingAtHomeB container removed' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up FoldingAtHomeB data...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App FoldingAtHomeB was successfuly removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App FoldingAtHomeB was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App FoldingAtHomeB was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
 
@@ -4301,7 +4303,7 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up testapp data...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });
@@ -4500,10 +4502,10 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was partially removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was partially removed' } }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was partially removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was partially removed' } }));
     });
   });
 
@@ -4651,13 +4653,13 @@ describe('appsService tests', () => {
 
       await appsService.removeAppLocallyApi(req, res);
 
-      await serviceHelper.delay(200);
+      await serviceHelper.delay(500);
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removal step done. Result: Flux App testapp was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });
@@ -5161,61 +5163,6 @@ describe('appsService tests', () => {
 
       sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
       sinon.assert.calledWithExactly(res.write, 'Flux App testapp already installed');
-    });
-  });
-
-  describe('getAuthToken tests', async () => {
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should fail to get proper authentication token if bad credentials', async () => {
-      const loginData = {
-        username: 'bad',
-        password: 'credentials',
-      };
-
-      const axiosConfig = {};
-
-      axiosConfig.auth = loginData;
-
-      const authHeader = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:runonflux/secretwebsite:pull"';
-
-      const authDetails = generalService.parseAuthHeader(authHeader);
-
-      await expect(
-        appsService.getAuthToken(authDetails, axiosConfig),
-      ).to.eventually.be.rejectedWith(
-        'Authentication token from https://auth.docker.io/token for repository:runonflux/secretwebsite:pull not available',
-      );
-    });
-
-    it('should get proper authentication token', async () => {
-      const loginData = {
-        username: 'good',
-        password: 'credentials',
-      };
-
-      const axiosGetResponse = {
-        data: {
-          token: 'myToken',
-        },
-      };
-      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
-
-      const axiosConfig = {};
-
-      axiosConfig.auth = loginData;
-
-      const authHeader = 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:runonflux/secretwebsite:pull"';
-
-      const authDetails = generalService.parseAuthHeader(authHeader);
-
-      const result = await appsService.getAuthToken(authDetails, axiosConfig);
-
-      console.log(result);
-
-      expect(result).to.eql('myToken');
     });
   });
 });
