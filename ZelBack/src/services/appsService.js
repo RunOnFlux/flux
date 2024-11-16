@@ -9329,7 +9329,7 @@ async function trySpawningGlobalApplication() {
     trySpawningGlobalApplication();
   } catch (error) {
     log.error(error);
-    await serviceHelper.delay(5 * 60 * 1000);
+    await serviceHelper.delay(15 * 60 * 1000);
     trySpawningGlobalApplication();
   }
 }
