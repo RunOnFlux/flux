@@ -9265,29 +9265,29 @@ async function trySpawningGlobalApplication() {
       const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
       if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
-          timeToCheck: Date.now() + 1.5 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 1.95 * 60 * 60 * 1000,
           appName: appToRun,
           required: minInstances,
         };
-        log.info(`App ${appToRun} specs are from cumulus, will check in 1.5h if instances are still missing`);
+        log.info(`App ${appToRun} specs are from cumulus, will check in around 2h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
       } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
         const appToCheck = {
-          timeToCheck: Date.now() + 1 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 1.45 * 60 * 60 * 1000,
           appName: appToRun,
           required: minInstances,
         };
-        log.info(`App ${appToRun} specs are from nimbus, will check in 1h if instances are still missing`);
+        log.info(`App ${appToRun} specs are from nimbus, will check in around 1h30 if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
       } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
-          timeToCheck: Date.now() + 0.75 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
           appName: appToRun,
           required: minInstances,
         };
-        log.info(`App ${appToRun} specs are from cumulus, will check in 45m if instances are still missing`);
+        log.info(`App ${appToRun} specs are from cumulus, will check in around 1h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
       }
