@@ -9085,7 +9085,7 @@ async function trySpawningGlobalApplication() {
     const numberOfGlobalApps = globalAppNamesLocation.length;
     if (!numberOfGlobalApps) {
       log.info('No installable application found');
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9107,7 +9107,7 @@ async function trySpawningGlobalApplication() {
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !trySpawningGlobalAppCache.has(app.name) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
       if (globalAppNamesLocation.length === 0) {
         log.info('trySpawningGlobalApplication - No app currently to be processed');
-        await serviceHelper.delay(15 * 60 * 1000);
+        await serviceHelper.delay(30 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -9127,7 +9127,7 @@ async function trySpawningGlobalApplication() {
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
       log.info(`Application ${appToRun} is reported as already running on this Flux IP`);
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9138,7 +9138,7 @@ async function trySpawningGlobalApplication() {
     }
     if (runningApps.data.find((app) => app.Names[0].slice(5) === appToRun)) {
       log.info(`${appToRun} application is already running on this Flux`);
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9166,7 +9166,7 @@ async function trySpawningGlobalApplication() {
     const appExists = apps.find((app) => app.name === appSpecifications.name);
     if (appExists) { // double checked in installation process.
       log.info(`Application ${appSpecifications.name} is already installed`);
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9199,7 +9199,7 @@ async function trySpawningGlobalApplication() {
     const portsPubliclyAvailable = await checkInstallingAppPortAvailable(appPorts);
     if (portsPubliclyAvailable === false) {
       log.error(`Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9209,7 +9209,7 @@ async function trySpawningGlobalApplication() {
     if (runningAppList.length >= minInstances) {
       log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
       trySpawningGlobalAppCache.delete(appToRun);
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9227,7 +9227,7 @@ async function trySpawningGlobalApplication() {
       const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, lastIndex)));
       if (sameIpRangeNode) {
         log.info(`Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
-        await serviceHelper.delay(15 * 60 * 1000);
+        await serviceHelper.delay(30 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -9248,7 +9248,7 @@ async function trySpawningGlobalApplication() {
           if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
             log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(15 * 60 * 1000);
+            await serviceHelper.delay(30 * 60 * 1000);
             trySpawningGlobalApplication();
             return;
           }
@@ -9311,7 +9311,7 @@ async function trySpawningGlobalApplication() {
       await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
       await serviceHelper.delay(500);
       await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9324,12 +9324,12 @@ async function trySpawningGlobalApplication() {
       removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
     }
 
-    await serviceHelper.delay(15 * 60 * 1000);
+    await serviceHelper.delay(30 * 60 * 1000);
     log.info('Reinitiating possible app installation');
     trySpawningGlobalApplication();
   } catch (error) {
     log.error(error);
-    await serviceHelper.delay(15 * 60 * 1000);
+    await serviceHelper.delay(30 * 60 * 1000);
     trySpawningGlobalApplication();
   }
 }
