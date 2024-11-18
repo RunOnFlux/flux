@@ -9316,12 +9316,32 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    await serviceHelper.delay(1 * 60 * 1000); // await 1 minute to give time for messages to be propagated on the network
     // double check if app is installed in more of the instances requested
     runningAppList = await getRunningAppList(appToRun);
     if (runningAppList.length > minInstances) {
-      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances, will unninstall it`);
-      trySpawningGlobalAppCache.delete(appToRun);
-      removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
+      runningAppList.sort((a, b) => {
+        if (!a.runningSince && b.runningSince) {
+          return -1;
+        }
+        if (a.runningSince && !b.runningSince) {
+          return 1;
+        }
+        if (a.runningSince < b.runningSince) {
+          return -1;
+        }
+        if (a.runningSince > b.runningSince) {
+          return 1;
+        }
+        return 0;
+      });
+      const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
+      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
+      if (index + 1 > minInstances) {
+        log.info(`Application ${appToRun} is going to be removed as already passed the instances required.`);
+        trySpawningGlobalAppCache.delete(appToRun);
+        removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
+      }
     }
 
     await serviceHelper.delay(30 * 60 * 1000);
