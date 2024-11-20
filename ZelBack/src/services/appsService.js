@@ -9117,6 +9117,18 @@ async function trySpawningGlobalApplication() {
       appToRun = appToRunAux.name;
       minInstances = appToRunAux.required;
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
+      if (appToRunAux.required === appToRunAux.actual + 1 && appToRunAux.nodes.length === 0 && Math.random() > 0.4) {
+        log.info('trySpawningGlobalApplication - app missing one instance failed the 40% probability check to install');
+        await serviceHelper.delay(30 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
+      }
+      if (appToRunAux.required === appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.75) {
+        log.info('trySpawningGlobalApplication - app missing two instances failed the 75% probability check to install');
+        await serviceHelper.delay(30 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
+      }
     }
 
     trySpawningGlobalAppCache.set(appToRun, appToRun);
