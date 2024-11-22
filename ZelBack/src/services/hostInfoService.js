@@ -28,6 +28,7 @@ async function getHostInfo(req, res) {
       const nodeCollateralInfo = await generalService.getCollateralInfo();
       hostInfo.id = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+      log.info(myIP);
       if (myIP) {
         hostInfo.ip = myIP.split(':')[0];
         const myGeo = await geolocationService.getNodeGeolocation();
