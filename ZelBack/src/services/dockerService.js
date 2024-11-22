@@ -681,7 +681,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
           'max-size': '20m',
         },
       },
-      ExtraHosts: [`app.identity.service:${config.server.hostInfoServiceAddress}`],
+      ExtraHosts: [`fluxnode.hostinfo.service:${config.server.hostInfoServiceAddress}`],
     },
   };
 
