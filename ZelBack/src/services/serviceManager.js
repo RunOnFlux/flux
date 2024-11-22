@@ -127,10 +127,8 @@ async function startFluxFunctions() {
     setInterval(() => {
       appsService.restorePortsSupport(); // restore fluxos and apps ports/upnp
     }, 10 * 60 * 1000); // every 10 minutes
-    setTimeout(() => {
-      log.info('Starting setting Node Geolocation');
-      geolocationService.setNodeGeolocation();
-    }, 90 * 1000);
+    log.info('Starting setting Node Geolocation');
+    geolocationService.setNodeGeolocation();
     setTimeout(() => {
       const { daemon: { zmqport } } = config;
       log.info(`Ensuring zmq is enabled for fluxd on port: ${zmqport}`);
