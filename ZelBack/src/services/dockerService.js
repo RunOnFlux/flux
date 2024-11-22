@@ -681,6 +681,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
           'max-size': '20m',
         },
       },
+      ExtraHosts: [`app.identity.service:${config.server.hostInfoServiceAddress}`],
     },
   };
 
@@ -1121,6 +1122,36 @@ async function dockerLogsFix() {
   }
 }
 
+async function getAppNameByContainerIp(ip) {
+  const fluxNetworks = await docker.listNetworks({
+    filters: JSON.stringify({
+      name: ['fluxDockerNetwork'],
+    }),
+  });
+
+  const fluxNetworkNames = fluxNetworks.map((n) => n.Name);
+
+  const networkPromises = [];
+  fluxNetworkNames.forEach((networkName) => {
+    const dockerNetwork = docker.getNetwork(networkName);
+    networkPromises.push(dockerNetwork.inspect());
+  });
+
+  const fluxNetworkData = await Promise.all(networkPromises);
+
+  let appName = null;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const fluxNetwork of fluxNetworkData) {
+    const subnet = fluxNetwork.IPAM.Config[0].Subnet;
+    if (serviceHelper.ipInSubnet(ip, subnet)) {
+      appName = fluxNetwork.Name.split('_')[1];
+      break;
+    }
+  }
+
+  return appName;
+}
+
 module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
@@ -1166,4 +1197,5 @@ module.exports = {
   pruneNetworks,
   pruneVolumes,
   removeFluxAppDockerNetwork,
+  getAppNameByContainerIp,
 };

@@ -11,6 +11,7 @@ const messageHelper = require('./messageHelper');
 const geolocationService = require('./geolocationService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const generalService = require('./generalService');
+const dockerService = require('./dockerService');
 
 const express = require('express');
 
@@ -18,20 +19,26 @@ let server = null;
 
 async function getHostInfo(req, res) {
   try {
-    const hostInfo = {};
-    hostInfo.id = await generalService.nodeCollateral();
-    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    hostInfo.ip = myIP.split(':')[0];
-    const myGeo = await geolocationService.getNodeGeolocation();
-    if (myGeo) {
-      delete myGeo.ip;
-      delete myGeo.org;
-      hostInfo.geo = JSON.stringify(myGeo);
+    const app = await dockerService.getAppNameByContainerIp(req.socket.remoteAddress);
+    if (!app) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
     } else {
-      throw new Error('Geolocation information not available at the moment');
+      const hostInfo = {};
+      hostInfo.id = await generalService.nodeCollateral();
+      const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+      hostInfo.ip = myIP.split(':')[0];
+      const myGeo = await geolocationService.getNodeGeolocation();
+      if (myGeo) {
+        delete myGeo.ip;
+        delete myGeo.org;
+        hostInfo.geo = JSON.stringify(myGeo);
+      } else {
+        throw new Error('Geolocation information not available at the moment');
+      }
+      const message = messageHelper.createSuccessMessage(hostInfo);
+      res.json(message);
     }
-    const message = messageHelper.createSuccessMessage(hostInfo);
-    res.json(message);
   } catch (error) {
     log.error(`getHostInfo: ${error}`);
     const errorResponse = messageHelper.createErrorMessage(
