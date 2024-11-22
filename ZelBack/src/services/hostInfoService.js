@@ -24,11 +24,13 @@ async function getHostInfo(req, res) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     } else {
+      log.info('getHostInfo called');
       const hostInfo = {};
       const nodeCollateralInfo = await generalService.getCollateralInfo();
       hostInfo.id = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
+      log.info(`getHostInfo: ${hostInfo.id}`);
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-      log.info(myIP);
+      log.info(`getHostInfo: ${myIP}`);
       if (myIP) {
         hostInfo.ip = myIP.split(':')[0];
         const myGeo = await geolocationService.getNodeGeolocation();
