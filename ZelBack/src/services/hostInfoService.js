@@ -25,14 +25,15 @@ async function getHostInfo(req, res) {
       res.json(errMessage);
     } else {
       const hostInfo = {};
-      hostInfo.id = await generalService.nodeCollateral();
+      const nodeCollateralInfo = await generalService.getCollateralInfo();
+      hostInfo.id = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
       hostInfo.ip = myIP.split(':')[0];
       const myGeo = await geolocationService.getNodeGeolocation();
       if (myGeo) {
         delete myGeo.ip;
         delete myGeo.org;
-        hostInfo.geo = JSON.stringify(myGeo);
+        hostInfo.geo = myGeo;
       } else {
         throw new Error('Geolocation information not available at the moment');
       }
