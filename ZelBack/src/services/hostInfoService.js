@@ -74,7 +74,7 @@ function start() {
   app.use((req, res, next) => {
     handleError(express.json(), req, res, next);
   });
-  app.post('/hostinfo', getHostInfo);
+  app.get('/hostinfo', getHostInfo);
   app.all('*', (_, res) => res.status(404).end());
 
   const bindAddress = config.server.hostInfoServiceAddress;
