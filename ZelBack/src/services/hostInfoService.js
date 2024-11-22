@@ -28,15 +28,20 @@ async function getHostInfo(req, res) {
       const nodeCollateralInfo = await generalService.getCollateralInfo();
       hostInfo.id = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-      hostInfo.ip = myIP.split(':')[0];
-      const myGeo = await geolocationService.getNodeGeolocation();
-      if (myGeo) {
-        delete myGeo.ip;
-        delete myGeo.org;
-        hostInfo.geo = myGeo;
+      if (myIP) {
+        hostInfo.ip = myIP.split(':')[0];
+        const myGeo = await geolocationService.getNodeGeolocation();
+        if (myGeo) {
+          delete myGeo.ip;
+          delete myGeo.org;
+          hostInfo.geo = myGeo;
+        } else {
+          throw new Error('Geolocation information not available at the moment');
+        }
       } else {
-        throw new Error('Geolocation information not available at the moment');
+        throw new Error('Host IP information not available at the moment');
       }
+
       const message = messageHelper.createSuccessMessage(hostInfo);
       res.json(message);
     }
