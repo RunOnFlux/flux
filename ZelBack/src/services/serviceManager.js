@@ -38,8 +38,8 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
     }
-    fluxNetworkHelper.addHostInfoServiceIpToLoopback();
-    fluxNetworkHelper.allowOnlyDockerNetworksToHostInfoService();
+    await fluxNetworkHelper.addHostInfoServiceIpToLoopback();
+    await fluxNetworkHelper.allowOnlyDockerNetworksToHostInfoService();
     hostInfoService.start();
     await daemonServiceUtils.buildFluxdClient();
     log.info('Checking docker log for corruption...');
