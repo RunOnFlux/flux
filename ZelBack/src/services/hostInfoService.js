@@ -42,7 +42,7 @@ async function getHostInfo(req, res) {
         throw new Error('Host IP information not available at the moment');
       }
 
-      const message = messageHelper.createSuccessMessage(hostInfo);
+      const message = messageHelper.createDataMessage(hostInfo);
       res.json(message);
     }
   } catch (error) {
