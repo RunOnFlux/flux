@@ -25,7 +25,7 @@ async function getHostInfo(req, res) {
       res.json(errMessage);
     } else {
       const hostInfo = {};
-      const nodeCollateralInfo = await generalService.obtainNodeCollateralInformation();
+      const nodeCollateralInfo = await generalService.obtainNodeCollateralInformation().catch(() => { throw new Error('Host Identifier information not available at the moment'); });
       hostInfo.id = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
       const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
       if (myIP) {
