@@ -17,6 +17,7 @@ const pgpService = require('./pgpService');
 const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
+const hostInfoService = require('./hostInfoService');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
@@ -37,6 +38,9 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
     }
+    fluxNetworkHelper.addHostInfoServiceIpToLoopback();
+    fluxNetworkHelper.allowOnlyDockerNetworksToHostInfoService();
+    hostInfoService.start();
     await daemonServiceUtils.buildFluxdClient();
     log.info('Checking docker log for corruption...');
     await dockerService.dockerLogsFix();
