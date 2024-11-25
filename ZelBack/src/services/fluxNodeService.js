@@ -83,8 +83,8 @@ function start() {
   app.all('*', (_, res) => res.status(404).end());
 
   const bindAddress = config.server.fluxNodeServiceAddress;
-  server = app.listen(80, bindAddress, () => {
-    log.info(`Server listening on port: 80 address: ${bindAddress}`);
+  server = app.listen(16101, bindAddress, () => {
+    log.info(`Server listening on port: 16101 address: ${bindAddress}`);
   });
 }
 
