@@ -17,7 +17,7 @@
                     outlined
                     responsive
                     :items="tableconfig.installed.apps"
-                    :fields="isLoggedIn() ? tableconfig.installed.loggedInFields : tableconfig.installed.fields"
+                    :fields="isFluxAdminLoggedIn() ? tableconfig.installed.loggedInFields : tableconfig.installed.fields"
                     show-empty
                     empty-text="No Flux Apps installed"
                     sort-icon-left
