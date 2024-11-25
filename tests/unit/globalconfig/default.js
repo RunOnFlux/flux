@@ -5,7 +5,7 @@ module.exports = {
   server: {
     allowedPorts: [11, 13, 16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
-    hostInfoServiceAddress: '169.254.43.43',
+    fluxNodeServiceAddress: '169.254.43.43',
   },
   database: {
     url: database,

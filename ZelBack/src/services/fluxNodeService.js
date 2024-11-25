@@ -82,7 +82,7 @@ function start() {
   app.get('/hostinfo', getHostInfo);
   app.all('*', (_, res) => res.status(404).end());
 
-  const bindAddress = config.server.hostInfoServiceAddress;
+  const bindAddress = config.server.fluxNodeServiceAddress;
   server = app.listen(80, bindAddress, () => {
     log.info(`Server listening on port: 80 address: ${bindAddress}`);
   });

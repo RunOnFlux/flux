@@ -1661,16 +1661,16 @@ async function allowNodeToBindPrivilegedPorts() {
  * docker network including mask to allow to verification. For example: 172.23.123.0/24
  * @returns {Promise<void>}
  */
-async function allowOnlyDockerNetworksToHostInfoService() {
+async function allowOnlyDockerNetworksToFluxNodeService() {
   const firewallActive = await isFirewallActive();
 
   if (!firewallActive) return;
 
   const fluxAppDockerNetworks = '172.23.0.0/16';
-  const { hostInfoServiceAddress } = config.server;
-  const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from ${fluxAppDockerNetworks} proto tcp to ${hostInfoServiceAddress}/32 port 80`;
+  const { fluxNodeServiceAddress } = config.server;
+  const allowDockerNetworks = `LANG="en_US.UTF-8" && sudo ufw allow from ${fluxAppDockerNetworks} proto tcp to ${fluxNodeServiceAddress}/32 port 80`;
   // have to use iptables here as ufw won't filter loopback
-  const denyRule = `INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${hostInfoServiceAddress}/32 -j DROP`;
+  const denyRule = `INPUT -i lo ! -s ${fluxAppDockerNetworks} -d ${fluxNodeServiceAddress}/32 -j DROP`;
   const checkDenyRule = `LANG="en_US.UTF-8" && sudo iptables -C ${denyRule}`;
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I ${denyRule}`;
 
@@ -1679,9 +1679,9 @@ async function allowOnlyDockerNetworksToHostInfoService() {
   try {
     const cmd = await cmdAsync(allowDockerNetworks);
     if (serviceHelper.ensureString(cmd).includes('updated') || serviceHelper.ensureString(cmd).includes('existing') || serviceHelper.ensureString(cmd).includes('added')) {
-      log.info(`Firewall adjusted for network: ${fluxAppDockerNetworks} to address: ${hostInfoServiceAddress}/32`);
+      log.info(`Firewall adjusted for network: ${fluxAppDockerNetworks} to address: ${fluxNodeServiceAddress}/32`);
     } else {
-      log.warn(`Failed to adjust Firewall for network: ${fluxAppDockerNetworks} to address: ${hostInfoServiceAddress}/32`);
+      log.warn(`Failed to adjust Firewall for network: ${fluxAppDockerNetworks} to address: ${fluxNodeServiceAddress}/32`);
     }
   } catch (err) {
     log.error(err);
@@ -1691,25 +1691,25 @@ async function allowOnlyDockerNetworksToHostInfoService() {
     if (err.message.includes('Bad rule')) {
       try {
         await cmdAsync(denyAllElse);
-        log.info(`Firewall adjusted to deny access to: ${hostInfoServiceAddress}/32`);
+        log.info(`Firewall adjusted to deny access to: ${fluxNodeServiceAddress}/32`);
       } catch (error) {
         log.error(error);
       }
     }
   });
 
-  if (denied) log.info(`Fireall already denying access to ${hostInfoServiceAddress}/32`);
+  if (denied) log.info(`Fireall already denying access to ${fluxNodeServiceAddress}/32`);
 }
 
 /**
- * Adds the 169.254 adddress to the loopback interface for use with the flux host info service.
+ * Adds the 169.254 adddress to the loopback interface for use with the flux node service.
  */
-async function addHostInfoServiceIpToLoopback() {
+async function addFluxNodeServiceIpToLoopback() {
   const cmdAsync = util.promisify(nodecmd.get);
 
   // could also check exists first with:
   //   ip -f inet addr show lo | grep 169.254.43.43/32
-  const ip = config.server.hostInfoServiceAddress;
+  const ip = config.server.fluxNodeServiceAddress;
   const addIp = `sudo ip addr add ${ip}/32 dev lo`;
 
   let ok = false;
@@ -1725,9 +1725,9 @@ async function addHostInfoServiceIpToLoopback() {
   }
 
   if (ok) {
-    log.info(`hostInfoService IP: ${ip} added to loopback interface`);
+    log.info(`fluxNodeService IP: ${ip} added to loopback interface`);
   } else {
-    log.warn(`Failed to add hostInfoService IP ${ip} to loopback interface`);
+    log.warn(`Failed to add fluxNodeService IP ${ip} to loopback interface`);
   }
 }
 
@@ -1778,6 +1778,6 @@ module.exports = {
   allowNodeToBindPrivilegedPorts,
   removeDockerContainerAccessToNonRoutable,
   getMaxNumberOfIpChanges,
-  allowOnlyDockerNetworksToHostInfoService,
-  addHostInfoServiceIpToLoopback,
+  allowOnlyDockerNetworksToFluxNodeService,
+  addFluxNodeServiceIpToLoopback,
 };
