@@ -17,6 +17,7 @@ const pgpService = require('./pgpService');
 const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
+const fluxNodeService = require('./fluxNodeService');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
@@ -37,6 +38,9 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
     }
+    await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
+    await fluxNetworkHelper.allowOnlyDockerNetworksToFluxNodeService();
+    fluxNodeService.start();
     await daemonServiceUtils.buildFluxdClient();
     log.info('Checking docker log for corruption...');
     await dockerService.dockerLogsFix();
@@ -123,10 +127,8 @@ async function startFluxFunctions() {
     setInterval(() => {
       appsService.restorePortsSupport(); // restore fluxos and apps ports/upnp
     }, 10 * 60 * 1000); // every 10 minutes
-    setTimeout(() => {
-      log.info('Starting setting Node Geolocation');
-      geolocationService.setNodeGeolocation();
-    }, 90 * 1000);
+    log.info('Starting setting Node Geolocation');
+    geolocationService.setNodeGeolocation();
     setTimeout(() => {
       const { daemon: { zmqport } } = config;
       log.info(`Ensuring zmq is enabled for fluxd on port: ${zmqport}`);
