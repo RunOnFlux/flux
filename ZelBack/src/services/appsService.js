@@ -4207,7 +4207,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
  * @param {number} height Block height.
  * @returns {number} App price.
  */
-async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) {
+async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices, callByFiatAndFluxPriceFunction) {
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
@@ -4253,6 +4253,12 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
         const additionalPrice = (appPrice * instancesAdditional) / 3;
         appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
       }
+      if (callByFiatAndFluxPriceFunction) {
+        const gSyncthingApp = dataForAppRegistration.containerData.includes('g:');
+        if (gSyncthingApp) {
+          appPrice *= 0.8;
+        }
+      }
       if (appPrice < priceSpecifications.minPrice) {
         appPrice = priceSpecifications.minPrice;
       }
@@ -4279,6 +4285,17 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     if (instancesAdditional > 0) {
       const additionalPrice = (appPrice * instancesAdditional) / 3;
       appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+    }
+    if (callByFiatAndFluxPriceFunction) {
+      if (cpuTotal <= 3 && ramTotal <= 6000 && hddTotal <= 150) {
+        appPrice *= 0.8;
+      } else if (cpuTotal <= 7 && ramTotal <= 29000 && hddTotal <= 370) {
+        appPrice *= 0.9;
+      }
+      const gSyncthingApp = dataForAppRegistration.containerData.includes('g:');
+      if (gSyncthingApp) {
+        appPrice *= 0.8;
+      }
     }
     if (appPrice < priceSpecifications.minPrice) {
       appPrice = priceSpecifications.minPrice;
@@ -4325,20 +4342,19 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     const additionalPrice = (appPrice * instancesAdditional) / 3;
     appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
   }
-  if (cpuTotalCount <= 3 && ramTotalCount <= 6000 && hddTotalCount <= 150) {
-    appPrice *= 0.8;
-  } else if (cpuTotalCount <= 7 && ramTotalCount <= 29000 && hddTotalCount <= 370) {
-    appPrice *= 0.9;
+
+  if (callByFiatAndFluxPriceFunction) {
+    if (cpuTotalCount <= 3 && ramTotalCount <= 6000 && hddTotalCount <= 150) {
+      appPrice *= 0.8;
+    } else if (cpuTotalCount <= 7 && ramTotalCount <= 29000 && hddTotalCount <= 370) {
+      appPrice *= 0.9;
+    }
+    const gSyncthingApp = dataForAppRegistration.compose.find((comp) => comp.containerData.includes('g:'));
+    if (gSyncthingApp) {
+      appPrice *= 0.8;
+    }
   }
-  let gSyncthingApp = false;
-  if (dataForAppRegistration.version <= 3) {
-    gSyncthingApp = dataForAppRegistration.containerData.includes('g:');
-  } else {
-    gSyncthingApp = dataForAppRegistration.compose.find((comp) => comp.containerData.includes('g:'));
-  }
-  if (gSyncthingApp) {
-    appPrice *= 0.8;
-  }
+
   if (appPrice < priceSpecifications.minPrice) {
     appPrice = priceSpecifications.minPrice;
   }
@@ -10230,14 +10246,14 @@ async function getAppFluxOnChainPrice(appSpecification) {
     const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
     const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-    let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+    let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices, true);
     const expireIn = appSpecFormatted.expire || defaultExpire;
     // app prices are ceiled to highest 0.01
     const multiplier = expireIn / defaultExpire;
     actualPriceToPay *= multiplier;
     actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
     if (appInfo) {
-      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices, true); // calculate previous based on CURRENT height, with current interval of prices!
       let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
       if (daemonHeight > 1315000) {
         previousExpireIn = appInfo.expire || defaultExpire;
@@ -10389,7 +10405,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       }
       let actualPriceToPay = 0;
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices, true);
       const expireIn = appSpecFormatted.expire || defaultExpire;
       // app prices are ceiled to highest 0.01
       const multiplier = expireIn / defaultExpire;
@@ -10397,7 +10413,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       actualPriceToPay = Number(actualPriceToPay).toFixed(2);
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo) {
-        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices, true); // calculate previous based on CURRENT height, with current interval of prices!
         let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
         if (daemonHeight > 1315000) {
           previousExpireIn = appInfo.expire || defaultExpire;
