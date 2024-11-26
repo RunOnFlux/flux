@@ -4207,7 +4207,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
  * @param {number} height Block height.
  * @returns {number} App price.
  */
-async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices, callByFiatAndFluxPriceFunction) {
+async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) {
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
@@ -4253,12 +4253,6 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices, 
         const additionalPrice = (appPrice * instancesAdditional) / 3;
         appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
       }
-      if (callByFiatAndFluxPriceFunction) {
-        const gSyncthingApp = dataForAppRegistration.containerData.includes('g:');
-        if (gSyncthingApp) {
-          appPrice *= 0.8;
-        }
-      }
       if (appPrice < priceSpecifications.minPrice) {
         appPrice = priceSpecifications.minPrice;
       }
@@ -4285,17 +4279,6 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices, 
     if (instancesAdditional > 0) {
       const additionalPrice = (appPrice * instancesAdditional) / 3;
       appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
-    }
-    if (callByFiatAndFluxPriceFunction) {
-      if (cpuTotal <= 3 && ramTotal <= 6000 && hddTotal <= 150) {
-        appPrice *= 0.8;
-      } else if (cpuTotal <= 7 && ramTotal <= 29000 && hddTotal <= 370) {
-        appPrice *= 0.9;
-      }
-      const gSyncthingApp = dataForAppRegistration.containerData.includes('g:');
-      if (gSyncthingApp) {
-        appPrice *= 0.8;
-      }
     }
     if (appPrice < priceSpecifications.minPrice) {
       appPrice = priceSpecifications.minPrice;
@@ -4341,18 +4324,6 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices, 
   if (instancesAdditional > 0) {
     const additionalPrice = (appPrice * instancesAdditional) / 3;
     appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
-  }
-
-  if (callByFiatAndFluxPriceFunction) {
-    if (cpuTotalCount <= 3 && ramTotalCount <= 6000 && hddTotalCount <= 150) {
-      appPrice *= 0.8;
-    } else if (cpuTotalCount <= 7 && ramTotalCount <= 29000 && hddTotalCount <= 370) {
-      appPrice *= 0.9;
-    }
-    const gSyncthingApp = dataForAppRegistration.compose.find((comp) => comp.containerData.includes('g:'));
-    if (gSyncthingApp) {
-      appPrice *= 0.8;
-    }
   }
 
   if (appPrice < priceSpecifications.minPrice) {
@@ -10427,6 +10398,21 @@ async function getAppFiatAndFluxPrice(req, res) {
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
+      }
+      const appHWrequirements = totalAppHWRequirements(appSpecFormatted, 'bamf');
+      if (appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        actualPriceToPay *= 0.8;
+      } else if (appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+        actualPriceToPay *= 0.9;
+      }
+      let gSyncthgApp = false;
+      if (appSpecFormatted.version <= 3) {
+        gSyncthgApp = appSpecFormatted.containerData.includes('g:');
+      } else {
+        gSyncthgApp = appSpecFormatted.compose.find((comp) => comp.containerData.includes('g:'));
+      }
+      if (gSyncthgApp) {
+        actualPriceToPay *= 0.8;
       }
       const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
       let marketPlaceApps = [];
