@@ -155,7 +155,7 @@ module.exports = {
       port: 2, // additional price per enterprise port
       scope: 4, // additional price for application targetting specific nodes, private images
       staticip: 2, // additional price per application for targetting nodes that have static ip address
-      fluxmultiplier: 0.9, // discount given if payed with flux 1 would be 0%
+      fluxmultiplier: 0.95, // discount given if payed with flux 1 would be 0%
       multiplier: 1, // multiplier in case we want to increase prices globaly
       minUSDPrice: 0.99, // min. usd price that can be paid with stripe/paypal.
     },
