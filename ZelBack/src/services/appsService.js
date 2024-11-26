@@ -10217,14 +10217,14 @@ async function getAppFluxOnChainPrice(appSpecification) {
     const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
     const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-    let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices, true);
+    let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
     const expireIn = appSpecFormatted.expire || defaultExpire;
     // app prices are ceiled to highest 0.01
     const multiplier = expireIn / defaultExpire;
     actualPriceToPay *= multiplier;
     actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
     if (appInfo) {
-      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices, true); // calculate previous based on CURRENT height, with current interval of prices!
+      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
       let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
       if (daemonHeight > 1315000) {
         previousExpireIn = appInfo.expire || defaultExpire;
@@ -10376,7 +10376,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       }
       let actualPriceToPay = 0;
       const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices, true);
+      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
       const expireIn = appSpecFormatted.expire || defaultExpire;
       // app prices are ceiled to highest 0.01
       const multiplier = expireIn / defaultExpire;
@@ -10384,7 +10384,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       actualPriceToPay = Number(actualPriceToPay).toFixed(2);
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo) {
-        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices, true); // calculate previous based on CURRENT height, with current interval of prices!
+        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
         let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
         if (daemonHeight > 1315000) {
           previousExpireIn = appInfo.expire || defaultExpire;
