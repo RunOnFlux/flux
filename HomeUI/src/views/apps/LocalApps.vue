@@ -507,6 +507,7 @@
                       <b-button-toolbar>
                         <b-button-group size="sm">
                           <b-button
+                            v-if="isFluxAdminLoggedIn()"
                             :id="`start-installed-app-${row.item.name}`"
                             v-b-tooltip.hover.top="'Start App'"
                             :disabled="isAppInList(row.item.name, tableconfig.running.apps)"
@@ -527,6 +528,7 @@
                             @confirm="startApp(row.item.name)"
                           />
                           <b-button
+                            v-if="isFluxAdminLoggedIn()"
                             :id="`stop-installed-app-${row.item.name}`"
                             v-b-tooltip.hover.top="'Stop App'"
                             size="sm"
@@ -547,6 +549,7 @@
                             @confirm="stopApp(row.item.name)"
                           />
                           <b-button
+                            v-if="isFluxAdminLoggedIn()"
                             :id="`restart-installed-app-${row.item.name}`"
                             v-b-tooltip.hover.top="'Restart App'"
                             size="sm"

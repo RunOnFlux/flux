@@ -9,6 +9,7 @@ module.exports = {
   server: {
     allowedPorts: [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
+    fluxNodeServiceAddress: '169.254.43.43',
   },
   database: {
     url: '127.0.0.1',
@@ -160,7 +161,7 @@ module.exports = {
       port: 2, // additional price per enterprise port
       scope: 4, // additional price for application targetting specific nodes, private images
       staticip: 2, // additional price per application for targetting nodes that have static ip address
-      fluxmultiplier: 0.9, // discount given if payed with flux 1 would be 0%
+      fluxmultiplier: 0.95, // discount given if payed with flux 1 would be 0%
       multiplier: 1, // multiplier in case we want to increase prices globaly
       minUSDPrice: 0.99, // min. usd price that can be paid with stripe/paypal.
     },

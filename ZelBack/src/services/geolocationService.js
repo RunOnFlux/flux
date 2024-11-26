@@ -15,7 +15,11 @@ async function setNodeGeolocation() {
   try {
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (!myIP) {
-      throw new Error('Flux IP not detected. Flux geolocation service is awaiting');
+      log.error('Flux IP not detected. Flux geolocation service is awaiting');
+      setTimeout(() => {
+        setNodeGeolocation();
+      }, 10 * 1000);
+      return;
     }
     if (!storedGeolocation || myIP !== storedIp || execution % 4 === 0) {
       log.info(`Checking geolocation of ${myIP}`);
@@ -66,9 +70,9 @@ async function setNodeGeolocation() {
       }
     }
     execution += 1;
-    setTimeout(() => { // executes again in 12h
+    setTimeout(() => { // executes again in 24h
       setNodeGeolocation();
-    }, 12 * 60 * 60 * 1000);
+    }, 24 * 60 * 60 * 1000);
   } catch (error) {
     log.error(`Failed to get Geolocation with ${error}`);
     log.error(error);
