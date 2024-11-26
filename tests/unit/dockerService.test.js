@@ -705,6 +705,7 @@ describe('dockerService tests', () => {
           RestartPolicy: { Name: 'unless-stopped' },
           NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
+          ExtraHosts: ['fluxnode.service:169.254.43.43'],
           Binds: [`${appsFolder}fluxwebsite_fluxwebsite/appdata:/chaindata`],
           PortBindings: {
             '30333/tcp': [{ HostPort: '31113' }],
@@ -773,6 +774,7 @@ describe('dockerService tests', () => {
           RestartPolicy: { Name: 'unless-stopped' },
           NetworkMode: 'fluxDockerNetwork_fluxwebsite',
           LogConfig: { Type: 'json-file', Config: { 'max-file': '1', 'max-size': '20m' } },
+          ExtraHosts: ['fluxnode.service:169.254.43.43'],
         },
       };
 
