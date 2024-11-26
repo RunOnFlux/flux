@@ -4325,6 +4325,20 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     const additionalPrice = (appPrice * instancesAdditional) / 3;
     appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
   }
+  if (cpuTotalCount <= 3 && ramTotalCount <= 6000 && hddTotalCount <= 150) {
+    appPrice *= 0.8;
+  } else if (cpuTotalCount <= 7 && ramTotalCount <= 29000 && hddTotalCount <= 370) {
+    appPrice *= 0.9;
+  }
+  let gSyncthingApp = false;
+  if (dataForAppRegistration.version <= 3) {
+    gSyncthingApp = dataForAppRegistration.containerData.includes('g:');
+  } else {
+    gSyncthingApp = dataForAppRegistration.compose.find((comp) => comp.containerData.includes('g:'));
+  }
+  if (gSyncthingApp) {
+    appPrice *= 0.8;
+  }
   if (appPrice < priceSpecifications.minPrice) {
     appPrice = priceSpecifications.minPrice;
   }
