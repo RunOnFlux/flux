@@ -895,6 +895,10 @@ async function adjustExternalIP(ip) {
             // eslint-disable-next-line no-await-in-loop
             await appsService.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
             appsRemoved += 1;
+          } else {
+            // once app specs v8 is done we check if app have specs that is using fluxnode service.
+            // eslint-disable-next-line no-await-in-loop
+            await appsService.appDockerRestart(app.name);
           }
         }
         if (apps.length > appsRemoved) {
