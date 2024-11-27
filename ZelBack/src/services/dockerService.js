@@ -4,9 +4,6 @@ const Docker = require('dockerode');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
-const geolocationService = require('./geolocationService');
-const fluxNetworkHelper = require('./fluxNetworkHelper');
-const generalService = require('./generalService');
 const pgpService = require('./pgpService');
 const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
@@ -642,32 +639,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       throw new Error('Environment parameters from Secrets are invalid - not an array');
     }
   }
-  const hostId = envParams.find((env) => env.startsWith('HOST_ID'));
-  if (!hostId) {
-    const collateral = await generalService.nodeCollateral().catch((error) => {
-      log.error(error);
-    });
-    if (collateral) {
-      envParams.push(`HOST_ID=${collateral}`);
-    }
-  }
-  const hostIp = envParams.find((env) => env.startsWith('HOST_IP'));
-  if (!hostIp) {
-    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (myIP) {
-      envParams.push(`HOST_IP=${myIP.split(':')[0]}`);
-    }
-  }
-  const hostGeo = envParams.find((env) => env.startsWith('HOST_GEO'));
-  if (!hostGeo) {
-    const myGeo = await geolocationService.getNodeGeolocation();
-    if (myGeo) {
-      delete myGeo.ip;
-      delete myGeo.org;
-      envParams.push(`HOST_GEO=${JSON.stringify(myGeo)}`);
-    }
-  }
-
   const adjustedCommands = [];
   appSpecifications.commands.forEach((command) => {
     if (command !== '--privileged') {
@@ -710,6 +681,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
           'max-size': '20m',
         },
       },
+      ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
     },
   };
 
@@ -1150,6 +1122,36 @@ async function dockerLogsFix() {
   }
 }
 
+async function getAppNameByContainerIp(ip) {
+  const fluxNetworks = await docker.listNetworks({
+    filters: JSON.stringify({
+      name: ['fluxDockerNetwork'],
+    }),
+  });
+
+  const fluxNetworkNames = fluxNetworks.map((n) => n.Name);
+
+  const networkPromises = [];
+  fluxNetworkNames.forEach((networkName) => {
+    const dockerNetwork = docker.getNetwork(networkName);
+    networkPromises.push(dockerNetwork.inspect());
+  });
+
+  const fluxNetworkData = await Promise.all(networkPromises);
+
+  let appName = null;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const fluxNetwork of fluxNetworkData) {
+    const subnet = fluxNetwork.IPAM.Config[0].Subnet;
+    if (serviceHelper.ipInSubnet(ip, subnet)) {
+      appName = fluxNetwork.Name.split('_')[1];
+      break;
+    }
+  }
+
+  return appName;
+}
+
 module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
@@ -1195,4 +1197,5 @@ module.exports = {
   pruneNetworks,
   pruneVolumes,
   removeFluxAppDockerNetwork,
+  getAppNameByContainerIp,
 };

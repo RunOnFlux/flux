@@ -70,8 +70,8 @@ testingAppserver = httpShutdown(testingAppserver);
 
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
-  ttl: 1000 * 60 * 60 * 2, // 2 hours
-  maxAge: 1000 * 60 * 60 * 2, // 2 hours
+  ttl: 1000 * 60 * 60 * 6, // 6 hours
+  maxAge: 1000 * 60 * 60 * 6, // 6 hours
 };
 const shortCache = {
   max: 500,
@@ -2736,9 +2736,8 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
  * @param {object} appSpecifications App specifications.
  * @param {boolean} isComponent True if a Docker Compose component.
  * @param {object} res Response.
- * @param {bool} onlyContainer if true only the container will be deleted.
  */
-async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res, onlyContainer) {
+async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res) {
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
   };
@@ -2791,10 +2790,6 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(removeStatus2));
     if (res.flush) res.flush();
-  }
-
-  if (onlyContainer) {
-    return;
   }
 
   const imageStatus = {
@@ -2884,9 +2879,8 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
  * To remove an app locally (including any components) without storage and cache deletion (keeps mounted volumes and cron job). First finds app specifications in database and then deletes the app from database. For app reload. Only for internal usage. We are throwing in functions using this.
  * @param {string} app App name.
  * @param {object} res Response.
- * @param {bool} onlyContainer if true only the container will be deleted.
  */
-async function softRemoveAppLocally(app, res, onlyContainer) {
+async function softRemoveAppLocally(app, res) {
   // remove app from local machine.
   // find in database, stop app, remove container, close port, remove from database
   // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
@@ -2929,14 +2923,14 @@ async function softRemoveAppLocally(app, res, onlyContainer) {
       appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
       const appComponentSpecifications = appComposedComponent;
       // eslint-disable-next-line no-await-in-loop
-      await appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res, onlyContainer);
+      await appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res);
     }
     isComponent = false;
   } else if (isComponent) {
     const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
-    await appUninstallSoft(appName, appId, componentSpecifications, isComponent, res, onlyContainer);
+    await appUninstallSoft(appName, appId, componentSpecifications, isComponent, res);
   } else {
-    await appUninstallSoft(appName, appId, appSpecifications, isComponent, res, onlyContainer);
+    await appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
   }
 
   if (!isComponent) {
@@ -3811,63 +3805,60 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
  * @param {string} appName App name.
  * @param {boolean} isComponent True if a Docker Compose component.
  * @param {object} res Response.
- * @param {bool} onlyContainer if true only the container will created.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs, onlyContainer) {
-  if (!onlyContainer) {
-    const architecture = await systemArchitecture();
-    if (!supportedArchitectures.includes(architecture)) {
-      throw new Error(`Invalid architecture ${architecture} detected.`);
+async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+  const architecture = await systemArchitecture();
+  if (!supportedArchitectures.includes(architecture)) {
+    throw new Error(`Invalid architecture ${architecture} detected.`);
+  }
+
+  // check blacklist
+  // eslint-disable-next-line no-use-before-define
+  await checkApplicationImagesComplience(fullAppSpecs);
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    appSpecifications.repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
+
+  const pullConfig = { repoTag: appSpecifications.repotag };
+
+  let authToken = null;
+
+  if (appSpecifications.repoauth) {
+    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+
+    if (!authToken) {
+      throw new Error('Unable to decrypt provided credentials');
     }
 
-    // check blacklist
-    // eslint-disable-next-line no-use-before-define
-    await checkApplicationImagesComplience(fullAppSpecs);
-
-    const imgVerifier = new imageVerifier.ImageVerifier(
-      appSpecifications.repotag,
-      { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-    );
-
-    const pullConfig = { repoTag: appSpecifications.repotag };
-
-    let authToken = null;
-
-    if (appSpecifications.repoauth) {
-      authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
-
-      if (!authToken) {
-        throw new Error('Unable to decrypt provided credentials');
-      }
-
-      if (!authToken.includes(':')) {
-        throw new Error('Provided credentials not in the correct username:token format');
-      }
-
-      imgVerifier.addCredentials(authToken);
-      pullConfig.authToken = authToken;
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
     }
 
-    await imgVerifier.verifyImage();
-    imgVerifier.throwIfError();
+    imgVerifier.addCredentials(authToken);
+    pullConfig.authToken = authToken;
+  }
 
-    if (!imgVerifier.supported) {
-      throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
-    }
+  await imgVerifier.verifyImage();
+  imgVerifier.throwIfError();
 
-    // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
-    pullConfig.provider = imgVerifier.provider;
+  if (!imgVerifier.supported) {
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
 
-    await dockerPullStreamPromise(pullConfig, res);
+  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
+  pullConfig.provider = imgVerifier.provider;
 
-    const pullStatus = {
-      status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
-    };
-    if (res) {
-      res.write(serviceHelper.ensureString(pullStatus));
-      if (res.flush) res.flush();
-    }
+  await dockerPullStreamPromise(pullConfig, res);
+
+  const pullStatus = {
+    status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(pullStatus));
+    if (res.flush) res.flush();
   }
 
   const createApp = {
@@ -3881,67 +3872,24 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
-  if (!onlyContainer) {
-    const portStatusInitial = {
-      status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
-    };
-    log.info(portStatusInitial);
-    if (res) {
-      res.write(serviceHelper.ensureString(portStatusInitial));
-      if (res.flush) res.flush();
-    }
-    if (appSpecifications.ports) {
-      const firewallActive = await fluxNetworkHelper.isFirewallActive();
-      if (firewallActive) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of appSpecifications.ports) {
-          // eslint-disable-next-line no-await-in-loop
-          const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
-          if (portResponse.status === true) {
-            const portStatus = {
-              status: `Port ${port} OK`,
-            };
-            log.info(portStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(portStatus));
-              if (res.flush) res.flush();
-            }
-          } else {
-            throw new Error(`Error: Port ${port} FAILed to open.`);
-          }
-        }
-      } else {
-        log.info('Firewall not active, application ports are open');
-      }
-      const isUPNP = upnpService.isUPNP();
-      if (isUPNP) {
-        log.info('Custom port specified, mapping ports');
-        // eslint-disable-next-line no-restricted-syntax
-        for (const port of appSpecifications.ports) {
-          // eslint-disable-next-line no-await-in-loop
-          const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
-          if (portResponse === true) {
-            const portStatus = {
-              status: `Port ${port} mapped OK`,
-            };
-            log.info(portStatus);
-            if (res) {
-              res.write(serviceHelper.ensureString(portStatus));
-              if (res.flush) res.flush();
-            }
-          } else {
-            throw new Error(`Error: Port ${port} FAILed to map.`);
-          }
-        }
-      }
-    } else if (appSpecifications.port) {
-      const firewallActive = await fluxNetworkHelper.isFirewallActive();
-      if (firewallActive) {
-        // v1 compatibility
-        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+  const portStatusInitial = {
+    status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
+  };
+  log.info(portStatusInitial);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatusInitial));
+    if (res.flush) res.flush();
+  }
+  if (appSpecifications.ports) {
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
         if (portResponse.status === true) {
           const portStatus = {
-            status: 'Port OK',
+            status: `Port ${port} OK`,
           };
           log.info(portStatus);
           if (res) {
@@ -3949,18 +3897,22 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
             if (res.flush) res.flush();
           }
         } else {
-          throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+          throw new Error(`Error: Port ${port} FAILed to open.`);
         }
-      } else {
-        log.info('Firewall not active, application ports are open');
       }
-      const isUPNP = upnpService.isUPNP();
-      if (isUPNP) {
-        log.info('Custom port specified, mapping ports');
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    const isUPNP = upnpService.isUPNP();
+    if (isUPNP) {
+      log.info('Custom port specified, mapping ports');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
         if (portResponse === true) {
           const portStatus = {
-            status: `Port ${appSpecifications.port} mapped OK`,
+            status: `Port ${port} mapped OK`,
           };
           log.info(portStatus);
           if (res) {
@@ -3968,12 +3920,48 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
             if (res.flush) res.flush();
           }
         } else {
-          throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+          throw new Error(`Error: Port ${port} FAILed to map.`);
         }
+      }
+    }
+  } else if (appSpecifications.port) {
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      // v1 compatibility
+      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+      if (portResponse.status === true) {
+        const portStatus = {
+          status: 'Port OK',
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    const isUPNP = upnpService.isUPNP();
+    if (isUPNP) {
+      log.info('Custom port specified, mapping ports');
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+      if (portResponse === true) {
+        const portStatus = {
+          status: `Port ${appSpecifications.port} mapped OK`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
       }
     }
   }
-
   const startStatus = {
     status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
   };
@@ -4003,10 +3991,9 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
- * @param {bool} onlyContainer if true only the container will created.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function softRegisterAppLocally(appSpecs, componentSpecs, res, onlyContainer) {
+async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -4032,12 +4019,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, onlyContain
       return;
     }
     installationInProgress = true;
-    const appSpecifications = appSpecs;
-    const appComponent = componentSpecs;
-    const appName = appSpecifications.name;
-    let isComponent = !!appComponent;
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
     const tier = await generalService.nodeTier().catch((error) => log.error(error));
     if (!tier) {
       const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
@@ -4046,118 +4027,116 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, onlyContain
         res.write(serviceHelper.ensureString(rStatus));
         res.end();
       }
-      if (onlyContainer) {
-        throw new Error('Failed to get Node Tier');
+      return;
+    }
+    const appSpecifications = appSpecs;
+    const appComponent = componentSpecs;
+    const appName = appSpecifications.name;
+    let isComponent = !!appComponent;
+    const precheckForInstallation = {
+      status: 'Running initial checks for Flux App...',
+    };
+    log.info(precheckForInstallation);
+    if (res) {
+      res.write(serviceHelper.ensureString(precheckForInstallation));
+      if (res.flush) res.flush();
+    }
+    // connect to mongodb
+    const dbOpenTest = {
+      status: 'Connecting to database...',
+    };
+    log.info(dbOpenTest);
+    if (res) {
+      res.write(serviceHelper.ensureString(dbOpenTest));
+      if (res.flush) res.flush();
+    }
+    const dbopen = dbHelper.databaseConnection();
+
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const appsQuery = { name: appName };
+    const appsProjection = {
+      projection: {
+        _id: 0,
+        name: 1,
+      },
+    };
+
+    // check if app is already installed
+    const checkDb = {
+      status: 'Checking database...',
+    };
+    log.info(checkDb);
+    if (res) {
+      res.write(serviceHelper.ensureString(checkDb));
+      if (res.flush) res.flush();
+    }
+    const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    if (appResult && !isComponent) {
+      installationInProgress = false;
+      const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
       }
       return;
     }
-    if (!onlyContainer) {
-      const precheckForInstallation = {
-        status: 'Running initial checks for Flux App...',
+
+    if (!isComponent) {
+      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
+      }
+      const fluxNetworkStatus = {
+        status: `Checking Flux App network of ${appName}...`,
       };
-      log.info(precheckForInstallation);
+      log.info(fluxNetworkStatus);
       if (res) {
-        res.write(serviceHelper.ensureString(precheckForInstallation));
+        res.write(serviceHelper.ensureString(fluxNetworkStatus));
         if (res.flush) res.flush();
       }
-      // connect to mongodb
-      const dbOpenTest = {
-        status: 'Connecting to database...',
+      let fluxNet = null;
+      for (let i = 0; i <= 20; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+        if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+          break;
+        }
+        dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      }
+      if (!fluxNet) {
+        throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
+      }
+      log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
+      const accessRemovedRes = {
+        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
       };
-      log.info(dbOpenTest);
       if (res) {
-        res.write(serviceHelper.ensureString(dbOpenTest));
+        res.write(serviceHelper.ensureString(accessRemovedRes));
         if (res.flush) res.flush();
       }
-
-      const appsQuery = { name: appName };
-      const appsProjection = {
-        projection: {
-          _id: 0,
-          name: 1,
-        },
+      const fluxNetResponse = {
+        status: `Docker network of ${appName} initiated.`,
       };
-
-      // check if app is already installed
-      const checkDb = {
-        status: 'Checking database...',
-      };
-      log.info(checkDb);
       if (res) {
-        res.write(serviceHelper.ensureString(checkDb));
-        if (res.flush) res.flush();
-      }
-      const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-      if (appResult && !isComponent) {
-        installationInProgress = false;
-        const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
-        log.error(rStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(rStatus));
-          res.end();
-        }
-        return;
-      }
-
-      if (!isComponent) {
-        let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
-        if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
-          dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
-        }
-        const fluxNetworkStatus = {
-          status: `Checking Flux App network of ${appName}...`,
-        };
-        log.info(fluxNetworkStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(fluxNetworkStatus));
-          if (res.flush) res.flush();
-        }
-        let fluxNet = null;
-        for (let i = 0; i <= 20; i += 1) {
-          // eslint-disable-next-line no-await-in-loop
-          fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
-          if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
-            break;
-          }
-          dockerNetworkAddrValue = Math.floor(Math.random() * 256);
-        }
-        if (!fluxNet) {
-          throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
-        }
-        log.info(serviceHelper.ensureString(fluxNet));
-        const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
-        const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
-        const accessRemovedRes = {
-          status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
-        };
-        if (res) {
-          res.write(serviceHelper.ensureString(accessRemovedRes));
-          if (res.flush) res.flush();
-        }
-        const fluxNetResponse = {
-          status: `Docker network of ${appName} initiated.`,
-        };
-        if (res) {
-          res.write(serviceHelper.ensureString(fluxNetResponse));
-          if (res.flush) res.flush();
-        }
-      }
-
-      const appInstallation = {
-        status: isComponent ? `Initiating Flux App component ${appComponent.name} installation...` : `Initiating Flux App ${appName} installation...`,
-      };
-      log.info(appInstallation);
-      if (res) {
-        res.write(serviceHelper.ensureString(appInstallation));
+        res.write(serviceHelper.ensureString(fluxNetResponse));
         if (res.flush) res.flush();
       }
     }
 
+    const appInstallation = {
+      status: isComponent ? `Initiating Flux App component ${appComponent.name} installation...` : `Initiating Flux App ${appName} installation...`,
+    };
+    log.info(appInstallation);
+    if (res) {
+      res.write(serviceHelper.ensureString(appInstallation));
+      if (res.flush) res.flush();
+    }
     if (!isComponent) {
       // register the app
-      if (!onlyContainer) {
-        await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
-      }
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -4186,10 +4165,10 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res, onlyContain
         appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
         appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
         // eslint-disable-next-line no-await-in-loop
-        await installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications, onlyContainer);
+        await installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications);
       }
     } else {
-      await installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications, onlyContainer);
+      await installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
     }
     // all done message
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
@@ -4346,6 +4325,7 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     const additionalPrice = (appPrice * instancesAdditional) / 3;
     appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
   }
+
   if (appPrice < priceSpecifications.minPrice) {
     appPrice = priceSpecifications.minPrice;
   }
@@ -9066,105 +9046,113 @@ async function trySpawningGlobalApplication() {
       throw new Error('Unable to detect Flux IP address');
     }
 
-    // get all the applications list names
-    const globalAppNamesLocation = await getAllGlobalApplications(['name', 'geolocation', 'nodes']);
+    // get all the applications list names missing instances
+    const pipeline = [
+      {
+        $lookup: {
+          from: 'zelappslocation',
+          localField: 'name',
+          foreignField: 'name',
+          as: 'locations',
+        },
+      },
+      {
+        $addFields: {
+          actual: { $size: '$locations.name' },
+        },
+      },
+      {
+        $match: {
+          $expr: { $lt: ['$actual', { $ifNull: ['$instances', 3] }] },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          name: '$name',
+          actual: '$actual',
+          required: '$instances',
+          nodes: { $ifNull: ['$nodes', []] },
+          geolocation: { $ifNull: ['$geolocation', []] },
+        },
+      },
+      { $sort: { name: 1 } },
+    ];
+
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    log.info('trySpawningGlobalApplication - Checking for apps that are missing instances on the network.');
+    let globalAppNamesLocation = await dbHelper.aggregateInDatabase(database, globalAppsInformation, pipeline);
     const numberOfGlobalApps = globalAppNamesLocation.length;
     if (!numberOfGlobalApps) {
       log.info('No installable application found');
-      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
+    log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} that are missing instances on the network.`);
 
-    const installDelay = config.fluxapps.installation.delay * 1000;
-    let probLn = Math.log(2 + numberOfGlobalApps); // from ln(2) -> ln(2 + x)
-    const adjustedDelay = installDelay / probLn;
-
-    let appToRun;
-    // highly favor application that is targetting our node
-    // get my collateral
-    const myCollateral = await generalService.obtainNodeCollateralInformation();
-    // get my ip address
-    // filter apps only those that include my ip or my collateral
-    const scopedApps = globalAppNamesLocation.filter((app) => app.nodes && (app.nodes.includes(myIP) || app.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)));
-    const scopedAppsToRun = scopedApps.filter((app) => !trySpawningGlobalAppCache.has(app.name));
-    // check if this app was already evaluated
-    const numberOfScopedAppsToRun = scopedAppsToRun.length;
-    if (numberOfScopedAppsToRun) { // some app should be prioritized on our node
-      const appToRunNumber = Math.floor((Math.random() * numberOfScopedAppsToRun));
-      appToRun = scopedAppsToRun[appToRunNumber].name;
-    }
-
-    if (appToRun) { // ensure higher rate spawning for scoped apps
-      probLn *= 2;
-    }
-    // if all ok Check hashes comparison if its out turn to start the app. higher than 1% probability.
-    const randomNumber = Math.floor((Math.random() * (config.fluxapps.installation.probability / probLn))); // higher probability for more apps on network
-    if (randomNumber !== 0) {
-      log.info('Other Flux nodes are evaluating application installation');
-      await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalApplication();
-      return;
-    }
-
+    let appToRun = null;
+    let minInstances = null;
     let appFromAppsToBeCheckedLater = false;
-    // no scoped applicaton, run some global app
-    if (!appToRun) {
-      // pick a random one
-      const appToRunNumber = Math.floor((Math.random() * numberOfGlobalApps));
-      appToRun = globalAppNamesLocation[appToRunNumber].name;
-
-      // force switch to run a geo restricted app
-      if (appToRunNumber % 5 === 0) { // every 5th run we are forcing application instalation that is in the nodes geolocation, esnuring highly geolocated apps spawn fast enough
-        // get this node location
-        const myNodeLocation = nodeFullGeolocation();
-        const appsInMyLocation = globalAppNamesLocation.filter((apps) => apps.geolocation && apps.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)));
-        if (appsInMyLocation.length) {
-          const numberOfMyNodeGeoApps = appsInMyLocation.length;
-          const randomGeoAppNumber = Math.floor((Math.random() * numberOfMyNodeGeoApps));
-          // install geo location restricted app instead
-          appToRun = appsInMyLocation[randomGeoAppNumber].name;
-        }
-      } else if (appToRunNumber % 9 === 0) { // we will be checking every few runs if there are apps on appsToBeCheckedLater to be installed that previously passed all checks but were prioritize to be installed on lower tier nodes
-        const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
-        if (appIndex >= 0) {
-          appToRun = appsToBeCheckedLater[appIndex].appName;
-          appsToBeCheckedLater.splice(appIndex, 1);
-          appFromAppsToBeCheckedLater = true;
-        }
+    const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
+    if (appIndex >= 0) {
+      appToRun = appsToBeCheckedLater[appIndex].appName;
+      minInstances = appsToBeCheckedLater[appIndex].required;
+      appsToBeCheckedLater.splice(appIndex, 1);
+      appFromAppsToBeCheckedLater = true;
+    } else {
+      const myNodeLocation = nodeFullGeolocation();
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
+        && (app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP)));
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !trySpawningGlobalAppCache.has(app.name) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+      if (globalAppNamesLocation.length === 0) {
+        log.info('trySpawningGlobalApplication - No app currently to be processed');
+        await serviceHelper.delay(30 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
+      }
+      log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
+      const random = Math.floor(Math.random() * globalAppNamesLocation.length);
+      const appToRunAux = globalAppNamesLocation[random];
+      appToRun = appToRunAux.name;
+      minInstances = appToRunAux.required;
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
+      if (appToRunAux.required === appToRunAux.actual + 1 && appToRunAux.nodes.length === 0 && Math.random() > 0.4) {
+        log.info('trySpawningGlobalApplication - app missing one instance failed the 40% probability check to install');
+        await serviceHelper.delay(30 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
+      }
+      if (appToRunAux.required === appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.75) {
+        log.info('trySpawningGlobalApplication - app missing two instances failed the 75% probability check to install');
+        await serviceHelper.delay(30 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
       }
     }
 
-    // Check if App was checked in the last 2 hours.
-    // This is a small help because random can be getting the same app over and over
-    if (trySpawningGlobalAppCache.has(appToRun)) {
-      log.info(`App ${appToRun} was already evaluated in the last 2 hours.`);
-      const delay = numberOfGlobalApps < 20 ? config.fluxapps.installation.delay * 1000 : config.fluxapps.installation.delay * 1000 * 0.1;
-      await serviceHelper.delay(delay);
-      trySpawningGlobalApplication();
-      return;
-    }
-
     trySpawningGlobalAppCache.set(appToRun, appToRun);
+    log.info(`trySpawningGlobalApplication - App ${appToRun}`);
 
     let runningAppList = await getRunningAppList(appToRun);
 
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
-      log.info(`Application ${appToRun} is reported as already running on this Flux IP`);
-      await serviceHelper.delay(adjustedDelay);
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already running on this Flux IP`);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
     // second check if app is running on this node
     const runningApps = await listRunningApps();
     if (runningApps.status !== 'success') {
-      throw new Error('Unable to check running apps on this Flux');
+      throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
     }
     if (runningApps.data.find((app) => app.Names[0].slice(5) === appToRun)) {
-      log.info(`${appToRun} application is already running on this Flux`);
-      await serviceHelper.delay(adjustedDelay);
+      log.info(`trySpawningGlobalApplication - ${appToRun} application is already running on this Flux`);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9172,16 +9160,7 @@ async function trySpawningGlobalApplication() {
     // get app specifications
     const appSpecifications = await getApplicationGlobalSpecifications(appToRun);
     if (!appSpecifications) {
-      throw new Error(`Specifications for application ${appToRun} were not found!`);
-    }
-
-    // check if app is installed on the number of instances requested
-    let minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
-    if (runningAppList.length >= minInstances) {
-      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
-      await serviceHelper.delay(adjustedDelay);
-      trySpawningGlobalApplication();
-      return;
+      throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
     }
 
     // eslint-disable-next-line no-restricted-syntax
@@ -9200,8 +9179,8 @@ async function trySpawningGlobalApplication() {
     const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     const appExists = apps.find((app) => app.name === appSpecifications.name);
     if (appExists) { // double checked in installation process.
-      log.info(`Application ${appSpecifications.name} is already installed`);
-      await serviceHelper.delay(adjustedDelay);
+      log.info(`trySpawningGlobalApplication - Application ${appSpecifications.name} is already installed`);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9227,24 +9206,24 @@ async function trySpawningGlobalApplication() {
     appPorts.forEach((port) => {
       const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
       if (isUserBlocked) {
-        throw new Error(`Port ${port} is blocked by user. Installation aborted.`);
+        throw new Error(`trySpawningGlobalApplication - Port ${port} is blocked by user. Installation aborted.`);
       }
     });
     // eslint-disable-next-line no-use-before-define
     const portsPubliclyAvailable = await checkInstallingAppPortAvailable(appPorts);
     if (portsPubliclyAvailable === false) {
-      log.error(`Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-      await serviceHelper.delay(adjustedDelay);
+      log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
 
     // double check if app is installed on the number of instances requested
     runningAppList = await getRunningAppList(appToRun);
-    minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
     if (runningAppList.length >= minInstances) {
-      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
-      await serviceHelper.delay(adjustedDelay);
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
+      trySpawningGlobalAppCache.delete(appToRun);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -9261,8 +9240,8 @@ async function trySpawningGlobalApplication() {
       const lastIndex = myIpWithoutPort.lastIndexOf('.');
       const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, lastIndex)));
       if (sameIpRangeNode) {
-        log.info(`Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
-        await serviceHelper.delay(adjustedDelay);
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
+        await serviceHelper.delay(30 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -9281,9 +9260,9 @@ async function trySpawningGlobalApplication() {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of installedAppCompositedSpecification) {
           if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
-            log.info(`${componentToInstall.repotag} Image is already running on this Flux`);
+            log.info(`trySpawningGlobalApplication - ${componentToInstall.repotag} Image is already running on this Flux`);
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(adjustedDelay);
+            await serviceHelper.delay(30 * 60 * 1000);
             trySpawningGlobalApplication();
             return;
           }
@@ -9300,26 +9279,29 @@ async function trySpawningGlobalApplication() {
       const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
       if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
-          timeToCheck: Date.now() + 1.5 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 1.95 * 60 * 60 * 1000,
           appName: appToRun,
+          required: minInstances,
         };
-        log.info(`App ${appToRun} specs are from cumulus, will check in 1.5h if instances are still missing`);
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from cumulus, will check in around 2h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
       } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
         const appToCheck = {
-          timeToCheck: Date.now() + 1 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 1.45 * 60 * 60 * 1000,
           appName: appToRun,
+          required: minInstances,
         };
-        log.info(`App ${appToRun} specs are from nimbus, will check in 1h if instances are still missing`);
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from nimbus, will check in around 1h30 if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
       } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
-          timeToCheck: Date.now() + 0.75 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
           appName: appToRun,
+          required: minInstances,
         };
-        log.info(`App ${appToRun} specs are from cumulus, will check in 45m if instances are still missing`);
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from cumulus, will check in around 1h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
       }
@@ -9329,7 +9311,7 @@ async function trySpawningGlobalApplication() {
     // install the app
     const registerOk = await registerAppLocally(appSpecifications); // can throw
     if (!registerOk) {
-      log.info('Error on registerAppLocally');
+      log.info('trySpawningGlobalApplication - Error on registerAppLocally');
       const broadcastedAt = Date.now();
       const appRemovedMessage = {
         type: 'fluxappremoved',
@@ -9338,30 +9320,50 @@ async function trySpawningGlobalApplication() {
         ip: myIP,
         broadcastedAt,
       };
-      log.info('Broadcasting appremoved message to the network');
+      log.info('trySpawningGlobalApplication - Broadcasting appremoved message to the network');
       // broadcast messages about app removed to all peers
       await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
       await serviceHelper.delay(500);
       await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
-      await serviceHelper.delay(adjustedDelay);
+      await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
 
+    await serviceHelper.delay(1 * 60 * 1000); // await 1 minute to give time for messages to be propagated on the network
     // double check if app is installed in more of the instances requested
     runningAppList = await getRunningAppList(appToRun);
-    minInstances = appSpecifications.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
     if (runningAppList.length > minInstances) {
-      log.info(`Application ${appToRun} is already spawned on ${runningAppList.length} instances, will unninstall it`);
-      removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
+      runningAppList.sort((a, b) => {
+        if (!a.runningSince && b.runningSince) {
+          return -1;
+        }
+        if (a.runningSince && !b.runningSince) {
+          return 1;
+        }
+        if (a.runningSince < b.runningSince) {
+          return -1;
+        }
+        if (a.runningSince > b.runningSince) {
+          return 1;
+        }
+        return 0;
+      });
+      const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
+      if (index + 1 > minInstances) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} is going to be removed as already passed the instances required.`);
+        trySpawningGlobalAppCache.delete(appToRun);
+        removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
+      }
     }
 
-    await serviceHelper.delay(10 * config.fluxapps.installation.delay * 1000);
-    log.info('Reinitiating possible app installation');
+    await serviceHelper.delay(30 * 60 * 1000);
+    log.info('trySpawningGlobalApplication - Reinitiating possible app installation');
     trySpawningGlobalApplication();
   } catch (error) {
     log.error(error);
-    await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+    await serviceHelper.delay(30 * 60 * 1000);
     trySpawningGlobalApplication();
   }
 }
@@ -9901,10 +9903,9 @@ async function checkAndRemoveApplicationInstance() {
  * To soft redeploy. Checks if any other installations/uninstallations are in progress and if not, removes and reinstalls app locally.
  * @param {object} appSpecs App specifications.
  * @param {object} res Response.
- * @param {bool} onlyContainer if true only the container will be recreated.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function softRedeploy(appSpecs, res, onlyContainer) {
+async function softRedeploy(appSpecs, res) {
   try {
     if (removalInProgress) {
       log.warn('Another application is undergoing removal');
@@ -9926,7 +9927,7 @@ async function softRedeploy(appSpecs, res, onlyContainer) {
     }
     log.info('Starting softRedeploy');
     try {
-      await softRemoveAppLocally(appSpecs.name, res, onlyContainer);
+      await softRemoveAppLocally(appSpecs.name, res);
     } catch (error) {
       log.error(error);
       removalInProgress = false;
@@ -9938,15 +9939,11 @@ async function softRedeploy(appSpecs, res, onlyContainer) {
       res.write(serviceHelper.ensureString(appRedeployResponse));
       if (res.flush) res.flush();
     }
-
-    if (!onlyContainer) {
-      await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
-      // verify requirements
-      await checkAppRequirements(appSpecs);
-    }
-
+    await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
+    // verify requirements
+    await checkAppRequirements(appSpecs);
     // register
-    await softRegisterAppLocally(appSpecs, undefined, res, onlyContainer);
+    await softRegisterAppLocally(appSpecs, undefined, res);
     log.info('Application softly redeployed');
   } catch (error) {
     log.info('Error on softRedeploy');
@@ -10401,6 +10398,21 @@ async function getAppFiatAndFluxPrice(req, res) {
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
+      }
+      const appHWrequirements = totalAppHWRequirements(appSpecFormatted, 'bamf');
+      if (appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        actualPriceToPay *= 0.8;
+      } else if (appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+        actualPriceToPay *= 0.9;
+      }
+      let gSyncthgApp = false;
+      if (appSpecFormatted.version <= 3) {
+        gSyncthgApp = appSpecFormatted.containerData.includes('g:');
+      } else {
+        gSyncthgApp = appSpecFormatted.compose.find((comp) => comp.containerData.includes('g:'));
+      }
+      if (gSyncthgApp) {
+        actualPriceToPay *= 0.8;
       }
       const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
       let marketPlaceApps = [];
