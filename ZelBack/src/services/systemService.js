@@ -520,12 +520,12 @@ async function monitorSystem() {
 async function mongoDBConfig() {
   log.info('MongoDB file config verification...');
   try {
-    // 897d2 is latest image file
+    // 6a6fa is latest image file
     // cdf6e is older image file
     // other 2 ar existing fluxOS files
     const hashCurrent = hash(await fs.readFile('/etc/mongod.conf'));
     const vailidHashes = [
-      '897d2185af295a1d53c0c096c8a70f606a1a6d41',
+      '6a6fa72bf83ee5d8f665bed2119e649366f47645',
       'cdf6ed6515ac061f5e6b6084af91767f42cd79d7',
       '4646c649230b8125c7894d618313039f20d1901b',
       '1b20cbacf63c4400d0bf90188615db78b9a7602e',
