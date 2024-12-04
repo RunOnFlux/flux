@@ -1325,7 +1325,7 @@
           <b-col xs="6">
             <b-card title="Redeploy">
               <b-card-text class="mb-2">
-                Redeployes your application. Hard redeploy removes persistant data storage.
+                Reinstall your application from the docker repo. Soft option, keeps data on the instance, Hard option deletes everything and gets installed like a fresh install.
               </b-card-text>
               <div class="text-center">
                 <b-button
@@ -1335,7 +1335,7 @@
                   aria-label="Soft Redeploy App"
                   class="mx-1 my-1"
                 >
-                  Soft Redeploy App
+                  Are you sure you want to reinstall your application from the docker repo?
                 </b-button>
                 <confirm-dialog
                   target="redeploy-app-soft"
@@ -1349,7 +1349,7 @@
                   aria-label="Hard Redeploy App"
                   class="mx-1 my-1"
                 >
-                  Hard Redeploy App
+                  Are you sure you want to reinstall your application from the docker repo and delete all previous data?
                 </b-button>
                 <confirm-dialog
                   target="redeploy-app-hard"
@@ -3453,8 +3453,13 @@
             <b-col xs="6">
               <b-card title="Redeploy">
                 <b-card-text class="mb-2">
-                  {{ isAppOwner ? 'Redeployes all instances of your application.'
-                    + 'Hard redeploy removes persistant data storage. If app uses syncthing it can takes up to 30 to be up and running.' : 'Redeployes instances of selected application running on all of your nodes. Hard redeploy removes persistant data storage.' }}
+                  <div
+                    class="text-danger "
+                  >
+                    Warning: This will be executed on all your aplications instances accross the network
+                  </div>
+                  ' Reinstall your application from the docker repo. Soft option, keeps data on the instance, Hard option deletes everything and gets installed like a fresh install.'
+                  + ' If app uses syncthing it can takes up to 30 to be up and running.'
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -3464,7 +3469,7 @@
                     aria-label="Soft Redeploy App"
                     class="mx-1 my-1"
                   >
-                    Soft Redeploy App
+                    Are you sure you want to reinstall your application from the docker repo on all your instances?
                   </b-button>
                   <confirm-dialog
                     target="redeploy-app-soft-global"
@@ -3478,7 +3483,7 @@
                     aria-label="Hard Redeploy App"
                     class="mx-1 my-1"
                   >
-                    Hard Redeploy App
+                    Are you sure you want to reinstall your application from the docker repo and delete all previous data?
                   </b-button>
                   <confirm-dialog
                     target="redeploy-app-hard-global"
@@ -3489,9 +3494,9 @@
               </b-card>
             </b-col>
             <b-col xs="6">
-              <b-card title="Reinstall">
+              <b-card title="Fresh Start?">
                 <b-card-text class="mb-2">
-                  {{ isAppOwner ? 'Removes all instances of your App forcing an installation on different nodes.' : 'Removes all instances of selected App on all of your nodes forcing installation on different nodes.' }}
+                  'All your app instances are uninstalled and are after installed on new Flux Nodes. All app data will be delete.'
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -3501,7 +3506,7 @@
                     aria-label="Reinstall App"
                     class="mx-1 my-1"
                   >
-                    Reinstall App
+                    Are you sure you want to uninstall the app from all current instances and get them fresh started on new Flux Nodes?
                   </b-button>
                   <confirm-dialog
                     target="remove-app-global"
