@@ -43,7 +43,6 @@ export default {
   },
   data() {
     return {
-      allApps: [],
       activeApps: [],
       expiredApps: [],
       managedApplication: '',
@@ -90,7 +89,7 @@ export default {
       const response = await AppsService.myGlobalAppSpecifications(auth.zelid).catch(
         () => ({ data: { data: [] } }),
       );
-      this.allApps = response.data.data;
+      this.activeApps = response.data.data;
       this.loading.active = false;
     },
     async getExpiredApps() {
@@ -133,7 +132,7 @@ export default {
 
         const expiredApps = [];
         adjustedPermMessages.forEach((msg) => {
-          const appAlreadyDeployed = this.allApps.find(
+          const appAlreadyDeployed = this.activeApps.find(
             (existingApp) => existingApp.name.toLowerCase()
               === msg.appSpecifications.name.toLowerCase(),
           );
