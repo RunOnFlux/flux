@@ -80,11 +80,6 @@ export default {
     },
     async getActiveApps() {
       this.loading.active = true;
-      const response = await AppsService.globalAppSpecifications().catch(
-        () => ({ data: { data: [] } }),
-      );
-      this.allApps = response.data.data;
-
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
 
@@ -92,8 +87,10 @@ export default {
         this.$set(this.activeApps, []);
         return;
       }
-
-      this.activeApps = this.allApps.filter((app) => app.owner === auth.zelid);
+      const response = await AppsService.myGlobalAppSpecifications(auth.zelid).catch(
+        () => ({ data: { data: [] } }),
+      );
+      this.allApps = response.data.data;
       this.loading.active = false;
     },
     async getExpiredApps() {
