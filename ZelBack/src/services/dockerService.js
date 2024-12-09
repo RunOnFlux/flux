@@ -9,7 +9,9 @@ const deviceHelper = require('./deviceHelper');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
-const appsFolder = `${fluxDirPath}ZelApps/`;
+// ToDo: Fix all the string concatenation in this file and use path.join()
+const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+const appsFolder = `${appsFolderPath}/`;
 
 const docker = new Docker();
 
