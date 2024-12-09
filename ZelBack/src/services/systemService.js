@@ -521,7 +521,13 @@ async function mongoDBConfig() {
   log.info('MongoDB file config verification...');
   try {
     const hashCurrent = hash(await fs.readFile('/etc/mongod.conf'));
-    const vailidHashes = ['4646c649230b8125c7894d618313039f20d1901b', '1b20cbacf63c4400d0bf90188615db78b9a7602e'];
+    // 6a6fa is latest fluxOS image config
+    // other 2 ar existing fluxOS config files
+    const vailidHashes = [
+      '6a6fa72bf83ee5d8f665bed2119e649366f47645',
+      '4646c649230b8125c7894d618313039f20d1901b',
+      '1b20cbacf63c4400d0bf90188615db78b9a7602e',
+    ];
     if (vailidHashes.indexOf(hashCurrent) !== -1) {
       log.info('MongoDB config verification passed.');
       return;
