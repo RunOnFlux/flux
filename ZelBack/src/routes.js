@@ -328,7 +328,7 @@ module.exports = (app) => {
   app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppsPermanentMessages(req, res);
   });
-  app.get('/apps/globalappsspecifications', cache('30 seconds'), (req, res) => {
+  app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getGlobalAppsSpecifications(req, res);
   });
   app.get('/apps/appspecifications/:appname?', cache('30 seconds'), (req, res) => {
