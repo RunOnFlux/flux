@@ -1335,7 +1335,7 @@
                   aria-label="Soft Redeploy App"
                   class="mx-1 my-1"
                 >
-                  Are you sure you want to reinstall your application from the docker repo?
+                  Soft Reinstall
                 </b-button>
                 <confirm-dialog
                   target="redeploy-app-soft"
@@ -1349,7 +1349,7 @@
                   aria-label="Hard Redeploy App"
                   class="mx-1 my-1"
                 >
-                  Are you sure you want to reinstall your application from the docker repo and delete all previous data?
+                  Hard Reinstall
                 </b-button>
                 <confirm-dialog
                   target="redeploy-app-hard"
@@ -3469,7 +3469,7 @@
                     aria-label="Soft Redeploy App"
                     class="mx-1 my-1"
                   >
-                    Are you sure you want to reinstall your application from the docker repo on all your instances?
+                    Soft Reinstall
                   </b-button>
                   <confirm-dialog
                     target="redeploy-app-soft-global"
@@ -3483,7 +3483,7 @@
                     aria-label="Hard Redeploy App"
                     class="mx-1 my-1"
                   >
-                    Are you sure you want to reinstall your application from the docker repo and delete all previous data?
+                    Hard Reinstall
                   </b-button>
                   <confirm-dialog
                     target="redeploy-app-hard-global"
@@ -3496,7 +3496,7 @@
             <b-col xs="6">
               <b-card title="Fresh Start?">
                 <b-card-text class="mb-2">
-                  'All your app instances are uninstalled and are after installed on new Flux Nodes. All app data will be delete.'
+                  All your app instances are uninstalled and are after installed on new Flux Nodes. All app data will be delete.
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -3506,7 +3506,7 @@
                     aria-label="Reinstall App"
                     class="mx-1 my-1"
                   >
-                    Are you sure you want to uninstall the app from all current instances and get them fresh started on new Flux Nodes?
+                    Get New Instances
                   </b-button>
                   <confirm-dialog
                     target="remove-app-global"
