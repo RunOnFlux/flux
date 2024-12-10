@@ -678,6 +678,10 @@ async function fluxShareFileExists(req, res) {
       let { file } = req.params;
       file = file || req.query.file;
 
+      if (!file) {
+        throw new Error('No File specified');
+      }
+
       const filepath = path.join(appsFolder, 'ZelShare', file);
       let fileExists = true;
       try {
