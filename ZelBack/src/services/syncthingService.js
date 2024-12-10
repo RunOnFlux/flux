@@ -2501,58 +2501,58 @@ async function stopSyncthingSentinel() {
  * @returns {Promise<void>}
  */
 async function ensureSyncthingRunning(installed) {
-  if (!installed || !await getDeviceId()) {
-    log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
-    await stopSyncthing();
-    await installSyncthingIdempotently();
-    await configureDirectories();
+  if (installed && await getDeviceId()) return;
 
-    const homedir = os.homedir();
-    const syncthingHome = path.join(homedir, '.config/syncthing');
-    const logFile = path.join(syncthingHome, 'syncthing.log');
+  log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
+  await stopSyncthing();
+  await installSyncthingIdempotently();
+  await configureDirectories();
 
-    log.info('Spawning Syncthing instance...');
+  const homedir = os.homedir();
+  const syncthingHome = path.join(homedir, '.config/syncthing');
+  const logFile = path.join(syncthingHome, 'syncthing.log');
 
-    // if nodeJS binary has the CAP_SETUID capability, can then set the uid to 0,
-    // without having to call sudo. IMO, Flux should be run as it's own user, not just
-    // whatever the operator installed as.
-    // this can throw
+  log.info('Spawning Syncthing instance...');
 
-    // having issues with nodemon and pm2. Using pm2 --no-treekill stops syncthing getting
-    // killed, but then get issues with nodemon not dying.
+  // if nodeJS binary has the CAP_SETUID capability, can then set the uid to 0,
+  // without having to call sudo. IMO, Flux should be run as it's own user, not just
+  // whatever the operator installed as.
+  // this can throw
 
-    // adding old spawn with shell in the interim.
+  // having issues with nodemon and pm2. Using pm2 --no-treekill stops syncthing getting
+  // killed, but then get issues with nodemon not dying.
 
-    childProcess.spawn(
-      `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
-      { shell: true },
-    ).unref();
+  // adding old spawn with shell in the interim.
 
-    // childProcess.spawn(
-    //   'sudo',
-    //   [
-    //     'nohup',
-    //     'syncthing',
-    //     '--logfile',
-    //     logFile,
-    //     '--logflags=3',
-    //     '--log-max-old-files=2',
-    //     '--log-max-size=26214400',
-    //     '--allow-newer-config',
-    //     '--no-browser',
-    //     '--home',
-    //     syncthingHome,
-    //   ],
-    //   {
-    //     detached: true,
-    //     stdio: 'ignore',
-    //     // uid: 0,
-    //   },
-    // ).unref();
+  childProcess.spawn(
+    `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
+    { shell: true },
+  ).unref();
 
-    // let syncthing set itself up
-    await stc.sleep(5 * 1000);
-  }
+  // childProcess.spawn(
+  //   'sudo',
+  //   [
+  //     'nohup',
+  //     'syncthing',
+  //     '--logfile',
+  //     logFile,
+  //     '--logflags=3',
+  //     '--log-max-old-files=2',
+  //     '--log-max-size=26214400',
+  //     '--allow-newer-config',
+  //     '--no-browser',
+  //     '--home',
+  //     syncthingHome,
+  //   ],
+  //   {
+  //     detached: true,
+  //     stdio: 'ignore',
+  //     // uid: 0,
+  //   },
+  // ).unref();
+
+  // let syncthing set itself up
+  await stc.sleep(5 * 1000);
 }
 
 /**
@@ -2569,7 +2569,7 @@ async function runSyncthingSentinel() {
 
   try {
     if (!process.env.SYNCTHING_PATH) {
-      await ensureSyncthingRunning();
+      await ensureSyncthingRunning(installed);
     }
 
     if (stc.aborted) return 0;
