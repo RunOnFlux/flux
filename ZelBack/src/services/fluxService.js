@@ -1121,6 +1121,14 @@ async function getFluxInfo(req, res) {
     if (dosResult.status === 'error') {
       throw dosAppsResult.data;
     }
+    const arcaneHumanVersion = process.env.FLUXOS_HUMAN_VERSION;
+    const arcaneVersion = process.env.FLUXOS_VERSION;
+    if (arcaneVersion) {
+      info.flux.arcaneVersion = arcaneVersion;
+    }
+    if (arcaneHumanVersion) {
+      info.flux.arcaneHumanVersion = arcaneHumanVersion;
+    }
     info.flux.appsDos = dosAppsResult.data;
     info.flux.development = userconfig.initial.development || false;
     const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
