@@ -83,7 +83,7 @@ class DaemonConfig {
 
     const { fluxPath, zelPath } = DaemonConfig.daemonConfigPaths[this.platform];
 
-    const fluxConf = path.join(this.baseDir, fluxPath);
+    const fluxConf = process.env.FLUXD_CONFIG_PATH || path.join(this.baseDir, fluxPath);
     const zelConf = path.join(this.baseDir, zelPath);
 
     const fluxExists = await fs.stat(fluxConf).catch(() => false);

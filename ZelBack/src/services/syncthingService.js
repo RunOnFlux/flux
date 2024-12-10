@@ -47,15 +47,14 @@ const asyncLock = new AsyncLock();
 const stc = new FluxController();
 
 /**
- * To get syncthing config xml file
- * @returns {Promise<(string | null)>} config gile (XML).
+ *
+ * Temporary function until Arcane is deployed
+ * @param {string} configDir The uesrs config dir
+ * @param {string} syncthingDir The syncthing config dir
+ * @param {string} configFile  The syncthing config file
+ * @returns {Promise<boolean>}
  */
-async function getConfigFile() {
-  const homedir = os.homedir();
-  const configDir = path.join(homedir, '.config');
-  const syncthingDir = path.join(configDir, 'syncthing');
-  const configFile = path.join(syncthingDir, 'config.xml');
-
+async function changeSyncthingOwnership(configDir, syncthingDir, configFile) {
   const user = os.userInfo().username;
   const owner = `${user}:${user}`;
 
@@ -66,7 +65,7 @@ async function getConfigFile() {
     params: [owner, configDir],
   });
 
-  if (chownConfigDirError) return null;
+  if (chownConfigDirError) return false;
 
   const { error: chownSyncthingError } = await serviceHelper.runCommand('chown', {
     runAsRoot: true,
@@ -74,7 +73,7 @@ async function getConfigFile() {
     params: [owner, syncthingDir],
   });
 
-  if (chownSyncthingError) return null;
+  if (chownSyncthingError) return false;
 
   const { error: chmodError } = await serviceHelper.runCommand('chmod', {
     runAsRoot: true,
@@ -82,7 +81,26 @@ async function getConfigFile() {
     params: ['644', configFile],
   });
 
-  if (chmodError) return null;
+  if (chmodError) return false;
+
+  return true;
+}
+
+/**
+ * To get syncthing config xml file
+ * @returns {Promise<(string | null)>} config file (XML).
+ */
+async function getConfigFile() {
+  const homedir = os.homedir();
+  const configDir = path.join(homedir, '.config');
+  const syncthingDir = process.env.SYNCTHING_PATH || path.join(configDir, 'syncthing');
+  const configFile = path.join(syncthingDir, 'config.xml');
+
+  // only arcane will have this env param
+  if (!process.env.SYNCTHING_PATH) {
+    const ownershipChanged = await changeSyncthingOwnership(configDir, syncthingDir, configFile);
+    if (!ownershipChanged) return null;
+  }
 
   let result = null;
   // this should never reject as chown would error first but just in case
@@ -2478,6 +2496,66 @@ async function stopSyncthingSentinel() {
 }
 
 /**
+ * Temporary function until moved over to Arcane
+ * @param {boolean} installed If syncthing is installed
+ * @returns {Promise<void>}
+ */
+async function ensureSyncthingRunning(installed) {
+  if (installed && await getDeviceId()) return;
+
+  log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
+  await stopSyncthing();
+  await installSyncthingIdempotently();
+  await configureDirectories();
+
+  const homedir = os.homedir();
+  const syncthingHome = path.join(homedir, '.config/syncthing');
+  const logFile = path.join(syncthingHome, 'syncthing.log');
+
+  log.info('Spawning Syncthing instance...');
+
+  // if nodeJS binary has the CAP_SETUID capability, can then set the uid to 0,
+  // without having to call sudo. IMO, Flux should be run as it's own user, not just
+  // whatever the operator installed as.
+  // this can throw
+
+  // having issues with nodemon and pm2. Using pm2 --no-treekill stops syncthing getting
+  // killed, but then get issues with nodemon not dying.
+
+  // adding old spawn with shell in the interim.
+
+  childProcess.spawn(
+    `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
+    { shell: true },
+  ).unref();
+
+  // childProcess.spawn(
+  //   'sudo',
+  //   [
+  //     'nohup',
+  //     'syncthing',
+  //     '--logfile',
+  //     logFile,
+  //     '--logflags=3',
+  //     '--log-max-old-files=2',
+  //     '--log-max-size=26214400',
+  //     '--allow-newer-config',
+  //     '--no-browser',
+  //     '--home',
+  //     syncthingHome,
+  //   ],
+  //   {
+  //     detached: true,
+  //     stdio: 'ignore',
+  //     // uid: 0,
+  //   },
+  // ).unref();
+
+  // let syncthing set itself up
+  await stc.sleep(5 * 1000);
+}
+
+/**
  * Main syncthing runner. Controller (stc) will loop this function
  * @returns {number} ms until next iteration
  */
@@ -2490,60 +2568,11 @@ async function runSyncthingSentinel() {
   }
 
   try {
-    if (!installed || !await getDeviceId()) {
-      log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
-      await stopSyncthing();
-      await installSyncthingIdempotently();
-      await configureDirectories();
-
-      const homedir = os.homedir();
-      const syncthingHome = path.join(homedir, '.config/syncthing');
-      const logFile = path.join(syncthingHome, 'syncthing.log');
-
-      if (stc.aborted) return 0;
-
-      log.info('Spawning Syncthing instance...');
-
-      // if nodeJS binary has the CAP_SETUID capability, can then set the uid to 0,
-      // without having to call sudo. IMO, Flux should be run as it's own user, not just
-      // whatever the operator installed as.
-      // this can throw
-
-      // having issues with nodemon and pm2. Using pm2 --no-treekill stops syncthing getting
-      // killed, but then get issues with nodemon not dying.
-
-      // adding old spawn with shell in the interim.
-
-      childProcess.spawn(
-        `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
-        { shell: true },
-      ).unref();
-
-      // childProcess.spawn(
-      //   'sudo',
-      //   [
-      //     'nohup',
-      //     'syncthing',
-      //     '--logfile',
-      //     logFile,
-      //     '--logflags=3',
-      //     '--log-max-old-files=2',
-      //     '--log-max-size=26214400',
-      //     '--allow-newer-config',
-      //     '--no-browser',
-      //     '--home',
-      //     syncthingHome,
-      //   ],
-      //   {
-      //     detached: true,
-      //     stdio: 'ignore',
-      //     // uid: 0,
-      //   },
-      // ).unref();
-
-      // let syncthing set itself up
-      await stc.sleep(5 * 1000);
+    if (!process.env.SYNCTHING_PATH) {
+      await ensureSyncthingRunning(installed);
     }
+
+    if (stc.aborted) return 0;
 
     // every 8 minutes call adjustSyncthing to check service folders
     // this will also run on first iteration

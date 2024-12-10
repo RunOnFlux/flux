@@ -122,6 +122,9 @@ export default {
   globalAppSpecifications() {
     return Api().get('/apps/globalappsspecifications');
   },
+  myGlobalAppSpecifications(owner) {
+    return Api().get(`/apps/globalappsspecifications?owner=${owner}`);
+  },
   permanentMessagesOwner(owner) {
     return Api().get(`/apps/permanentmessages?owner=${owner}`);
   },

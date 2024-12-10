@@ -46,7 +46,9 @@ const { invalidMessages } = require('./invalidMessages');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 
 const fluxDirPath = path.join(__dirname, '../../../');
-const appsFolder = `${fluxDirPath}ZelApps/`;
+// ToDo: Fix all the string concatenation in this file and use path.join()
+const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+const appsFolder = `${appsFolderPath}/`;
 
 const cmdAsync = util.promisify(nodecmd.get);
 const crontabLoad = util.promisify(systemcrontab.load);
@@ -4541,6 +4543,21 @@ async function getGlobalAppsSpecifications(req, res) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+    let { owner } = req.params;
+    owner = owner || req.query.owner;
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (hash) {
+      query.hash = hash;
+    }
+    if (owner) {
+      query.owner = owner;
+    }
+    if (appname) {
+      query.name = appname;
+    }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
@@ -9093,6 +9110,7 @@ async function trySpawningGlobalApplication() {
     log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} that are missing instances on the network.`);
 
     let appToRun = null;
+    let appToRunAux = null;
     let minInstances = null;
     let appFromAppsToBeCheckedLater = false;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
@@ -9113,8 +9131,13 @@ async function trySpawningGlobalApplication() {
         return;
       }
       log.info(`trySpawningGlobalApplication - Found ${globalAppNamesLocation.length} apps that are missing instances on the network and can be selected to try to spawn on my node.`);
-      const random = Math.floor(Math.random() * globalAppNamesLocation.length);
-      const appToRunAux = globalAppNamesLocation[random];
+      let random = Math.floor(Math.random() * globalAppNamesLocation.length);
+      appToRunAux = globalAppNamesLocation[random];
+      const filterAppsWithNyNodeIP = globalAppNamesLocation.filter((app) => app.nodes.find((ip) => ip === myIP));
+      if (filterAppsWithNyNodeIP.length > 0) {
+        random = Math.floor(Math.random() * filterAppsWithNyNodeIP.length);
+        appToRunAux = filterAppsWithNyNodeIP[random];
+      }
       appToRun = appToRunAux.name;
       minInstances = appToRunAux.required;
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
@@ -9274,7 +9297,7 @@ async function trySpawningGlobalApplication() {
       await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture });
     }
 
-    if (!appFromAppsToBeCheckedLater) {
+    if (!appFromAppsToBeCheckedLater && appToRunAux.nodes.length === 0) {
       const tier = await generalService.nodeTier();
       const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
       if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
