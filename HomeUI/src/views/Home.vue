@@ -161,7 +161,6 @@
           </b-card-text>
           <div class="loginRow">
             <a
-              :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
               title="Login with Zelcore"
               @click="initiateLoginWS"
             >
@@ -687,6 +686,7 @@ export default {
     },
     initiateLoginWS() {
       const self = this;
+      this.initZelcore();
       let backendURL = this.backendURL();
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
@@ -957,6 +957,17 @@ export default {
           account = ethereum.selectedAddress;
         }
         this.siwe(this.loginPhrase, account);
+      } catch (error) {
+        this.showToast('danger', error.message);
+      }
+    },
+    initZelcore() {
+      try {
+        if (window.zelcore) {
+          window.zelcore.protocol(`zel:?action=sign&message=${this.loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`);
+        } else {
+          window.open(`zel:?action=sign&message=${this.loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`);
+        }
       } catch (error) {
         this.showToast('danger', error.message);
       }
