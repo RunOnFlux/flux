@@ -155,7 +155,7 @@ async function nodeCollateral() {
 
 /**
  * Checks if a node's status is confirmed.
- * @returns {boolean} True if node is confirmed. False if there is an error.
+ * @returns {boolean} True if node is confirmed, false if not, throws exception if there is a problem with dameon.
  */
 async function isNodeStatusConfirmed() {
   try {
