@@ -1,12 +1,10 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
-const nodecmd = require('node-cmd');
 const { promisify } = require('node:util');
 
 const config = require('config');
-// eslint-disable-next-line import/no-extraneous-dependencies
-const util = require('util');
+
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
@@ -1620,7 +1618,6 @@ async function streamChain(req, res) {
     res.status(503).end();
     return;
   }
-  const cmdAsync = util.promisify(nodecmd.get);
   try {
     lock = true;
 
@@ -1693,11 +1690,13 @@ async function streamChain(req, res) {
       res.status(422).end();
       return;
     }
-    let execStopServices = 'systemctl stop fluxd.service && systemctl stop flux-watchdog.service';
-    if (!isArcane) {
-      execStopServices = 'sudo systemctl stop zelcash.service && pm2 stop watchdog';
+    // stop services
+    if (isArcane) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
+    } else {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
+      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
     }
-    await cmdAsync(execStopServices);
 
     if (safe) {
       const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
@@ -1750,11 +1749,13 @@ async function streamChain(req, res) {
   } catch (error) {
     log.error(error);
   } finally {
-    let execStartServices = 'systemctl start fluxd.service && systemctl start flux-watchdog.service';
-    if (!isArcane) {
-      execStartServices = 'sudo systemctl start zelcash.service && pm2 start watchdog --watch';
+    // start services
+    if (isArcane) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+    } else {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
     }
-    cmdAsync(execStartServices);
     lock = false;
   }
 }
