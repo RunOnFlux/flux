@@ -1,10 +1,12 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
+const nodecmd = require('node-cmd');
 const { promisify } = require('node:util');
 
 const config = require('config');
-
+// eslint-disable-next-line import/no-extraneous-dependencies
+const util = require('util');
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
 const serviceHelper = require('./serviceHelper');
@@ -31,6 +33,8 @@ const tar = require('tar/create');
 // use non promises stream for node 14.x compatibility
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
+
+const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 /**
  * Stream chain lock, so only one request at a time
@@ -1616,7 +1620,7 @@ async function streamChain(req, res) {
     res.status(503).end();
     return;
   }
-
+  const cmdAsync = util.promisify(nodecmd.get);
   try {
     lock = true;
 
@@ -1689,6 +1693,11 @@ async function streamChain(req, res) {
       res.status(422).end();
       return;
     }
+    let execStopServices = 'systemctl stop fluxd.service && systemctl stop flux-watchdog.service';
+    if (!isArcane) {
+      execStopServices = 'sudo systemctl stop zelcash.service && pm2 stop watchdog';
+    }
+    await cmdAsync(execStopServices);
 
     if (safe) {
       const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
@@ -1738,7 +1747,14 @@ async function streamChain(req, res) {
     const error = await pipeline(...workflow).catch((err) => err);
 
     if (error) log.warn(`Stream error: ${error.code}`);
+  } catch (error) {
+    log.error(error);
   } finally {
+    let execStartServices = 'systemctl start fluxd.service && systemctl start flux-watchdog.service';
+    if (!isArcane) {
+      execStartServices = 'sudo systemctl start zelcash.service && pm2 start watchdog --watch';
+    }
+    cmdAsync(execStartServices);
     lock = false;
   }
 }
