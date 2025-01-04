@@ -169,7 +169,7 @@ async function isNodeStatusConfirmed() {
     return false;
   } catch (error) {
     log.error(error);
-    return false;
+    throw error;
   }
 }
 
