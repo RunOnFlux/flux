@@ -15,6 +15,8 @@ const serviceHelper = require('./serviceHelper');
 const fifoQueue = require('./utils/fifoQueue');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 /**
  * The running interval to check when syncthing was updated
  */
@@ -498,6 +500,8 @@ async function monitorAptCache(event) {
  * @returns {Promise<void>}
  */
 async function monitorSystem() {
+  if (isArcane) return;
+
   try {
     aptQueue.addWorker(aptRunner);
     aptQueue.on('failed', monitorAptCache);
@@ -518,13 +522,12 @@ async function monitorSystem() {
 }
 
 async function mongoDBConfig() {
+  if (isArcane) return;
+
   log.info('MongoDB file config verification...');
   try {
     const hashCurrent = hash(await fs.readFile('/etc/mongod.conf'));
-    // 6a6fa is latest fluxOS image config
-    // other 2 ar existing fluxOS config files
     const vailidHashes = [
-      '6a6fa72bf83ee5d8f665bed2119e649366f47645',
       '4646c649230b8125c7894d618313039f20d1901b',
       '1b20cbacf63c4400d0bf90188615db78b9a7602e',
     ];
@@ -576,6 +579,8 @@ async function mongoDBConfig() {
 
 // eslint-disable-next-line consistent-return
 async function mongodGpgKeyVeryfity() {
+  if (isArcane) return true;
+
   log.info('MongoDB GPG verification...');
   try {
     const { stdout, stderr, error } = await serviceHelper.runCommand('gpg', { runAsRoot: false, params: ['--no-default-keyring', '--keyring', '/usr/share/keyrings/mongodb-archive-keyring.gpg', '--list-keys'] });
@@ -633,6 +638,8 @@ async function restartSystemdService(service) {
 }
 
 async function enableFluxdZmq(zmqEndpoint) {
+  if (isArcane) return true;
+
   if (typeof zmqEndpoint !== 'string') return false;
 
   const fluxConfigDir = daemonServiceUtils.getFluxdDir();

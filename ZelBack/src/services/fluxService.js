@@ -65,8 +65,13 @@ function lockStreamLock() {
  * @returns {Promise<object>} Message.
  */
 async function fluxBackendFolder(req, res) {
-  const fluxBackFolder = path.join(__dirname, '../../');
-  const message = messageHelper.createDataMessage(fluxBackFolder);
+  const projectRoot = process.env.FLUXOS_PATH;
+
+  const backendDir = projectRoot
+    ? path.join(projectRoot, 'ZelBack')
+    : path.join(__dirname, '../../');
+
+  const message = messageHelper.createDataMessage(backendDir);
   return res.json(message);
 }
 
