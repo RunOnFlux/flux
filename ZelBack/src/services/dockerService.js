@@ -641,6 +641,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       throw new Error('Environment parameters from Secrets are invalid - not an array');
     }
   }
+  // push X_FLUXOS_IP to env
+  envParams.push(`X_FLUXOS_IP=${userconfig.initial.ipaddress || '127.0.0.1'}`);
+  envParams.push(`X_FLUXOS_PORT=${userconfig.initial.apiport || config.server.apiport}`);
   const adjustedCommands = [];
   appSpecifications.commands.forEach((command) => {
     if (command !== '--privileged') {
