@@ -23,6 +23,8 @@ const cmdAsync = util.promisify(nodecmd.get);
 
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
+const isArcane = Boolean(process.env.SYNCTHING_PATH);
+
 /**
  * If the binary is executable
  */
@@ -96,8 +98,7 @@ async function getConfigFile() {
   const syncthingDir = process.env.SYNCTHING_PATH || path.join(configDir, 'syncthing');
   const configFile = path.join(syncthingDir, 'config.xml');
 
-  // only arcane will have this env param
-  if (!process.env.SYNCTHING_PATH) {
+  if (!isArcane) {
     const ownershipChanged = await changeSyncthingOwnership(configDir, syncthingDir, configFile);
     if (!ownershipChanged) return null;
   }
@@ -2568,7 +2569,7 @@ async function runSyncthingSentinel() {
   }
 
   try {
-    if (!process.env.SYNCTHING_PATH) {
+    if (!isArcane) {
       await ensureSyncthingRunning(installed);
     }
 
@@ -2597,7 +2598,7 @@ async function runSyncthingSentinel() {
  * @returns {<void>}
  */
 async function startSyncthingSentinel() {
-  while (!syncthingBinaryPresent) {
+  while (!isArcane && !syncthingBinaryPresent) {
     // eslint-disable-next-line no-await-in-loop
     const { error } = await serviceHelper.runCommand('syncthing', { logError: false, params: ['--version'] });
 

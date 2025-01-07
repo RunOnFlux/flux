@@ -32,6 +32,8 @@ const tar = require('tar/create');
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 /**
  * Stream chain lock, so only one request at a time
  */
@@ -65,8 +67,13 @@ function lockStreamLock() {
  * @returns {Promise<object>} Message.
  */
 async function fluxBackendFolder(req, res) {
-  const fluxBackFolder = path.join(__dirname, '../../');
-  const message = messageHelper.createDataMessage(fluxBackFolder);
+  const projectRoot = process.env.FLUXOS_PATH;
+
+  const backendDir = projectRoot
+    ? path.join(projectRoot, 'ZelBack')
+    : path.join(__dirname, '../../');
+
+  const message = messageHelper.createDataMessage(backendDir);
   return res.json(message);
 }
 
@@ -1611,7 +1618,6 @@ async function streamChain(req, res) {
     res.status(503).end();
     return;
   }
-
   try {
     lock = true;
 
@@ -1684,6 +1690,13 @@ async function streamChain(req, res) {
       res.status(422).end();
       return;
     }
+    // stop services
+    if (isArcane) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
+    } else {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
+      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
+    }
 
     if (safe) {
       const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
@@ -1733,7 +1746,16 @@ async function streamChain(req, res) {
     const error = await pipeline(...workflow).catch((err) => err);
 
     if (error) log.warn(`Stream error: ${error.code}`);
+  } catch (error) {
+    log.error(error);
   } finally {
+    // start services
+    if (isArcane) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+    } else {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+    }
     lock = false;
   }
 }

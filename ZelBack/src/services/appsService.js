@@ -9020,7 +9020,8 @@ async function trySpawningGlobalApplication() {
       firstExecutionAfterItsSynced = false;
     }
 
-    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    let isNodeConfirmed = false;
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Global applications will not be installed');
       fluxNodeWasNotConfirmedOnLastCheck = true;
@@ -9028,6 +9029,7 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
+
     if (fluxNodeWasAlreadyConfirmed && fluxNodeWasNotConfirmedOnLastCheck) {
       fluxNodeWasNotConfirmedOnLastCheck = false;
       setTimeout(() => {
@@ -9396,11 +9398,13 @@ async function trySpawningGlobalApplication() {
  */
 async function checkAndNotifyPeersOfRunningApps() {
   try {
-    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    let isNodeConfirmed = false;
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
     if (!isNodeConfirmed) {
       log.info('checkAndNotifyPeersOfRunningApps - FluxNode is not Confirmed');
       return;
     }
+
     // get my external IP and check that it is longer than 5 in length.
     const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
     let myIP = null;
@@ -11910,13 +11914,15 @@ async function checkMyAppsAvailability() {
       checkMyAppsAvailability();
       return;
     }
-    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+    let isNodeConfirmed = false;
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Application checks are disabled');
       await serviceHelper.delay(4 * 60 * 1000);
       checkMyAppsAvailability();
       return;
     }
+
     let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     myIP = myIP.split(':')[0];
     const myPort = myIP.split(':')[1] || 16127;
@@ -13237,19 +13243,19 @@ async function getAppSpecsUSDPrice(req, res) {
   }
 }
 
-let nodeConfirmedOnLastCheck = true;
 /**
  * Method responsable to monitor node status ans uninstall apps if node is not confirmed
  */
 // eslint-disable-next-line consistent-return
 async function monitorNodeStatus() {
   try {
+    let isNodeConfirmed = false;
     if (fluxNetworkHelper.getDosStateValue() >= 100) {
       const installedAppsRes = await installedApps();
       if (installedAppsRes.status !== 'success') {
         throw new Error('monitorNodeStatus - Failed to get installed Apps');
       }
-      const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
+      isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
       const appsInstalled = installedAppsRes.data;
       // eslint-disable-next-line no-restricted-syntax
       for (const installedApp of appsInstalled) {
@@ -13261,36 +13267,33 @@ async function monitorNodeStatus() {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
       }
-      await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
-    }
-    const isNodeConfirmed = await generalService.isNodeStatusConfirmed();
-    if (!isNodeConfirmed) {
-      log.info('monitorNodeStatus - Node is not Confirmed');
-      if (!nodeConfirmedOnLastCheck) {
-        const installedAppsRes = await installedApps();
-        if (installedAppsRes.status !== 'success') {
-          throw new Error('monitorNodeStatus - Failed to get installed Apps');
-        }
-        const appsInstalled = installedAppsRes.data;
-        // eslint-disable-next-line no-restricted-syntax
-        for (const installedApp of appsInstalled) {
-          log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network`);
-          log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
-          // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(installedApp.name, null, true, false, false);
-          log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
-          // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
-        }
-        await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
-      } else {
-        nodeConfirmedOnLastCheck = false;
-        await serviceHelper.delay(5 * 60 * 1000); // 5m delay before next check
-      }
+      await serviceHelper.delay(10 * 60 * 1000); // 10m delay before next check
       return monitorNodeStatus();
     }
+    let error = false;
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => { error = true; });
+    if (!isNodeConfirmed && !error) {
+      log.info('monitorNodeStatus - Node is not Confirmed');
+      const installedAppsRes = await installedApps();
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('monitorNodeStatus - Failed to get installed Apps');
+      }
+      const appsInstalled = installedAppsRes.data;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of appsInstalled) {
+        log.info(`monitorNodeStatus - Application ${installedApp.name} going to be removed from node as the node is not confirmed on the network`);
+        log.warn(`monitorNodeStatus - Removing application ${installedApp.name} locally`);
+        // eslint-disable-next-line no-await-in-loop
+        await removeAppLocally(installedApp.name, null, true, false, false);
+        log.warn(`monitorNodeStatus - Application ${installedApp.name} locally removed`);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(60 * 1000); // wait for 1 min between each removal
+      }
+      await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
+      return monitorNodeStatus();
+    }
+
     log.info('monitorNodeStatus - Node is Confirmed');
-    nodeConfirmedOnLastCheck = true;
     // lets remove from locations when nodes are no longer confirmed
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
@@ -13301,7 +13304,7 @@ async function monitorNodeStatus() {
     let nodeList = await fluxCommunicationUtils.deterministicFluxList();
     nodeList = nodeList.map(({ ip }) => ip);
     const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes(location));
-    log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on determinisct node list`);
+    log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
     // eslint-disable-next-line no-restricted-syntax
     for (const location of appsLocationsNotOnNodelist) {
       log.info(`monitorNodeStatus - Checking IP ${location}.`);
