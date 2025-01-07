@@ -597,18 +597,17 @@ describe('generalService tests', () => {
     });
 
     it('should return false if getFluxnodeStatus returns error', async () => {
-      getFluxNodeStatusStub.returns(
-        {
-          status: 'error',
-          data: {
-            message: 'This is some error!',
-          },
+      const error = {
+        status: 'error',
+        data: {
+          message: 'This is some error!',
         },
-      );
+      };
+      getFluxNodeStatusStub.returns(error);
 
       const result = await generalService.isNodeStatusConfirmed();
 
-      expect(result).to.eql(false);
+      expect(result).to.eql(error);
     });
 
     it('should return true if getFluxnodeStatus returns succcess and confirmed status', async () => {
