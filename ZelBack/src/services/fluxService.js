@@ -1656,8 +1656,6 @@ async function streamChainPreparation(req, res) {
     res.json(response);
   } finally {
     setTimeout(() => {
-      prepLock = false;
-
       if (daemonStartRequired) {
         // start services
         if (isArcane) {
@@ -1667,6 +1665,7 @@ async function streamChainPreparation(req, res) {
           serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
         }
       }
+      prepLock = false;
     }, 30 * 1000);
   }
 }
