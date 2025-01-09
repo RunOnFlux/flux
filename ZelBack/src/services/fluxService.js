@@ -1651,12 +1651,15 @@ async function streamChain(req, res) {
     const urlExplorerB = 'https://explorer.flux.zelcore.io/api/status?q=getInfo';
     let explorerError = false;
     let explorerResponse;
-    explorerResponse = await serviceHelper.axiosGet(urlExplorerA).catch(() => {
+    const axiosConfig = {
+      timeout: 10000,
+    };
+    explorerResponse = await serviceHelper.axiosGet(urlExplorerA, axiosConfig).catch(() => {
       explorerError = true;
     });
     if (explorerError || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
       explorerError = false;
-      explorerResponse = await serviceHelper.axiosGet(urlExplorerB).catch(() => {
+      explorerResponse = await serviceHelper.axiosGet(urlExplorerB, axiosConfig).catch(() => {
         explorerError = true;
       });
     }
