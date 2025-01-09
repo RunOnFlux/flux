@@ -1644,7 +1644,6 @@ async function streamChainPreparation(req, res) {
       return;
     }
 
-    daemonStartRequired = true;
     // stop services
     if (isArcane) {
       await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
@@ -1652,6 +1651,7 @@ async function streamChainPreparation(req, res) {
       await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
       await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
     }
+    daemonStartRequired = true;
     const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
     res.json(response);
   } finally {
