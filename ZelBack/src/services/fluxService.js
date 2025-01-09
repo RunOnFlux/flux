@@ -1646,7 +1646,6 @@ async function streamChainPreparation(req, res) {
 
     // stop services
     if (isArcane) {
-      // these can raise
       await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
     } else {
       await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
@@ -1658,8 +1657,6 @@ async function streamChainPreparation(req, res) {
   } finally {
     setTimeout(() => {
       prepLock = false;
-
-      // if streamChain crashes in the first 30 seconds... this will start watchdog twice
 
       if (daemonStartRequired) {
         // start services
