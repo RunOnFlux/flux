@@ -1851,13 +1851,17 @@ async function streamChain(req, res) {
     log.error(error);
   } finally {
     // start services
-    daemonStartRequired = false;
-    if (isArcane) {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
-    } else {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
-      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+    if (daemonStartRequired) {
+      daemonStartRequired = false;
+
+      if (isArcane) {
+        await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+      } else {
+        await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+        await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+      }
     }
+
     lock = false;
   }
 }
