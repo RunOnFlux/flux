@@ -1646,6 +1646,40 @@ async function streamChain(req, res) {
 
     log.info(`Stream chain request received from: ${ip}`);
 
+    // Check if local daemon is synced
+    const urlExplorerA = 'https://explorer.runonflux.io/api/status?q=getInfo';
+    const urlExplorerB = 'https://explorer.flux.zelcore.io/api/status?q=getInfo';
+    let explorerError = false;
+    let explorerResponse;
+    explorerResponse = await serviceHelper.axiosGet(urlExplorerA).catch(() => {
+      explorerError = true;
+    });
+    if (explorerError || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
+      explorerError = false;
+      explorerResponse = await serviceHelper.axiosGet(urlExplorerB).catch(() => {
+        explorerError = true;
+      });
+    }
+    if (explorerError || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
+      res.statusMessage = 'Error getting Flux Explorers Height.';
+      res.status(503).end();
+      return;
+    }
+    let daemonError = false;
+    const blockCount = await daemonServiceUtils.getFluxdClient().getBlockCount().catch(() => {
+      daemonError = true;
+    }) || 0;
+    if (daemonError) {
+      res.statusMessage = 'Error getting blockCount from local Flux Daemon.';
+      res.status(503).end();
+      return;
+    }
+    if (blockCount + 5 < explorerResponse.data.info.blocks) {
+      res.statusMessage = 'Error local Daemon is not synced.';
+      res.status(503).end();
+      return;
+    }
+
     const homeDir = os.homedir();
     const base = path.join(homeDir, '.flux');
 
