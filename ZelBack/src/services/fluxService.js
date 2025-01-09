@@ -1602,28 +1602,26 @@ async function streamChainPreparation(req, res) {
     // Check if local daemon is synced
     const urlExplorerA = 'https://explorer.runonflux.io/api/status?q=getInfo';
     const urlExplorerB = 'https://explorer.flux.zelcore.io/api/status?q=getInfo';
-    let explorerError = false;
-    let daemonError = false;
-    let explorerResponse;
+
     const axiosConfig = {
       timeout: 5000,
     };
-    const blockCount = await daemonServiceUtils.getFluxdClient().getBlockCount().catch(() => {
-      daemonError = true;
-    }) || 0;
-    if (daemonError) {
+
+    const blockCount = await daemonServiceUtils.getFluxdClient().getBlockCount().catch(() => null);
+
+    if (!blockCount) {
       res.statusMessage = 'Error getting blockCount from local Flux Daemon.';
       res.status(503).end();
       return;
     }
-    Promise.race([serviceHelper.axiosGet(urlExplorerA, axiosConfig), serviceHelper.axiosGet(urlExplorerB, axiosConfig)]).then((response) => {
-      explorerResponse = response;
-    })
-      .catch(() => {
-        explorerError = true;
-      });
-    if (explorerError || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
-      res.statusMessage = 'Error getting Flux Explorers Height.';
+
+    const explorerResponse = await Promise.race([
+      serviceHelper.axiosGet(urlExplorerA, axiosConfig),
+      serviceHelper.axiosGet(urlExplorerB, axiosConfig),
+    ]).catch(() => null);
+
+    if (!explorerResponse || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
+      res.statusMessage = 'Error getting Flux Explorer Height.';
       res.status(503).end();
       return;
     }
