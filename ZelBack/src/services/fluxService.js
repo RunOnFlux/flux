@@ -40,6 +40,11 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 let lock = false;
 
 /**
+ * Stream chain prep lock, so only one request at a time
+ */
+let prepLock = false;
+
+/**
  * For testing
  */
 function getStreamLock() {
@@ -1568,11 +1573,12 @@ async function restartFluxOS(req, res) {
 * @returns {Promise<void>}
 */
 async function streamChainPreparation(req, res) {
-  if (lock) {
+  if (lock || prepLock) {
     res.statusMessage = 'Streaming of chain already in progress, server busy.';
     res.status(503).end();
     return;
   }
+
   /**
    * Use the remote address here, don't need to worry about x-forwarded-for headers as
    * we only allow the local network. Also, using the remote address is fine as FluxOS
@@ -1581,6 +1587,8 @@ async function streamChainPreparation(req, res) {
    * or they think there is only one inbound connnection)
    */
   try {
+    prepLock = true;
+
     let ip = req.socket.remoteAddress;
     if (!ip) {
       res.statusMessage = 'Socket closed.';
@@ -1607,12 +1615,11 @@ async function streamChainPreparation(req, res) {
       timeout: 5000,
     };
 
-    const blockCount = await daemonServiceUtils.getFluxdClient().getBlockCount().catch(() => null);
+    const { status: blockCountStatus, data: blockCount } = await daemonServiceBlockchainRpcs.getBlockCount();
 
-    if (!blockCount) {
+    if (blockCountStatus !== 'success') {
       res.statusMessage = 'Error getting blockCount from local Flux Daemon.';
       res.status(503).end();
-      return;
     }
 
     const explorerResponse = await Promise.race([
@@ -1620,7 +1627,7 @@ async function streamChainPreparation(req, res) {
       serviceHelper.axiosGet(urlExplorerB, axiosConfig),
     ]).catch(() => null);
 
-    if (!explorerResponse || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
+    if (!explorerResponse || !explorerResponse?.data?.info?.blocks) {
       res.statusMessage = 'Error getting Flux Explorer Height.';
       res.status(503).end();
       return;
@@ -1643,6 +1650,8 @@ async function streamChainPreparation(req, res) {
     res.json(response);
   } finally {
     setTimeout(() => {
+      prepLock = false;
+
       if (!lock) {
         // start services
         if (isArcane) {
