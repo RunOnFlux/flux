@@ -1562,6 +1562,102 @@ async function restartFluxOS(req, res) {
   res.json(response);
 }
 
+/*
+* @param {Request} req HTTP request
+* @param {Response} res HTTP response
+* @returns {Promise<void>}
+*/
+async function streamChainPreparation(req, res) {
+  if (lock) {
+    res.statusMessage = 'Streaming of chain already in progress, server busy.';
+    res.status(503).end();
+    return;
+  }
+  /**
+   * Use the remote address here, don't need to worry about x-forwarded-for headers as
+   * we only allow the local network. Also, using the remote address is fine as FluxOS
+   * won't confirm if the upstream is natting behind a private address. I.e public
+   * connections coming in via a private address. (Flux websockets need the remote address
+   * or they think there is only one inbound connnection)
+   */
+  try {
+    let ip = req.socket.remoteAddress;
+    if (!ip) {
+      res.statusMessage = 'Socket closed.';
+      res.status(400).end();
+      return;
+    }
+
+    // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
+    ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
+
+    if (!serviceHelper.isPrivateAddress(ip)) {
+      res.statusMessage = 'Request must be from an address on the same private network as the host.';
+      res.status(403).end();
+      return;
+    }
+
+    log.info(`Stream chain preparation request received from: ${ip}`);
+
+    // Check if local daemon is synced
+    const urlExplorerA = 'https://explorer.runonflux.io/api/status?q=getInfo';
+    const urlExplorerB = 'https://explorer.flux.zelcore.io/api/status?q=getInfo';
+    let explorerError = false;
+    let daemonError = false;
+    let explorerResponse;
+    const axiosConfig = {
+      timeout: 5000,
+    };
+    const blockCount = await daemonServiceUtils.getFluxdClient().getBlockCount().catch(() => {
+      daemonError = true;
+    }) || 0;
+    if (daemonError) {
+      res.statusMessage = 'Error getting blockCount from local Flux Daemon.';
+      res.status(503).end();
+      return;
+    }
+    Promise.race([serviceHelper.axiosGet(urlExplorerA, axiosConfig), serviceHelper.axiosGet(urlExplorerB, axiosConfig)]).then((response) => {
+      explorerResponse = response;
+    })
+      .catch(() => {
+        explorerError = true;
+      });
+    if (explorerError || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
+      res.statusMessage = 'Error getting Flux Explorers Height.';
+      res.status(503).end();
+      return;
+    }
+
+    if (blockCount + 5 < explorerResponse.data.info.blocks) {
+      res.statusMessage = 'Error local Daemon is not synced.';
+      res.status(503).end();
+      return;
+    }
+
+    // stop services
+    if (isArcane) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
+    } else {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
+      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
+    }
+    const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
+    res.json(response);
+  } finally {
+    setTimeout(() => {
+      if (!lock) {
+        // start services
+        if (isArcane) {
+          serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+        } else {
+          serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+          serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        }
+      }
+    }, 30 * 1000);
+  }
+}
+
 /**
  * Streams the blockchain via http at breakneck speeds.
  *
@@ -1646,43 +1742,6 @@ async function streamChain(req, res) {
 
     log.info(`Stream chain request received from: ${ip}`);
 
-    // Check if local daemon is synced
-    const urlExplorerA = 'https://explorer.runonflux.io/api/status?q=getInfo';
-    const urlExplorerB = 'https://explorer.flux.zelcore.io/api/status?q=getInfo';
-    let explorerError = false;
-    let explorerResponse;
-    const axiosConfig = {
-      timeout: 10000,
-    };
-    explorerResponse = await serviceHelper.axiosGet(urlExplorerA, axiosConfig).catch(() => {
-      explorerError = true;
-    });
-    if (explorerError || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
-      explorerError = false;
-      explorerResponse = await serviceHelper.axiosGet(urlExplorerB, axiosConfig).catch(() => {
-        explorerError = true;
-      });
-    }
-    if (explorerError || !explorerResponse.data.info || !explorerResponse.data.info.blocks) {
-      res.statusMessage = 'Error getting Flux Explorers Height.';
-      res.status(503).end();
-      return;
-    }
-    let daemonError = false;
-    const blockCount = await daemonServiceUtils.getFluxdClient().getBlockCount().catch(() => {
-      daemonError = true;
-    }) || 0;
-    if (daemonError) {
-      res.statusMessage = 'Error getting blockCount from local Flux Daemon.';
-      res.status(503).end();
-      return;
-    }
-    if (blockCount + 5 < explorerResponse.data.info.blocks) {
-      res.statusMessage = 'Error local Daemon is not synced.';
-      res.status(503).end();
-      return;
-    }
-
     const homeDir = os.homedir();
     const base = path.join(homeDir, '.flux');
 
@@ -1726,13 +1785,6 @@ async function streamChain(req, res) {
       res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
       res.status(422).end();
       return;
-    }
-    // stop services
-    if (isArcane) {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
-    } else {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
-      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
     }
 
     if (safe) {
@@ -1842,6 +1894,7 @@ module.exports = {
   softUpdateFluxInstall,
   startBenchmark,
   startDaemon,
+  streamChainPreparation,
   streamChain,
   tailBenchmarkDebug,
   tailDaemonDebug,

@@ -1221,6 +1221,9 @@ module.exports = (app) => {
   app.post('/daemon/getaddressmempool', (req, res) => {
     daemonServiceAddressRpcs.getAddressMempool(req, res);
   });
+  app.get('/flux/streamchainpreparation', (req, res) => {
+    fluxService.streamChainPreparation(req, res);
+  });
   app.post('/flux/streamchain', (req, res) => {
     fluxService.streamChain(req, res);
   });
