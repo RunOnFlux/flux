@@ -45,6 +45,11 @@ let lock = false;
 let prepLock = false;
 
 /**
+ * If fluxd needs to be restarted
+ */
+let daemonStartRequired = false;
+
+/**
  * For testing
  */
 function getStreamLock() {
@@ -1641,18 +1646,22 @@ async function streamChainPreparation(req, res) {
 
     // stop services
     if (isArcane) {
+      // these can raise
       await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
     } else {
       await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
       await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
     }
+    daemonStartRequired = true;
     const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
     res.json(response);
   } finally {
     setTimeout(() => {
       prepLock = false;
 
-      if (!lock) {
+      // if streamChain crashes in the first 30 seconds... this will start watchdog twice
+
+      if (daemonStartRequired) {
         // start services
         if (isArcane) {
           serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
@@ -1846,6 +1855,7 @@ async function streamChain(req, res) {
     log.error(error);
   } finally {
     // start services
+    daemonStartRequired = false;
     if (isArcane) {
       await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
     } else {
