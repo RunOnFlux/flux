@@ -1689,7 +1689,7 @@ async function streamChainPreparation(req, res) {
           serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
         }
       } else {
-        log.info('Stream chain prep timeout hit: services already restarted');
+        log.info('Stream chain prep timeout hit: services already restarted or stream in progress');
       }
       prepLock = false;
     }, 30 * 1000);
@@ -1826,6 +1826,8 @@ async function streamChain(req, res) {
     }
 
     if (safe) {
+      // we have to build the client here so that we can avoid the cache. We should have an option for he
+      // blockChainRpcs thing to skip cache
       const fluxdClient = await daemonServiceUtils.buildFluxdClient();
       const blockCountRes = await fluxdClient.run('getBlockCount', { params: [] }).catch((err) => err);
       fluxdRunning = !(blockCountRes instanceof Error && blockCountRes.code === 'ECONNREFUSED');
