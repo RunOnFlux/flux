@@ -1644,26 +1644,51 @@ async function streamChainPreparation(req, res) {
       return;
     }
 
+    // on non Arcane, we check if the stop commands return successfully, as there is no guarantee that the
+    // node is running using zelcash or pm2 stc
+
     // stop services
     if (isArcane) {
       await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
     } else {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
-      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
+      const { error: watchdogError } = await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
+      if (watchdogError) {
+        res.statusMessage = 'Error: unable to stop watchdog';
+        res.status(503).end();
+        return;
+      }
+
+      log.info('pm2 watchdog service has been stopped');
+
+      const { error: zelcashError } = await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
+
+      if (zelcashError) {
+        res.statusMessage = 'Error: unable to stop zelcash service';
+        res.status(503).end();
+        // if zelcash failed, it means watchdog was successful, we need to restart (no await)
+        serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        return;
+      }
+
+      log.info('zelcash service has been stopped');
     }
+
     daemonStartRequired = true;
     const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
     res.json(response);
   } finally {
+    // check if restart required
     setTimeout(() => {
       if (daemonStartRequired) {
-        // start services
+        log.info('Stream chain prep timeout hit: restarting services');
         if (isArcane) {
           serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
         } else {
           serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
           serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
         }
+      } else {
+        log.info('Stream chain prep timeout hit: services already restarted');
       }
       prepLock = false;
     }, 30 * 1000);
