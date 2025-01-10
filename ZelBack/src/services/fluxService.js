@@ -1679,7 +1679,8 @@ async function streamChainPreparation(req, res) {
   } finally {
     // check if restart required
     setTimeout(() => {
-      if (daemonStartRequired) {
+      if (!lock && daemonStartRequired) {
+        daemonStartRequired = false;
         log.info('Stream chain prep timeout hit: restarting services');
         if (isArcane) {
           serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
