@@ -1645,7 +1645,7 @@ async function streamChainPreparation(req, res) {
     }
 
     // on non Arcane, we check if the stop commands return successfully, as there is no guarantee that the
-    // node is running using zelcash or pm2 stc
+    // node is running using zelcash or pm2 etc
 
     // stop services
     if (isArcane) {

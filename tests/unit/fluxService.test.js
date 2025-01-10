@@ -26,7 +26,7 @@ const appsService = require('../../ZelBack/src/services/appsService');
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
-const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
@@ -2881,7 +2881,7 @@ describe('fluxService tests', () => {
     let osStub;
     let statStub;
     let readdirStub;
-    let blockchainInfoStub;
+    let daemonServiceUtilsStub;
     let tarPackStub;
 
     beforeEach(() => {
@@ -2889,7 +2889,7 @@ describe('fluxService tests', () => {
       statStub = sinon.stub(fs, 'stat');
       readdirStub = sinon.stub(fs, 'readdir');
 
-      blockchainInfoStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockchainInfo');
+      daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'buildFluxdClient');
       tarPackStub = sinon.stub(tar, 'create');
     });
 
@@ -2971,7 +2971,7 @@ describe('fluxService tests', () => {
 
       osStub.returns('/home/testuser');
       statStub.resolves({ isDirectory: () => true });
-      blockchainInfoStub.resolves({ status: 'success', blocks: 1635577 });
+      daemonServiceUtilsStub.resolves({ run: async () => 123456 });
 
       await fluxService.streamChain(req, res);
 
@@ -3019,6 +3019,9 @@ describe('fluxService tests', () => {
       const totalFileSize = testFiles.length * testFileSize * folderCount;
       const expectedSize = headerSize + totalFileSize + eof;
 
+      const daemonServiceError = new Error();
+      daemonServiceError.code = 'ECONNREFUSED';
+
       statStub.resolves({
         isDirectory: () => true,
         size: testFileSize,
@@ -3026,7 +3029,7 @@ describe('fluxService tests', () => {
 
       readdirStub.resolves(testFiles);
 
-      blockchainInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED' } });
+      daemonServiceUtilsStub.resolves({ run: async () => daemonServiceError });
       tarPackStub.returns(readable);
 
       await fluxService.streamChain(req, res);
@@ -3037,6 +3040,8 @@ describe('fluxService tests', () => {
       const received = [];
 
       const req = { socket: { remoteAddress: '10.20.30.40' } };
+      const daemonServiceError = new Error();
+      daemonServiceError.code = 'ECONNREFUSED';
 
       const res = new Writable({
         write(chunk, encoding, done) {
@@ -3058,7 +3063,7 @@ describe('fluxService tests', () => {
 
       osStub.returns('/home/testuser');
       statStub.resolves({ isDirectory: () => true });
-      blockchainInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED' } });
+      daemonServiceUtilsStub.resolves({ run: async () => daemonServiceError });
       tarPackStub.returns(readable);
 
       await fluxService.streamChain(req, res);
@@ -3069,6 +3074,9 @@ describe('fluxService tests', () => {
       const received = [];
 
       const req = { socket: { remoteAddress: '10.20.30.40' }, body: { compress: true } };
+
+      const daemonServiceError = new Error();
+      daemonServiceError.code = 'ECONNREFUSED';
 
       const res = zlib.createGunzip();
       res.setHeader = sinon.stub();
@@ -3091,7 +3099,7 @@ describe('fluxService tests', () => {
 
       osStub.returns('/home/testuser');
       statStub.resolves({ isDirectory: () => true });
-      blockchainInfoStub.resolves({ status: 'error', data: { code: 'ECONNREFUSED' } });
+      daemonServiceUtilsStub.resolves({ run: async () => daemonServiceError });
       tarPackStub.returns(readable);
 
       await fluxService.streamChain(req, res);
