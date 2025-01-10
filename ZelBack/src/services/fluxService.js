@@ -1781,7 +1781,7 @@ async function streamChain(req, res) {
     log.info(`Stream chain request received from: ${ip}`);
 
     const homeDir = os.homedir();
-    const base = path.join(homeDir, '.flux');
+    const base = process.env.FLUXD_PATH || path.join(homeDir, '.flux');
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
@@ -1803,7 +1803,7 @@ async function streamChain(req, res) {
     const chainExists = foldersExist.every((x) => x);
 
     if (!chainExists) {
-      res.statusMessage = 'Unable to find chain at $HOME/.flux';
+      res.statusMessage = 'Unable to find chain';
       res.status(500).end();
       return;
     }

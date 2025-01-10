@@ -2946,7 +2946,7 @@ describe('fluxService tests', () => {
 
       await fluxService.streamChain(req, res);
 
-      expect(res.statusMessage).to.equal('Unable to find chain at $HOME/.flux');
+      expect(res.statusMessage).to.equal('Unable to find chain');
       sinon.assert.calledWithExactly(res.status, 500);
       sinon.assert.calledOnce(res.end);
     });
