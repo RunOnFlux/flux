@@ -1800,8 +1800,9 @@ async function streamChain(req, res) {
     }
 
     if (safe) {
-      const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
-      fluxdRunning = !(blockInfoRes.status === 'error' && blockInfoRes.data.code === 'ECONNREFUSED');
+      const fluxdClient = await daemonServiceUtils.buildFluxdClient();
+      const blockCountRes = await fluxdClient.run('getBlockCount', { params: [] }).catch((err) => err);
+      fluxdRunning = !(blockCountRes instanceof Error && blockCountRes.code === 'ECONNREFUSED');
     }
 
     if (safe && fluxdRunning) {
