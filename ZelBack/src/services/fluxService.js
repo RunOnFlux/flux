@@ -1625,6 +1625,7 @@ async function streamChainPreparation(req, res) {
     if (blockCountStatus !== 'success') {
       res.statusMessage = 'Error getting blockCount from local Flux Daemon.';
       res.status(503).end();
+      return;
     }
 
     const explorerResponse = await Promise.race([
