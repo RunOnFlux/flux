@@ -1645,6 +1645,26 @@ async function streamChainPreparation(req, res) {
       return;
     }
 
+    const daemonNodeStatusRes = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+    if (daemonNodeStatusRes.status === 'error') {
+      throw daemonNodeStatusRes.data;
+    }
+    const { status: fluxNodeStatus, data: fluxNodeInfo } = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+
+    if (fluxNodeStatus !== 'success') {
+      res.statusMessage = 'Error getting fluxNodeStatus from local Flux Daemon.';
+      res.status(503).end();
+      return;
+    }
+
+    // check if it is outside maintenance window
+    if (fluxNodeInfo.status === 'CONFIRMED' && fluxNodeInfo.last_confirmed_height > 0 && (120 - (blockCount - fluxNodeInfo.last_confirmed_height)) < 5) {
+      // fluxnodes needs to confirm between 120 and 150 blocks, if it is 4 blocks remaining to enter confirmation window we already consider outside maintenance window.
+      res.statusMessage = 'Error Fluxnode is not in maintenance window.';
+      res.status(503).end();
+      return;
+    }
+
     // on non Arcane, we check if the stop commands return successfully, as there is no guarantee that the
     // node is running using zelcash or pm2 etc
 
