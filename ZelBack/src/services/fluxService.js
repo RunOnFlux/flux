@@ -1645,10 +1645,6 @@ async function streamChainPreparation(req, res) {
       return;
     }
 
-    const daemonNodeStatusRes = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
-    if (daemonNodeStatusRes.status === 'error') {
-      throw daemonNodeStatusRes.data;
-    }
     const { status: fluxNodeStatus, data: fluxNodeInfo } = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
 
     if (fluxNodeStatus !== 'success') {
