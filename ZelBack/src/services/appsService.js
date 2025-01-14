@@ -4883,13 +4883,13 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
   const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
   let foundSecretsWithSameAppName = false;
   let foundSecretsWithDifferentAppName = false;
-  const appComponentSecrets = JSON.stringify(appComponentSpecs.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, ''));
+  const appComponentSecrets = appComponentSpecs.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '');
   // eslint-disable-next-line no-restricted-syntax
   for (const app of results) {
     if (app.version >= 7 && app.nodes.length > 0) {
       // eslint-disable-next-line no-restricted-syntax
       for (const component of app.compose) {
-        if (component.secrets.length > 0 && JSON.stringify(component.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '')) === appComponentSecrets) {
+        if (component.secrets.length > 0 && component.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '') === appComponentSecrets) {
           if (registration) {
             throw new Error(`Provided component ${appComponentSpecs.name} secrets are not valid`);
           } else if (app.name !== appName) {
@@ -4913,7 +4913,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
     // eslint-disable-next-line no-restricted-syntax
     for (const component of message.appSpecifications.compose) {
       if (component.secrets.length > 0
-        && JSON.stringify(component.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '')) === appComponentSecrets) {
+        && component.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '') === appComponentSecrets) {
         log.info('checkAppSecrets - found same secret');
         log.info(`checkAppSecrets - appOwner: ${appOwner}`);
         log.info(`checkAppSecrets - appOwner: ${message.appSpecifications.owner}`);
