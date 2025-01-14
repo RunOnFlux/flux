@@ -4869,10 +4869,11 @@ async function getUserBlockedRepositores() {
 /**
  * Check secrets, if they are being used return exception
  * @param {string} appName App name.
- * @param {object} appSpecs App specifications.
+ * @param {object} appComponentSpecs App specifications.
+ * @param {string} appOwner owner Id of the app.
  * @param {boolean} registration informs if it's an app registration or not.
  */
-async function checkAppSecrets(appName, appComponentSpecs, registration = false) {
+async function checkAppSecrets(appName, appComponentSpecs, appOwner, registration = false) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const query = {};
@@ -4899,6 +4900,19 @@ async function checkAppSecrets(appName, appComponentSpecs, registration = false)
   }
   if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
     throw new Error('Provided component(s) secrets are not valid');
+  }
+  const appsQuery = { $and: [{ 'appSpecifications.version': 7 }, { 'appSpecifications.nodes': { $exists: true, $ne: [] } }] };
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  // eslint-disable-next-line no-restricted-syntax
+  for (const message of permanentAppMessage) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of message.appSpecifications.compose) {
+      if (component.secrets.length > 0
+        && JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))
+        && message.appSpecifications.appOwner !== appOwner) {
+        throw new Error(`Provided component ${component.name} secrets are not valid`);
+      }
+    }
   }
 }
 
@@ -7342,7 +7356,7 @@ async function registerAppGlobalyApi(req, res) {
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets.length > 0) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, true);
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
           }
         }
       }
@@ -7474,7 +7488,7 @@ async function updateAppGlobalyApi(req, res) {
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets.length > 0) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, false);
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
           }
         }
       }
@@ -10630,7 +10644,7 @@ async function verifyAppRegistrationParameters(req, res) {
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets.length > 0) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, true);
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
           }
         }
       }
@@ -10687,7 +10701,7 @@ async function verifyAppUpdateParameters(req, res) {
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets.length > 0) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, false);
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
           }
         }
       }
