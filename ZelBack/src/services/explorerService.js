@@ -800,8 +800,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // todo evaluate unique: true // we need to know the hash of the last message update which is the true identifier
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ version: 1 }, { name: 'query for getting app based on version' });
-      await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ nodes: 1 }, { name: 'query for getting app based on nodes' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ hash: 1 }, { name: 'query for getting zelapp location based on zelapp hash' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });

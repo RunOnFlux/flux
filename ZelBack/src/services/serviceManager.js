@@ -82,8 +82,6 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).dropIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' }).catch(() => { console.log('Welcome to FluxOS'); }); // drop old index or display message for new installations
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInformation).createIndex({ version: 1 }, { name: 'query for getting app based on version' });
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInformation).createIndex({ nodes: 1 }, { name: 'query for getting app based on nodes' });
     // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });

@@ -4871,9 +4871,8 @@ async function getUserBlockedRepositores() {
  * @param {string} appName App name.
  * @param {object} appComponentSpecs App specifications.
  * @param {string} appOwner owner Id of the app.
- * @param {boolean} registration informs if it's an app registration or not.
  */
-async function checkAppSecrets(appName, appComponentSpecs, appOwner, registration = false) {
+async function checkAppSecrets(appName, appComponentSpecs, appOwner) {
   // Normalize PGP secrets string
   const normalizePGP = (pgpMessage) => {
     if (!pgpMessage) return '';
@@ -4886,41 +4885,6 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const projection = { projection: { _id: 0 } };
-  const query = {
-    $and: [
-      { version: 7 },
-      { nodes: { $exists: true, $ne: [] } },
-    ],
-  };
-
-  // Query global apps
-  const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-
-  let foundSecretsWithSameAppName = false;
-  let foundSecretsWithDifferentAppName = false;
-  // eslint-disable-next-line no-restricted-syntax
-  for (const app of results) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const component of app.compose.filter((comp) => comp.secrets)) {
-      const normalizedComponentSecret = normalizePGP(component.secrets);
-      if (normalizedComponentSecret === appComponentSecrets) {
-        if (registration) {
-          throw new Error(
-            `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`,
-          );
-        } else if (app.name !== appName) {
-          foundSecretsWithDifferentAppName = true;
-        } else {
-          foundSecretsWithSameAppName = true;
-        }
-      }
-    }
-  }
-
-  if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
-    throw new Error('Component(s) secrets are not valid (conflict with another app).');
-  }
-
   // Query permanent app messages
   const appsQuery = {
     $and: [
@@ -7388,9 +7352,9 @@ async function registerAppGlobalyApi(req, res) {
       if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets.length > 0) {
+          if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
@@ -7520,9 +7484,9 @@ async function updateAppGlobalyApi(req, res) {
       if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets.length > 0) {
+          if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
@@ -10676,9 +10640,9 @@ async function verifyAppRegistrationParameters(req, res) {
       if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets.length > 0) {
+          if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
@@ -10733,9 +10697,9 @@ async function verifyAppUpdateParameters(req, res) {
       if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets.length > 0) {
+          if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
