@@ -4874,94 +4874,80 @@ async function getUserBlockedRepositores() {
  * @param {boolean} registration informs if it's an app registration or not.
  */
 async function checkAppSecrets(appName, appComponentSpecs, appOwner, registration = false) {
-  log.info('checkAppSecrets - starting');
-  log.info(`checkAppSecrets - appOwner: ${appOwner}`);
-
-  // Normalize PGP secrets for consistent comparison
+  // Normalize PGP secrets string
   const normalizePGP = (pgpMessage) => {
     if (!pgpMessage) return '';
     return pgpMessage.replace(/\s+/g, '').replace(/\\n/g, '').trim();
   };
 
   const appComponentSecrets = normalizePGP(appComponentSpecs.secrets);
-  log.info(`checkAppSecrets - normalized appComponentSecrets: ${appComponentSecrets}`);
 
   // Database connection
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const projection = { projection: { _id: 0 } };
+  const query = {
+    $and: [
+      { version: 7 },
+      { nodes: { $exists: true, $ne: [] } },
+    ],
+  };
 
   // Query global apps
-  const results = await dbHelper.findInDatabase(database, globalAppsInformation, {}, projection);
+  const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
 
   let foundSecretsWithSameAppName = false;
   let foundSecretsWithDifferentAppName = false;
   // eslint-disable-next-line no-restricted-syntax
   for (const app of results) {
-    if (app.version >= 7 && app.nodes.length > 0) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const component of app.compose) {
-        const normalizedComponentSecret = normalizePGP(component.secrets);
-
-        if (normalizedComponentSecret === appComponentSecrets) {
-          if (registration) {
-            throw new Error(
-              `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`,
-            );
-          } else if (app.name !== appName) {
-            foundSecretsWithDifferentAppName = true;
-          } else {
-            foundSecretsWithSameAppName = true;
-          }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of app.compose.filter((comp) => comp.secrets)) {
+      const normalizedComponentSecret = normalizePGP(component.secrets);
+      if (normalizedComponentSecret === appComponentSecrets) {
+        if (registration) {
+          throw new Error(
+            `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`,
+          );
+        } else if (app.name !== appName) {
+          foundSecretsWithDifferentAppName = true;
+        } else {
+          foundSecretsWithSameAppName = true;
         }
       }
     }
   }
 
   if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
-    throw new Error('Provided component(s) secrets are not valid (conflict with another app).');
+    throw new Error('Component(s) secrets are not valid (conflict with another app).');
   }
 
   // Query permanent app messages
   const appsQuery = {
     $and: [
-      { 'appSpecifications.name': 'encrypted' },
       { 'appSpecifications.version': 7 },
       { 'appSpecifications.nodes': { $exists: true, $ne: [] } },
     ],
   };
-  log.info('checkAppSecrets - checking permanentAppMessages');
 
   const permanentAppMessages = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-  log.info(`checkAppSecrets - permanentAppMessages found: ${permanentAppMessages.length}`);
 
   const processedSecrets = new Set();
   // eslint-disable-next-line no-restricted-syntax
   for (const message of permanentAppMessages) {
     // eslint-disable-next-line no-restricted-syntax
-    for (const component of message.appSpecifications.compose) {
+    for (const component of message.appSpecifications.compose.filter((comp) => comp.secrets)) {
       const normalizedComponentSecret = normalizePGP(component.secrets);
       // eslint-disable-next-line no-continue
       if (processedSecrets.has(normalizedComponentSecret)) continue;
       processedSecrets.add(normalizedComponentSecret);
 
-      log.info(`checkAppSecrets - component secret: ${normalizedComponentSecret}`);
-
-      if (normalizedComponentSecret === appComponentSecrets) {
-        log.info('checkAppSecrets - found same secret');
-        log.info(`checkAppSecrets - appOwner: ${appOwner}`);
-        log.info(`checkAppSecrets - message owner: ${message.appSpecifications.owner}`);
-
-        if (message.appSpecifications.owner !== appOwner) {
-          throw new Error(
-            `Provided component '${appComponentSpecs.name}' secrets are not valid (owner mismatch: '${message.appSpecifications.owner}').`,
-          );
-        }
+      if (normalizedComponentSecret === appComponentSecrets && message.appSpecifications.owner !== appOwner) {
+        throw new Error(
+          `Component '${appComponentSpecs.name}' secrets are not valid - registered already with different app owner').`,
+        );
       }
     }
   }
-
-  log.info('checkAppSecrets - completed successfully');
 }
 
 /**
