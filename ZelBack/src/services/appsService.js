@@ -4884,12 +4884,13 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
   let foundSecretsWithSameAppName = false;
   let foundSecretsWithDifferentAppName = false;
   const appComponentSecrets = appComponentSpecs.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '');
+  log.info(`checkAppSecrets - appComponentSecrets: ${appComponentSecrets}`);
   // eslint-disable-next-line no-restricted-syntax
   for (const app of results) {
     if (app.version >= 7 && app.nodes.length > 0) {
       // eslint-disable-next-line no-restricted-syntax
       for (const component of app.compose) {
-        if (component.secrets.length > 0 && component.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '') === appComponentSecrets) {
+        if (component.secrets && component.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '') === appComponentSecrets) {
           if (registration) {
             throw new Error(`Provided component ${appComponentSpecs.name} secrets are not valid`);
           } else if (app.name !== appName) {
@@ -4904,7 +4905,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
   if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
     throw new Error('Provided component(s) secrets are not valid');
   }
-  const appsQuery = { $and: [{ 'appSpecifications.version': 7 }, { 'appSpecifications.nodes': { $exists: true, $ne: [] } }] };
+  const appsQuery = { $and: [{ 'appSpecifications.name': 'encrypted' }, { 'appSpecifications.version': 7 }, { 'appSpecifications.nodes': { $exists: true, $ne: [] } }] };
   log.info('checkAppSecrets - checking permanentappMessages');
   const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
   log.info(`checkAppSecrets - permanentappmessagefound: ${permanentAppMessage.length}`);
@@ -4912,7 +4913,8 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
   for (const message of permanentAppMessage) {
     // eslint-disable-next-line no-restricted-syntax
     for (const component of message.appSpecifications.compose) {
-      if (component.secrets.length > 0
+      log.info(`checkAppSecrets - component secret: ${component.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '')}`);
+      if (component.secrets
         && component.secrets.replace(/\r?\n|\r/, '').replace(/\W/g, '') === appComponentSecrets) {
         log.info('checkAppSecrets - found same secret');
         log.info(`checkAppSecrets - appOwner: ${appOwner}`);
