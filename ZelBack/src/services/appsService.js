@@ -4913,7 +4913,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
     for (const component of message.appSpecifications.compose) {
       if (component.secrets.length > 0
         && JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))
-        && message.appSpecifications.appOwner !== appOwner) {
+        && message.appSpecifications.owner !== appOwner) {
         throw new Error(`Provided component ${component.name} secrets are not valid`);
       }
     }
