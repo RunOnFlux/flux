@@ -4890,7 +4890,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
       for (const component of app.compose) {
         if (component.secrets.length > 0 && JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))) {
           if (registration) {
-            throw new Error(`Provided component ${component.name} secrets are not valid`);
+            throw new Error(`Provided component ${appComponentSpecs.name} secrets are not valid`);
           } else if (app.name !== appName) {
             foundSecretsWithDifferentAppName = true;
           } else if (app.name === appName) {
@@ -4912,9 +4912,13 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
     // eslint-disable-next-line no-restricted-syntax
     for (const component of message.appSpecifications.compose) {
       if (component.secrets.length > 0
-        && JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))
-        && message.appSpecifications.owner !== appOwner) {
-        throw new Error(`Provided component ${component.name} secrets are not valid`);
+        && JSON.stringify(component.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, '')) === JSON.stringify(appComponentSpecs.secrets.replace(/(\r\n|\n|\r)/gm, '').replace(/\\/g, ''))) {
+        log.info('checkAppSecrets - found same secret');
+        log.info(`checkAppSecrets - appOwner: ${appOwner}`);
+        log.info(`checkAppSecrets - appOwner: ${message.appSpecifications.owner}`);
+        if (message.appSpecifications.owner !== appOwner) {
+          throw new Error(`Provided component ${appComponentSpecs.name} secrets are not valid`);
+        }
       }
     }
   }
