@@ -4906,7 +4906,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
         if (normalizedComponentSecret === appComponentSecrets) {
           if (registration) {
             throw new Error(
-              `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`
+              `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`,
             );
           } else if (app.name !== appName) {
             foundSecretsWithDifferentAppName = true;
@@ -4954,7 +4954,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
 
         if (message.appSpecifications.owner !== appOwner) {
           throw new Error(
-            `Provided component '${appComponentSpecs.name}' secrets are not valid (owner mismatch: '${message.appSpecifications.owner}').`
+            `Provided component '${appComponentSpecs.name}' secrets are not valid (owner mismatch: '${message.appSpecifications.owner}').`,
           );
         }
       }
