@@ -4874,6 +4874,8 @@ async function getUserBlockedRepositores() {
  * @param {boolean} registration informs if it's an app registration or not.
  */
 async function checkAppSecrets(appName, appComponentSpecs, appOwner, registration = false) {
+  log.info('checkAppSecrets - starting');
+  log.info(`checkAppSecrets - appOwner: ${appOwner}`);
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
   const query = {};
@@ -4902,7 +4904,9 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
     throw new Error('Provided component(s) secrets are not valid');
   }
   const appsQuery = { $and: [{ 'appSpecifications.version': 7 }, { 'appSpecifications.nodes': { $exists: true, $ne: [] } }] };
+  log.info('checkAppSecrets - checking permanentappMessages');
   const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  log.info(`checkAppSecrets - permanentappmessagefound: ${permanentAppMessage.length}`);
   // eslint-disable-next-line no-restricted-syntax
   for (const message of permanentAppMessage) {
     // eslint-disable-next-line no-restricted-syntax
