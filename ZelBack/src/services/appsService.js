@@ -4876,65 +4876,74 @@ async function getUserBlockedRepositores() {
 async function checkAppSecrets(appName, appComponentSpecs, appOwner, registration = false) {
   log.info('checkAppSecrets - starting');
   log.info(`checkAppSecrets - appOwner: ${appOwner}`);
+
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
-  const query = {};
   const projection = { projection: { _id: 0 } };
-  const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+
+  // Normalize secrets for consistent comparison
+  const normalizeSecret = (secret) => secret.replace(/\r?\n|\r/g, '').replace(/\W/g, '');
+  const appComponentSecrets = normalizeSecret(appComponentSpecs.secrets);
+  log.info(`checkAppSecrets - appComponentSecrets: ${appComponentSecrets}`);
+
+  // Fetch apps and check secrets
+  const appsQuery = {};
+  const results = await dbHelper.findInDatabase(database, globalAppsInformation, appsQuery, projection);
+
   let foundSecretsWithSameAppName = false;
   let foundSecretsWithDifferentAppName = false;
-  const appComponentSecrets = appComponentSpecs.secrets.replace(/\W/g, '').trim();
-  log.info(`checkAppSecrets - appComponentSecrets: ${appComponentSecrets}`);
-  // eslint-disable-next-line no-restricted-syntax
+
   for (const app of results) {
     if (app.version >= 7 && app.nodes.length > 0) {
-      // eslint-disable-next-line no-restricted-syntax
       for (const component of app.compose) {
-        if (component.secrets && component.secrets.replace(/\W/g, '').trim() === appComponentSecrets) {
+        if (component.secrets && normalizeSecret(component.secrets) === appComponentSecrets) {
           if (registration) {
             throw new Error(`Provided component ${appComponentSpecs.name} secrets are not valid`);
           } else if (app.name !== appName) {
             foundSecretsWithDifferentAppName = true;
-          } else if (app.name === appName) {
+          } else {
             foundSecretsWithSameAppName = true;
           }
         }
       }
     }
   }
+
   if (!registration && foundSecretsWithDifferentAppName && !foundSecretsWithSameAppName) {
     throw new Error('Provided component(s) secrets are not valid');
   }
-  const appsQuery = { $and: [{ 'appSpecifications.name': 'encrypted' }, { 'appSpecifications.version': 7 }, { 'appSpecifications.nodes': { $exists: true, $ne: [] } }] };
-  log.info('checkAppSecrets - checking permanentappMessages');
-  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-  log.info(`checkAppSecrets - permanentappmessagefound: ${permanentAppMessage.length}`);
-  // eslint-disable-next-line no-restricted-syntax, no-unreachable-loop
-  for (const message of permanentAppMessage) {
-    // eslint-disable-next-line no-restricted-syntax
+
+  // Fetch permanent app messages
+  const permanentAppsQuery = {
+    $and: [
+      { 'appSpecifications.name': 'encrypted' },
+      { 'appSpecifications.version': 7 },
+      { 'appSpecifications.nodes': { $exists: true, $ne: [] } },
+    ],
+  };
+  log.info('checkAppSecrets - checking permanentAppMessages');
+  const permanentAppMessages = await dbHelper.findInDatabase(database, globalAppsMessages, permanentAppsQuery, projection);
+
+  log.info(`checkAppSecrets - permanentAppMessages found: ${permanentAppMessages.length}`);
+  const processedSecrets = new Set();
+
+  for (const message of permanentAppMessages) {
     for (const component of message.appSpecifications.compose) {
-      log.info(`checkAppSecrets - component secret: ${component.secrets.replace(/\W/g, '').trim()}`);
-      if (component.secrets) {
-        const componentSecrets = component.secrets.replace(/\W/g, '').trim();
-        if (componentSecrets.length !== appComponentSecrets.length) {
-          log.info('checkAppSecrets - lengths are different');
+      const normalizedSecret = normalizeSecret(component.secrets || '');
+      if (processedSecrets.has(normalizedSecret)) continue;
+      processedSecrets.add(normalizedSecret);
+
+      log.info(`checkAppSecrets - component secret: ${normalizedSecret}`);
+      if (normalizedSecret === appComponentSecrets) {
+        log.info('checkAppSecrets - found same secret');
+        log.info(`checkAppSecrets - appOwner: ${appOwner}`);
+        log.info(`checkAppSecrets - message owner: ${message.appSpecifications.owner}`);
+
+        if (message.appSpecifications.owner !== appOwner) {
+          throw new Error(`Provided component ${appComponentSpecs.name} secrets are not valid (owner mismatch).`);
         }
-        for (let n = 0; n < componentSecrets.length; n += 1) {
-          if (componentSecrets[n] !== appComponentSecrets[n]) {
-            log.info(`checkAppSecrets - ${n} different: '${componentSecrets[n]}' !== '${appComponentSecrets[n]}'`);
-          }
-        }
-        if (componentSecrets === appComponentSecrets) {
-          log.info('checkAppSecrets - found same secret');
-          log.info(`checkAppSecrets - appOwner: ${appOwner}`);
-          log.info(`checkAppSecrets - appOwner: ${message.appSpecifications.owner}`);
-          if (message.appSpecifications.owner !== appOwner) {
-            throw new Error(`Provided component ${appComponentSpecs.name} secrets are not valid`);
-          }
-        }
-      }  
+      }
     }
-    break;
   }
 }
 
