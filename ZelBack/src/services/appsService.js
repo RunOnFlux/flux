@@ -4893,8 +4893,10 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
   let foundSecretsWithSameAppName = false;
   let foundSecretsWithDifferentAppName = false;
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const app of results) {
     if (app.version >= 7 && app.nodes.length > 0) {
+      // eslint-disable-next-line no-restricted-syntax
       for (const component of app.compose) {
         if (component.secrets && normalizeSecret(component.secrets) === appComponentSecrets) {
           if (registration) {
@@ -4927,9 +4929,12 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
   log.info(`checkAppSecrets - permanentAppMessages found: ${permanentAppMessages.length}`);
   const processedSecrets = new Set();
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const message of permanentAppMessages) {
+    // eslint-disable-next-line no-restricted-syntax
     for (const component of message.appSpecifications.compose) {
       const normalizedSecret = normalizeSecret(component.secrets || '');
+      // eslint-disable-next-line no-continue
       if (processedSecrets.has(normalizedSecret)) continue;
       processedSecrets.add(normalizedSecret);
 
