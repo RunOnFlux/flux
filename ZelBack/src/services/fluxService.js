@@ -40,6 +40,16 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 let lock = false;
 
 /**
+ * Stream chain prep lock, so only one request at a time
+ */
+let prepLock = false;
+
+/**
+ * If fluxd needs to be restarted
+ */
+let daemonStartRequired = false;
+
+/**
  * For testing
  */
 function getStreamLock() {
@@ -1562,6 +1572,147 @@ async function restartFluxOS(req, res) {
   res.json(response);
 }
 
+/*
+* @param {Request} req HTTP request
+* @param {Response} res HTTP response
+* @returns {Promise<void>}
+*/
+async function streamChainPreparation(req, res) {
+  if (lock || prepLock) {
+    res.statusMessage = 'Streaming of chain already in progress, server busy.';
+    res.status(503).end();
+    return;
+  }
+
+  /**
+   * Use the remote address here, don't need to worry about x-forwarded-for headers as
+   * we only allow the local network. Also, using the remote address is fine as FluxOS
+   * won't confirm if the upstream is natting behind a private address. I.e public
+   * connections coming in via a private address. (Flux websockets need the remote address
+   * or they think there is only one inbound connnection)
+   */
+  try {
+    prepLock = true;
+
+    let ip = req.socket.remoteAddress;
+    if (!ip) {
+      res.statusMessage = 'Socket closed.';
+      res.status(400).end();
+      return;
+    }
+
+    // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
+    ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
+
+    if (!serviceHelper.isPrivateAddress(ip)) {
+      res.statusMessage = 'Request must be from an address on the same private network as the host.';
+      res.status(403).end();
+      return;
+    }
+
+    log.info(`Stream chain preparation request received from: ${ip}`);
+
+    // Check if local daemon is synced
+    const urlExplorerA = 'https://explorer.runonflux.io/api/status?q=getInfo';
+    const urlExplorerB = 'https://explorer.flux.zelcore.io/api/status?q=getInfo';
+
+    const axiosConfig = {
+      timeout: 5000,
+    };
+
+    const { status: blockCountStatus, data: blockCount } = await daemonServiceBlockchainRpcs.getBlockCount();
+
+    if (blockCountStatus !== 'success') {
+      res.statusMessage = 'Error getting blockCount from local Flux Daemon.';
+      res.status(503).end();
+      return;
+    }
+
+    const explorerResponse = await Promise.race([
+      serviceHelper.axiosGet(urlExplorerA, axiosConfig),
+      serviceHelper.axiosGet(urlExplorerB, axiosConfig),
+    ]).catch(() => null);
+
+    if (!explorerResponse || !explorerResponse?.data?.info?.blocks) {
+      res.statusMessage = 'Error getting Flux Explorer Height.';
+      res.status(503).end();
+      return;
+    }
+
+    if (blockCount + 5 < explorerResponse.data.info.blocks) {
+      res.statusMessage = 'Error local Daemon is not synced.';
+      res.status(503).end();
+      return;
+    }
+
+    const { status: fluxNodeStatus, data: fluxNodeInfo } = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+
+    if (fluxNodeStatus !== 'success') {
+      res.statusMessage = 'Error getting fluxNodeStatus from local Flux Daemon.';
+      res.status(503).end();
+      return;
+    }
+
+    // check if it is outside maintenance window
+    if (fluxNodeInfo.status === 'CONFIRMED' && fluxNodeInfo.last_confirmed_height > 0 && (120 - (blockCount - fluxNodeInfo.last_confirmed_height)) < 8) {
+      // fluxnodes needs to confirm between 120 and 150 blocks, if it is 7 blocks remaining to enter confirmation window we already consider outside maintenance window, as this can take around 12 minutes.
+      res.statusMessage = 'Error Fluxnode is not in maintenance window.';
+      res.status(503).end();
+      return;
+    }
+
+    // on non Arcane, we check if the stop commands return successfully, as there is no guarantee that the
+    // node is running using zelcash or pm2 etc
+
+    // stop services
+    if (isArcane) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
+    } else {
+      const { error: watchdogError } = await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
+      if (watchdogError) {
+        res.statusMessage = 'Error: unable to stop watchdog';
+        res.status(503).end();
+        return;
+      }
+
+      log.info('pm2 watchdog service has been stopped');
+
+      const { error: zelcashError } = await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
+
+      if (zelcashError) {
+        res.statusMessage = 'Error: unable to stop zelcash service';
+        res.status(503).end();
+        // if zelcash failed, it means watchdog was successful, we need to restart (no await)
+        serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        return;
+      }
+
+      log.info('zelcash service has been stopped');
+    }
+
+    daemonStartRequired = true;
+    const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
+    res.json(response);
+  } finally {
+    // check if restart required
+    setTimeout(() => {
+      if (!lock && daemonStartRequired) {
+        daemonStartRequired = false;
+        log.info('Stream chain prep timeout hit: restarting services');
+        if (isArcane) {
+          serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+        } else {
+          serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+          serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        }
+      } else {
+        log.info('Stream chain prep timeout hit: services already restarted or stream in progress');
+      }
+      prepLock = false;
+    }, 30 * 1000);
+  }
+}
+
 /**
  * Streams the blockchain via http at breakneck speeds.
  *
@@ -1647,7 +1798,7 @@ async function streamChain(req, res) {
     log.info(`Stream chain request received from: ${ip}`);
 
     const homeDir = os.homedir();
-    const base = path.join(homeDir, '.flux');
+    const base = process.env.FLUXD_PATH || path.join(homeDir, '.flux');
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
@@ -1669,7 +1820,7 @@ async function streamChain(req, res) {
     const chainExists = foldersExist.every((x) => x);
 
     if (!chainExists) {
-      res.statusMessage = 'Unable to find chain at $HOME/.flux';
+      res.statusMessage = 'Unable to find chain';
       res.status(500).end();
       return;
     }
@@ -1690,17 +1841,13 @@ async function streamChain(req, res) {
       res.status(422).end();
       return;
     }
-    // stop services
-    if (isArcane) {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
-    } else {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
-      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
-    }
 
     if (safe) {
-      const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
-      fluxdRunning = !(blockInfoRes.status === 'error' && blockInfoRes.data.code === 'ECONNREFUSED');
+      // we have to build the client here so that we can avoid the cache. We should have an option for he
+      // blockChainRpcs thing to skip cache
+      const fluxdClient = await daemonServiceUtils.buildFluxdClient();
+      const blockCountRes = await fluxdClient.run('getBlockCount', { params: [] }).catch((err) => err);
+      fluxdRunning = !(blockCountRes instanceof Error && blockCountRes.code === 'ECONNREFUSED');
     }
 
     if (safe && fluxdRunning) {
@@ -1750,12 +1897,17 @@ async function streamChain(req, res) {
     log.error(error);
   } finally {
     // start services
-    if (isArcane) {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
-    } else {
-      await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
-      await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+    if (daemonStartRequired) {
+      daemonStartRequired = false;
+
+      if (isArcane) {
+        await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+      } else {
+        await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+        await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+      }
     }
+
     lock = false;
   }
 }
@@ -1805,6 +1957,7 @@ module.exports = {
   softUpdateFluxInstall,
   startBenchmark,
   startDaemon,
+  streamChainPreparation,
   streamChain,
   tailBenchmarkDebug,
   tailDaemonDebug,
