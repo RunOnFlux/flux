@@ -8793,6 +8793,7 @@ async function getRunningAppIpList(ip) { // returns all apps running on this ip
       broadcastedAt: 1,
       expireAt: 1,
       runningSince: 1,
+      osUptime: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -8817,6 +8818,7 @@ async function getRunningAppList(appName) {
       broadcastedAt: 1,
       expireAt: 1,
       runningSince: 1,
+      osUptime: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
