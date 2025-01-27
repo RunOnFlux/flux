@@ -687,8 +687,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         if (blockDifference < minBlockheightDifference) {
           await appsService.reindexGlobalAppsInformation();
         }
-      } else {
-        await appsService.reindexGlobalAppsInformation();
       }
     }
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
