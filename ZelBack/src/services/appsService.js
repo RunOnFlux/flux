@@ -11646,17 +11646,16 @@ async function syncthingApps() {
       // eslint-disable-next-line no-await-in-loop
       const folderError = await syncthingService.getFolderIdErrors(folder.id);
       if (folderError && folderError.status === 'success' && folderError.data.errors && folderError.data.errors.length > 0) {
-        log.error(`Errors detected on syncthing folderId:${folder.id} - folder index database is going to be reseted`);
+        log.error(`Errors detected on syncthing folderId:${folder.id} - app is going to be uninstalled`);
         log.error(folderError);
-        folder.paused = true;
+        let appName = folder.id;
+        if (appName.contains('_')) {
+          appName = appName.split('_')[1];
+        }
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.adjustConfigFolders('put', folder, folder.id); // systemResetFolder id requires the folder to be paused before execution
+        await removeAppLocally(appName, null, true, false, true);
         // eslint-disable-next-line no-await-in-loop
-        const folderReset = await syncthingService.systemResetFolderId(folder.id);
-        log.error(folderReset);
-        folder.paused = false;
-        // eslint-disable-next-line no-await-in-loop
-        await syncthingService.adjustConfigFolders('put', folder, folder.id);
+        await serviceHelper.delay(5 * 1000);
       }
     }
     // check if restart is needed
