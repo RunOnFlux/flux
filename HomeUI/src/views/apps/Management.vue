@@ -7408,7 +7408,7 @@ export default {
         let statsResponse;
         this.additionalMessage = '';
         if (this.enableHistoryStatistics) {
-          statsResponse = await this.executeLocalCommand(`/apps/appmonitor/${appname}`);
+          statsResponse = await this.executeLocalCommand(`/apps/appmonitor/${appname}/${this.selectedTimeRange}`);
         } else {
           statsResponse = await this.executeLocalCommand(`/apps/appstats/${appname}`);
         }
@@ -7440,13 +7440,7 @@ export default {
             statsData = statsResponse.data.data;
           }
           if (Array.isArray(statsData)) {
-            const now = new Date().getTime();
-            const cutoffTimestamp = now - this.selectedTimeRange;
-            const filteredStats = statsData.filter((stats) => {
-              const statsTimestamp = new Date(stats.timestamp).getTime();
-              return statsTimestamp >= cutoffTimestamp;
-            });
-            filteredStats.forEach((stats) => {
+            statsData.forEach((stats) => {
               this.processStatsData(stats.data, stats.timestamp);
             });
           } else {

@@ -1113,7 +1113,7 @@ module.exports = (app) => {
   app.get('/apps/appstats/:appname?', (req, res) => {
     appsService.appStats(req, res);
   });
-  app.get('/apps/appmonitor/:appname?', (req, res) => {
+  app.get('/apps/appmonitor/:appname?/:range?', (req, res) => {
     appsService.appMonitor(req, res);
   });
   app.get('/apps/appmonitorstream/:appname?', (req, res) => {
