@@ -9283,6 +9283,24 @@ async function trySpawningGlobalApplication() {
         trySpawningGlobalApplication();
         return;
       }
+      if (runningAppList.length < 6) {
+        // check if there are connectivity to all nodes
+        // eslint-disable-next-line no-restricted-syntax
+        for (const node of runningAppList) {
+          const ip = node.ip.split(':')[0];
+          const port = node.ip.split(':')[1] || 16127;
+          // eslint-disable-next-line no-await-in-loop
+          const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
+          if (!isOpen) {
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(30 * 60 * 1000);
+            trySpawningGlobalAppCache.delete(appToRun);
+            trySpawningGlobalApplication();
+            return;
+          }
+        }
+      }
     }
 
     // ToDo: Move this to global
