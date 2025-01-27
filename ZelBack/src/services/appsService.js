@@ -1072,11 +1072,19 @@ async function appStats(req, res) {
  */
 async function appMonitor(req, res) {
   try {
-    let { appname } = req.params;
+    let { appname, range } = req.params;
     appname = appname || req.query.appname;
+    range = range || req.query.range || null;
 
     if (!appname) {
       throw new Error('No Flux App specified');
+    }
+
+    if (range !== null) {
+      range = parseInt(range, 10);
+      if (!Number.isInteger(range) || range <= 0) {
+        throw new Error('Invalid range value. It must be a positive integer or null.');
+      }
     }
 
     const mainAppName = appname.split('_')[1] || appname;
@@ -1084,8 +1092,17 @@ async function appMonitor(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       if (appsMonitored[appname]) {
-        const response = appsMonitored[appname].statsStore;
-        const appResponse = messageHelper.createDataMessage(response);
+        let appStatsMonitoring = appsMonitored[appname].statsStore;
+        if (range) {
+          const now = Date.now();
+          const cutoffTimestamp = now - range;
+          const hoursInMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+          appStatsMonitoring = appStatsMonitoring.filter((stats) => stats.timestamp >= cutoffTimestamp);
+          if (range > hoursInMs) {
+            appStatsMonitoring = appStatsMonitoring.filter((_, index, array) => index % 20 === 0 || index === array.length - 1); // keep always last entry
+          }
+        }
+        const appResponse = messageHelper.createDataMessage(appStatsMonitoring);
         res.json(appResponse);
       } else throw new Error('No data available');
     } else {
