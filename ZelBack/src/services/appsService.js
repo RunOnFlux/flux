@@ -3755,6 +3755,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         ip: myIP,
         broadcastedAt,
         runningSince: broadcastedAt,
+        osUptime: os.uptime(),
       };
 
       // store it in local database first
@@ -6638,6 +6639,9 @@ async function storeAppRunningMessage(message) {
     } else if (result && result.runningSince) {
       newAppRunningMessage.runningSince = result.runningSince;
     }
+    if (result.osUptime) {
+      newAppRunningMessage.osUptime = result.osUptime;
+    }
     const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
     const update = { $set: newAppRunningMessage };
     const options = {
@@ -8692,6 +8696,7 @@ async function appLocation(appname) {
       broadcastedAt: 1,
       expireAt: 1,
       runningSince: 1,
+      osUptime: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -9574,6 +9579,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           ip: myIP,
           broadcastedAt: Date.now(),
           runningSince: runningOnMyNodeSince,
+          osUptime: os.uptime(),
         };
         const app = {
           name: application.name,
@@ -9603,6 +9609,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           apps,
           ip: myIP,
           broadcastedAt: Date.now(),
+          osUptime: os.uptime(),
         };
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
