@@ -9051,6 +9051,7 @@ let firstExecutionAfterItsSynced = true;
 let fluxNodeWasAlreadyConfirmed = false;
 let fluxNodeWasNotConfirmedOnLastCheck = false;
 const appsToBeCheckedLater = [];
+const appsSyncthingToBeCheckedLater = [];
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function?
@@ -9165,12 +9166,19 @@ async function trySpawningGlobalApplication() {
     let appToRunAux = null;
     let minInstances = null;
     let appFromAppsToBeCheckedLater = false;
+    let appFromAppsSyncthingToBeCheckedLater = false;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
+    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
     if (appIndex >= 0) {
       appToRun = appsToBeCheckedLater[appIndex].appName;
       minInstances = appsToBeCheckedLater[appIndex].required;
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
+    } else if (appSyncthingIndex >= 0) {
+      appToRun = appsToBeCheckedLater[appSyncthingIndex].appName;
+      minInstances = appsToBeCheckedLater[appSyncthingIndex].required;
+      appsSyncthingToBeCheckedLater.splice(appSyncthingIndex, 1);
+      appFromAppsSyncthingToBeCheckedLater = true;
     } else {
       const myNodeLocation = nodeFullGeolocation();
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
@@ -9321,7 +9329,7 @@ async function trySpawningGlobalApplication() {
         trySpawningGlobalApplication();
         return;
       }
-      if (runningAppList.length < 6) {
+      if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater && runningAppList.length < 6) {
         // check if there are connectivity to all nodes
         // eslint-disable-next-line no-restricted-syntax
         for (const node of runningAppList) {
@@ -9330,7 +9338,13 @@ async function trySpawningGlobalApplication() {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
-            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue`);
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 1h if remaining missing instances`);
+            const appToCheck = {
+              timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
+              appName: appToRun,
+              required: minInstances,
+            };
+            appsSyncthingToBeCheckedLater.push(appToCheck);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(30 * 60 * 1000);
             trySpawningGlobalAppCache.delete(appToRun);
@@ -9371,6 +9385,7 @@ async function trySpawningGlobalApplication() {
     if (!appFromAppsToBeCheckedLater && appToRunAux.nodes.length === 0) {
       const tier = await generalService.nodeTier();
       const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
+      let delay = false;
       if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
           timeToCheck: Date.now() + 1.95 * 60 * 60 * 1000,
@@ -9380,6 +9395,7 @@ async function trySpawningGlobalApplication() {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from cumulus, will check in around 2h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
+        delay = true;
       } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
         const appToCheck = {
           timeToCheck: Date.now() + 1.45 * 60 * 60 * 1000,
@@ -9389,6 +9405,7 @@ async function trySpawningGlobalApplication() {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from nimbus, will check in around 1h30 if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
+        delay = true;
       } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
           timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
@@ -9398,6 +9415,12 @@ async function trySpawningGlobalApplication() {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from cumulus, will check in around 1h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
+        delay = true;
+      }
+      if (delay) {
+        await serviceHelper.delay(30 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
       }
     }
 
