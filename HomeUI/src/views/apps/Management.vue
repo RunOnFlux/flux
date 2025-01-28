@@ -3459,7 +3459,7 @@
                     Warning: This will be executed on all your aplications instances accross the network
                   </div>
                   Reinstall your application from the docker repo. Soft option, keeps data on the instance, Hard option deletes everything and gets installed like a fresh install.
-                  If app uses syncthing it can takes up to 30m to be up and running.
+                  Using hard option, if app uses syncthing it can takes up to 30m to be up and running on all instances.
                 </b-card-text>
                 <div class="text-center">
                   <b-button
