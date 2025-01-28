@@ -3459,7 +3459,7 @@
                     Warning: This will be executed on all your aplications instances accross the network
                   </div>
                   Reinstall your application from the docker repo. Soft option, keeps data on the instance, Hard option deletes everything and gets installed like a fresh install.
-                  If app uses syncthing it can takes up to 30 to be up and running.
+                  Using hard option, if app uses syncthing it can takes up to 30m to be up and running on all instances.
                 </b-card-text>
                 <div class="text-center">
                   <b-button
@@ -7408,7 +7408,7 @@ export default {
         let statsResponse;
         this.additionalMessage = '';
         if (this.enableHistoryStatistics) {
-          statsResponse = await this.executeLocalCommand(`/apps/appmonitor/${appname}`);
+          statsResponse = await this.executeLocalCommand(`/apps/appmonitor/${appname}/${this.selectedTimeRange}`);
         } else {
           statsResponse = await this.executeLocalCommand(`/apps/appstats/${appname}`);
         }
@@ -7440,13 +7440,7 @@ export default {
             statsData = statsResponse.data.data;
           }
           if (Array.isArray(statsData)) {
-            const now = new Date().getTime();
-            const cutoffTimestamp = now - this.selectedTimeRange;
-            const filteredStats = statsData.filter((stats) => {
-              const statsTimestamp = new Date(stats.timestamp).getTime();
-              return statsTimestamp >= cutoffTimestamp;
-            });
-            filteredStats.forEach((stats) => {
+            statsData.forEach((stats) => {
               this.processStatsData(stats.data, stats.timestamp);
             });
           } else {

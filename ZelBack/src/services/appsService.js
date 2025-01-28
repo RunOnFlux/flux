@@ -1072,11 +1072,19 @@ async function appStats(req, res) {
  */
 async function appMonitor(req, res) {
   try {
-    let { appname } = req.params;
+    let { appname, range } = req.params;
     appname = appname || req.query.appname;
+    range = range || req.query.range || null;
 
     if (!appname) {
       throw new Error('No Flux App specified');
+    }
+
+    if (range !== null) {
+      range = parseInt(range, 10);
+      if (!Number.isInteger(range) || range <= 0) {
+        throw new Error('Invalid range value. It must be a positive integer or null.');
+      }
     }
 
     const mainAppName = appname.split('_')[1] || appname;
@@ -1084,8 +1092,17 @@ async function appMonitor(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
       if (appsMonitored[appname]) {
-        const response = appsMonitored[appname].statsStore;
-        const appResponse = messageHelper.createDataMessage(response);
+        let appStatsMonitoring = appsMonitored[appname].statsStore;
+        if (range) {
+          const now = Date.now();
+          const cutoffTimestamp = now - range;
+          const hoursInMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+          appStatsMonitoring = appStatsMonitoring.filter((stats) => stats.timestamp >= cutoffTimestamp);
+          if (range > hoursInMs) {
+            appStatsMonitoring = appStatsMonitoring.filter((_, index, array) => index % 20 === 0 || index === array.length - 1); // keep always last entry
+          }
+        }
+        const appResponse = messageHelper.createDataMessage(appStatsMonitoring);
         res.json(appResponse);
       } else throw new Error('No data available');
     } else {
@@ -3755,6 +3772,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         ip: myIP,
         broadcastedAt,
         runningSince: broadcastedAt,
+        osUptime: os.uptime(),
       };
 
       // store it in local database first
@@ -6638,6 +6656,9 @@ async function storeAppRunningMessage(message) {
     } else if (result && result.runningSince) {
       newAppRunningMessage.runningSince = result.runningSince;
     }
+    if (result.osUptime) {
+      newAppRunningMessage.osUptime = result.osUptime;
+    }
     const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
     const update = { $set: newAppRunningMessage };
     const options = {
@@ -6646,6 +6667,20 @@ async function storeAppRunningMessage(message) {
     // eslint-disable-next-line no-await-in-loop
     await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
   }
+
+  if (message.version === 2 && appsMessages.length === 0) {
+    const queryFind = { ip: message.ip };
+    const projection = { _id: 0, runningSince: 1 };
+    // we already have the exact same data
+    // eslint-disable-next-line no-await-in-loop
+    const result = await dbHelper.findInDatabase(database, globalAppsLocations, queryFind, projection);
+    if (result.length > 0) {
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, queryFind);
+    } else {
+      return false;
+    }
+  }
+
   if (messageNotOk) {
     return false;
   }
@@ -8692,6 +8727,7 @@ async function appLocation(appname) {
       broadcastedAt: 1,
       expireAt: 1,
       runningSince: 1,
+      osUptime: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -8788,6 +8824,7 @@ async function getRunningAppIpList(ip) { // returns all apps running on this ip
       broadcastedAt: 1,
       expireAt: 1,
       runningSince: 1,
+      osUptime: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -8812,6 +8849,7 @@ async function getRunningAppList(appName) {
       broadcastedAt: 1,
       expireAt: 1,
       runningSince: 1,
+      osUptime: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -9013,6 +9051,7 @@ let firstExecutionAfterItsSynced = true;
 let fluxNodeWasAlreadyConfirmed = false;
 let fluxNodeWasNotConfirmedOnLastCheck = false;
 const appsToBeCheckedLater = [];
+const appsSyncthingToBeCheckedLater = [];
 async function trySpawningGlobalApplication() {
   try {
     // how do we continue with this function?
@@ -9127,12 +9166,19 @@ async function trySpawningGlobalApplication() {
     let appToRunAux = null;
     let minInstances = null;
     let appFromAppsToBeCheckedLater = false;
+    let appFromAppsSyncthingToBeCheckedLater = false;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
+    const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
     if (appIndex >= 0) {
       appToRun = appsToBeCheckedLater[appIndex].appName;
       minInstances = appsToBeCheckedLater[appIndex].required;
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
+    } else if (appSyncthingIndex >= 0) {
+      appToRun = appsSyncthingToBeCheckedLater[appSyncthingIndex].appName;
+      minInstances = appsSyncthingToBeCheckedLater[appSyncthingIndex].required;
+      appsSyncthingToBeCheckedLater.splice(appSyncthingIndex, 1);
+      appFromAppsSyncthingToBeCheckedLater = true;
     } else {
       const myNodeLocation = nodeFullGeolocation();
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
@@ -9275,12 +9321,37 @@ async function trySpawningGlobalApplication() {
     if (syncthingApp) {
       const myIpWithoutPort = myIP.split(':')[0];
       const lastIndex = myIpWithoutPort.lastIndexOf('.');
-      const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, lastIndex)));
+      const secondLastIndex = myIpWithoutPort.substring(0, lastIndex).lastIndexOf('.');
+      const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
         await serviceHelper.delay(30 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
+      }
+      if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater && runningAppList.length < 6) {
+        // check if there are connectivity to all nodes
+        // eslint-disable-next-line no-restricted-syntax
+        for (const node of runningAppList) {
+          const ip = node.ip.split(':')[0];
+          const port = node.ip.split(':')[1] || 16127;
+          // eslint-disable-next-line no-await-in-loop
+          const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
+          if (!isOpen) {
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 30m if remaining missing instances`);
+            const appToCheck = {
+              timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
+              appName: appToRun,
+              required: minInstances,
+            };
+            appsSyncthingToBeCheckedLater.push(appToCheck);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(30 * 60 * 1000);
+            trySpawningGlobalAppCache.delete(appToRun);
+            trySpawningGlobalApplication();
+            return;
+          }
+        }
       }
     }
 
@@ -9314,6 +9385,7 @@ async function trySpawningGlobalApplication() {
     if (!appFromAppsToBeCheckedLater && appToRunAux.nodes.length === 0) {
       const tier = await generalService.nodeTier();
       const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
+      let delay = false;
       if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
           timeToCheck: Date.now() + 1.95 * 60 * 60 * 1000,
@@ -9323,6 +9395,7 @@ async function trySpawningGlobalApplication() {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from cumulus, will check in around 2h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
+        delay = true;
       } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
         const appToCheck = {
           timeToCheck: Date.now() + 1.45 * 60 * 60 * 1000,
@@ -9332,6 +9405,7 @@ async function trySpawningGlobalApplication() {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from nimbus, will check in around 1h30 if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
+        delay = true;
       } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
           timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
@@ -9341,6 +9415,12 @@ async function trySpawningGlobalApplication() {
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from cumulus, will check in around 1h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appToRun);
+        delay = true;
+      }
+      if (delay) {
+        await serviceHelper.delay(30 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
       }
     }
 
@@ -9408,6 +9488,7 @@ async function trySpawningGlobalApplication() {
 /**
  * To check and notify peers of running apps. Checks if apps are installed, stopped or running.
  */
+let checkAndNotifyPeersOfRunningAppsFirstRun = true;
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     let isNodeConfirmed = false;
@@ -9555,6 +9636,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           ip: myIP,
           broadcastedAt: Date.now(),
           runningSince: runningOnMyNodeSince,
+          osUptime: os.uptime(),
         };
         const app = {
           name: application.name,
@@ -9584,6 +9666,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           apps,
           ip: myIP,
           broadcastedAt: Date.now(),
+          osUptime: os.uptime(),
         };
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
@@ -9593,6 +9676,28 @@ async function checkAndNotifyPeersOfRunningApps() {
         await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
         // broadcast messages about running apps to all peers
         log.info(`App Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
+      } else if (installedAndRunning.length === 0 && checkAndNotifyPeersOfRunningAppsFirstRun) {
+        checkAndNotifyPeersOfRunningAppsFirstRun = false;
+        // we will broadcast a message that we are not running any app
+        // if multitoolbox option to reinstall fluxos or fix mongodb is executed all apps are removed from the node, once the node starts and it's confirmed
+        // should broadcast to the network what is running or not
+        // the nodes who receive the message will only rebroadcast if they had information about a app running on this node
+        const newAppRunningMessageV2 = {
+          type: 'fluxapprunning',
+          version: 2,
+          apps,
+          ip: myIP,
+          broadcastedAt: Date.now(),
+          osUptime: os.uptime(),
+        };
+        // eslint-disable-next-line no-await-in-loop
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(500);
+        // eslint-disable-next-line no-await-in-loop
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessageV2);
+        // broadcast messages about running apps to all peers
+        log.info(`No Apps Running Message broadcasted ${JSON.stringify(newAppRunningMessageV2)}`);
       }
     } catch (err) {
       log.error(err);
@@ -11581,17 +11686,16 @@ async function syncthingApps() {
       // eslint-disable-next-line no-await-in-loop
       const folderError = await syncthingService.getFolderIdErrors(folder.id);
       if (folderError && folderError.status === 'success' && folderError.data.errors && folderError.data.errors.length > 0) {
-        log.error(`Errors detected on syncthing folderId:${folder.id} - folder index database is going to be reseted`);
+        log.error(`Errors detected on syncthing folderId:${folder.id} - app is going to be uninstalled`);
         log.error(folderError);
-        folder.paused = true;
+        let appName = folder.id;
+        if (appName.contains('_')) {
+          appName = appName.split('_')[1];
+        }
         // eslint-disable-next-line no-await-in-loop
-        await syncthingService.adjustConfigFolders('put', folder, folder.id); // systemResetFolder id requires the folder to be paused before execution
+        await removeAppLocally(appName, null, true, false, true);
         // eslint-disable-next-line no-await-in-loop
-        const folderReset = await syncthingService.systemResetFolderId(folder.id);
-        log.error(folderReset);
-        folder.paused = false;
-        // eslint-disable-next-line no-await-in-loop
-        await syncthingService.adjustConfigFolders('put', folder, folder.id);
+        await serviceHelper.delay(5 * 1000);
       }
     }
     // check if restart is needed
