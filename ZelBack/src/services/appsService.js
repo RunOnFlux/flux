@@ -9175,8 +9175,8 @@ async function trySpawningGlobalApplication() {
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
     } else if (appSyncthingIndex >= 0) {
-      appToRun = appsToBeCheckedLater[appSyncthingIndex].appName;
-      minInstances = appsToBeCheckedLater[appSyncthingIndex].required;
+      appToRun = appsSyncthingToBeCheckedLater[appSyncthingIndex].appName;
+      minInstances = appsSyncthingToBeCheckedLater[appSyncthingIndex].required;
       appsSyncthingToBeCheckedLater.splice(appSyncthingIndex, 1);
       appFromAppsSyncthingToBeCheckedLater = true;
     } else {
@@ -9338,9 +9338,9 @@ async function trySpawningGlobalApplication() {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
-            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 1h if remaining missing instances`);
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 30m if remaining missing instances`);
             const appToCheck = {
-              timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
+              timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
               appName: appToRun,
               required: minInstances,
             };
