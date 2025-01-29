@@ -647,6 +647,25 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       adjustedCommands.push(command);
     }
   });
+
+  const isRemoteLog = envParams?.some((env) => env.startsWith('LOG=SYSLOG'));
+  const logConfig = isRemoteLog
+    ? {
+      Type: 'syslog',
+      Config: {
+        'syslog-address': `udp://${appSpecifications.name}:514`,
+        'syslog-facility': 'local0',
+        tag: identifier,
+      },
+    }
+    : {
+      Type: 'json-file',
+      Config: {
+        'max-file': '1',
+        'max-size': '20m',
+      },
+    };
+
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -676,13 +695,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         Name: restartPolicy,
       },
       NetworkMode: `fluxDockerNetwork_${appName}`,
-      LogConfig: {
-        Type: 'json-file',
-        Config: {
-          'max-file': '1',
-          'max-size': '20m',
-        },
-      },
+      LogConfig: logConfig,
       ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
     },
   };
