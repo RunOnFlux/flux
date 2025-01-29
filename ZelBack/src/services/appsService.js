@@ -6636,6 +6636,7 @@ async function storeAppRunningMessage(message) {
       ip: message.ip,
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(validTill),
+      osUptime: message.osUptime,
     };
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
@@ -6655,9 +6656,6 @@ async function storeAppRunningMessage(message) {
       newAppRunningMessage.runningSince = new Date(app.runningSince);
     } else if (result && result.runningSince) {
       newAppRunningMessage.runningSince = result.runningSince;
-    }
-    if (result.osUptime) {
-      newAppRunningMessage.osUptime = result.osUptime;
     }
     const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
     const update = { $set: newAppRunningMessage };
