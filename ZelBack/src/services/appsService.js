@@ -3773,6 +3773,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         broadcastedAt,
         runningSince: broadcastedAt,
         osUptime: os.uptime(),
+        staticIp: geolocationService.isStaticIP(),
       };
 
       // store it in local database first
@@ -6637,6 +6638,7 @@ async function storeAppRunningMessage(message) {
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(validTill),
       osUptime: message.osUptime,
+      staticIp: message.staticIp,
     };
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
@@ -8726,6 +8728,7 @@ async function appLocation(appname) {
       expireAt: 1,
       runningSince: 1,
       osUptime: 1,
+      staticIp: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -8823,6 +8826,7 @@ async function getRunningAppIpList(ip) { // returns all apps running on this ip
       expireAt: 1,
       runningSince: 1,
       osUptime: 1,
+      staticIp: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -8848,6 +8852,7 @@ async function getRunningAppList(appName) {
       expireAt: 1,
       runningSince: 1,
       osUptime: 1,
+      staticIp: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -9635,6 +9640,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           broadcastedAt: Date.now(),
           runningSince: runningOnMyNodeSince,
           osUptime: os.uptime(),
+          staticIp: geolocationService.isStaticIP(),
         };
         const app = {
           name: application.name,
@@ -9665,6 +9671,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           ip: myIP,
           broadcastedAt: Date.now(),
           osUptime: os.uptime(),
+          staticIp: geolocationService.isStaticIP(),
         };
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
@@ -9687,6 +9694,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           ip: myIP,
           broadcastedAt: Date.now(),
           osUptime: os.uptime(),
+          staticIp: geolocationService.isStaticIP(),
         };
         // eslint-disable-next-line no-await-in-loop
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessageV2);
