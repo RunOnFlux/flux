@@ -77,6 +77,20 @@ function lockStreamLock() {
 }
 
 /**
+ * For testing
+ */
+function disableStreaming() {
+  streamChainDisabled = true;
+}
+
+/**
+ * For testing
+ */
+function enableStreaming() {
+  streamChainDisabled = false;
+}
+
+/**
  * To show the directory on the node machine where FluxOS files are stored.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -2025,6 +2039,8 @@ module.exports = {
   updateDaemon,
   updateFlux,
   // Exports for testing purposes
+  disableStreaming,
+  enableStreaming,
   fluxLog,
   getStreamLock,
   lockStreamLock,

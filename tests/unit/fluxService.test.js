@@ -2897,6 +2897,20 @@ describe('fluxService tests', () => {
       sinon.restore();
     });
 
+    it('should return 422 if streaming is disabled', async () => {
+      const res = generateResponse();
+      fluxService.disableStreaming();
+
+      await fluxService.streamChain(null, res);
+
+      expect(res.statusMessage).to.equal('Failed minimium throughput criteria. Disabled.');
+      expect(fluxService.getStreamLock()).to.equal(false);
+
+      sinon.assert.calledWithExactly(res.status, 422);
+      sinon.assert.calledOnce(res.end);
+      fluxService.enableStreaming();
+    });
+
     it('should return 503 if a stream is already in progress', async () => {
       const res = generateResponse();
       fluxService.lockStreamLock();
