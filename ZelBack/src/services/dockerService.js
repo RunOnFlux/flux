@@ -526,6 +526,23 @@ async function obtainPayloadFromStorage(url, appName) {
   }
 }
 
+const getContainerIP = async (containerName) => {
+  try {
+    const container = await docker.getContainer(containerName).inspect();
+    const networks = Object.keys(container.NetworkSettings.Networks);
+
+    if (networks.length === 0) {
+      throw new Error('No networks found for container');
+    }
+
+    const networkName = networks[0]; // Use the first (and only) network
+    return container.NetworkSettings.Networks[networkName].IPAddress;
+  } catch (error) {
+    log.error(`Failed to retrieve IP for ${containerName}: ${error.message}`);
+    return null;
+  }
+};
+
 /**
  * Creates an app container.
  *
@@ -648,21 +665,26 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     }
   });
 
-  // Identify apps with LOG=SEND
-  const isRemoteLog = envParams?.some((env) => env.startsWith('LOG=SEND'));
-  // Find target app with LOG=COLLECT
+  const isSender = envParams?.some((env) => env.startsWith('LOG=SEND'));
+
   let syslogTarget = null;
-  if (fullAppSpecs && fullAppSpecs.compose) {
+  let syslogIP = null;
+
+  if (fullAppSpecs && fullAppSpecs?.compose) {
     syslogTarget = fullAppSpecs.compose.find((app) => app.environmentParameters?.some((env) => env.startsWith('LOG=COLLECT')))?.name;
   }
 
-  log.info(`isRemoteLog=${isRemoteLog}, syslogTarget=${syslogTarget}`);
+  if (syslogTarget) {
+    syslogIP = await getContainerIP(`flux${syslogTarget}_${appName}`);
+  }
 
-  const logConfig = isRemoteLog && syslogTarget
+  log.info(`isSender=${isSender}, syslogTarget=${syslogTarget}, syslogIP=${syslogIP}`);
+
+  const logConfig = isSender && syslogTarget && syslogIP
     ? {
       Type: 'syslog',
       Config: {
-        'syslog-address': `udp://${syslogTarget}:514`,
+        'syslog-address': `udp://${syslogIP}:514`,
         'syslog-facility': 'local0',
         tag: `${appSpecifications.name}`,
       },
