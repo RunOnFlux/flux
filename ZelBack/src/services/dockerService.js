@@ -648,14 +648,23 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     }
   });
 
-  const isRemoteLog = envParams?.some((env) => env.startsWith('LOG=SYSLOG'));
-  const logConfig = isRemoteLog
+  // Identify apps with LOG=SEND
+  const isRemoteLog = envParams?.some((env) => env.startsWith('LOG=SEND'));
+  // Find target app with LOG=COLLECT
+  let syslogTarget = null;
+  if (fullAppSpecs && fullAppSpecs.compose) {
+    syslogTarget = fullAppSpecs.compose.find((app) => app.environmentParameters?.some((env) => env.startsWith('LOG=COLLECT')))?.name;
+  }
+
+  log.info(`isRemoteLog=${isRemoteLog}, syslogTarget=${syslogTarget}`);
+
+  const logConfig = isRemoteLog && syslogTarget
     ? {
       Type: 'syslog',
       Config: {
-        'syslog-address': `udp://${appSpecifications.name}:514`,
+        'syslog-address': `udp://${syslogTarget}:514`,
         'syslog-facility': 'local0',
-        tag: identifier,
+        tag: `${appSpecifications.name}`,
       },
     }
     : {
