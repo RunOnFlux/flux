@@ -50,6 +50,12 @@ let prepLock = false;
 let daemonStartRequired = false;
 
 /**
+ * Only disabled if a stream fails to meet minimum
+ * throughput criteria. I.e. 200Mbps.
+ */
+let streamChainDisabled = false;
+
+/**
  * For testing
  */
 function getStreamLock() {
@@ -68,6 +74,20 @@ function unlockStreamLock() {
  */
 function lockStreamLock() {
   lock = true;
+}
+
+/**
+ * For testing
+ */
+function disableStreaming() {
+  streamChainDisabled = true;
+}
+
+/**
+ * For testing
+ */
+function enableStreaming() {
+  streamChainDisabled = false;
 }
 
 /**
@@ -1578,6 +1598,12 @@ async function restartFluxOS(req, res) {
 * @returns {Promise<void>}
 */
 async function streamChainPreparation(req, res) {
+  if (streamChainDisabled) {
+    res.statusMessage = 'Failed minimium throughput criteria. Disabled.';
+    res.status(422).end();
+    return;
+  }
+
   if (lock || prepLock) {
     res.statusMessage = 'Streaming of chain already in progress, server busy.';
     res.status(503).end();
@@ -1709,7 +1735,7 @@ async function streamChainPreparation(req, res) {
         log.info('Stream chain prep timeout hit: services already restarted or stream in progress');
       }
       prepLock = false;
-    }, 30 * 1000);
+    }, 30 * 1_000);
   }
 }
 
@@ -1764,11 +1790,20 @@ async function streamChainPreparation(req, res) {
  * @returns {Promise<void>}
  */
 async function streamChain(req, res) {
+  if (streamChainDisabled) {
+    res.statusMessage = 'Failed minimium throughput criteria. Disabled.';
+    res.status(422).end();
+    return;
+  }
+
   if (lock) {
     res.statusMessage = 'Streaming of chain already in progress, server busy.';
     res.status(503).end();
     return;
   }
+
+  let monitorTimer = null;
+
   try {
     lock = true;
 
@@ -1876,10 +1911,42 @@ async function streamChain(req, res) {
     res.setHeader('Approx-Content-Length', totalSize.toString());
 
     const workflow = [];
+    const passThrough = new stream.PassThrough();
+    let bytesTransferred = 0;
+
+    const monitorStreamWorker = () => {
+      // this may not trigger after exactly 35s, but close enough. We use 35 seconds,
+      // so that it can be guaranteed that the timeout set in streamChainPreparation has
+      // already triggered. Also gives us a better approximation of throughput as TCP can
+      // take quite a bit of time to wind up sometimes.
+      const timeoutMs = 35_000;
+      const thresholdMbps = 200;
+
+      // data transfer rates are usually Megabytes per second (not Mebibytes)
+      return setTimeout(() => {
+        const mbps = ((bytesTransferred / 1000 ** 2) / (timeoutMs / 1_000)) * 8;
+
+        if (mbps < thresholdMbps) {
+          log.info(`Stream chain transfer rate too slow: ${mbps.toFixed(2)} Mbps, cancelling stream and disabling further streams`);
+          streamChainDisabled = true;
+          passThrough.destroy();
+        } else {
+          log.info(`Stream chain transfer rate: ${mbps.toFixed(2)} Mbps, proceeding`);
+        }
+      }, timeoutMs);
+    };
+
+    passThrough.once('data', () => {
+      monitorTimer = monitorStreamWorker();
+    });
+
+    passThrough.on('data', (chunk) => {
+      bytesTransferred += chunk.byteLength;
+    });
 
     const readStream = tar.create({ cwd: base }, folders);
 
-    workflow.push(readStream);
+    workflow.push(readStream, passThrough);
 
     if (compress) {
       log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
@@ -1896,6 +1963,7 @@ async function streamChain(req, res) {
   } catch (error) {
     log.error(error);
   } finally {
+    clearTimeout(monitorTimer);
     // start services
     if (daemonStartRequired) {
       daemonStartRequired = false;
@@ -1969,6 +2037,8 @@ module.exports = {
   updateDaemon,
   updateFlux,
   // Exports for testing purposes
+  disableStreaming,
+  enableStreaming,
   fluxLog,
   getStreamLock,
   lockStreamLock,
