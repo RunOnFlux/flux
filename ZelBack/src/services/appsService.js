@@ -11989,7 +11989,7 @@ async function monitorSharedDBApps() {
     for (const installedApp of appsInstalled.data.filter((app) => app.version > 3).compose.find((comp) => comp.repotag.includes('runonflux/shared-db'))) {
       log.info(`monitorSharedDBApps: Found app ${installedApp.name} using sharedDB`);
       const componentUsingSharedDB = installedApp.compose.find((comp) => comp.repotag.includes('runonflux/shared-db'));
-      const apiPort = componentUsingSharedDB.ports.at(-1);
+      const apiPort = componentUsingSharedDB.ports.at(-1); // it's the last port from the shareddb that is the api port
       // eslint-disable-next-line no-await-in-loop
       const url = `http://localhost:${apiPort}/status`;
       log.info(`monitorSharedDBApps: ${installedApp.name} going to check operator status on url ${url}`);
