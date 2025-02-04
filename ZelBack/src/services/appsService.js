@@ -11975,6 +11975,53 @@ async function masterSlaveApps() {
   }
 }
 
+// function responsable for starting and stopping apps to have only one instance running as master
+async function monitorSharedDBApps() {
+  try {
+    // do not run if installationInProgress or removalInProgress
+    if (installationInProgress || removalInProgress) {
+      return;
+    }
+    // get list of all installed apps
+    const appsInstalled = await installedApps();
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of appsInstalled.data.filter((app) => app.version > 3).compose.find((comp) => comp.repotag.includes('runonflux/shared-db'))) {
+      log.info(`monitorSharedDBApps: Found app ${installedApp.name} using sharedDB`);
+      const componentUsingSharedDB = installedApp.compose.find((comp) => comp.repotag.includes('runonflux/shared-db'));
+      const apiPort = componentUsingSharedDB.ports.at(-1);
+      // eslint-disable-next-line no-await-in-loop
+      const url = `http://localhost:${apiPort}/status`;
+      log.info(`monitorSharedDBApps: ${installedApp.name} going to check operator status on url ${url}`);
+      // eslint-disable-next-line no-await-in-loop
+      const operatorStatus = await serviceHelper.axiosGet(url).catch((error) => log.error(error));
+      log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus response ${JSON.stringify(operatorStatus)}`);
+      if (operatorStatus && operatorStatus.status !== 'OK') {
+        log.info(`monitorSharedDBApps: ${installedApp.name} status is not OK and sequenceNumber is ${operatorStatus.sequenceNumber}`);
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(2.5 * 60 * 1000); // operator status api cache is updated every 2 minutes
+        // eslint-disable-next-line no-await-in-loop
+        const operatorStatusDoubleCheck = await serviceHelper.axiosGet(url).catch((error) => log.error(error));
+        log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus double check response ${JSON.stringify(operatorStatusDoubleCheck)}`);
+        if (operatorStatusDoubleCheck && operatorStatusDoubleCheck.status !== 'OK' && operatorStatus.sequenceNumber === operatorStatusDoubleCheck.sequenceNumber) {
+          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is not OK and sequence number is not syncing, going to uninstall the app}`);
+          // eslint-disable-next-line no-await-in-loop
+          await removeAppLocally(installedApp.name, null, true, false, true);
+        } else {
+          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is OK or it is syncing}`);
+        }
+      } else {
+        log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is OK}`);
+      }
+    }
+  } catch (error) {
+    log.error(`monitorSharedDBApps: ${error}`);
+  } finally {
+    await serviceHelper.delay(5 * 60 * 1000);
+    monitorSharedDBApps();
+  }
+}
+
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 let dosMountMessage = '';
@@ -13599,4 +13646,5 @@ module.exports = {
   getAppSpecsUSDPrice,
   checkApplicationsCpuUSage,
   monitorNodeStatus,
+  monitorSharedDBApps,
 };
