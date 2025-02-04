@@ -11975,7 +11975,7 @@ async function masterSlaveApps() {
   }
 }
 
-// function responsable for starting and stopping apps to have only one instance running as master
+// function responsable for monitoring apps using sharedDB project
 async function monitorSharedDBApps() {
   try {
     // do not run if installationInProgress or removalInProgress
