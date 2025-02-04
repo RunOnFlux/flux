@@ -11986,32 +11986,38 @@ async function monitorSharedDBApps() {
     const appsInstalled = await installedApps();
 
     // eslint-disable-next-line no-restricted-syntax
-    for (const installedApp of appsInstalled.data.filter((app) => app.version > 3).compose.find((comp) => comp.repotag.includes('runonflux/shared-db'))) {
-      log.info(`monitorSharedDBApps: Found app ${installedApp.name} using sharedDB`);
+    for (const installedApp of appsInstalled.data.filter((app) => app.version > 3)) {
       const componentUsingSharedDB = installedApp.compose.find((comp) => comp.repotag.includes('runonflux/shared-db'));
-      const apiPort = componentUsingSharedDB.ports.at(-1); // it's the last port from the shareddb that is the api port
-      // eslint-disable-next-line no-await-in-loop
-      const url = `http://localhost:${apiPort}/status`;
-      log.info(`monitorSharedDBApps: ${installedApp.name} going to check operator status on url ${url}`);
-      // eslint-disable-next-line no-await-in-loop
-      const operatorStatus = await serviceHelper.axiosGet(url).catch((error) => log.error(error));
-      log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus response ${JSON.stringify(operatorStatus)}`);
-      if (operatorStatus && operatorStatus.status !== 'OK') {
-        log.info(`monitorSharedDBApps: ${installedApp.name} status is not OK and sequenceNumber is ${operatorStatus.sequenceNumber}`);
+      if (componentUsingSharedDB) {
+        log.info(`monitorSharedDBApps: Found app ${installedApp.name} using sharedDB`);
+        const apiPort = componentUsingSharedDB.ports.at(-1); // it's the last port from the shareddb that is the api port
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(2.5 * 60 * 1000); // operator status api cache is updated every 2 minutes
+        const url = `http://localhost:${apiPort}/status`;
+        log.info(`monitorSharedDBApps: ${installedApp.name} going to check operator status on url ${url}`);
         // eslint-disable-next-line no-await-in-loop
-        const operatorStatusDoubleCheck = await serviceHelper.axiosGet(url).catch((error) => log.error(error));
-        log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus double check response ${JSON.stringify(operatorStatusDoubleCheck)}`);
-        if (operatorStatusDoubleCheck && operatorStatusDoubleCheck.status !== 'OK' && operatorStatus.sequenceNumber === operatorStatusDoubleCheck.sequenceNumber) {
-          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is not OK and sequence number is not syncing, going to uninstall the app}`);
-          // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(installedApp.name, null, true, false, true);
-        } else {
-          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is OK or it is syncing}`);
+        const operatorStatus = await serviceHelper.axiosGet(url).catch((error) => log.error(`monitorSharedDBApps: ${installedApp.name} operatorStatus error: ${error}`));
+        if (operatorStatus) {
+          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus response ${JSON.stringify(operatorStatus)}`);
         }
-      } else {
-        log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is OK}`);
+        if (operatorStatus && operatorStatus.status !== 'OK') {
+          log.info(`monitorSharedDBApps: ${installedApp.name} status is not OK and sequenceNumber is ${operatorStatus.sequenceNumber}`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2.5 * 60 * 1000); // operator status api cache is updated every 2 minutes
+          // eslint-disable-next-line no-await-in-loop
+          const operatorStatusDoubleCheck = await serviceHelper.axiosGet(url).catch((error) => log.error(`monitorSharedDBApps: ${installedApp.name} operatorStatus double check error: ${error}`));
+          if (operatorStatusDoubleCheck) {
+            log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus double check response ${JSON.stringify(operatorStatusDoubleCheck)}`);
+          }
+          if (operatorStatusDoubleCheck && operatorStatusDoubleCheck.status !== 'OK' && operatorStatus.sequenceNumber === operatorStatusDoubleCheck.sequenceNumber) {
+            log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is not OK and sequence number is not syncing, going to uninstall the app}`);
+            // eslint-disable-next-line no-await-in-loop
+            await removeAppLocally(installedApp.name, null, true, false, true);
+          } else {
+            log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is OK or it is syncing}`);
+          }
+        } else {
+          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is OK}`);
+        }
       }
     }
   } catch (error) {
