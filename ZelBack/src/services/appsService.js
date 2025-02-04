@@ -12004,11 +12004,11 @@ async function monitorSharedDBApps() {
         const operatorStatusDoubleCheck = await serviceHelper.axiosGet(url).catch((error) => log.error(error));
         log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus double check response ${JSON.stringify(operatorStatusDoubleCheck)}`);
         if (operatorStatusDoubleCheck && operatorStatusDoubleCheck.status !== 'OK' && operatorStatus.sequenceNumber === operatorStatusDoubleCheck.sequenceNumber) {
-          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is not OK and sequence number is not syncing, going to uninstall the app}`);
+          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is not OK and sequence number is not syncing, going to uninstall the app}`);
           // eslint-disable-next-line no-await-in-loop
           await removeAppLocally(installedApp.name, null, true, false, true);
         } else {
-          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is OK or it is syncing}`);
+          log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is OK or it is syncing}`);
         }
       } else {
         log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is OK}`);
