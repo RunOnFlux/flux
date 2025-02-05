@@ -242,8 +242,8 @@ async function startFluxFunctions() {
       }, 30 * 1000);
       setTimeout(() => {
         appsService.monitorSharedDBApps(); // Monitor SharedDB Apps.
-      }, 60 * 1000);
-    }, 3 * 60 * 1000);
+      }, 5 * 1000);
+    }, 0.5 * 60 * 1000);
     setTimeout(() => {
       setInterval(() => { // every 30 mins (15 blocks)
         appsService.continuousFluxAppHashesCheck();
