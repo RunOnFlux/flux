@@ -11975,6 +11975,61 @@ async function masterSlaveApps() {
   }
 }
 
+// function responsable for monitoring apps using sharedDB project
+async function monitorSharedDBApps() {
+  try {
+    // do not run if installationInProgress or removalInProgress
+    if (installationInProgress || removalInProgress) {
+      return;
+    }
+    // get list of all installed apps
+    const appsInstalled = await installedApps();
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of appsInstalled.data.filter((app) => app.version > 3)) {
+      const componentUsingSharedDB = installedApp.compose.find((comp) => comp.repotag.includes('runonflux/shared-db'));
+      if (componentUsingSharedDB) {
+        log.info(`monitorSharedDBApps: Found app ${installedApp.name} using sharedDB`);
+        if (componentUsingSharedDB.ports && componentUsingSharedDB.ports.length > 0) {
+          const apiPort = componentUsingSharedDB.ports[componentUsingSharedDB.ports.length - 1]; // it's the last port from the shareddb that is the api port
+          // eslint-disable-next-line no-await-in-loop
+          const url = `http://localhost:${apiPort}/status`;
+          log.info(`monitorSharedDBApps: ${installedApp.name} going to check operator status on url ${url}`);
+          // eslint-disable-next-line no-await-in-loop
+          const operatorStatus = await serviceHelper.axiosGet(url).catch((error) => log.error(`monitorSharedDBApps: ${installedApp.name} operatorStatus error: ${error}`));
+          if (operatorStatus.data && operatorStatus.data.status !== 'OK' && operatorStatus.data.clusterStatus.length > 1) {
+            const sequence = operatorStatus.data.sequenceNumber || 0;
+            log.info(`monitorSharedDBApps: ${installedApp.name} status is not OK and sequenceNumber is ${sequence}`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(2.5 * 60 * 1000); // operator status api cache is updated every 2 minutes
+            // eslint-disable-next-line no-await-in-loop
+            const operatorStatusDoubleCheck = await serviceHelper.axiosGet(url).catch((error) => log.error(`monitorSharedDBApps: ${installedApp.name} operatorStatus double check error: ${error}`));
+            if (operatorStatusDoubleCheck.data && operatorStatusDoubleCheck.data.status !== 'OK' && operatorStatusDoubleCheck.data.clusterStatus.length > 1) {
+              const auxSequence = operatorStatusDoubleCheck.data.sequenceNumber || 0;
+              if (sequence === auxSequence) {
+                log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is not OK and sequence number is not syncing, going to uninstall the app`);
+                // eslint-disable-next-line no-await-in-loop
+                await removeAppLocally(installedApp.name, null, true, false, true);
+              } else {
+                log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck node is syncing`);
+              }
+            } else {
+              log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is OK or there are no peers to connect to`);
+            }
+          } else {
+            log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is OK`);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(`monitorSharedDBApps: ${error}`);
+  } finally {
+    await serviceHelper.delay(5 * 60 * 1000);
+    monitorSharedDBApps();
+  }
+}
+
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 let dosMountMessage = '';
@@ -13599,4 +13654,5 @@ module.exports = {
   getAppSpecsUSDPrice,
   checkApplicationsCpuUSage,
   monitorNodeStatus,
+  monitorSharedDBApps,
 };
