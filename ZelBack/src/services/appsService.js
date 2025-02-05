@@ -12025,7 +12025,7 @@ async function monitorSharedDBApps() {
   } catch (error) {
     log.error(`monitorSharedDBApps: ${error}`);
   } finally {
-    await serviceHelper.delay(1 * 60 * 1000);
+    await serviceHelper.delay(5 * 60 * 1000);
     monitorSharedDBApps();
   }
 }
