@@ -1,6 +1,7 @@
 const config = require('config');
 const stream = require('stream');
 const Docker = require('dockerode');
+const ipLib = require('ip');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -527,6 +528,53 @@ async function obtainPayloadFromStorage(url, appName) {
 }
 
 /**
+ * Inspects a Docker network and returns the next available IP address
+ * from its defined subnet.
+ *
+ * @param {string} appName - The name of app.
+ * @returns {Promise<string>} - The next available IP address.
+ */
+async function getNextAvailableIPForApp(appName) {
+  const networkName = `fluxDockerNetwork_${appName}`;
+  const network = docker.getNetwork(networkName);
+  const data = await network.inspect();
+
+  // Use the first IPAM configuration from the network.
+  const { Subnet, Gateway } = data.IPAM.Config[0];
+
+  // Parse the subnet using the ip library.
+  const subnetInfo = ipLib.cidrSubnet(Subnet);
+
+  // Calculate usable range:
+  // Typically, we skip the network address (firstAddress) and the broadcast address (lastAddress).
+  const firstIpLong = ipLib.toLong(subnetInfo.firstAddress) + 1;
+  const lastIpLong = ipLib.toLong(subnetInfo.lastAddress) - 1;
+  const gatewayLong = ipLib.toLong(Gateway);
+
+  // Collect allocated IP addresses in the network.
+  const allocatedIPs = new Set();
+  if (data.Containers) {
+    Object.values(data.Containers).forEach((containerInfo) => {
+      // Container IPs come as "172.23.143.2/24"; extract just the IP.
+      const containerIP = containerInfo.IPv4Address.split('/')[0];
+      allocatedIPs.add(containerIP);
+    });
+  }
+
+  // Iterate through the IP range to find the first available IP.
+  // eslint-disable-next-line no-plusplus
+  for (let candidateLong = firstIpLong; candidateLong <= lastIpLong; candidateLong++) {
+    // eslint-disable-next-line no-continue
+    if (candidateLong === gatewayLong) continue; // Skip the gateway.
+    const candidateIP = ipLib.fromLong(candidateLong);
+    if (!allocatedIPs.has(candidateIP)) {
+      return candidateIP;
+    }
+  }
+  throw new Error(`No available IP addresses found in the subnet ${Subnet}.`);
+}
+
+/**
  * Retrieves the IP address of a running Docker container.
  *
  * @param {string} containerName - The name of the container.
@@ -711,6 +759,10 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       },
     };
 
+  // *** Automatic IP Assignment for the Container ***
+  const autoAssignedIP = await getNextAvailableIPForApp(appName);
+  log.info(`Auto-assigned IP for ${appName}: ${autoAssignedIP}`);
+
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -742,6 +794,15 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       NetworkMode: `fluxDockerNetwork_${appName}`,
       LogConfig: logConfig,
       ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
+    },
+    NetworkingConfig: {
+      EndpointsConfig: {
+        [`fluxDockerNetwork_${appName}`]: {
+          IPAMConfig: {
+            IPv4Address: autoAssignedIP,
+          },
+        },
+      },
     },
   };
 
