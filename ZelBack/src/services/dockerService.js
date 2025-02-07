@@ -535,43 +535,48 @@ async function obtainPayloadFromStorage(url, appName) {
  * @returns {Promise<string>} - The next available IP address.
  */
 async function getNextAvailableIPForApp(appName) {
-  const networkName = `fluxDockerNetwork_${appName}`;
-  const network = docker.getNetwork(networkName);
-  const data = await network.inspect();
+  try {
+    const networkName = `fluxDockerNetwork_${appName}`;
+    const network = docker.getNetwork(networkName);
+    const data = await network.inspect();
 
-  // Use the first IPAM configuration from the network.
-  const { Subnet, Gateway } = data.IPAM.Config[0];
+    // Use the first IPAM configuration from the network.
+    const { Subnet, Gateway } = data.IPAM.Config[0];
 
-  // Parse the subnet using the ip library.
-  const subnetInfo = ipLib.cidrSubnet(Subnet);
+    // Parse the subnet using the ip library.
+    const subnetInfo = ipLib.cidrSubnet(Subnet);
 
-  // Calculate usable range:
-  // Typically, we skip the network address (firstAddress) and the broadcast address (lastAddress).
-  const firstIpLong = ipLib.toLong(subnetInfo.firstAddress) + 1;
-  const lastIpLong = ipLib.toLong(subnetInfo.lastAddress) - 1;
-  const gatewayLong = ipLib.toLong(Gateway);
+    // Calculate usable range:
+    // Typically, we skip the network address (firstAddress) and the broadcast address (lastAddress).
+    const firstIpLong = ipLib.toLong(subnetInfo.firstAddress) + 1;
+    const lastIpLong = ipLib.toLong(subnetInfo.lastAddress) - 1;
+    const gatewayLong = ipLib.toLong(Gateway);
 
-  // Collect allocated IP addresses in the network.
-  const allocatedIPs = new Set();
-  if (data.Containers) {
-    Object.values(data.Containers).forEach((containerInfo) => {
-      // Container IPs come as "172.23.143.2/24"; extract just the IP.
-      const containerIP = containerInfo.IPv4Address.split('/')[0];
-      allocatedIPs.add(containerIP);
-    });
-  }
-
-  // Iterate through the IP range to find the first available IP.
-  // eslint-disable-next-line no-plusplus
-  for (let candidateLong = firstIpLong; candidateLong <= lastIpLong; candidateLong++) {
-    // eslint-disable-next-line no-continue
-    if (candidateLong === gatewayLong) continue; // Skip the gateway.
-    const candidateIP = ipLib.fromLong(candidateLong);
-    if (!allocatedIPs.has(candidateIP)) {
-      return candidateIP;
+    // Collect allocated IP addresses in the network.
+    const allocatedIPs = new Set();
+    if (data.Containers) {
+      Object.values(data.Containers).forEach((containerInfo) => {
+        const containerIP = containerInfo.IPv4Address.split('/')[0];
+        allocatedIPs.add(containerIP);
+      });
     }
+
+    // Iterate through the IP range to find the first available IP.
+    // eslint-disable-next-line no-plusplus
+    for (let candidateLong = firstIpLong; candidateLong <= lastIpLong; candidateLong++) {
+    // eslint-disable-next-line no-continue
+      if (candidateLong === gatewayLong) continue; // Skip the gateway.
+      const candidateIP = ipLib.fromLong(candidateLong);
+      if (!allocatedIPs.has(candidateIP)) {
+        return candidateIP;
+      }
+    }
+    log.info(`No available IP addresses found in the subnet ${Subnet}.`);
+    return null;
+  } catch (error) {
+    log.error(`Error in getNextAvailableIPForApp: ${error?.message}`);
+    return null;
   }
-  throw new Error(`No available IP addresses found in the subnet ${Subnet}.`);
 }
 
 /**
@@ -795,15 +800,18 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       LogConfig: logConfig,
       ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
     },
-    NetworkingConfig: {
-      EndpointsConfig: {
-        [`fluxDockerNetwork_${appName}`]: {
-          IPAMConfig: {
-            IPv4Address: autoAssignedIP,
+    // Conditionally include NetworkingConfig only if a static IP was determined.
+    ...(autoAssignedIP && {
+      NetworkingConfig: {
+        EndpointsConfig: {
+          [`fluxDockerNetwork_${appName}`]: {
+            IPAMConfig: {
+              IPv4Address: autoAssignedIP,
+            },
           },
         },
       },
-    },
+    }),
   };
 
   // get docker info about Backing Filesystem
