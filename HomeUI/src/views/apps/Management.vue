@@ -3322,8 +3322,10 @@
                       v-model="editDialogVisible"
                       :title="`Edit Content - ${currentEditFile}`"
                       header-bg-variant="primary"
+                      header-class="custom-modal-header"
                       no-close-on-backdrop
                       no-close-on-esc
+                      hide-header-close
                       size="lg"
                       dialog-class="custom-modal-size"
                       @hide="closeEditor"
@@ -3378,10 +3380,12 @@
                   />
                   <b-modal
                     v-model="renameDialogVisible"
+                    header-bg-variant="primary"
+                    header-class="custom-modal-header"
+                    hide-header-close
                     title="Rename"
                     size="lg"
                     centered
-                    ok-only
                     ok-title="Rename"
                     @ok="confirmRename()"
                   >
@@ -12977,4 +12981,12 @@ input[type="number"] {
   max-width: 800px;  /* Set the width of the modal (90% of the viewport width) */
 }
 
+.modal-backdrop {
+  background-color: rgba(0, 0, 0, 0.3) !important; /* Lighter black overlay */
+}
+
+.custom-modal-header .modal-title,
+.custom-modal-header {
+  color: #fff !important;
+}
 </style>
