@@ -6286,6 +6286,7 @@ export default {
         html: 'html',
         htm: 'html',
         ini: 'ini',
+        conf: 'ini',
         java: 'java',
         js: 'javascript',
         jsx: 'javascriptreact',
