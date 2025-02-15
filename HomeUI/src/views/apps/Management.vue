@@ -8,6 +8,7 @@
       hide-footer
       centered
       hide-header-close
+      header-class="custom-modal-header"
       no-close-on-backdrop
       no-close-on-esc
       size="lg"
@@ -3320,7 +3321,7 @@
                     </b-button>
                     <b-modal
                       v-model="editDialogVisible"
-                      :title="`Edit Content - ${currentEditFile}`"
+                      :title="`Editing File: ${currentEditFile}`"
                       header-bg-variant="primary"
                       header-class="custom-modal-header"
                       no-close-on-backdrop
@@ -8599,16 +8600,19 @@ export default {
       };
 
       const fileType = this.getLanguageFromFileName(fileName);
-      if (fileType !== detected) {
+      if (fileType !== detected && fileType !== 'plaintext') {
+        console.log('Selected by fileType');
         return fileType;
       }
 
       if (this.supportedLanguages.includes(detected)) {
+        console.log('Selected by supportedLanguages');
         return detected;
       }
 
       if (aliasMapping[detected]) {
         const alias = aliasMapping[detected];
+        console.log('Selected by aliasMapping');
         return alias;
       }
 
@@ -8622,13 +8626,15 @@ export default {
         );
         return;
       }
-      this.optionalInfoMessage = `Loading ${fileName} ... `;
+      this.operationTitle = 'Initializing file editor...';
+      this.optionalInfoMessage = `Loading ${fileName}... `;
       this.progressVisable = true;
       this.currentEditFile = fileName;
       this.download(fileName, false, true)
         .then((content) => {
           setTimeout(() => {
             this.optionalInfoMessage = '';
+            this.operationTitle = '';
             this.contentLoaded = true;
           }, 2000);
           this.progressVisable = false;
@@ -8648,6 +8654,7 @@ export default {
           this.progressVisable = false;
           setTimeout(() => {
             this.optionalInfoMessage = '';
+            this.operationTitle = '';
           }, 2000);
           console.error('Error loading file for editing:', err);
           this.showToast('danger', 'Error loading file for editing');
@@ -12983,7 +12990,7 @@ input[type="number"] {
 }
 
 .modal-backdrop {
-  background-color: rgba(0, 0, 0, 0.3) !important; /* Lighter black overlay */
+  background-color: rgba(0, 0, 0, 0.17) !important; /* Lighter black overlay */
 }
 
 .custom-modal-header .modal-title,
