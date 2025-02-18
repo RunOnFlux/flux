@@ -1,7 +1,6 @@
 const config = require('config');
 const stream = require('stream');
 const Docker = require('dockerode');
-const ipLib = require('ip');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -528,31 +527,74 @@ async function obtainPayloadFromStorage(url, appName) {
 }
 
 /**
- * Inspects a Docker network and returns the next available IP address
- * from its defined subnet.
+ * Converts an IPv4 address string (e.g., "192.168.1.1") into a 32-bit integer.
+ * This allows for easier calculations and comparisons.
  *
- * @param {string} appName - The name of app.
- * @returns {Promise<string>} - The next available IP address.
+ * @param {string} ip - The IPv4 address as a string.
+ * @returns {number} - The corresponding 32-bit integer representation.
  */
+function ipToLong(ip) {
+  // eslint-disable-next-line no-bitwise
+  return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+}
+
+/**
+ * Converts a 32-bit integer back into an IPv4 address string.
+ * This reverses the `ipToLong` function.
+ *
+ * @param {number} long - The 32-bit integer representation of an IPv4 address.
+ * @returns {string} - The IPv4 address in dot-decimal format.
+ */
+function longToIp(long) {
+  return [
+    // eslint-disable-next-line no-bitwise
+    (long >>> 24) & 255,
+    // eslint-disable-next-line no-bitwise
+    (long >>> 16) & 255,
+    // eslint-disable-next-line no-bitwise
+    (long >>> 8) & 255,
+    // eslint-disable-next-line no-bitwise
+    long & 255,
+  ].join('.');
+}
+
+/**
+ * Parses a CIDR subnet (e.g., "192.168.1.0/24") and extracts useful information.
+ * Determines the first usable IP and the last usable IP in the subnet.
+ *
+ * @param {string} cidr - The subnet in CIDR notation (e.g., "192.168.1.0/24").
+ * @returns {Object} - An object containing:
+ *   - `firstAddress`: The first usable IP in the subnet.
+ *   - `lastAddress`: The last usable IP in the subnet.
+ *   - `subnet`: The original CIDR subnet.
+ */
+function parseCidrSubnet(cidr) {
+  const [ip, prefix] = cidr.split('/');
+  // eslint-disable-next-line no-bitwise
+  const mask = ~((1 << (32 - Number(prefix))) - 1) >>> 0;
+  // eslint-disable-next-line no-bitwise
+  const network = ipToLong(ip) & mask;
+  return {
+    firstAddress: longToIp(network + 1),
+    // eslint-disable-next-line no-bitwise
+    lastAddress: longToIp((network | ~mask) >>> 0 - 1),
+    subnet: cidr,
+  };
+}
+
 async function getNextAvailableIPForApp(appName) {
   try {
     const networkName = `fluxDockerNetwork_${appName}`;
     const network = docker.getNetwork(networkName);
     const data = await network.inspect();
 
-    // Use the first IPAM configuration from the network.
     const { Subnet, Gateway } = data.IPAM.Config[0];
+    const subnetInfo = parseCidrSubnet(Subnet);
 
-    // Parse the subnet using the ip library.
-    const subnetInfo = ipLib.cidrSubnet(Subnet);
+    const firstIpLong = ipToLong(subnetInfo.firstAddress);
+    const lastIpLong = ipToLong(subnetInfo.lastAddress);
+    const gatewayLong = ipToLong(Gateway);
 
-    // Calculate usable range:
-    // Typically, we skip the network address (firstAddress) and the broadcast address (lastAddress).
-    const firstIpLong = ipLib.toLong(subnetInfo.firstAddress) + 1;
-    const lastIpLong = ipLib.toLong(subnetInfo.lastAddress) - 1;
-    const gatewayLong = ipLib.toLong(Gateway);
-
-    // Collect allocated IP addresses in the network.
     const allocatedIPs = new Set();
     if (data.Containers) {
       Object.values(data.Containers).forEach((containerInfo) => {
@@ -561,12 +603,11 @@ async function getNextAvailableIPForApp(appName) {
       });
     }
 
-    // Iterate through the IP range to find the first available IP.
     // eslint-disable-next-line no-plusplus
     for (let candidateLong = firstIpLong; candidateLong <= lastIpLong; candidateLong++) {
-    // eslint-disable-next-line no-continue
-      if (candidateLong === gatewayLong) continue; // Skip the gateway.
-      const candidateIP = ipLib.fromLong(candidateLong);
+      // eslint-disable-next-line no-continue
+      if (candidateLong === gatewayLong) continue;
+      const candidateIP = longToIp(candidateLong);
       if (!allocatedIPs.has(candidateIP)) {
         log.info(`Assigned IP for ${appName}: ${candidateIP}`);
         return candidateIP;
