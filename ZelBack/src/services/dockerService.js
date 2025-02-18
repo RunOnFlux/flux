@@ -566,7 +566,6 @@ function longToIp(long) {
  * @returns {Object} - An object containing:
  *   - `firstAddress`: The first usable IP in the subnet.
  *   - `lastAddress`: The last usable IP in the subnet.
- *   - `subnet`: The original CIDR subnet.
  */
 function parseCidrSubnet(cidr) {
   const [ip, prefix] = cidr.split('/');
