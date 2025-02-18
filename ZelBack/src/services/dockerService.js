@@ -570,15 +570,18 @@ function longToIp(long) {
  */
 function parseCidrSubnet(cidr) {
   const [ip, prefix] = cidr.split('/');
+  const subnetLong = ipToLong(ip);
+  const hostBits = 32 - Number(prefix);
   // eslint-disable-next-line no-bitwise
-  const mask = ~((1 << (32 - Number(prefix))) - 1) >>> 0;
+  const subnetMask = (0xFFFFFFFF << hostBits) >>> 0;
   // eslint-disable-next-line no-bitwise
-  const network = ipToLong(ip) & mask;
+  const network = subnetLong & subnetMask;
+  // eslint-disable-next-line no-bitwise
+  const broadcast = network | (~subnetMask >>> 0);
+
   return {
     firstAddress: longToIp(network + 1),
-    // eslint-disable-next-line no-bitwise
-    lastAddress: longToIp((network | ~mask) >>> 0 - 1),
-    subnet: cidr,
+    lastAddress: longToIp(broadcast - 1),
   };
 }
 
