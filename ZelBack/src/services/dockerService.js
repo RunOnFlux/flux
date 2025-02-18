@@ -584,39 +584,33 @@ function parseCidrSubnet(cidr) {
 
 async function getNextAvailableIPForApp(appName) {
   try {
-    const networkName = `fluxDockerNetwork_${appName}`;
-    const network = docker.getNetwork(networkName);
-    const data = await network.inspect();
+    const { IPAM, Containers } = await docker.getNetwork(`fluxDockerNetwork_${appName}`).inspect();
+    if (!IPAM?.Config?.length) throw new Error('No IPAM configuration found');
 
-    const { Subnet, Gateway } = data.IPAM.Config[0];
-    const subnetInfo = parseCidrSubnet(Subnet);
+    const { Subnet, Gateway } = IPAM.Config[0];
+    console.log(`Subnet: ${Subnet}, Gateway: ${Gateway}`);
 
-    const firstIpLong = ipToLong(subnetInfo.firstAddress);
-    const lastIpLong = ipToLong(subnetInfo.lastAddress);
+    const { firstAddress, lastAddress } = parseCidrSubnet(Subnet);
+    console.log(`First usable IP: ${firstAddress}, Last usable IP: ${lastAddress}`);
+
+    const allocatedIPs = new Set(Object.values(Containers || {}).map((c) => c.IPv4Address.split('/')[0]));
+    console.log('Allocated IPs:', allocatedIPs);
+
     const gatewayLong = ipToLong(Gateway);
 
-    const allocatedIPs = new Set();
-    if (data.Containers) {
-      Object.values(data.Containers).forEach((containerInfo) => {
-        const containerIP = containerInfo.IPv4Address.split('/')[0];
-        allocatedIPs.add(containerIP);
-      });
-    }
-
     // eslint-disable-next-line no-plusplus
-    for (let candidateLong = firstIpLong; candidateLong <= lastIpLong; candidateLong++) {
-      // eslint-disable-next-line no-continue
-      if (candidateLong === gatewayLong) continue;
-      const candidateIP = longToIp(candidateLong);
-      if (!allocatedIPs.has(candidateIP)) {
-        log.info(`Assigned IP for ${appName}: ${candidateIP}`);
-        return candidateIP;
+    for (let ipLong = ipToLong(firstAddress); ipLong <= ipToLong(lastAddress); ipLong++) {
+      const ip = longToIp(ipLong);
+      if (ipLong !== gatewayLong && !allocatedIPs.has(ip)) {
+        console.log(`Available IP found: ${ip}`);
+        return ip;
       }
     }
-    log.info(`No available IP addresses found in the subnet ${Subnet}.`);
+
+    console.log(`No available IP addresses found in the subnet ${Subnet}.`);
     return null;
   } catch (error) {
-    log.error(`Error in getNextAvailableIPForApp: ${error?.message}`);
+    console.error(`Error in getNextAvailableIPForApp: ${error.message}`);
     return null;
   }
 }
