@@ -591,13 +591,13 @@ async function getNextAvailableIPForApp(appName) {
     if (!IPAM?.Config?.length) throw new Error('No IPAM configuration found');
 
     const { Subnet, Gateway } = IPAM.Config[0];
-    console.log(`Subnet: ${Subnet}, Gateway: ${Gateway}`);
+    log.info(`Subnet: ${Subnet}, Gateway: ${Gateway}`);
 
     const { firstAddress, lastAddress } = parseCidrSubnet(Subnet);
-    console.log(`First usable IP: ${firstAddress}, Last usable IP: ${lastAddress}`);
+    log.info(`First usable IP: ${firstAddress}, Last usable IP: ${lastAddress}`);
 
     const allocatedIPs = new Set(Object.values(Containers || {}).map((c) => c.IPv4Address.split('/')[0]));
-    console.log('Allocated IPs:', allocatedIPs);
+    log.info('Allocated IPs:', allocatedIPs);
 
     const gatewayLong = ipToLong(Gateway);
 
@@ -605,15 +605,15 @@ async function getNextAvailableIPForApp(appName) {
     for (let ipLong = ipToLong(firstAddress); ipLong <= ipToLong(lastAddress); ipLong++) {
       const ip = longToIp(ipLong);
       if (ipLong !== gatewayLong && !allocatedIPs.has(ip)) {
-        console.log(`Available IP found: ${ip}`);
+        log.info(`Available IP found: ${ip}`);
         return ip;
       }
     }
 
-    console.log(`No available IP addresses found in the subnet ${Subnet}.`);
+    log.info(`No available IP addresses found in the subnet ${Subnet}.`);
     return null;
   } catch (error) {
-    console.error(`Error in getNextAvailableIPForApp: ${error.message}`);
+    log.error(`Error in getNextAvailableIPForApp: ${error.message}`);
     return null;
   }
 }
