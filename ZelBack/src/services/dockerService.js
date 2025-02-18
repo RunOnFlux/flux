@@ -1,7 +1,6 @@
 const config = require('config');
 const stream = require('stream');
 const Docker = require('dockerode');
-const ipLib = require('ip');
 const path = require('path');
 const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -528,89 +527,6 @@ async function obtainPayloadFromStorage(url, appName) {
 }
 
 /**
- * Inspects a Docker network and returns the next available IP address
- * from its defined subnet.
- *
- * @param {string} appName - The name of app.
- * @returns {Promise<string>} - The next available IP address.
- */
-async function getNextAvailableIPForApp(appName) {
-  try {
-    const networkName = `fluxDockerNetwork_${appName}`;
-    const network = docker.getNetwork(networkName);
-    const data = await network.inspect();
-
-    // Use the first IPAM configuration from the network.
-    const { Subnet, Gateway } = data.IPAM.Config[0];
-
-    // Parse the subnet using the ip library.
-    const subnetInfo = ipLib.cidrSubnet(Subnet);
-
-    // Calculate usable range:
-    // Typically, we skip the network address (firstAddress) and the broadcast address (lastAddress).
-    const firstIpLong = ipLib.toLong(subnetInfo.firstAddress) + 1;
-    const lastIpLong = ipLib.toLong(subnetInfo.lastAddress) - 1;
-    const gatewayLong = ipLib.toLong(Gateway);
-
-    // Collect allocated IP addresses in the network.
-    const allocatedIPs = new Set();
-    if (data.Containers) {
-      Object.values(data.Containers).forEach((containerInfo) => {
-        const containerIP = containerInfo.IPv4Address.split('/')[0];
-        allocatedIPs.add(containerIP);
-      });
-    }
-
-    // Iterate through the IP range to find the first available IP.
-    // eslint-disable-next-line no-plusplus
-    for (let candidateLong = firstIpLong; candidateLong <= lastIpLong; candidateLong++) {
-    // eslint-disable-next-line no-continue
-      if (candidateLong === gatewayLong) continue; // Skip the gateway.
-      const candidateIP = ipLib.fromLong(candidateLong);
-      if (!allocatedIPs.has(candidateIP)) {
-        log.info(`Assigned IP for ${appName}: ${candidateIP}`);
-        return candidateIP;
-      }
-    }
-    log.info(`No available IP addresses found in the subnet ${Subnet}.`);
-    return null;
-  } catch (error) {
-    log.error(`Error in getNextAvailableIPForApp: ${error?.message}`);
-    return null;
-  }
-}
-
-/**
- * Retrieves the IP address of a running Docker container.
- *
- * @param {string} containerName - The name of the container.
- * @returns {Promise<string|null>} - The container's IP address, or null if not found.
- * @throws {Error} - If the container has no network or IP address.
- */
-const getContainerIP = async (containerName) => {
-  try {
-    const container = await docker.getContainer(containerName).inspect();
-    const networks = Object.keys(container.NetworkSettings.Networks);
-
-    if (!Array.isArray(networks) || networks.length === 0) {
-      throw new Error('No networks found for container');
-    }
-
-    const networkName = networks[0]; // Automatically selects the first network
-    const ipAddressOfContainer = container.NetworkSettings.Networks[networkName].IPAddress ?? null;
-
-    if (!ipAddressOfContainer) {
-      throw new Error('No IPAddress found for container');
-    }
-
-    return ipAddressOfContainer;
-  } catch (error) {
-    log.error(`Failed to retrieve IP for ${containerName}: ${error.message}`);
-    return null;
-  }
-};
-
-/**
  * Creates an app container.
  *
  * @param {object} appSpecifications
@@ -731,40 +647,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       adjustedCommands.push(command);
     }
   });
-
-  const isSender = envParams?.some((env) => env.startsWith('LOG=SEND'));
-  const isCollector = envParams?.some((env) => env.startsWith('LOG=COLLECT'));
-
-  let syslogTarget = null;
-  let syslogIP = null;
-
-  if (fullAppSpecs && fullAppSpecs?.compose) {
-    syslogTarget = fullAppSpecs.compose.find((app) => app.environmentParameters?.some((env) => env.startsWith('LOG=COLLECT')))?.name;
-  }
-
-  if (syslogTarget && !isCollector) {
-    syslogIP = await getContainerIP(`flux${syslogTarget}_${appName}`);
-  }
-
-  log.info(`isSender=${isSender}, syslogTarget=${syslogTarget}, syslogCollectorIP=${syslogIP}`);
-
-  const logConfig = isSender && syslogTarget && syslogIP
-    ? {
-      Type: 'syslog',
-      Config: {
-        'syslog-address': `udp://${syslogIP}:514`,
-        'syslog-facility': 'local0',
-        tag: `${appSpecifications.name}`,
-      },
-    }
-    : {
-      Type: 'json-file',
-      Config: {
-        'max-file': '1',
-        'max-size': '20m',
-      },
-    };
-  const autoAssignedIP = await getNextAvailableIPForApp(appName);
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -794,21 +676,15 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         Name: restartPolicy,
       },
       NetworkMode: `fluxDockerNetwork_${appName}`,
-      LogConfig: logConfig,
-      ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
-    },
-    // Conditionally include NetworkingConfig only if a static IP was determined.
-    ...(autoAssignedIP && {
-      NetworkingConfig: {
-        EndpointsConfig: {
-          [`fluxDockerNetwork_${appName}`]: {
-            IPAMConfig: {
-              IPv4Address: autoAssignedIP,
-            },
-          },
+      LogConfig: {
+        Type: 'json-file',
+        Config: {
+          'max-file': '1',
+          'max-size': '20m',
         },
       },
-    }),
+      ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
+    },
   };
 
   // get docker info about Backing Filesystem
