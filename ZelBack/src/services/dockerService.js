@@ -585,6 +585,16 @@ function parseCidrSubnet(cidr) {
   };
 }
 
+/**
+ * Finds the next available IP address in a Docker network for a given app.
+ *
+ * This function inspects the Docker network associated with the app, retrieves
+ * the subnet and gateway details, and determines the next free IP within the
+ * subnet range. It avoids allocated IPs and the gateway address.
+ *
+ * @param {string} appName - The name of the application.
+ * @returns {Promise<string|null>} - The next available IP address, or null if no IP is available.
+ */
 async function getNextAvailableIPForApp(appName) {
   try {
     const { IPAM, Containers } = await docker.getNetwork(`fluxDockerNetwork_${appName}`).inspect();
