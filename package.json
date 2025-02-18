@@ -1,6 +1,6 @@
 {
   "name": "flux",
-  "version": "5.39.0",
+  "version": "5.40.0",
   "description": "Flux, Your Gateway to a Decentralized World",
   "repository": {
     "type": "git",
@@ -122,6 +122,7 @@
     "zeltrezjs": "~2.12.0"
   },
   "devDependencies": {
+    "@guolao/vue-monaco-editor": "~1.5.4",
     "@babel/core": "~7.23.6",
     "@babel/eslint-parser": "~7.23.3",
     "@babel/preset-env": "~7.23.6",
@@ -152,6 +153,7 @@
     "eslint-plugin-vue": "~9.19.2",
     "firebase": "~10.9.0",
     "firebaseui": "~6.1.0",
+    "highlight.js": "~11.11.1",
     "jsdoc": "~4.0.2",
     "leaflet": "~1.9.4",
     "mocha": "~10.2.0",

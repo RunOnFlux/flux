@@ -8,6 +8,7 @@
       hide-footer
       centered
       hide-header-close
+      header-class="custom-modal-header"
       no-close-on-backdrop
       no-close-on-esc
       size="lg"
@@ -19,7 +20,7 @@
         <div class="d-flex align-items-center mb-2">
           <b-spinner label="Loading..." />
           <div class="ml-1">
-            Waiting for the operation to be completed...
+            {{ infoMessage }}
           </div>
         </div>
       </div>
@@ -3269,7 +3270,7 @@
                       File
                     </div>
                     <div v-else-if="data.item.isSymbolicLink">
-                      File
+                      File (Symbolic Link)
                     </div>
                     <div v-else>
                       Other
@@ -3290,6 +3291,7 @@
                     size="sm"
                   >
                     <b-button
+                      v-if="!data.item.isSymbolicLink"
                       :id="`download-${data.item.name}`"
                       v-b-tooltip.hover.bottom="data.item.isFile ? 'Download' : 'Download zip of folder'"
                       v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -3298,6 +3300,7 @@
                       <v-icon :name="data.item.isFile ? 'file-download' : 'file-archive'" />
                     </b-button>
                     <b-button
+                      v-if="!data.item.isSymbolicLink"
                       :id="`rename-${data.item.name}`"
                       v-b-tooltip.hover.bottom="'Rename'"
                       v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -3307,6 +3310,57 @@
                       <v-icon name="edit" />
                     </b-button>
                     <b-button
+                      v-if="data.item.isFile"
+                      :id="`edit-${data.item.name}`"
+                      v-b-tooltip.hover.bottom="'Edit File'"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-secondary"
+                      @click="openEditDialog(data.item.name, data.item.size)"
+                    >
+                      <v-icon name="file-alt" />
+                    </b-button>
+                    <b-modal
+                      v-model="editDialogVisible"
+                      :title="`Editing File: ${currentEditFile}`"
+                      header-bg-variant="primary"
+                      header-class="custom-modal-header"
+                      no-close-on-backdrop
+                      no-close-on-esc
+                      hide-header-close
+                      size="lg"
+                      dialog-class="custom-modal-size"
+                      @hide="closeEditor"
+                      @show="onModalShown"
+                    >
+                      <!-- Scrollable Editor -->
+                      <div class="editor-container">
+                        <vue-monaco-editor
+                          v-model="editContent"
+                          :theme="skin === 'dark' ? 'vs-dark' : 'vs'"
+                          height="80vh"
+                          :language="editorLanguage"
+                          :options="editorOptions"
+                          @mount="handleMount"
+                        />
+                      </div>
+
+                      <template #modal-footer>
+                        <b-button variant="secondary" @click="closeEditor">
+                          Cancel
+                        </b-button>
+                        <b-button variant="primary" :disabled="!hasChanged || saving" @click="saveContent">
+                          <template v-if="saving">
+                            <b-spinner small type="border" class="mr-2" />
+                            Saving...
+                          </template>
+                          <template v-else>
+                            Save
+                          </template>
+                        </b-button>
+                      </template>
+                    </b-modal>
+                    <b-button
+                      v-if="!data.item.isSymbolicLink"
                       :id="`delete-${data.item.name}`"
                       v-b-tooltip.hover.bottom="'Delete'"
                       v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -3327,10 +3381,12 @@
                   />
                   <b-modal
                     v-model="renameDialogVisible"
+                    header-bg-variant="primary"
+                    header-class="custom-modal-header"
+                    hide-header-close
                     title="Rename"
                     size="lg"
                     centered
-                    ok-only
                     ok-title="Rename"
                     @ok="confirmRename()"
                   >
@@ -6031,10 +6087,17 @@ import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 import AnsiToHtml from 'ansi-to-html';
 import IDService from '@/services/IDService';
-
+import hljs from 'highlight.js';
 import {
   Chart, LineController, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title, Filler,
 } from 'chart.js';
+import { loader, VueMonacoEditor } from '@guolao/vue-monaco-editor';
+
+loader.config({
+  paths: {
+    vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs',
+  },
+});
 
 Chart.register(LineController, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title, Filler);
 
@@ -6066,6 +6129,7 @@ const geolocations = require('../../libs/geolocation');
 
 export default {
   components: {
+    VueMonacoEditor,
     FileUpload,
     JsonViewer,
     BAlert,
@@ -6130,6 +6194,158 @@ export default {
   },
   data() {
     return {
+      maxEditSize: 3 * 1024 * 1024,
+      supportedLanguages: [
+        'abap',
+        'apex',
+        'azcli',
+        'bat',
+        'c',
+        'cameligo',
+        'clojure',
+        'coffeescript',
+        'cpp',
+        'csharp',
+        'csp',
+        'css',
+        'dart',
+        'dockerfile',
+        'ecl',
+        'fsharp',
+        'flow',
+        'git-commit',
+        'git-rebase',
+        'go',
+        'graphql',
+        'handlebars',
+        'hcl',
+        'html',
+        'ini',
+        'java',
+        'javascript',
+        'javascriptreact',
+        'json',
+        'jsonc',
+        'less',
+        'lexon',
+        'lua',
+        'markdown',
+        'mips',
+        'mysql',
+        'objective-c',
+        'pascal',
+        'perl',
+        'pgsql',
+        'php',
+        'plaintext',
+        'pom',
+        'powershell',
+        'pug',
+        'python',
+        'r',
+        'razor',
+        'ruby',
+        'rust',
+        'sb',
+        'scss',
+        'shell',
+        'sol',
+        'sql',
+        'swift',
+        'typescript',
+        'typescriptreact',
+        'vb',
+        'xml',
+        'yaml',
+      ],
+      extensionMapping: {
+        abap: 'abap',
+        cls: 'apex',
+        azcli: 'azcli',
+        bat: 'bat',
+        c: 'c',
+        mligo: 'cameligo',
+        clj: 'clojure',
+        coffee: 'coffeescript',
+        cpp: 'cpp',
+        cc: 'cpp',
+        cxx: 'cpp',
+        cs: 'csharp',
+        csp: 'csp',
+        css: 'css',
+        dart: 'dart',
+        dockerfile: 'dockerfile',
+        ecl: 'ecl',
+        fs: 'fsharp',
+        fsi: 'fsharp',
+        flow: 'flow',
+        go: 'go',
+        graphql: 'graphql',
+        gql: 'graphql',
+        hbs: 'handlebars',
+        hcl: 'hcl',
+        html: 'html',
+        htm: 'html',
+        ini: 'ini',
+        conf: 'ini',
+        java: 'java',
+        js: 'javascript',
+        jsx: 'javascriptreact',
+        json: 'json',
+        jsonc: 'jsonc',
+        less: 'less',
+        lexon: 'lexon',
+        lua: 'lua',
+        md: 'markdown',
+        markdown: 'markdown',
+        mips: 'mips',
+        mysql: 'mysql',
+        m: 'objective-c',
+        mm: 'objective-c',
+        pas: 'pascal',
+        pp: 'pascal',
+        pl: 'perl',
+        pm: 'perl',
+        pgsql: 'pgsql',
+        php: 'php',
+        txt: 'plaintext',
+        'pom.xml': 'pom',
+        ps1: 'powershell',
+        pug: 'pug',
+        py: 'python',
+        r: 'r',
+        cshtml: 'razor',
+        razor: 'razor',
+        rb: 'ruby',
+        rs: 'rust',
+        sb: 'sb',
+        scss: 'scss',
+        sh: 'shell',
+        bash: 'shell',
+        sol: 'sol',
+        sql: 'sql',
+        swift: 'swift',
+        ts: 'typescript',
+        tsx: 'typescriptreact',
+        vb: 'vb',
+        xml: 'xml',
+        yaml: 'yaml',
+        yml: 'yaml',
+      },
+      editorLanguage: 'plaintext',
+      editorInstance: null,
+      editorOptions: {
+        automaticLayout: true,
+        formatOnType: true,
+        formatOnPaste: true,
+      },
+      saving: false,
+      contentLoaded: false,
+      hasChanged: false,
+      optionalInfoMessage: '',
+      editDialogVisible: false,
+      currentEditFile: '',
+      editContent: '',
       additionalMessage: '',
       backendLoading: false,
       logoutTigger: false,
@@ -6647,6 +6863,14 @@ export default {
     };
   },
   computed: {
+    infoMessage() {
+      // Default message
+      const defaultMessage = 'Waiting for the operation to be completed...';
+      // If optional text is provided, append it
+      return this.optionalInfoMessage.trim()
+        ? `${this.optionalInfoMessage}`
+        : defaultMessage;
+    },
     tooltipContent() {
       const usedStorage = this.convertVolumeSize(this.storage.used, 'GB', 1, true);
       const totalStorage = this.convertVolumeSize(this.storage.total, 'GB', 1, true);
@@ -8347,7 +8571,138 @@ export default {
       this.downloaded[name] = '';
       this.total[name] = '';
     },
-    async download(name, isFolder = false) {
+    detectLanguage(content) {
+      const result = hljs.highlightAuto(content);
+      console.log('Detected language:', result.language);
+      return result.language || 'plaintext';
+    },
+    getLanguageFromFileName(fileName) {
+      const lowerFileName = fileName.toLowerCase();
+      if (lowerFileName === 'dockerfile') {
+        return this.supportedLanguages.includes('dockerfile') ? 'dockerfile' : 'plaintext';
+      }
+      if (lowerFileName === 'pom.xml') {
+        return this.supportedLanguages.includes('pom') ? 'pom' : 'plaintext';
+      }
+      const parts = lowerFileName.split('.');
+      if (parts.length <= 1) {
+        return 'plaintext';
+      }
+      const ext = parts.pop();
+      const language = this.extensionMapping[ext] || 'plaintext';
+      return this.supportedLanguages.includes(language) ? language : 'plaintext';
+    },
+    mapDetectedLanguage(detected, fileName) {
+      const aliasMapping = {
+        'php-template': 'php',
+        bash: 'shell',
+        smalltalk: 'json',
+      };
+
+      const fileType = this.getLanguageFromFileName(fileName);
+      if (fileType !== detected && fileType !== 'plaintext') {
+        console.log('Selected by fileType');
+        return fileType;
+      }
+
+      if (this.supportedLanguages.includes(detected)) {
+        console.log('Selected by supportedLanguages');
+        return detected;
+      }
+
+      if (aliasMapping[detected]) {
+        const alias = aliasMapping[detected];
+        console.log('Selected by aliasMapping');
+        return alias;
+      }
+
+      return 'plaintext';
+    },
+    openEditDialog(fileName, size) {
+      if (this.maxEditSize < size) {
+        this.showToast(
+          'warning',
+          'The file exceeds the maximum size for browser-based editing. Please use a terminal-based editor for large files.',
+        );
+        return;
+      }
+      this.operationTitle = 'Initializing file editor...';
+      this.optionalInfoMessage = `Loading ${fileName}... `;
+      this.progressVisable = true;
+      this.currentEditFile = fileName;
+      this.download(fileName, false, true)
+        .then((content) => {
+          setTimeout(() => {
+            this.optionalInfoMessage = '';
+            this.operationTitle = '';
+            this.contentLoaded = true;
+          }, 2000);
+          this.progressVisable = false;
+          this.editContent = content;
+          const threshold = 500;
+          // eslint-disable-next-line no-param-reassign
+          content = content.length > threshold
+            ? content.slice(0, threshold)
+            : content;
+          const detectedLang = this.detectLanguage(content);
+          const monacoLanguage = this.mapDetectedLanguage(detectedLang, fileName);
+          console.log('Language set:', monacoLanguage);
+          this.editorLanguage = monacoLanguage;
+          this.editDialogVisible = true;
+        })
+        .catch((err) => {
+          this.progressVisable = false;
+          setTimeout(() => {
+            this.optionalInfoMessage = '';
+            this.operationTitle = '';
+          }, 2000);
+          console.error('Error loading file for editing:', err);
+          this.showToast('danger', 'Error loading file for editing');
+        });
+    },
+    closeEditor() {
+      this.editContent = '';
+      this.editDialogVisible = false;
+      this.hasChanged = false;
+      this.contentLoaded = false;
+    },
+    async saveContent() {
+      const fileToUpload = {
+        file_name: this.currentEditFile,
+        content: this.editContent,
+      };
+
+      this.saving = true;
+
+      try {
+        await this.upload(fileToUpload, true);
+        this.showToast('success', 'File updated successfully!');
+      } catch (error) {
+        console.error('Upload failed:', error);
+        this.showToast('danger', `Error saving file: ${error.message}`);
+      } finally {
+        this.hasChanged = false;
+        this.saving = false;
+      }
+    },
+    onEditorInput() {
+      if (!this.hasChanged && this.contentLoaded) {
+        this.hasChanged = true;
+      }
+    },
+    onModalShown() {
+      if (this.editorInstance) {
+        this.editorInstance.layout();
+      }
+    },
+    handleMount(editor) {
+      this.editorInstance = editor;
+      this.editorInstance.onDidChangeModelContent(() => {
+        this.onEditorInput();
+      });
+    },
+    // eslint-disable-next-line consistent-return
+    async download(name, isFolder = false, silent = false) {
       try {
         const self = this;
         const folder = this.currentFolder;
@@ -8356,6 +8711,7 @@ export default {
           headers: this.zelidHeader,
           responseType: 'blob',
           onDownloadProgress(progressEvent) {
+            if (silent) return;
             const { loaded, total, lengthComputable } = progressEvent;
             if (lengthComputable) {
               const currentFileProgress = (loaded / total) * 100;
@@ -8374,20 +8730,34 @@ export default {
             }
           },
         };
+
+        if (!silent && isFolder) {
+          this.showToast('info', 'Directory download initiated. Please wait...');
+        }
+
         let response;
         if (isFolder) {
-          this.showToast('info', 'Directory download initiated. Please wait...');
-          response = await this.executeLocalCommand(`/apps/downloadfolder/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
+          response = await this.executeLocalCommand(
+            `/apps/downloadfolder/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`,
+            null,
+            axiosConfig,
+          );
         } else {
-          response = await this.executeLocalCommand(`/apps/downloadfile/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`, null, axiosConfig);
+          response = await this.executeLocalCommand(
+            `/apps/downloadfile/${this.appName}/${this.selectedAppVolume}/${encodeURIComponent(fileName)}`,
+            null,
+            axiosConfig,
+          );
         }
-        console.log(response);
-        if (!isFolder && response.data && response.status === 200) {
+
+        if (!silent && !isFolder && response.data && response.status === 200) {
           self.updateFileProgressVolume(name, 100);
         }
 
         if (response.data.status === 'error') {
           this.showToast('danger', response.data.data.message || response.data.data);
+        } else if (silent) {
+          return await this.blobToText(response.data);
         } else {
           const url = window.URL.createObjectURL(new Blob([response.data]));
           const link = document.createElement('a');
@@ -8402,14 +8772,20 @@ export default {
         }
       } catch (error) {
         console.log(error.message);
-        if (error.message) {
-          if (!error.message.startsWith('Download')) {
-            this.showToast('danger', error.message);
-          }
+        if (error.message && !error.message.startsWith('Download')) {
+          this.showToast('danger', error.message);
         } else {
           this.showToast('danger', error);
         }
       }
+    },
+    blobToText(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsText(blob, 'utf-8');
+      });
     },
     beautifyValue(valueInText) {
       const str = valueInText.split('.');
@@ -8796,7 +9172,7 @@ export default {
       });
     },
     /* eslint no-param-reassign: ["error", { "props": false }] */
-    async upload(file) {
+    async upload(file, isContentUpload = false) {
       // await this.splitAndUploadChunks(file);
       return new Promise((resolve, reject) => {
         const self = this;
@@ -8806,7 +9182,12 @@ export default {
           return;
         }
         const xhr = new XMLHttpRequest();
-        const action = this.getUploadFolderBackup(file.file_name);
+        let action;
+        if (isContentUpload) {
+          action = this.getUploadFolder();
+        } else {
+          action = this.getUploadFolderBackup(file.file_name);
+        }
         if (xhr.upload) {
           xhr.upload.onprogress = function progress(e) {
             if (e.total > 0) {
@@ -8815,8 +9196,16 @@ export default {
             file.progress = e.percent;
           };
         }
+
         const formData = new FormData();
-        formData.append(file.selected_file.name, file.selected_file);
+        if (isContentUpload) {
+          const blob = new Blob([file.content], { type: 'text/plain' });
+          formData.append(file.file_name, blob);
+        } else {
+          formData.append(file.selected_file.name, file.selected_file);
+        }
+        // const formData = new FormData();
+        // formData.append(file.selected_file.name, file.selected_file);
         file.uploading = true;
         xhr.onerror = function error(e) {
           self.restoreFromUpload = false;
@@ -12594,5 +12983,18 @@ input[type="number"] {
 }
 .b-table-sort-icon-left {
   padding-left:  20px !important;
+}
+
+.custom-modal-size {
+  max-width: 800px;  /* Set the width of the modal (90% of the viewport width) */
+}
+
+.modal-backdrop {
+  background-color: rgba(0, 0, 0, 0.17) !important; /* Lighter black overlay */
+}
+
+.custom-modal-header .modal-title,
+.custom-modal-header {
+  color: #fff !important;
 }
 </style>

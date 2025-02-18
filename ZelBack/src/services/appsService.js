@@ -11370,53 +11370,53 @@ async function syncthingApps() {
                 }
               } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
                 const cache = receiveOnlySyncthingAppsCache.get(appId);
-                if (!cache.numberOfExecutionsRequired) {
-                  // eslint-disable-next-line no-await-in-loop
-                  const runningAppList = await getRunningAppList(installedApp.name);
-                  runningAppList.sort((a, b) => {
-                    if (!a.runningSince && b.runningSince) {
-                      return -1;
-                    }
-                    if (a.runningSince && !b.runningSince) {
-                      return 1;
-                    }
-                    if (a.runningSince < b.runningSince) {
-                      return -1;
-                    }
-                    if (a.runningSince > b.runningSince) {
-                      return 1;
-                    }
-                    if (a.broadcastedAt < b.broadcastedAt) {
-                      return -1;
-                    }
-                    if (a.broadcastedAt > b.broadcastedAt) {
-                      return 1;
-                    }
-                    if (a.ip < b.ip) {
-                      return -1;
-                    }
-                    if (a.ip > b.ip) {
-                      return 1;
-                    }
-                    return 0;
-                  });
-                  // eslint-disable-next-line no-await-in-loop
-                  const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-                  const index = runningAppList.findIndex((x) => x.ip === myIP);
-                  let numberOfExecutionsRequired = 2;
-                  if (index > 0) {
-                    numberOfExecutionsRequired = 2 + 12 * index;
+
+                // eslint-disable-next-line no-await-in-loop
+                const runningAppList = await getRunningAppList(installedApp.name);
+                runningAppList.sort((a, b) => {
+                  if (!a.runningSince && b.runningSince) {
+                    return -1;
                   }
-                  if (numberOfExecutionsRequired > 60) {
-                    numberOfExecutionsRequired = 60;
+                  if (a.runningSince && !b.runningSince) {
+                    return 1;
                   }
-                  cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+                  if (a.runningSince < b.runningSince) {
+                    return -1;
+                  }
+                  if (a.runningSince > b.runningSince) {
+                    return 1;
+                  }
+                  if (a.broadcastedAt < b.broadcastedAt) {
+                    return -1;
+                  }
+                  if (a.broadcastedAt > b.broadcastedAt) {
+                    return 1;
+                  }
+                  if (a.ip < b.ip) {
+                    return -1;
+                  }
+                  if (a.ip > b.ip) {
+                    return 1;
+                  }
+                  return 0;
+                });
+                // eslint-disable-next-line no-await-in-loop
+                const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+                const index = runningAppList.findIndex((x) => x.ip === myIP);
+                let numberOfExecutionsRequired = 2;
+                if (index > 0) {
+                  numberOfExecutionsRequired = 2 + 10 * index;
                 }
+                if (numberOfExecutionsRequired > 60) {
+                  numberOfExecutionsRequired = 60;
+                }
+                cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+
                 syncthingFolder.type = 'receiveonly';
                 cache.numberOfExecutions += 1;
                 if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                   syncthingFolder.type = 'sendreceive';
-                } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
+                } else if (cache.numberOfExecutions >= cache.numberOfExecutionsRequired + 1) {
                   log.info(`SyncthingApps changing syncthing type to sendreceive for appIdentifier ${appId}`);
                   syncthingFolder.type = 'sendreceive';
                   if (containerDataFlags.includes('r')) {
@@ -11565,50 +11565,49 @@ async function syncthingApps() {
                   }
                 } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
                   const cache = receiveOnlySyncthingAppsCache.get(appId);
-                  if (!cache.numberOfExecutionsRequired) {
-                    // eslint-disable-next-line no-await-in-loop
-                    const runningAppList = await getRunningAppList(installedApp.name);
-                    log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
-                    runningAppList.sort((a, b) => {
-                      if (!a.runningSince && b.runningSince) {
-                        return -1;
-                      }
-                      if (a.runningSince && !b.runningSince) {
-                        return 1;
-                      }
-                      if (a.runningSince < b.runningSince) {
-                        return -1;
-                      }
-                      if (a.runningSince > b.runningSince) {
-                        return 1;
-                      }
-                      if (a.broadcastedAt < b.broadcastedAt) {
-                        return -1;
-                      }
-                      if (a.broadcastedAt > b.broadcastedAt) {
-                        return 1;
-                      }
-                      if (a.ip < b.ip) {
-                        return -1;
-                      }
-                      if (a.ip > b.ip) {
-                        return 1;
-                      }
-                      return 0;
-                    });
-                    // eslint-disable-next-line no-await-in-loop
-                    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-                    const index = runningAppList.findIndex((x) => x.ip === myIP);
-                    log.info(`SyncthingApps appIdentifier ${appId} is node index ${index}`);
-                    let numberOfExecutionsRequired = 2;
-                    if (index > 0) {
-                      numberOfExecutionsRequired = 2 + 12 * index;
+                  // eslint-disable-next-line no-await-in-loop
+                  const runningAppList = await getRunningAppList(installedApp.name);
+                  log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
+                  runningAppList.sort((a, b) => {
+                    if (!a.runningSince && b.runningSince) {
+                      return -1;
                     }
-                    if (numberOfExecutionsRequired > 60) {
-                      numberOfExecutionsRequired = 60;
+                    if (a.runningSince && !b.runningSince) {
+                      return 1;
                     }
-                    cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+                    if (a.runningSince < b.runningSince) {
+                      return -1;
+                    }
+                    if (a.runningSince > b.runningSince) {
+                      return 1;
+                    }
+                    if (a.broadcastedAt < b.broadcastedAt) {
+                      return -1;
+                    }
+                    if (a.broadcastedAt > b.broadcastedAt) {
+                      return 1;
+                    }
+                    if (a.ip < b.ip) {
+                      return -1;
+                    }
+                    if (a.ip > b.ip) {
+                      return 1;
+                    }
+                    return 0;
+                  });
+                  // eslint-disable-next-line no-await-in-loop
+                  const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+                  const index = runningAppList.findIndex((x) => x.ip === myIP);
+                  log.info(`SyncthingApps appIdentifier ${appId} is node index ${index}`);
+                  let numberOfExecutionsRequired = 2;
+                  if (index > 0) {
+                    numberOfExecutionsRequired = 2 + 10 * index;
                   }
+                  if (numberOfExecutionsRequired > 60) {
+                    numberOfExecutionsRequired = 60;
+                  }
+                  cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+
                   syncthingFolder.type = 'receiveonly';
                   cache.numberOfExecutions += 1;
                   log.info(`SyncthingApps appIdentifier ${appId} execution ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired + 1} to start the app`);
@@ -11997,27 +11996,16 @@ async function monitorSharedDBApps() {
           log.info(`monitorSharedDBApps: ${installedApp.name} going to check operator status on url ${url}`);
           // eslint-disable-next-line no-await-in-loop
           const operatorStatus = await serviceHelper.axiosGet(url).catch((error) => log.error(`monitorSharedDBApps: ${installedApp.name} operatorStatus error: ${error}`));
-          if (operatorStatus.data && operatorStatus.data.status !== 'OK' && operatorStatus.data.clusterStatus.length > 1) {
-            const sequence = operatorStatus.data.sequenceNumber || 0;
-            log.info(`monitorSharedDBApps: ${installedApp.name} status is not OK and sequenceNumber is ${sequence}`);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(2.5 * 60 * 1000); // operator status api cache is updated every 2 minutes
-            // eslint-disable-next-line no-await-in-loop
-            const operatorStatusDoubleCheck = await serviceHelper.axiosGet(url).catch((error) => log.error(`monitorSharedDBApps: ${installedApp.name} operatorStatus double check error: ${error}`));
-            if (operatorStatusDoubleCheck.data && operatorStatusDoubleCheck.data.status !== 'OK' && operatorStatusDoubleCheck.data.clusterStatus.length > 1) {
-              const auxSequence = operatorStatusDoubleCheck.data.sequenceNumber || 0;
-              if (sequence === auxSequence) {
-                log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is not OK and sequence number is not syncing, going to uninstall the app`);
-                // eslint-disable-next-line no-await-in-loop
-                await removeAppLocally(installedApp.name, null, true, false, true);
-              } else {
-                log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck node is syncing`);
-              }
+          if (operatorStatus && operatorStatus.data) {
+            if (operatorStatus.data.status === 'UNINSTALL') {
+              log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is UNINSTALL, going to uninstall the app`);
+              // eslint-disable-next-line no-await-in-loop
+              await removeAppLocally(installedApp.name, null, true, false, true);
             } else {
-              log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatusDoubleCheck is OK or there are no peers to connect to`);
+              log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is ${operatorStatus.data.status}`);
             }
           } else {
-            log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is OK`);
+            log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is not set`);
           }
         }
       }
