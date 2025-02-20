@@ -8738,7 +8738,7 @@ export default {
       }
     },
     onResizeMonacoEditor() {
-      if (this.editorInstance && this.monacoReady) {
+      if (this.editorInstance && this.monacoReady && this.$refs.monacoEditor && this.$refs.monacoEditor.$el) {
         const container = this.$refs.monacoEditor.$el.parentElement;
         this.editorInstance.layout({ width: container.offsetWidth, height: container.offsetHeight });
         console.log('Resize Layout:', this.editorInstance.getLayoutInfo());
