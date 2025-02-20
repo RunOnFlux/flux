@@ -126,7 +126,7 @@
     "@babel/core": "~7.23.6",
     "@babel/eslint-parser": "~7.23.3",
     "@babel/preset-env": "~7.23.6",
-    "@metamask/sdk": "~0.14.1",
+    "@metamask/sdk": "~0.32.0",
     "@vue/cli-plugin-babel": "~5.0.8",
     "@vue/cli-plugin-e2e-cypress": "~5.0.8",
     "@vue/cli-plugin-eslint": "~5.0.8",
