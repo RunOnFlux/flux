@@ -3321,23 +3321,23 @@
                     </b-button>
                     <b-modal
                       v-model="editDialogVisible"
-                      :title="`Editing File: ${currentEditFile}`"
+                      :title="`Editing: ${currentEditFile}`"
                       header-bg-variant="primary"
                       header-class="custom-modal-header"
                       no-close-on-backdrop
                       no-close-on-esc
+                      no-enforce-focus
                       hide-header-close
                       size="lg"
                       dialog-class="custom-modal-size"
                       @hide="closeEditor"
-                      @show="onModalShown"
                     >
                       <!-- Scrollable Editor -->
                       <div class="editor-container">
                         <vue-monaco-editor
-                          v-model="editContent"
+                          ref="monacoEditor"
+                          :value="editContent"
                           :theme="skin === 'dark' ? 'vs-dark' : 'vs'"
-                          height="80vh"
                           :language="editorLanguage"
                           :options="editorOptions"
                           @mount="handleMount"
@@ -7464,6 +7464,10 @@ export default {
     this.stopPolling();
     this.stopPollingStats();
     window.removeEventListener('resize', this.onResize);
+    if (this.editorInstance) {
+      this.editorInstance.dispose();
+      this.editorInstance = null;
+    }
   },
   methods: {
     getProgressVariant() {
@@ -8665,6 +8669,10 @@ export default {
       this.editDialogVisible = false;
       this.hasChanged = false;
       this.contentLoaded = false;
+      if (this.editorInstance) {
+        this.editorInstance.dispose();
+        this.editorInstance = null;
+      }
     },
     async saveContent() {
       const fileToUpload = {
@@ -8690,13 +8698,13 @@ export default {
         this.hasChanged = true;
       }
     },
-    onModalShown() {
-      if (this.editorInstance) {
-        this.editorInstance.layout();
-      }
-    },
     handleMount(editor) {
       this.editorInstance = editor;
+      document.fonts.ready.then(() => {
+        if (window.monaco && window.monaco.editor) {
+          window.monaco.editor.remeasureFonts();
+        }
+      });
       this.editorInstance.onDidChangeModelContent(() => {
         this.onEditorInput();
       });
@@ -12983,6 +12991,12 @@ input[type="number"] {
 }
 .b-table-sort-icon-left {
   padding-left:  20px !important;
+}
+
+.editor-container {
+  overflow: hidden;
+  height: 80vh;
+  width: 100%;
 }
 
 .custom-modal-size {
