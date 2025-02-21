@@ -3330,6 +3330,7 @@
                       hide-header-close
                       size="lg"
                       dialog-class="custom-modal-size"
+                      @shown="onModalShown"
                       @hide="closeEditor"
                     >
                       <!-- Scrollable Editor -->
@@ -6194,6 +6195,7 @@ export default {
   },
   data() {
     return {
+      monacoReady: false,
       maxEditSize: 3 * 1024 * 1024,
       supportedLanguages: [
         'abap',
@@ -7428,6 +7430,10 @@ export default {
     this.fluxDriveEndPoint = 'https://mws.fluxdrive.runonflux.io';
   },
   mounted() {
+    loader.init().then(() => {
+      this.monacoReady = true;
+      console.log('Monaco initialized:', !!window.monaco);
+    });
     const { hostname } = window.location;
     const regex = /[A-Za-z]/g;
     if (hostname.match(regex)) {
@@ -8673,6 +8679,7 @@ export default {
         this.editorInstance.dispose();
         this.editorInstance = null;
       }
+      window.removeEventListener('resize', this.onResizeMonacoEditor);
     },
     async saveContent() {
       const fileToUpload = {
@@ -8700,6 +8707,16 @@ export default {
     },
     handleMount(editor) {
       this.editorInstance = editor;
+      const container = this.$refs.monacoEditor.$el.parentElement;
+      setTimeout(() => {
+        if (this.monacoReady) {
+          editor.layout({ width: container.offsetWidth, height: container.offsetHeight });
+          editor.updateOptions({}); // Force redraw
+          console.log('Mount Layout:', editor.getLayoutInfo());
+        } else {
+          console.warn('Monaco not ready during mount');
+        }
+      }, 200);
       document.fonts.ready.then(() => {
         if (window.monaco && window.monaco.editor) {
           window.monaco.editor.remeasureFonts();
@@ -8708,6 +8725,24 @@ export default {
       this.editorInstance.onDidChangeModelContent(() => {
         this.onEditorInput();
       });
+      window.addEventListener('resize', this.onResizeMonacoEditor);
+    },
+    onModalShown() {
+      if (this.editorInstance && this.monacoReady) {
+        const container = this.$refs.monacoEditor.$el.parentElement;
+        setTimeout(() => {
+          this.editorInstance.layout({ width: container.offsetWidth, height: container.offsetHeight });
+          this.editorInstance.updateOptions({}); // Force redraw
+          console.log('Modal Shown Layout:', this.editorInstance.getLayoutInfo());
+        }, 200);
+      }
+    },
+    onResizeMonacoEditor() {
+      if (this.editorInstance && this.monacoReady && this.$refs.monacoEditor && this.$refs.monacoEditor.$el) {
+        const container = this.$refs.monacoEditor.$el.parentElement;
+        this.editorInstance.layout({ width: container.offsetWidth, height: container.offsetHeight });
+        console.log('Resize Layout:', this.editorInstance.getLayoutInfo());
+      }
     },
     // eslint-disable-next-line consistent-return
     async download(name, isFolder = false, silent = false) {
@@ -12997,6 +13032,7 @@ input[type="number"] {
   overflow: hidden;
   height: 80vh;
   width: 100%;
+  position: relative;
 }
 
 .custom-modal-size {
