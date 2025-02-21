@@ -527,137 +527,6 @@ async function obtainPayloadFromStorage(url, appName) {
 }
 
 /**
- * Converts an IPv4 address string (e.g., "192.168.1.1") into a 32-bit integer.
- * This allows for easier calculations and comparisons.
- *
- * @param {string} ip - The IPv4 address as a string.
- * @returns {number} - The corresponding 32-bit integer representation.
- */
-function ipToLong(ip) {
-  // eslint-disable-next-line no-bitwise
-  return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
-}
-
-/**
- * Converts a 32-bit integer back into an IPv4 address string.
- * This reverses the `ipToLong` function.
- *
- * @param {number} long - The 32-bit integer representation of an IPv4 address.
- * @returns {string} - The IPv4 address in dot-decimal format.
- */
-function longToIp(long) {
-  return [
-    // eslint-disable-next-line no-bitwise
-    (long >>> 24) & 255,
-    // eslint-disable-next-line no-bitwise
-    (long >>> 16) & 255,
-    // eslint-disable-next-line no-bitwise
-    (long >>> 8) & 255,
-    // eslint-disable-next-line no-bitwise
-    long & 255,
-  ].join('.');
-}
-
-/**
- * Parses a CIDR subnet (e.g., "192.168.1.0/24") and extracts useful information.
- * Determines the first usable IP and the last usable IP in the subnet.
- *
- * @param {string} cidr - The subnet in CIDR notation (e.g., "192.168.1.0/24").
- * @returns {Object} - An object containing:
- *   - `firstAddress`: The first usable IP in the subnet.
- *   - `lastAddress`: The last usable IP in the subnet.
- */
-function parseCidrSubnet(cidr) {
-  const [ip, prefix] = cidr.split('/');
-  const subnetLong = ipToLong(ip);
-  const hostBits = 32 - Number(prefix);
-  // eslint-disable-next-line no-bitwise
-  const subnetMask = (0xFFFFFFFF << hostBits) >>> 0;
-  // eslint-disable-next-line no-bitwise
-  const network = subnetLong & subnetMask;
-  // eslint-disable-next-line no-bitwise
-  const broadcast = network | (~subnetMask >>> 0);
-
-  return {
-    firstAddress: longToIp(network + 1),
-    lastAddress: longToIp(broadcast - 1),
-  };
-}
-
-/**
- * Finds the next available IP address in a Docker network for a given app.
- *
- * This function inspects the Docker network associated with the app, retrieves
- * the subnet and gateway details, and determines the next free IP within the
- * subnet range. It avoids allocated IPs and the gateway address.
- *
- * @param {string} appName - The name of the application.
- * @returns {Promise<string|null>} - The next available IP address, or null if no IP is available.
- */
-async function getNextAvailableIPForApp(appName) {
-  try {
-    const { IPAM, Containers } = await docker.getNetwork(`fluxDockerNetwork_${appName}`).inspect();
-    if (!IPAM?.Config?.length) throw new Error('No IPAM configuration found');
-
-    const { Subnet, Gateway } = IPAM.Config[0];
-    log.info(`Subnet: ${Subnet}, Gateway: ${Gateway}`);
-
-    const { firstAddress, lastAddress } = parseCidrSubnet(Subnet);
-    log.info(`First usable IP: ${firstAddress}, Last usable IP: ${lastAddress}`);
-
-    const allocatedIPs = new Set(Object.values(Containers || {}).map((c) => c.IPv4Address.split('/')[0]));
-    log.info('Allocated IPs:', allocatedIPs);
-
-    const gatewayLong = ipToLong(Gateway);
-
-    // eslint-disable-next-line no-plusplus
-    for (let ipLong = ipToLong(firstAddress); ipLong <= ipToLong(lastAddress); ipLong++) {
-      const ip = longToIp(ipLong);
-      if (ipLong !== gatewayLong && !allocatedIPs.has(ip)) {
-        log.info(`Available IP found: ${ip}`);
-        return ip;
-      }
-    }
-
-    log.info(`No available IP addresses found in the subnet ${Subnet}.`);
-    return null;
-  } catch (error) {
-    log.error(`Error in getNextAvailableIPForApp: ${error.message}`);
-    return null;
-  }
-}
-
-/**
- * Retrieves the IP address of a running Docker container.
- *
- * @param {string} containerName - The name of the container.
- * @returns {Promise<string|null>} - The container's IP address, or null if not found.
- * @throws {Error} - If the container has no network or IP address.
- */
-const getContainerIP = async (containerName) => {
-  try {
-    const container = await docker.getContainer(containerName).inspect();
-    const networks = Object.keys(container.NetworkSettings.Networks);
-
-    if (!Array.isArray(networks) || networks.length === 0) {
-      throw new Error('No networks found for container');
-    }
-
-    const networkName = networks[0]; // Automatically selects the first network
-    const ipAddressOfContainer = container.NetworkSettings.Networks[networkName].IPAddress ?? null;
-
-    if (!ipAddressOfContainer) {
-      throw new Error('No IPAddress found for container');
-    }
-
-    return ipAddressOfContainer;
-  } catch (error) {
-    log.error(`Failed to retrieve IP for ${containerName}: ${error.message}`);
-    return null;
-  }
-};
-
-/**
  * Creates an app container.
  *
  * @param {object} appSpecifications
@@ -778,40 +647,6 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       adjustedCommands.push(command);
     }
   });
-
-  const isSender = envParams?.some((env) => env.startsWith('LOG=SEND'));
-  const isCollector = envParams?.some((env) => env.startsWith('LOG=COLLECT'));
-
-  let syslogTarget = null;
-  let syslogIP = null;
-
-  if (fullAppSpecs && fullAppSpecs?.compose) {
-    syslogTarget = fullAppSpecs.compose.find((app) => app.environmentParameters?.some((env) => env.startsWith('LOG=COLLECT')))?.name;
-  }
-
-  if (syslogTarget && !isCollector) {
-    syslogIP = await getContainerIP(`flux${syslogTarget}_${appName}`);
-  }
-
-  log.info(`isSender=${isSender}, syslogTarget=${syslogTarget}, syslogCollectorIP=${syslogIP}`);
-
-  const logConfig = isSender && syslogTarget && syslogIP
-    ? {
-      Type: 'syslog',
-      Config: {
-        'syslog-address': `udp://${syslogIP}:514`,
-        'syslog-facility': 'local0',
-        tag: `${appSpecifications.name}`,
-      },
-    }
-    : {
-      Type: 'json-file',
-      Config: {
-        'max-file': '1',
-        'max-size': '20m',
-      },
-    };
-  const autoAssignedIP = await getNextAvailableIPForApp(appName);
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -841,21 +676,15 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         Name: restartPolicy,
       },
       NetworkMode: `fluxDockerNetwork_${appName}`,
-      LogConfig: logConfig,
-      ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
-    },
-    // Conditionally include NetworkingConfig only if a static IP was determined.
-    ...(autoAssignedIP && {
-      NetworkingConfig: {
-        EndpointsConfig: {
-          [`fluxDockerNetwork_${appName}`]: {
-            IPAMConfig: {
-              IPv4Address: autoAssignedIP,
-            },
-          },
+      LogConfig: {
+        Type: 'json-file',
+        Config: {
+          'max-file': '1',
+          'max-size': '20m',
         },
       },
-    }),
+      ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
+    },
   };
 
   // get docker info about Backing Filesystem
