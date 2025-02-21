@@ -605,8 +605,19 @@ async function getNextAvailableIPForApp(appName) {
     const { firstAddress, lastAddress } = parseCidrSubnet(Subnet);
     log.info(`First usable IP: ${firstAddress}, Last usable IP: ${lastAddress}`);
 
-    const allocatedIPs = new Set(Object.values(Containers || {}).map((c) => c.IPv4Address.split('/')[0]));
-    log.info('Allocated IPs:', allocatedIPs);
+    const allocatedIPs = new Set();
+    if (Containers) {
+      Object.values(Containers).forEach((containerInfo) => {
+        const containerIP = containerInfo.IPv4Address.split('/')[0];
+        if (containerIP) {
+          allocatedIPs.add(containerIP);
+        }
+      });
+    }
+
+    if (allocatedIPs?.size) {
+      log.info(`Allocated IPs: ${Array.from(allocatedIPs)}`);
+    }
 
     const gatewayLong = ipToLong(Gateway);
 
