@@ -3326,7 +3326,6 @@
                       header-class="custom-modal-header"
                       no-close-on-backdrop
                       no-close-on-esc
-                      no-enforce-focus
                       hide-header-close
                       size="lg"
                       dialog-class="custom-modal-size"
@@ -6340,6 +6339,8 @@ export default {
         automaticLayout: true,
         formatOnType: true,
         formatOnPaste: true,
+        fontFamily: 'Consolas, "Courier New", monospace',
+        fontSize: 14,
       },
       saving: false,
       contentLoaded: false,
@@ -13033,6 +13034,11 @@ input[type="number"] {
   height: 80vh;
   width: 100%;
   position: relative;
+  -webkit-font-smoothing: antialiased;
+}
+
+.monaco-editor {
+  -webkit-font-smoothing: antialiased;
 }
 
 .custom-modal-size {
