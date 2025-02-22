@@ -3319,46 +3319,6 @@
                     >
                       <v-icon name="file-alt" />
                     </b-button>
-                    <b-modal
-                      v-model="editDialogVisible"
-                      :title="`Editing: ${currentEditFile}`"
-                      header-bg-variant="primary"
-                      header-class="custom-modal-header"
-                      no-close-on-backdrop
-                      no-close-on-esc
-                      hide-header-close
-                      size="lg"
-                      dialog-class="custom-modal-size"
-                      @shown="onModalShown"
-                      @hide="closeEditor"
-                    >
-                      <!-- Scrollable Editor -->
-                      <div class="editor-container">
-                        <vue-monaco-editor
-                          ref="monacoEditor"
-                          :value="editContent"
-                          :theme="skin === 'dark' ? 'vs-dark' : 'vs'"
-                          :language="editorLanguage"
-                          :options="editorOptions"
-                          @mount="handleMount"
-                        />
-                      </div>
-
-                      <template #modal-footer>
-                        <b-button variant="secondary" @click="closeEditor">
-                          Cancel
-                        </b-button>
-                        <b-button variant="primary" :disabled="!hasChanged || saving" @click="saveContent">
-                          <template v-if="saving">
-                            <b-spinner small type="border" class="mr-2" />
-                            Saving...
-                          </template>
-                          <template v-else>
-                            Save
-                          </template>
-                        </b-button>
-                      </template>
-                    </b-modal>
                     <b-button
                       v-if="!data.item.isSymbolicLink"
                       :id="`delete-${data.item.name}`"
@@ -3404,6 +3364,45 @@
                   </b-modal>
                 </template>
               </b-table>
+              <b-modal
+                v-model="editDialogVisible"
+                :title="`Editing: ${currentEditFile}`"
+                header-bg-variant="primary"
+                header-class="custom-modal-header"
+                no-close-on-backdrop
+                no-close-on-esc
+                hide-header-close
+                size="lg"
+                dialog-class="custom-modal-size"
+                @shown="onModalShown"
+                @hide="closeEditor"
+              >
+                <!-- Scrollable Editor -->
+                <div class="editor-container">
+                  <vue-monaco-editor
+                    ref="monacoEditor"
+                    :value="editContent"
+                    :theme="skin === 'dark' ? 'vs-dark' : 'vs'"
+                    :language="editorLanguage"
+                    :options="editorOptions"
+                    @mount="handleMount"
+                  />
+                </div>
+                <template #modal-footer>
+                  <b-button variant="secondary" @click="closeEditor">
+                    Cancel
+                  </b-button>
+                  <b-button variant="primary" :disabled="!hasChanged || saving" @click="saveContent">
+                    <template v-if="saving">
+                      <b-spinner small type="border" class="mr-2" />
+                      Saving...
+                    </template>
+                    <template v-else>
+                      Save
+                    </template>
+                  </b-button>
+                </template>
+              </b-modal>
             </div>
           </b-card>
         </div>
@@ -8683,9 +8682,10 @@ export default {
       window.removeEventListener('resize', this.onResizeMonacoEditor);
     },
     async saveContent() {
+      const currentValue = this.editorInstance.getValue();
       const fileToUpload = {
         file_name: this.currentEditFile,
-        content: this.editContent,
+        content: currentValue,
       };
 
       this.saving = true;
