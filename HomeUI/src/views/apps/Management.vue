@@ -3161,6 +3161,7 @@
                     </b-button>
                     <b-modal
                       v-model="createDirectoryDialogVisible"
+                      header-class="custom-modal-header"
                       title="Create Folder"
                       size="lg"
                       centered
@@ -3183,6 +3184,7 @@
                     </b-modal>
                     <b-modal
                       v-model="uploadFilesDialog"
+                      header-class="custom-modal-header"
                       title="Upload Files"
                       size="lg"
                       header-bg-variant="primary"
@@ -3339,31 +3341,31 @@
                     :confirm-button="data.item.isFile ? 'Download File' : 'Download Folder'"
                     @confirm="data.item.isFile ? download(data.item.name) : download(data.item.name, true, data.item.size)"
                   />
-                  <b-modal
-                    v-model="renameDialogVisible"
-                    header-bg-variant="primary"
-                    header-class="custom-modal-header"
-                    hide-header-close
-                    title="Rename"
-                    size="lg"
-                    centered
-                    ok-title="Rename"
-                    @ok="confirmRename()"
-                  >
-                    <b-form-group
-                      label="Name"
-                      label-for="nameInput"
-                    >
-                      <b-form-input
-                        id="nameInput"
-                        v-model="newName"
-                        size="lg"
-                        placeholder="Name"
-                      />
-                    </b-form-group>
-                  </b-modal>
                 </template>
               </b-table>
+              <b-modal
+                v-model="renameDialogVisible"
+                header-bg-variant="primary"
+                header-class="custom-modal-header"
+                hide-header-close
+                title="Rename"
+                size="lg"
+                centered
+                ok-title="Rename"
+                @ok="confirmRename()"
+              >
+                <b-form-group
+                  label="Name"
+                  label-for="nameInput"
+                >
+                  <b-form-input
+                    id="nameInput"
+                    v-model="newName"
+                    size="lg"
+                    placeholder="Name"
+                  />
+                </b-form-group>
+              </b-modal>
               <b-modal
                 v-model="editDialogVisible"
                 :title="`Editing: ${currentEditFile}`"
@@ -5823,6 +5825,8 @@
     </div>
     <b-modal
       v-model="chooseEnterpriseDialog"
+      header-class="custom-modal-header"
+      header-bg-variant="primary"
       title="Select Enterprise Nodes"
       size="xl"
       centered
@@ -13046,7 +13050,7 @@ input[type="number"] {
 }
 
 .modal-backdrop {
-  background-color: rgba(0, 0, 0, 0.17) !important; /* Lighter black overlay */
+  background-color: rgba(0, 0, 0, 1) !important;
 }
 
 .custom-modal-header .modal-title,
