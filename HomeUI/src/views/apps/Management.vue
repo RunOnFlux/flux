@@ -8682,9 +8682,10 @@ export default {
       window.removeEventListener('resize', this.onResizeMonacoEditor);
     },
     async saveContent() {
+      const currentValue = this.editorInstance.getValue();
       const fileToUpload = {
         file_name: this.currentEditFile,
-        content: this.editContent,
+        content: currentValue,
       };
 
       this.saving = true;
