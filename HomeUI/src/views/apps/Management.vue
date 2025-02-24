@@ -3391,8 +3391,8 @@
                   />
                 </div>
                 <template #modal-footer>
-                  <b-button variant="secondary" @click="closeEditor">
-                    Cancel
+                  <b-button variant="danger" @click="closeEditor">
+                    Close
                   </b-button>
                   <b-button variant="primary" :disabled="!hasChanged || saving" @click="saveContent">
                     <template v-if="saving">
