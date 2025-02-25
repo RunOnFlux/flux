@@ -869,21 +869,15 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         Name: restartPolicy,
       },
       NetworkMode: `fluxDockerNetwork_${appName}`,
-      LogConfig: logConfig,
-      ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
-    },
-    // Conditionally include NetworkingConfig only if a static IP was determined.
-    ...(autoAssignedIP && {
-      NetworkingConfig: {
-        EndpointsConfig: {
-          [`fluxDockerNetwork_${appName}`]: {
-            IPAMConfig: {
-              IPv4Address: autoAssignedIP,
-            },
-          },
+      LogConfig: {
+        Type: 'json-file',
+        Config: {
+          'max-file': '1',
+          'max-size': '20m',
         },
       },
-    }),
+      ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
+    },
   };
 
   // get docker info about Backing Filesystem
