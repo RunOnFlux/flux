@@ -9571,7 +9571,7 @@ async function checkAndNotifyPeersOfRunningApps() {
               // we already have the exact same data
               // eslint-disable-next-line no-await-in-loop
               const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-              if (!result || !result.runningSince || Date.parse(result.runningSince) > Date.now() + 30 * 60 * 1000) {
+              if (!result || !result.runningSince || Date.parse(result.runningSince) + 30 * 60 * 1000 > Date.now()) {
                 log.info(`Application ${stoppedApp} uses r syncthing and haven't started yet because was installed less than 30m ago.`);
                 // eslint-disable-next-line no-continue
                 continue;
