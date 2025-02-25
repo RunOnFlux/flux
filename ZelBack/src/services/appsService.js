@@ -9557,10 +9557,26 @@ async function checkAndNotifyPeersOfRunningApps() {
           // eslint-disable-next-line no-await-in-loop
           const appDetails = await getApplicationGlobalSpecifications(mainAppName);
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
-          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
-          if (appInstalledMasterSlaveCheck) {
+          const appInstalledSyncthing = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
+          const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:'));
+          if (appInstalledSyncthing) {
             masterSlaveAppsInstalled.push(appInstalledMasterSlave);
-          } else if (appDetails) {
+          }
+          if (appDetails && !appInstalledMasterSlaveCheck) {
+            if (appInstalledSyncthing) {
+              const db = dbHelper.databaseConnection();
+              const database = db.db(config.database.appsglobal.database);
+              const queryFind = { name: mainAppName, ip: myIP };
+              const projection = { _id: 0, runningSince: 1 };
+              // we already have the exact same data
+              // eslint-disable-next-line no-await-in-loop
+              const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+              if (!result || !result.runningSince || Date.parse(result.runningSince) + 30 * 60 * 1000 > Date.now()) {
+                log.info(`Application ${stoppedApp} uses r syncthing and haven't started yet because was installed less than 30m ago.`);
+                // eslint-disable-next-line no-continue
+                continue;
+              }
+            }
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!

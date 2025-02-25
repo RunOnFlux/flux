@@ -3161,6 +3161,7 @@
                     </b-button>
                     <b-modal
                       v-model="createDirectoryDialogVisible"
+                      header-class="custom-modal-header"
                       title="Create Folder"
                       size="lg"
                       centered
@@ -3183,6 +3184,7 @@
                     </b-modal>
                     <b-modal
                       v-model="uploadFilesDialog"
+                      header-class="custom-modal-header"
                       title="Upload Files"
                       size="lg"
                       header-bg-variant="primary"
@@ -3319,47 +3321,6 @@
                     >
                       <v-icon name="file-alt" />
                     </b-button>
-                    <b-modal
-                      v-model="editDialogVisible"
-                      :title="`Editing: ${currentEditFile}`"
-                      header-bg-variant="primary"
-                      header-class="custom-modal-header"
-                      no-close-on-backdrop
-                      no-close-on-esc
-                      no-enforce-focus
-                      hide-header-close
-                      size="lg"
-                      dialog-class="custom-modal-size"
-                      @shown="onModalShown"
-                      @hide="closeEditor"
-                    >
-                      <!-- Scrollable Editor -->
-                      <div class="editor-container">
-                        <vue-monaco-editor
-                          ref="monacoEditor"
-                          :value="editContent"
-                          :theme="skin === 'dark' ? 'vs-dark' : 'vs'"
-                          :language="editorLanguage"
-                          :options="editorOptions"
-                          @mount="handleMount"
-                        />
-                      </div>
-
-                      <template #modal-footer>
-                        <b-button variant="secondary" @click="closeEditor">
-                          Cancel
-                        </b-button>
-                        <b-button variant="primary" :disabled="!hasChanged || saving" @click="saveContent">
-                          <template v-if="saving">
-                            <b-spinner small type="border" class="mr-2" />
-                            Saving...
-                          </template>
-                          <template v-else>
-                            Save
-                          </template>
-                        </b-button>
-                      </template>
-                    </b-modal>
                     <b-button
                       v-if="!data.item.isSymbolicLink"
                       :id="`delete-${data.item.name}`"
@@ -3380,31 +3341,70 @@
                     :confirm-button="data.item.isFile ? 'Download File' : 'Download Folder'"
                     @confirm="data.item.isFile ? download(data.item.name) : download(data.item.name, true, data.item.size)"
                   />
-                  <b-modal
-                    v-model="renameDialogVisible"
-                    header-bg-variant="primary"
-                    header-class="custom-modal-header"
-                    hide-header-close
-                    title="Rename"
-                    size="lg"
-                    centered
-                    ok-title="Rename"
-                    @ok="confirmRename()"
-                  >
-                    <b-form-group
-                      label="Name"
-                      label-for="nameInput"
-                    >
-                      <b-form-input
-                        id="nameInput"
-                        v-model="newName"
-                        size="lg"
-                        placeholder="Name"
-                      />
-                    </b-form-group>
-                  </b-modal>
                 </template>
               </b-table>
+              <b-modal
+                v-model="renameDialogVisible"
+                header-bg-variant="primary"
+                header-class="custom-modal-header"
+                hide-header-close
+                title="Rename"
+                size="lg"
+                centered
+                ok-title="Rename"
+                @ok="confirmRename()"
+              >
+                <b-form-group
+                  label="Name"
+                  label-for="nameInput"
+                >
+                  <b-form-input
+                    id="nameInput"
+                    v-model="newName"
+                    size="lg"
+                    placeholder="Name"
+                  />
+                </b-form-group>
+              </b-modal>
+              <b-modal
+                v-model="editDialogVisible"
+                :title="`Editing: ${currentEditFile}`"
+                header-bg-variant="primary"
+                header-class="custom-modal-header"
+                no-close-on-backdrop
+                no-close-on-esc
+                hide-header-close
+                size="lg"
+                dialog-class="custom-modal-size"
+                @shown="onModalShown"
+                @hide="closeEditor"
+              >
+                <!-- Scrollable Editor -->
+                <div class="editor-container">
+                  <vue-monaco-editor
+                    ref="monacoEditor"
+                    :value="editContent"
+                    :theme="skin === 'dark' ? 'vs-dark' : 'vs'"
+                    :language="editorLanguage"
+                    :options="editorOptions"
+                    @mount="handleMount"
+                  />
+                </div>
+                <template #modal-footer>
+                  <b-button variant="danger" @click="closeEditor">
+                    Close
+                  </b-button>
+                  <b-button variant="primary" :disabled="!hasChanged || saving" @click="saveContent">
+                    <template v-if="saving">
+                      <b-spinner small type="border" class="mr-2" />
+                      Saving...
+                    </template>
+                    <template v-else>
+                      Save
+                    </template>
+                  </b-button>
+                </template>
+              </b-modal>
             </div>
           </b-card>
         </div>
@@ -5825,6 +5825,8 @@
     </div>
     <b-modal
       v-model="chooseEnterpriseDialog"
+      header-class="custom-modal-header"
+      header-bg-variant="primary"
       title="Select Enterprise Nodes"
       size="xl"
       centered
@@ -6340,6 +6342,8 @@ export default {
         automaticLayout: true,
         formatOnType: true,
         formatOnPaste: true,
+        fontFamily: 'Consolas, "Courier New", monospace',
+        fontSize: 14,
       },
       saving: false,
       contentLoaded: false,
@@ -8682,9 +8686,10 @@ export default {
       window.removeEventListener('resize', this.onResizeMonacoEditor);
     },
     async saveContent() {
+      const currentValue = this.editorInstance.getValue();
       const fileToUpload = {
         file_name: this.currentEditFile,
-        content: this.editContent,
+        content: currentValue,
       };
 
       this.saving = true;
@@ -13033,6 +13038,11 @@ input[type="number"] {
   height: 80vh;
   width: 100%;
   position: relative;
+  -webkit-font-smoothing: antialiased;
+}
+
+.monaco-editor {
+  -webkit-font-smoothing: antialiased;
 }
 
 .custom-modal-size {
@@ -13040,7 +13050,7 @@ input[type="number"] {
 }
 
 .modal-backdrop {
-  background-color: rgba(0, 0, 0, 0.17) !important; /* Lighter black overlay */
+  background-color: rgba(0, 0, 0, 1) !important;
 }
 
 .custom-modal-header .modal-title,
