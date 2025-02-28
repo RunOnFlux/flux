@@ -161,7 +161,7 @@
                           <span style="margin-left: 10px;">Application Information</span>
                         </kbd>
                       </h3>
-                      <div class="ml-1">
+                      <div class="ml-1 wrap-text-info">
                         <list-entry
                           v-if="row.item.owner"
                           title="Owner"
@@ -336,7 +336,7 @@
                                 class="ml-1"
                               /> &nbsp;{{ component.name }}&nbsp;</kbd>
                           </h3>
-                          <div class="ml-1">
+                          <div class="ml-1 wrap-text-info">
                             <list-entry
                               title="Name"
                               :data="component.name"
@@ -774,7 +774,7 @@
                           <span style="margin-left: 10px;">Application Information</span>
                         </kbd>
                       </h3>
-                      <div class="ml-1">
+                      <div class="ml-1 wrap-text-info">
                         <list-entry
                           v-if="row.item.owner"
                           title="Owner"
@@ -949,7 +949,7 @@
                                 class="ml-1"
                               /> &nbsp;{{ component.name }}&nbsp;</kbd>
                           </h3>
-                          <div class="ml-1">
+                          <div class="ml-1 wrap-text-info">
                             <list-entry
                               title="Name"
                               :data="component.name"
@@ -1810,5 +1810,10 @@ export default {
   padding: 0.1em 0.6em;
    font-weight: 800;
    color: #FF0000;
+}
+.wrap-text-info {
+  white-space: normal !important;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 </style>
