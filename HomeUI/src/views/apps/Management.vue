@@ -17,11 +17,19 @@
       title-tag="h5"
     >
       <div class="d-flex flex-column justify-content-center align-items-center" style="height: 100%;">
-        <div class="d-flex align-items-center mb-2">
+        <div class="d-flex align-items-center mb-1">
           <b-spinner label="Loading..." />
           <div class="ml-1">
             {{ infoMessage }}
           </div>
+        </div>
+        <div
+          v-if="operationTask"
+          class="mb-1"
+        >
+          <kbd class="alert-info" style="border-radius: 15px; font-weight: 700 !important; font-size: 14px">
+            {{ operationTask }}
+          </kbd>
         </div>
       </div>
     </b-modal>
@@ -6461,6 +6469,7 @@ export default {
   },
   data() {
     return {
+      operationTask: '',
       monacoReady: false,
       maxEditSize: 3 * 1024 * 1024,
       supportedLanguages: [
@@ -11596,6 +11605,7 @@ export default {
     async redeployApp(app, force) {
       const self = this;
       this.output = [];
+      this.operationTask = '';
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.progressVisable = true;
@@ -11608,6 +11618,8 @@ export default {
         onDownloadProgress(progressEvent) {
           console.log(progressEvent.event.target.response);
           self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
+          const latest = self.output[self.output.length - 1];
+          self.operationTask = latest?.data?.message || latest?.data || latest?.status;
         },
       };
       const response = await this.executeLocalCommand(`/apps/redeploy/${app}/${force}`, null, axiosConfig);
@@ -11628,6 +11640,7 @@ export default {
     async removeApp(app) {
       const self = this;
       this.output = [];
+      this.operationTask = '';
       this.progressVisable = true;
       this.operationTitle = `Removing ${app}...`;
       const zelidauth = localStorage.getItem('zelidauth');
@@ -11638,6 +11651,8 @@ export default {
         onDownloadProgress(progressEvent) {
           console.log(progressEvent.event.target.response);
           self.output = JSON.parse(`[${progressEvent.event.target.response.replace(/}{/g, '},{')}]`);
+          const latest = self.output[self.output.length - 1];
+          self.operationTask = latest?.data?.message || latest?.data || latest?.status;
         },
       };
       const response = await this.executeLocalCommand(`/apps/appremove/${app}`, null, axiosConfig);
@@ -11655,6 +11670,11 @@ export default {
         }
         setTimeout(() => {
           self.managedApplication = '';
+          const newInstance = self.instances.data.find((instance) => instance.ip !== self.selectedIp);
+          if (newInstance) {
+            self.selectedIp = newInstance.ip;
+            self.showToast('info', `Instance switched to ${self.selectedIp}.`);
+          }
         }, 5000);
       }
     },
