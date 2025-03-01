@@ -4745,10 +4745,21 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
+  let marketplaceApp = false;
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, signature); // only btc
-  if (timestamp > 1688947200000) { // remove after this time passed
-    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
+  let isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
+  if (isValidSignature !== true) {
+    const numbersOnAppName = appSpec.name.match(/\d+/g);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const possibleTimestamp of numbersOnAppName) {
+      if (Number(possibleTimestamp) > Date.parse('2020-01-01')) {
+        marketplaceApp = true;
+        break;
+      }
+    }
+    if (marketplaceApp) {
+      isValidSignature = signatureVerifier.verifySignature(messageToVerify, config.fluxSupportTeamFluxID, signature); // btc, eth
+    }
   }
   if (isValidSignature !== true && appSpec.version <= 3) {
     // as of specification changes, adjust our appSpecs order of owner and repotag
@@ -4768,9 +4779,9 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       ...appSpecsCopy,
     };
     const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
-    isValidSignature = verificationHelper.verifyMessage(messageToVerifyB, appOwner, signature); // only btc
-    if (timestamp > 1688947200000) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appOwner, signature); // btc, eth
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appOwner, signature); // btc, eth
+    if (isValidSignature !== true && marketplaceApp) {
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, config.fluxSupportTeamFluxID, signature); // btc, eth
     }
   }
   if (isValidSignature !== true) {
