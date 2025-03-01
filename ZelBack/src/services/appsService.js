@@ -4750,9 +4750,10 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   let isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
   if (isValidSignature !== true) {
     const numbersOnAppName = appSpec.name.match(/\d+/g);
+    const dateBeforeReleaseMarketplace = Date.parse('2020-01-01');
     // eslint-disable-next-line no-restricted-syntax
     for (const possibleTimestamp of numbersOnAppName) {
-      if (Number(possibleTimestamp) > Date.parse('2020-01-01')) {
+      if (Number(possibleTimestamp) > dateBeforeReleaseMarketplace) {
         marketplaceApp = true;
         break;
       }
