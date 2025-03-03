@@ -11667,15 +11667,14 @@ export default {
           this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
+          setTimeout(() => {
+            const newInstance = self.instances.data.find((instance) => instance.ip !== self.selectedIp);
+            if (newInstance) {
+              self.selectedIp = newInstance.ip;
+              self.showToast('info', `Instance switched to ${self.selectedIp}.`);
+            }
+          }, 5000);
         }
-        setTimeout(() => {
-          self.managedApplication = '';
-          const newInstance = self.instances.data.find((instance) => instance.ip !== self.selectedIp);
-          if (newInstance) {
-            self.selectedIp = newInstance.ip;
-            self.showToast('info', `Instance switched to ${self.selectedIp}.`);
-          }
-        }, 5000);
       }
     },
     async getZelidAuthority() {
