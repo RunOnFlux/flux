@@ -1029,10 +1029,10 @@ module.exports = (app) => {
   app.get('/flux/checkcommunication', (req, res) => {
     fluxNetworkHelper.isCommunicationEstablished(req, res);
   });
-  app.get('/flux/uptime', (req, res) => {
+  app.get('/flux/uptime', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.fluxUptime(req, res);
   });
-  app.get('/flux/systemuptime', (req, res) => {
+  app.get('/flux/systemuptime', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.fluxSystemUptime(req, res);
   });
   app.get('/flux/backendfolder', isLocal, (req, res) => {
