@@ -477,6 +477,24 @@
                 </b-tab>
               </b-tabs>
             </b-card>
+            <b-card>
+              <div>
+                <b-form-checkbox
+                  id="tos"
+                  v-model="tosAgreed"
+                  switch
+                  class="custom-control-primary inline"
+                />
+                I agree with
+                <a
+                  href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Terms of Service
+                </a>
+              </div>
+            </b-card>
             <div
               v-if="!appData.enabled"
               class="text-center"
@@ -1769,6 +1787,7 @@ export default {
     const copyButtonRef = ref(null);
     const expireOptions = ref([]);
     const expirePosition = ref(Number(0));
+    const tosAgreed = ref(false);
     expireOptions.value = [
       {
         value: 22000,
@@ -2396,6 +2415,9 @@ export default {
 
     const checkFluxSpecificationsAndFormatMessage = async () => {
       try {
+        if (!tosAgreed.value) {
+          throw new Error('Please agree to Terms of Service');
+        }
         loading.value = false;
         completed.value = false;
         // construct a valid v4 app spec from the marketplace app spec,

@@ -159,6 +159,10 @@ module.exports = {
       multiplier: 1, // multiplier in case we want to increase prices globaly
       minUSDPrice: 0.99, // min. usd price that can be paid with stripe/paypal.
     },
+    teamSupportAddress: [{
+      height: 1851659, // height from which address is valid
+      address: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
+    }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
