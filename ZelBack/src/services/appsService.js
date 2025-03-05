@@ -4794,16 +4794,18 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
         if (addressInfo.height >= daemonHeight) {
           fluxSupportTeamFluxID = addressInfo.address;
           const numbersOnAppName = appSpec.name.match(/\d+/g);
-          const dateBeforeReleaseMarketplace = Date.parse('2020-01-01');
-          // eslint-disable-next-line no-restricted-syntax
-          for (const possibleTimestamp of numbersOnAppName) {
-            if (Number(possibleTimestamp) > dateBeforeReleaseMarketplace) {
-              marketplaceApp = true;
-              break;
+          if (numbersOnAppName && numbersOnAppName.length > 0) {
+            const dateBeforeReleaseMarketplace = Date.parse('2020-01-01');
+            // eslint-disable-next-line no-restricted-syntax
+            for (const possibleTimestamp of numbersOnAppName) {
+              if (Number(possibleTimestamp) > dateBeforeReleaseMarketplace) {
+                marketplaceApp = true;
+                break;
+              }
             }
-          }
-          if (marketplaceApp) {
-            isValidSignature = signatureVerifier.verifySignature(messageToVerify, fluxSupportTeamFluxID, signature); // btc, eth
+            if (marketplaceApp) {
+              isValidSignature = signatureVerifier.verifySignature(messageToVerify, fluxSupportTeamFluxID, signature); // btc, eth
+            }
           }
         }
       }
