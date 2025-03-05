@@ -115,7 +115,7 @@
                       <span style="margin-left: 10px;">Application Information</span>
                     </kbd>
                   </h3>
-                  <div class="ml-1">
+                  <div class="ml-1 wrap-text-info">
                     <list-entry
                       v-if="row.item.owner"
                       title="Owner"
@@ -290,7 +290,7 @@
                             class="ml-1"
                           /> &nbsp;{{ component.name }}&nbsp;</kbd>
                       </h3>
-                      <div class="ml-1">
+                      <div class="ml-1 wrap-text-info">
                         <list-entry
                           title="Name"
                           :data="component.name"
@@ -486,7 +486,7 @@ export default {
         {
           key: 'name', label: 'Name', sortable: true, thStyle: { width: '5%' },
         },
-        { key: 'description', label: 'Description', thStyle: { width: '75%' } },
+        { key: 'description', label: 'Description', thStyle: { width: '87%' } },
         {
           key: 'actions', label: '', class: 'text-center', thStyle: { width: '8%' },
         },
@@ -712,5 +712,10 @@ export default {
   }
   .b-table-sort-icon-left {
     padding-left:  20px !important;
+  }
+  .wrap-text-info {
+    white-space: normal !important;
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
 </style>

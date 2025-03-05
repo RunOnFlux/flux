@@ -205,6 +205,41 @@ async function getChainParamsPriceUpdates() {
 }
 
 /**
+ * To get array of team support address updates
+ * @returns {(object|object[])} Returns an array of team support addresses with height.
+ */
+function getChainTeamSupportddressUpdates() {
+  try {
+    /* to be adjusted in the future to check database
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.chainparams.database);
+    const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+    const query = { version: 'p' };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const priceMessages = await dbHelper.findInDatabase(database, chainParamsMessagesCollection, query, projection);
+    */
+    const addressForks = [];
+    config.fluxapps.teamSupportAddress.forEach((address) => {
+      addressForks.push(address);
+    });
+    // sort priceForks depending on height
+    addressForks.sort((a, b) => {
+      if (a.height > b.height) return 1;
+      if (a.height < b.height) return -1;
+      return 0;
+    });
+    return addressForks;
+  } catch (error) {
+    log.error(error);
+    return [];
+  }
+}
+
+/**
  * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -4739,16 +4774,42 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
  * @param {number} timestamp Time stamp.
  * @param {string} signature Signature.
  * @param {string} appOwner App owner.
+ * @param {number} daemonHeight Daemon height.
  * @returns {boolean} True if no errors are thrown.
  */
-async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner) {
+async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner, daemonHeight) {
   if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
+  let marketplaceApp = false;
+  let fluxSupportTeamFluxID = null;
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, signature); // only btc
-  if (timestamp > 1688947200000) { // remove after this time passed
-    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
+  let isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
+  if (isValidSignature !== true) {
+    const teamSupportAddresses = getChainTeamSupportddressUpdates();
+    if (teamSupportAddresses.length > 0) {
+      const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight);
+      if (intervals) {
+        const addressInfo = intervals[intervals.length - 1];
+        if (addressInfo.height >= daemonHeight) {
+          fluxSupportTeamFluxID = addressInfo.address;
+          const numbersOnAppName = appSpec.name.match(/\d+/g);
+          if (numbersOnAppName && numbersOnAppName.length > 0) {
+            const dateBeforeReleaseMarketplace = Date.parse('2020-01-01');
+            // eslint-disable-next-line no-restricted-syntax
+            for (const possibleTimestamp of numbersOnAppName) {
+              if (Number(possibleTimestamp) > dateBeforeReleaseMarketplace) {
+                marketplaceApp = true;
+                break;
+              }
+            }
+            if (marketplaceApp) {
+              isValidSignature = signatureVerifier.verifySignature(messageToVerify, fluxSupportTeamFluxID, signature); // btc, eth
+            }
+          }
+        }
+      }
+    }
   }
   if (isValidSignature !== true && appSpec.version <= 3) {
     // as of specification changes, adjust our appSpecs order of owner and repotag
@@ -4768,9 +4829,9 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       ...appSpecsCopy,
     };
     const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
-    isValidSignature = verificationHelper.verifyMessage(messageToVerifyB, appOwner, signature); // only btc
-    if (timestamp > 1688947200000) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appOwner, signature); // btc, eth
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appOwner, signature); // btc, eth
+    if (isValidSignature !== true && marketplaceApp) {
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, fluxSupportTeamFluxID, signature); // btc, eth
     }
   }
   if (isValidSignature !== true) {
@@ -6542,7 +6603,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
       const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner);
+      await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, daemonHeight);
     } else {
       throw new Error('Invalid Flux App message received');
     }
@@ -7545,7 +7606,7 @@ async function updateAppGlobalyApi(req, res) {
       }
       const appOwner = appInfo.owner; // ensure previous app owner is signing this message
       // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner);
+      await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner, daemonHeight);
 
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
       // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
@@ -13617,6 +13678,7 @@ module.exports = {
   getAllGlobalApplications,
   syncthingApps,
   getChainParamsPriceUpdates,
+  getChainTeamSupportddressUpdates,
   getAppsDOSState,
   checkMyAppsAvailability,
   checkApplicationsCompliance,
