@@ -10399,6 +10399,11 @@ export default {
         this.terminal.write(data);
       });
 
+      this.socket.on('disconnect', () => {
+        this.showToast('warning', 'Disconnected from terminal.');
+        this.disconnectTerminal();
+      });
+
       this.socket.on('end', () => {
         this.disconnectTerminal();
       });
