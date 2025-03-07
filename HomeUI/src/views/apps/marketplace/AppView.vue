@@ -2933,6 +2933,7 @@ export default {
 
     return {
       // UI
+      tosAgreed,
       loading,
       completed,
       perfectScrollbarSettings,
