@@ -290,234 +290,235 @@
               </dd>
             </dl>
           </b-card>
-          <b-card v-if="userZelid" title="Details">
-            <b-form-textarea
-              id="textarea-rows"
-              rows="2"
-              readonly
-              :value="appData.description"
-              class="description-text"
-            />
-            <div
-              v-if="appData.contacts"
-              class="form-row form-group mt-2"
-              style="padding: 0;"
-            >
-              <label class="col-3 col-form-label">
-                Contact
-                <v-icon
-                  v-b-tooltip.hover.top="'Add your email contact to get notifications ex. app about to expire, app spawns. Your contact will be uploaded to Flux Storage to not be public visible'"
-                  name="info-circle"
-                />
-              </label>
-              <div class="col">
-                <b-form-input
-                  id="contact"
-                  v-model="contact"
-                />
-              </div>
-            </div>
-            <div v-if="appData.geolocationOptions">
-              <b-form-group
-                label-cols="3"
-                label-cols-lg="20"
-                :label="`Deployment Location`"
-                label-for="geolocation"
+          <b-card v-if="userZelid" no-body title="Details">
+            <b-card-body class="d-flex flex-column flex-grow-1">
+              <b-form-textarea
+                id="textarea-rows"
+                rows="2"
+                readonly
+                :value="appData.description"
+                class="description-text"
+              />
+              <div
+                v-if="appData.contacts"
+                class="form-row form-group mt-2"
+                style="padding: 0;"
               >
-                <b-form-select
-                  id="geolocation"
-                  v-model="selectedGeolocation"
-                  :options="appData.geolocationOptions"
+                <label class="col-3 col-form-label">
+                  Contact
+                  <v-icon
+                    v-b-tooltip.hover.top="'Add your email contact to get notifications ex. app about to expire, app spawns. Your contact will be uploaded to Flux Storage to not be public visible'"
+                    name="info-circle"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="contact"
+                    v-model="contact"
+                  />
+                </div>
+              </div>
+              <div v-if="appData.geolocationOptions">
+                <b-form-group
+                  label-cols="3"
+                  label-cols-lg="20"
+                  :label="`Deployment Location`"
+                  label-for="geolocation"
                 >
-                  <b-form-select-option :value="null">
-                    Worldwide
-                  </b-form-select-option>
-                </b-form-select>
-              </b-form-group>
-            </div>
-            <div v-if="appData.selectInstances">
+                  <b-form-select
+                    id="geolocation"
+                    v-model="selectedGeolocation"
+                    :options="appData.geolocationOptions"
+                  >
+                    <b-form-select-option :value="null">
+                      Worldwide
+                    </b-form-select-option>
+                  </b-form-select>
+                </b-form-group>
+              </div>
+              <div v-if="appData.selectInstances">
+                <b-form-group
+                  v-if="appData.version >= 3"
+                  label-cols="3"
+                  label-cols-lg="20"
+                >
+                  <template #label>
+                    Instances
+                    <v-icon
+                      v-b-tooltip.hover.top="'Minimum number of application instances to be spawned'"
+                      name="info-circle"
+                    />
+                  </template>
+                  <div class="mx-1">
+                    {{ appInstances }}
+                  </div>
+                  <input
+                    id="appInstances"
+                    v-model="appInstances"
+                    type="range"
+                    class="form-control-range"
+                    style="width: 100%; outline: none;"
+                    :min="3"
+                    :max="100"
+                    :step="1"
+                  />
+                </b-form-group>
+              </div>
               <b-form-group
-                v-if="appData.version >= 3"
+                v-if="appData.version >= 6"
                 label-cols="3"
                 label-cols-lg="20"
               >
                 <template #label>
-                  Instances
+                  Period
                   <v-icon
-                    v-b-tooltip.hover.top="'Minimum number of application instances to be spawned'"
+                    v-b-tooltip.hover.top="'How long an application will live on Flux network'"
                     name="info-circle"
                   />
                 </template>
                 <div class="mx-1">
-                  {{ appInstances }}
+                  {{ getExpireLabel }}
                 </div>
                 <input
-                  id="appInstances"
-                  v-model="appInstances"
+                  id="period"
+                  v-model="expirePosition"
                   type="range"
                   class="form-control-range"
                   style="width: 100%; outline: none;"
-                  :min="3"
-                  :max="100"
+                  :min="0"
+                  :max="3"
                   :step="1"
                 />
               </b-form-group>
-            </div>
-            <b-form-group
-              v-if="appData.version >= 6"
-              label-cols="3"
-              label-cols-lg="20"
-            >
-              <template #label>
-                Period
-                <v-icon
-                  v-b-tooltip.hover.top="'How long an application will live on Flux network'"
-                  name="info-circle"
-                />
-              </template>
-              <div class="mx-1">
-                {{ getExpireLabel }}
-              </div>
-              <input
-                id="period"
-                v-model="expirePosition"
-                type="range"
-                class="form-control-range"
-                style="width: 100%; outline: none;"
-                :min="0"
-                :max="3"
-                :step="1"
-              />
-            </b-form-group>
-            <b-card style="padding: 0;">
-              <b-tabs @activate-tab="componentSelected">
-                <b-tab
-                  v-for="(component, index) in appData.compose"
-                  :key="index"
-                  :title="component.name"
-                >
-                  <div class="my-2 ml-2">
-                    <div class="list-entry">
-                      <p><b style="display: inline-block; width: 120px;">Description:</b>&nbsp;{{ component.description }}</p>
-                      <p><b style="display: inline-block; width: 120px;">Repository:</b>&nbsp;{{ component.repotag }}</p>
+              <div style="padding: 0;">
+                <b-tabs class="mt-1" @activate-tab="componentSelected">
+                  <b-tab
+                    v-for="(component, index) in appData.compose"
+                    :key="index"
+                    :title="component.name"
+                  >
+                    <div class="my-2 ml-2">
+                      <div class="list-entry">
+                        <p><b style="display: inline-block; width: 120px;">Description:</b>&nbsp;{{ component.description }}</p>
+                        <p><b style="display: inline-block; width: 120px;">Repository:</b>&nbsp;{{ component.repotag }}</p>
+                      </div>
                     </div>
+                    <div
+                      v-if="component.userEnvironmentParameters?.length > 0"
+                      title="Parameters"
+                      border-variant="dark"
+                    >
+                      <b-tabs v-if="component.userEnvironmentParameters">
+                        <b-tab
+                          v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
+                          :key="paramIndex"
+                          :title="parameter.name"
+                        >
+                          <div class="form-row form-group">
+                            <label class="col-2 col-form-label ml-2">
+                              Value
+                              <v-icon
+                                v-b-tooltip.hover.top="parameter.description"
+                                name="info-circle"
+                                class="mr-1"
+                              />
+                            </label>
+                            <div class="col">
+                              <b-form-input
+                                id="enviromentParameters"
+                                v-model="parameter.value"
+                                :placeholder="parameter.placeholder"
+                              />
+                            </div>
+                          </div>
+                        </b-tab>
+                      </b-tabs>
+                    </div>
+                    <div
+                      v-if="component.userSecrets"
+                      title="Secrets"
+                      border-variant="primary"
+                    >
+                      <b-tabs v-if="component.userSecrets">
+                        <b-tab
+                          v-for="(parameter, paramIndex) in component.userSecrets"
+                          :key="paramIndex"
+                          :title="parameter.name"
+                        >
+                          <div class="form-row form-group">
+                            <label class="col-2 col-form-label">
+                              Value
+                              <v-icon
+                                v-b-tooltip.hover.top="parameter.description"
+                                name="info-circle"
+                                class="mr-1"
+                              />
+                            </label>
+                            <div class="col">
+                              <b-form-input
+                                id="secrets"
+                                v-model="parameter.value"
+                                :placeholder="parameter.placeholder"
+                              />
+                            </div>
+                          </div>
+                        </b-tab>
+                      </b-tabs>
+                    </div>
+                    <b-button
+                      v-if="userZelid"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-warning"
+                      aria-label="View Additional Details"
+                      class="mb-6"
+                      @click="componentParamsModalShowing = true"
+                    >
+                      View Additional Details
+                    </b-button>
+                  </b-tab>
+                </b-tabs>
+              </div>
+              <div
+                v-if="!appData.enabled"
+                class="text-center"
+              >
+                <h4>
+                  This Application is temporarily disabled
+                </h4>
+              </div>
+              <div v-else class="text-center mt-auto">
+                <!-- Footer ensures it's always at the bottom -->
+                <div class="text-left mt-2">
+                  <div class="d-flex align-items-center p-0 mt-auto">
+                    <b-form-checkbox
+                      id="tos"
+                      v-model="tosAgreed"
+                      switch
+                      class="custom-control-primary"
+                    />
+                    <span>
+                      I agree with
+                      <a
+                        href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Terms of Service
+                      </a>
+                    </span>
                   </div>
-                  <b-card
-                    v-if="component.userEnvironmentParameters?.length > 0"
-                    title="Parameters"
-                    border-variant="dark"
-                  >
-                    <b-tabs v-if="component.userEnvironmentParameters">
-                      <b-tab
-                        v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
-                        :key="paramIndex"
-                        :title="parameter.name"
-                      >
-                        <div class="form-row form-group">
-                          <label class="col-2 col-form-label ml-2">
-                            Value
-                            <v-icon
-                              v-b-tooltip.hover.top="parameter.description"
-                              name="info-circle"
-                              class="mr-1"
-                            />
-                          </label>
-                          <div class="col">
-                            <b-form-input
-                              id="enviromentParameters"
-                              v-model="parameter.value"
-                              :placeholder="parameter.placeholder"
-                            />
-                          </div>
-                        </div>
-                      </b-tab>
-                    </b-tabs>
-                  </b-card>
-                  <b-card
-                    v-if="component.userSecrets"
-                    title="Secrets"
-                    border-variant="primary"
-                  >
-                    <b-tabs v-if="component.userSecrets">
-                      <b-tab
-                        v-for="(parameter, paramIndex) in component.userSecrets"
-                        :key="paramIndex"
-                        :title="parameter.name"
-                      >
-                        <div class="form-row form-group">
-                          <label class="col-2 col-form-label">
-                            Value
-                            <v-icon
-                              v-b-tooltip.hover.top="parameter.description"
-                              name="info-circle"
-                              class="mr-1"
-                            />
-                          </label>
-                          <div class="col">
-                            <b-form-input
-                              id="secrets"
-                              v-model="parameter.value"
-                              :placeholder="parameter.placeholder"
-                            />
-                          </div>
-                        </div>
-                      </b-tab>
-                    </b-tabs>
-                  </b-card>
                   <b-button
                     v-if="userZelid"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-warning"
-                    aria-label="View Additional Details"
-                    class="mb-2"
-                    @click="componentParamsModalShowing = true"
+                    variant="outline-success"
+                    aria-label="Launch Marketplace App"
+                    class="mt-1 w-100"
+                    @click="checkFluxSpecificationsAndFormatMessage"
                   >
-                    View Additional Details
+                    Start Launching Marketplace Application
                   </b-button>
-                </b-tab>
-              </b-tabs>
-            </b-card>
-            <b-card>
-              <div>
-                <b-form-checkbox
-                  id="tos"
-                  v-model="tosAgreed"
-                  switch
-                  class="custom-control-primary inline"
-                />
-                I agree with
-                <a
-                  href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Terms of Service
-                </a>
+                </div>
               </div>
-            </b-card>
-            <div
-              v-if="!appData.enabled"
-              class="text-center"
-            >
-              <h4>
-                This Application is temporarily disabled
-              </h4>
-            </div>
-            <div
-              v-else
-              class="text-center mt-auto"
-            >
-              <b-button
-                v-if="userZelid"
-                variant="outline-success"
-                aria-label="Launch Marketplace App"
-                class="mt-2 text-center"
-                style="position: absolute; bottom: 20px; left: 0; right: 0; margin-left: 3.0rem; margin-right: 3.0rem;"
-                @click="checkFluxSpecificationsAndFormatMessage"
-              >
-                Start Launching Marketplace Application
-              </b-button>
-            </div>
+            </b-card-body>
           </b-card>
         </b-col>
         <b-col
@@ -2933,6 +2934,7 @@ export default {
 
     return {
       // UI
+      tosAgreed,
       loading,
       completed,
       perfectScrollbarSettings,
