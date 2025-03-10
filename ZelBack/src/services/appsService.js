@@ -72,8 +72,8 @@ testingAppserver = httpShutdown(testingAppserver);
 
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
-  ttl: 1000 * 60 * 60 * 6, // 6 hours
-  maxAge: 1000 * 60 * 60 * 6, // 6 hours
+  ttl: 1000 * 60 * 60 * 24, // 24 hours
+  maxAge: 1000 * 60 * 60 * 24, // 24 hours
 };
 const shortCache = {
   max: 500,
@@ -108,6 +108,12 @@ const syncthingDevicesCache = {
   maxAge: 1000 * 60 * 60 * 24, // 24 hours
 };
 
+const spawnErrorsLongerLRUoptions = {
+  max: 2000,
+  ttl: 1000 * 60 * 60 * 24 * 7, // 7 days
+  maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+};
+const spawnErrorsLongerAppCache = new LRUCache(spawnErrorsLongerLRUoptions);
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myShortCache = new LRUCache(shortCache);
 const myLongCache = new LRUCache(longCache);
@@ -9247,7 +9253,7 @@ async function trySpawningGlobalApplication() {
       const myNodeLocation = nodeFullGeolocation();
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
         && (app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP)));
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !trySpawningGlobalAppCache.has(app.name) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !spawnErrorsLongerAppCache.has(app.name) && !trySpawningGlobalAppCache.has(app.name) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
       if (globalAppNamesLocation.length === 0) {
         log.info('trySpawningGlobalApplication - No app currently to be processed');
         await serviceHelper.delay(30 * 60 * 1000);
@@ -9333,7 +9339,12 @@ async function trySpawningGlobalApplication() {
     }
 
     // verify app compliance
-    await checkApplicationImagesComplience(appSpecifications);
+    await checkApplicationImagesComplience(appSpecifications).catch((error) => {
+      if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
+        spawnErrorsLongerAppCache.set(appToRun, appToRun);
+      }
+      throw error;
+    });
 
     // verify requirements
     await checkAppRequirements(appSpecifications);
@@ -9353,6 +9364,7 @@ async function trySpawningGlobalApplication() {
     appPorts.forEach((port) => {
       const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
       if (isUserBlocked) {
+        spawnErrorsLongerAppCache.set(appToRun, appToRun);
         throw new Error(`trySpawningGlobalApplication - Port ${port} is blocked by user. Installation aborted.`);
       }
     });
@@ -9443,7 +9455,10 @@ async function trySpawningGlobalApplication() {
 
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture });
+      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
+        spawnErrorsLongerAppCache.set(appToRun, appToRun);
+        throw error;
+      });
     }
 
     if (!appFromAppsToBeCheckedLater && appToRunAux.nodes.length === 0) {
@@ -9544,7 +9559,7 @@ async function trySpawningGlobalApplication() {
     trySpawningGlobalApplication();
   } catch (error) {
     log.error(error);
-    await serviceHelper.delay(30 * 60 * 1000);
+    await serviceHelper.delay(5 * 60 * 1000);
     trySpawningGlobalApplication();
   }
 }
