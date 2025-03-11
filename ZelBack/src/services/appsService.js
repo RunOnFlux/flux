@@ -9214,6 +9214,7 @@ async function trySpawningGlobalApplication() {
           required: '$instances',
           nodes: { $ifNull: ['$nodes', []] },
           geolocation: { $ifNull: ['$geolocation', []] },
+          hash: '$hash',
         },
       },
       { $sort: { name: 1 } },
@@ -9235,17 +9236,20 @@ async function trySpawningGlobalApplication() {
     let appToRun = null;
     let appToRunAux = null;
     let minInstances = null;
+    let appHash = null;
     let appFromAppsToBeCheckedLater = false;
     let appFromAppsSyncthingToBeCheckedLater = false;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
     const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
     if (appIndex >= 0) {
       appToRun = appsToBeCheckedLater[appIndex].appName;
+      appHash = appsToBeCheckedLater[appIndex].hash;
       minInstances = appsToBeCheckedLater[appIndex].required;
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
     } else if (appSyncthingIndex >= 0) {
       appToRun = appsSyncthingToBeCheckedLater[appSyncthingIndex].appName;
+      appHash = appsSyncthingToBeCheckedLater[appSyncthingIndex].hash;
       minInstances = appsSyncthingToBeCheckedLater[appSyncthingIndex].required;
       appsSyncthingToBeCheckedLater.splice(appSyncthingIndex, 1);
       appFromAppsSyncthingToBeCheckedLater = true;
@@ -9253,7 +9257,7 @@ async function trySpawningGlobalApplication() {
       const myNodeLocation = nodeFullGeolocation();
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
         && (app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP)));
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !spawnErrorsLongerAppCache.has(app.name) && !trySpawningGlobalAppCache.has(app.name) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !spawnErrorsLongerAppCache.has(app.hash) && !trySpawningGlobalAppCache.has(app.hash) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
       if (globalAppNamesLocation.length === 0) {
         log.info('trySpawningGlobalApplication - No app currently to be processed');
         await serviceHelper.delay(30 * 60 * 1000);
@@ -9269,6 +9273,7 @@ async function trySpawningGlobalApplication() {
         appToRunAux = filterAppsWithNyNodeIP[random];
       }
       appToRun = appToRunAux.name;
+      appHash = appToRunAux.hash;
       minInstances = appToRunAux.required;
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
       if (appToRunAux.required === appToRunAux.actual + 1 && appToRunAux.nodes.length === 0 && Math.random() > 0.4) {
@@ -9285,8 +9290,8 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    trySpawningGlobalAppCache.set(appToRun, appToRun);
-    log.info(`trySpawningGlobalApplication - App ${appToRun}`);
+    trySpawningGlobalAppCache.set(appHash, appHash);
+    log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
     let runningAppList = await getRunningAppList(appToRun);
 
@@ -9341,7 +9346,7 @@ async function trySpawningGlobalApplication() {
     // verify app compliance
     await checkApplicationImagesComplience(appSpecifications).catch((error) => {
       if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
-        spawnErrorsLongerAppCache.set(appToRun, appToRun);
+        spawnErrorsLongerAppCache.set(appHash, appHash);
       }
       throw error;
     });
@@ -9364,7 +9369,7 @@ async function trySpawningGlobalApplication() {
     appPorts.forEach((port) => {
       const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
       if (isUserBlocked) {
-        spawnErrorsLongerAppCache.set(appToRun, appToRun);
+        spawnErrorsLongerAppCache.set(appHash, appHash);
         throw new Error(`trySpawningGlobalApplication - Port ${port} is blocked by user. Installation aborted.`);
       }
     });
@@ -9381,7 +9386,7 @@ async function trySpawningGlobalApplication() {
     runningAppList = await getRunningAppList(appToRun);
     if (runningAppList.length >= minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
-      trySpawningGlobalAppCache.delete(appToRun);
+      trySpawningGlobalAppCache.delete(appHash);
       await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
@@ -9418,12 +9423,13 @@ async function trySpawningGlobalApplication() {
             const appToCheck = {
               timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
               appName: appToRun,
+              hash: appHash,
               required: minInstances,
             };
             appsSyncthingToBeCheckedLater.push(appToCheck);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(30 * 60 * 1000);
-            trySpawningGlobalAppCache.delete(appToRun);
+            trySpawningGlobalAppCache.delete(appHash);
             trySpawningGlobalApplication();
             return;
           }
@@ -9456,7 +9462,7 @@ async function trySpawningGlobalApplication() {
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
-        spawnErrorsLongerAppCache.set(appToRun, appToRun);
+        spawnErrorsLongerAppCache.set(appHash, appHash);
         throw error;
       });
     }
@@ -9469,31 +9475,34 @@ async function trySpawningGlobalApplication() {
         const appToCheck = {
           timeToCheck: Date.now() + 1.95 * 60 * 60 * 1000,
           appName: appToRun,
+          hash: appHash,
           required: minInstances,
         };
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from cumulus, will check in around 2h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
-        trySpawningGlobalAppCache.delete(appToRun);
+        trySpawningGlobalAppCache.delete(appHash);
         delay = true;
       } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
         const appToCheck = {
           timeToCheck: Date.now() + 1.45 * 60 * 60 * 1000,
           appName: appToRun,
+          hash: appHash,
           required: minInstances,
         };
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from nimbus, will check in around 1h30 if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
-        trySpawningGlobalAppCache.delete(appToRun);
+        trySpawningGlobalAppCache.delete(appHash);
         delay = true;
       } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
           timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
           appName: appToRun,
+          hash: appHash,
           required: minInstances,
         };
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs are from cumulus, will check in around 1h if instances are still missing`);
         appsToBeCheckedLater.push(appToCheck);
-        trySpawningGlobalAppCache.delete(appToRun);
+        trySpawningGlobalAppCache.delete(appHash);
         delay = true;
       }
       if (delay) {
@@ -9549,7 +9558,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
       if (index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is going to be removed as already passed the instances required.`);
-        trySpawningGlobalAppCache.delete(appToRun);
+        trySpawningGlobalAppCache.delete(appHash);
         removeAppLocally(appSpecifications.name, null, true, null, true).catch((error) => log.error(error));
       }
     }
