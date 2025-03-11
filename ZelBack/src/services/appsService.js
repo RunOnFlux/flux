@@ -72,8 +72,8 @@ testingAppserver = httpShutdown(testingAppserver);
 
 const GlobalAppsSpawnLRUoptions = {
   max: 2000,
-  ttl: 1000 * 60 * 60 * 24, // 24 hours
-  maxAge: 1000 * 60 * 60 * 24, // 24 hours
+  ttl: 1000 * 60 * 60 * 12, // 12 hours
+  maxAge: 1000 * 60 * 60 * 12, // 12 hours
 };
 const shortCache = {
   max: 500,
