@@ -8,11 +8,11 @@
       hide-footer
       centered
       hide-header-close
-      header-class="custom-modal-header"
       no-close-on-backdrop
       no-close-on-esc
       size="lg"
       header-bg-variant="primary"
+      title-class="custom-modal-title"
       :title="operationTitle"
       title-tag="h5"
     >
@@ -95,7 +95,6 @@
           <b-form-select
             v-model="selectedIp"
             :options="null"
-            @change="selectedIpChanged"
           >
             <b-form-select-option
               v-for="instance in instances.data"
@@ -123,7 +122,7 @@
       @input="index => updateManagementTab(index)"
     >
       <b-tab
-        v-if="windowWidth > 860"
+        :title-item-class="windowWidth > 860 ? '' : 'd-none'"
         title="Local App Management"
         disabled
       />
@@ -149,12 +148,7 @@
                 scale="1.2"
                 icon="gear-fill"
               />
-              Application Specifications &nbsp;
-              <kbd v-if="appSpecification?.name" class="alert-info" style="border-radius: 15px; font-family: monospace; font-size: 14px;">
-                <span>
-                  {{ appSpecification.name }}
-                </span>
-              </kbd>
+              Application Specifications
             </h5>
           </div>
           <div class="wrap-text-info">
@@ -876,12 +870,7 @@
                 scale="1.2"
                 icon="info-square-fill"
               />
-              Information &nbsp;
-              <kbd v-if="appSpecification?.name" class="alert-info" style="border-radius: 15px; font-family: monospace; font-size: 14px;">
-                <span>
-                  {{ appSpecification.name }}
-                </span>
-              </kbd>
+              Information
             </h5>
           </div>
           <h3 v-if="appSpecification.version <= 3" class="no-wrap">
@@ -1190,20 +1179,15 @@
             line-height: 0px;
           "
           >
-            <h5 class="d-flex align-items-center">
+            <h5 class="d-flex align-items-center no-wrap">
               <b-icon
                 class="mr-1"
                 scale="1.2"
                 icon="info-square-fill"
               />
-              File Changes &nbsp;
-              <kbd v-if="appSpecification?.name" class="alert-info" style="border-radius: 15px; font-family: monospace; font-size: 14px;">
-                <span>
-                  {{ appSpecification.name }}
-                </span>
-              </kbd>
+              File Changes
               <div class="ml-auto">
-                <kbd class="bg-primary mr-1" style="border-radius: 15px; font-family: monospace; font-size: 12px;">Kind: 0 = Modified</kbd>
+                <kbd class="bg-primary mr-1 ml-1" style="border-radius: 15px; font-family: monospace; font-size: 12px;">Kind: 0 = Modified</kbd>
                 <kbd class="bg-success mr-1" style="border-radius: 15px; font-family: monospace; font-size: 12px;">Kind: 1 = Added </kbd>
                 <kbd class="bg-danger" style="border-radius: 15px; font-family: monospace; font-size: 12px;">Kind: 2 = Deleted</kbd>
               </div>
@@ -1242,7 +1226,7 @@
               </h3>
               <div v-if="component.callData">
                 <json-viewer
-                  class="mt-1"
+                  class="mt-0"
                   :value="component.callData"
                   :expand-depth="5"
                   copyable
@@ -1452,22 +1436,25 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Control">
+      <b-tab title="Application Control">
         <b-row class="match-height ">
           <b-col xs="6">
             <b-card title="Control">
               <b-card-text class="mb-2">
-                General options to control running status of App.
+                General options to control running status of Application.
               </b-card-text>
-              <div class="text-center">
+              <div class="d-flex flex-column align-items-center">
                 <b-button
                   id="start-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Start App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Start App
+                  <span class="icon-circle">
+                    <b-icon icon="play-fill" />
+                  </span>
+                  <span class="ml-1">Start Application</span>
                 </b-button>
                 <confirm-dialog
                   target="start-app"
@@ -1477,11 +1464,14 @@
                 <b-button
                   id="stop-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Stop App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Stop App
+                  <span class="icon-circle">
+                    <b-icon icon="stop-fill" />
+                  </span>
+                  <span class="ml-1">Stop Application</span>
                 </b-button>
                 <confirm-dialog
                   target="stop-app"
@@ -1491,11 +1481,14 @@
                 <b-button
                   id="restart-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Restart App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Restart App
+                  <span class="icon-circle">
+                    <b-icon icon="arrow-clockwise" />
+                  </span>
+                  <span class="ml-1">Restart Application</span>
                 </b-button>
                 <confirm-dialog
                   target="restart-app"
@@ -1508,17 +1501,20 @@
           <b-col xs="6">
             <b-card title="Pause">
               <b-card-text class="mb-2">
-                The Pause command suspends all processes in the specified App.
+                The Pause command suspends all processes in the specified Application.
               </b-card-text>
-              <div class="text-center">
+              <div class="d-flex flex-column align-items-center">
                 <b-button
                   id="pause-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Pause App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Pause App
+                  <span class="icon-circle">
+                    <b-icon icon="pause-circle-fill" />
+                  </span>
+                  <span class="ml-1">Pause Application</span>
                 </b-button>
                 <confirm-dialog
                   target="pause-app"
@@ -1528,11 +1524,14 @@
                 <b-button
                   id="unpause-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Unpause App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Unpause App
+                  <span class="icon-circle">
+                    <b-icon icon="play-circle" />
+                  </span>
+                  <span class="ml-1">Unpause Application</span>
                 </b-button>
                 <confirm-dialog
                   target="unpause-app"
@@ -1547,15 +1546,18 @@
               <b-card-text class="mb-2">
                 Controls Application Monitoring
               </b-card-text>
-              <div class="text-center">
+              <div class="d-flex flex-column align-items-center">
                 <b-button
                   id="start-monitoring"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Start Monitoring"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Start Monitoring
+                  <span class="icon-circle">
+                    <b-icon icon="play-circle-fill" />
+                  </span>
+                  <span class="ml-1">Start Monitoring</span>
                 </b-button>
                 <confirm-dialog
                   target="start-monitoring"
@@ -1565,11 +1567,14 @@
                 <b-button
                   id="stop-monitoring"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Stop Monitoring"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Stop Monitoring
+                  <span class="icon-circle">
+                    <b-icon icon="stop-circle-fill" />
+                  </span>
+                  <span class="ml-1">Stop Monitoring</span>
                 </b-button>
                 <confirm-dialog
                   target="stop-monitoring"
@@ -1579,11 +1584,14 @@
                 <b-button
                   id="stop-monitoring-delete"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Stop Monitoring and Delete Monitored Data"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Stop Monitoring and Delete Monitored Data
+                  <span class="icon-circle">
+                    <b-icon icon="trash-fill" />
+                  </span>
+                  <span class="ml-1">Stop & Delete Data</span>
                 </b-button>
                 <confirm-dialog
                   target="stop-monitoring-delete"
@@ -1604,11 +1612,14 @@
                 <b-button
                   id="redeploy-app-soft"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Soft Redeploy App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Soft Reinstall
+                  <span class="icon-circle">
+                    <b-icon icon="arrow-repeat" />
+                  </span>
+                  <span class="ml-1">Soft Reinstall</span>
                 </b-button>
                 <confirm-dialog
                   target="redeploy-app-soft"
@@ -1618,11 +1629,14 @@
                 <b-button
                   id="redeploy-app-hard"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Hard Redeploy App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Hard Reinstall
+                  <span class="icon-circle">
+                    <b-icon icon="exclamation-circle-fill" />
+                  </span>
+                  <span class="ml-1">Hard Reinstall</span>
                 </b-button>
                 <confirm-dialog
                   target="redeploy-app-hard"
@@ -1641,11 +1655,14 @@
                 <b-button
                   id="remove-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Remove App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Remove App
+                  <span class="icon-circle">
+                    <b-icon icon="trash-fill" />
+                  </span>
+                  <span class="ml-1">Remove Application</span>
                 </b-button>
                 <confirm-dialog
                   target="remove-app"
@@ -1658,30 +1675,40 @@
         </b-row>
       </b-tab>
       <b-tab
-        v-if="windowWidth > 860"
         title="Component Control"
-        :disabled="!isApplicationInstalledLocally || appSpecification.version <= 3"
+        :title-item-class="(appSpecification?.version <= 3 || (appSpecification?.version > 3 && appSpecification?.compose?.length === 1)) ? 'd-none' : ''"
       >
         <b-card
           v-for="(component, index) of appSpecification.compose"
           :key="index"
         >
-          <h4>{{ component.name }} Component</h4>
+          <h3 class="no-wrap">
+            <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace;">
+              <b-icon
+                scale="1"
+                icon="menu-app-fill"
+                class="ml-1"
+              /> &nbsp;{{ component.name }}&nbsp;
+            </kbd>
+          </h3>
           <b-row class="match-height">
             <b-col xs="6">
-              <b-card title="Control">
-                <b-card-text class="mb-2">
+              <b-card title="Control" class="text-center">
+                <b-card-text class="mb-1 text-center limited-width">
                   General options to control running status of Component.
                 </b-card-text>
-                <div class="text-center">
+                <div class="d-flex flex-column align-items-center">
                   <b-button
                     :id="`start-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Start Component"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 d-flex align-items-center cb"
                   >
-                    Start Component
+                    <span class="icon-circle">
+                      <b-icon icon="play-fill" />
+                    </span>
+                    <span class="ml-1">Start Component</span>
                   </b-button>
                   <confirm-dialog
                     :target="`start-app-${component.name}_${appSpecification.name}`"
@@ -1691,11 +1718,14 @@
                   <b-button
                     :id="`stop-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Stop Component"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 d-flex align-items-center cb"
                   >
-                    Stop Component
+                    <span class="icon-circle">
+                      <b-icon icon="stop-fill" />
+                    </span>
+                    <span class="ml-1">Stop Component</span>
                   </b-button>
                   <confirm-dialog
                     :target="`stop-app-${component.name}_${appSpecification.name}`"
@@ -1705,11 +1735,14 @@
                   <b-button
                     :id="`restart-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Restart Component"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 d-flex align-items-center cb"
                   >
-                    Restart Component
+                    <span class="icon-circle">
+                      <b-icon icon="arrow-clockwise" />
+                    </span>
+                    <span class="ml-1">Restart Component </span>
                   </b-button>
                   <confirm-dialog
                     :target="`restart-app-${component.name}_${appSpecification.name}`"
@@ -1720,19 +1753,22 @@
               </b-card>
             </b-col>
             <b-col xs="6">
-              <b-card title="Pause">
-                <b-card-text class="mb-2">
-                  The Pause command suspends all processes in the specified Component.
+              <b-card title="Pause" class="text-center mb-0">
+                <b-card-text class="mb-1 text-center limited-width">
+                  Pauses all processes in the selected component.
                 </b-card-text>
-                <div class="text-center">
+                <div class="d-flex flex-column align-items-center">
                   <b-button
                     :id="`pause-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Pause Component"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 d-flex align-items-center cb"
                   >
-                    Pause Component
+                    <span class="icon-circle">
+                      <b-icon icon="pause-circle-fill" />
+                    </span>
+                    <span class="ml-1">Pause Component</span>
                   </b-button>
                   <confirm-dialog
                     :target="`pause-app-${component.name}_${appSpecification.name}`"
@@ -1742,11 +1778,14 @@
                   <b-button
                     :id="`unpause-app-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Unpause Component"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 d-flex align-items-center cb"
                   >
-                    Unpause Component
+                    <span class="icon-circle">
+                      <b-icon icon="play-circle" />
+                    </span>
+                    <span class="ml-1">Unpause Component</span>
                   </b-button>
                   <confirm-dialog
                     :target="`unpause-app-${component.name}_${appSpecification.name}`"
@@ -1757,19 +1796,22 @@
               </b-card>
             </b-col>
             <b-col xs="6">
-              <b-card title="Monitoring">
-                <b-card-text class="mb-2">
-                  Controls Component Monitoring
+              <b-card title="Monitoring" class="text-center">
+                <b-card-text class="mb-1 text-center limited-width">
+                  Monitor component activity and manage its data collection.
                 </b-card-text>
-                <div class="text-center">
+                <div class="d-flex flex-column align-items-center">
                   <b-button
                     :id="`start-monitoring-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Start Monitoring"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 d-flex align-items-center cb"
                   >
-                    Start Monitoring
+                    <span class="icon-circle">
+                      <b-icon icon="play-circle-fill" />
+                    </span>
+                    <span class="ml-1">Start Monitoring</span>
                   </b-button>
                   <confirm-dialog
                     :target="`start-monitoring-${component.name}_${appSpecification.name}`"
@@ -1779,11 +1821,14 @@
                   <b-button
                     :id="`stop-monitoring-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Stop Monitoring"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 d-flex align-items-center cb"
                   >
-                    Stop Monitoring
+                    <span class="icon-circle">
+                      <b-icon icon="stop-circle-fill" />
+                    </span>
+                    <span class="ml-1">Stop Monitoring</span>
                   </b-button>
                   <confirm-dialog
                     :target="`stop-monitoring-${component.name}_${appSpecification.name}`"
@@ -1793,11 +1838,14 @@
                   <b-button
                     :id="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Stop Monitoring and Delete Monitored Data"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 d-flex align-items-center cb"
                   >
-                    Stop Monitoring and Delete Monitored Data
+                    <span class="icon-circle">
+                      <b-icon icon="trash-fill" />
+                    </span>
+                    <span class="ml-1">Stop & Delete Data</span>
                   </b-button>
                   <confirm-dialog
                     :target="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
@@ -3433,13 +3481,13 @@
                     </b-button>
                     <b-modal
                       v-model="createDirectoryDialogVisible"
-                      header-class="custom-modal-header"
                       title="Create Folder"
                       size="lg"
                       centered
                       ok-only
                       ok-title="Create Folder"
                       header-bg-variant="primary"
+                      title-class="custom-modal-title"
                       @ok="createFolder(newDirName)"
                     >
                       <b-form-group
@@ -3456,10 +3504,10 @@
                     </b-modal>
                     <b-modal
                       v-model="uploadFilesDialog"
-                      header-class="custom-modal-header"
                       title="Upload Files"
                       size="lg"
                       header-bg-variant="primary"
+                      title-class="custom-modal-title"
                       centered
                       hide-footer
                       @close="refreshFolder()"
@@ -3618,7 +3666,7 @@
               <b-modal
                 v-model="renameDialogVisible"
                 header-bg-variant="primary"
-                header-class="custom-modal-header"
+                title-class="custom-modal-title"
                 hide-header-close
                 title="Rename"
                 size="lg"
@@ -3642,7 +3690,7 @@
                 v-model="editDialogVisible"
                 :title="`Editing: ${currentEditFile}`"
                 header-bg-variant="primary"
-                header-class="custom-modal-header"
+                title-class="custom-modal-title"
                 no-close-on-backdrop
                 no-close-on-esc
                 hide-header-close
@@ -3682,7 +3730,7 @@
         </div>
       </b-tab>
       <b-tab
-        v-if="windowWidth > 860"
+        :title-item-class="windowWidth > 860 ? '' : 'd-none'"
         title="Global App Management"
         disabled
       />
@@ -6097,8 +6145,8 @@
     </div>
     <b-modal
       v-model="chooseEnterpriseDialog"
-      header-class="custom-modal-header"
       header-bg-variant="primary"
+      title-class="custom-modal-title"
       title="Select Enterprise Nodes"
       size="xl"
       centered
@@ -7131,7 +7179,7 @@ export default {
       masterIP: '',
       selectedIp: null,
       masterSlaveApp: false,
-      applicationManagementAndStatus: '',
+      applicationManagementAndStatus: [],
       fiatCheckoutURL: '',
       stripeEnabled: true,
       paypalEnabled: true,
@@ -7142,6 +7190,11 @@ export default {
     };
   },
   computed: {
+    targetAppName() {
+      console.log('targetAppName');
+      console.log(this.$store.state.flux.appSpecification);
+      return this.$store.state.flux.appSpecification?.name;
+    },
     infoMessage() {
       // Default message
       const defaultMessage = 'Waiting for the operation to be completed...';
@@ -7564,6 +7617,9 @@ export default {
     },
   },
   watch: {
+    selectedIp(newVal) {
+      this.selectedIpChanged(newVal);
+    },
     skin() {
       if (this.memoryChart !== null) {
         this.updateCharts();
@@ -7739,7 +7795,8 @@ export default {
     this.appExec.env = '';
     this.checkFluxCommunication();
     this.getAppOwner();
-    this.getGlobalApplicationSpecifics();
+    // this.getGlobalApplicationSpecifics();
+    // this.getInstalledApplicationSpecifics();
     this.appsDeploymentInformation();
     this.getGeolocationData();
     this.getMarketPlace();
@@ -7756,6 +7813,7 @@ export default {
       this.editorInstance.dispose();
       this.editorInstance = null;
     }
+    this.$store.commit('flux/setAppName', '');
   },
   methods: {
     getProgressVariant() {
@@ -10471,7 +10529,6 @@ export default {
       }
     },
     async updateManagementTab(index) {
-      console.log(index);
       await this.getZelidAuthority();
       if (!this.globalZelidAuthorized) {
         return;
@@ -10479,8 +10536,6 @@ export default {
       this.noData = false;
       this.processes = [];
       this.enableHistoryStatistics = false;
-      this.callResponse.data = '';
-      this.callResponse.status = '';
       // do not reset global application specifics obtained
       this.appExec.cmd = '';
       this.appExec.env = '';
@@ -10503,28 +10558,31 @@ export default {
       }
       if (!this.selectedIp) {
         await this.getInstancesForDropDown();
-        await this.getInstalledApplicationSpecifics();
+        if (!this.appSpecification?.name) {
+          await this.getInstalledApplicationSpecifics();
+          await this.$nextTick();
+        }
+        await this.$nextTick();
         this.getApplicationLocations().catch(() => {
           this.isBusy = false;
           this.showToast('danger', 'Error loading application locations');
         });
       }
-      this.getApplicationManagementAndStatus();
+      await this.getApplicationManagementAndStatus();
+      await this.$nextTick();
+      if (this.applicationManagementAndStatus?.length === 0) {
+        console.log('Application not found. Instance switching...');
+        this.switchInstance(true);
+      }
       switch (index) {
         case 1:
-          this.callResponse.data = '';
-          this.callBResponse.data = '';
-          this.getInstalledApplicationSpecifics();
-          this.getGlobalApplicationSpecifics();
+          await this.getInstalledApplicationSpecifics();
+          await this.getGlobalApplicationSpecifics();
           break;
         case 2:
           this.callResponseInspect.data = '';
           this.getApplicationInspect();
           break;
-        // case 3:
-        //   this.callResponseStats.data = '';
-        //   this.getApplicationStats();
-        //   break;
         case 3:
           this.$nextTick(() => {
             this.initCharts();
@@ -10535,10 +10593,6 @@ export default {
           this.callResponseChanges.data = '';
           this.getApplicationChanges();
           break;
-        // case 6:
-        //   this.callResponseProcesses.data = '';
-        //   this.getApplicationProcesses();
-        //   break;
         case 5:
           this.logs = [];
           this.selectedLog = [];
@@ -10690,10 +10744,7 @@ export default {
           this.callResponse.status = response.data.status;
           this.callResponse.data = response.data.data[0];
           this.appSpecification = response.data.data[0];
-          // /* eslint-disable no-restricted-syntax */
-          // if (this.apps.length === 1) {
-          // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
-          // }
+          this.$store.commit('flux/setAppName', this.appSpecification.name);
         }
       }
     },
@@ -11523,6 +11574,17 @@ export default {
       }
       this.selectedAppOwner = response.data.data;
     },
+    switchInstance(notFound = false) {
+      const newInstance = this.instances.data.find((instance) => instance.ip !== this.selectedIp);
+      if (newInstance) {
+        this.selectedIp = newInstance.ip;
+        if (!notFound) {
+          this.showToast('info', `Instance switched to ${this.selectedIp}.`);
+        } else {
+          this.showToast('info', `Application not found. Instance has been switched to ${this.selectedIp}.`);
+        }
+      }
+    },
     async stopApp(app) {
       this.output = [];
       // this.showToast('warning', `Stopping ${app}`);
@@ -11673,12 +11735,8 @@ export default {
         } else {
           this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
           setTimeout(() => {
-            const newInstance = self.instances.data.find((instance) => instance.ip !== self.selectedIp);
-            if (newInstance) {
-              self.selectedIp = newInstance.ip;
-              self.showToast('info', `Instance switched to ${self.selectedIp}.`);
-            }
-          }, 5000);
+            this.switchInstance();
+          }, 4000);
         }
       }
     },
@@ -12770,6 +12828,20 @@ export default {
         return 'primary';
       }
     },
+    getComponentInfo(appName) {
+      const foundComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(appName));
+      if (!foundComponent) {
+        return false;
+      }
+
+      const componentName = appName.substring(0, appName.lastIndexOf('_')) || appName;
+      return {
+        name: componentName,
+        state: foundComponent.State || 'N/A',
+        status: foundComponent.Status ? foundComponent.Status.toLowerCase() : 'N/A',
+        image: foundComponent.Image || 'N/A',
+      };
+    },
     async getApplicationManagementAndStatus(skip = false) {
       if (!this.globalZelidAuthorized || !this.selectedIp) {
         return;
@@ -12777,27 +12849,20 @@ export default {
       if (skip === false) {
         await this.appsGetListAllApps();
       }
+      if (!this.appSpecification?.name) {
+        await this.getInstalledApplicationSpecifics();
+        await this.$nextTick();
+      }
       const appInfoArray = [];
       if (this.appSpecification && this.appSpecification.version >= 4) {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
-          const foundComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(`${component.name}_${this.appSpecification.name}`)) || {};
-          appInfoArray.push({
-            name: component.name,
-            state: foundComponent.State ? foundComponent.State : 'N/A',
-            status: foundComponent.Status ? foundComponent.Status.toLowerCase() : 'N/A',
-            image: foundComponent.Image,
-          });
+          const infoObject = this.getComponentInfo(`${component.name}_${this.appSpecification.name}`);
+          if (infoObject) appInfoArray.push(infoObject);
         }
       } else {
-        // eslint-disable-next-line no-unused-vars
-        const foundComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(this.appSpecification.name)) || {};
-        appInfoArray.push({
-          name: this.appSpecification.name,
-          state: foundComponent.State ? foundComponent.State : 'N/A',
-          status: foundComponent.Status ? foundComponent.Status.toLowerCase() : 'N/A',
-          image: foundComponent.Image,
-        });
+        const infoObject = this.getComponentInfo(this.appSpecification.name);
+        if (infoObject) appInfoArray.push(infoObject);
       }
 
       this.applicationManagementAndStatus = appInfoArray;
@@ -13198,6 +13263,16 @@ td .ellipsis-wrapper {
   box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
 }
 
+.cb:hover {
+  color: #39ff14;
+  border-color: #81c784;
+  box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
+}
+
+.cb {
+  min-width: 225px; /* Adjust width as needed */
+}
+
 .r.disabled {
   animation: spin 2s linear infinite;
   opacity: 0.5;
@@ -13378,8 +13453,7 @@ input[type="number"] {
   background-color: rgba(0, 0, 0, 1) !important;
 }
 
-.custom-modal-header .modal-title,
-.custom-modal-header {
+.custom-modal-title {
   color: #fff !important;
 }
 
@@ -13446,6 +13520,17 @@ body.dark-layout .app-item:hover {
 .jv-container.boxed {
   border: 1px solid #eee !important;
   border-radius: 6px
+}
+
+.hidden-tab {
+  display: none !important;
+}
+
+.limited-width {
+  max-width: 225px;
+  display: inline-block;
+  text-align: center;
+  word-wrap: break-word;
 }
 
 </style>
