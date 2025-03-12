@@ -366,15 +366,24 @@ export default {
       searchQuery.value = val;
     });
 
-    const updateRouteQuery = (val) => {
-      const currentRouteQuery = JSON.parse(JSON.stringify(route.value.query));
-
-      if (val) currentRouteQuery.q = val;
-      else delete currentRouteQuery.q;
-
-      router.replace({ name: route.name, query: currentRouteQuery });
+    const debounce = (fn, delay = 300) => {
+      let timer;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
     };
 
+    const updateRouteQuery = debounce((val) => {
+      const currentRouteQuery = { ...route.value.query };
+      if (val) {
+        currentRouteQuery.q = val;
+      } else {
+        delete currentRouteQuery.q;
+      }
+      router.replace({ name: route.name, query: currentRouteQuery }).catch(() => {});
+    }, 300);
+    
     const getCategory = (categoryToFind) => {
       const foundCategory = categories.find((category) => category.name === categoryToFind);
       if (!foundCategory) return defaultCategory;
