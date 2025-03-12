@@ -177,6 +177,8 @@ export default {
   },
   data() {
     return {
+      logoutPopoverShow: {},
+      logoutAllPopoverShow: false,
       perPage: 10,
       pageOptions: [10, 25, 50, 100],
       sortBy: '',
