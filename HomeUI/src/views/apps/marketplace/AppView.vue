@@ -391,7 +391,7 @@
                 />
               </b-form-group>
               <div style="padding: 0;">
-                <b-tabs class="mt-1" @activate-tab="componentSelected">
+                <b-tabs pills class="mt-1" @activate-tab="componentSelected">
                   <b-tab
                     v-for="(component, index) in appData.compose"
                     :key="index"
@@ -408,7 +408,7 @@
                       title="Parameters"
                       border-variant="dark"
                     >
-                      <b-tabs v-if="component.userEnvironmentParameters">
+                      <b-tabs v-if="component.userEnvironmentParameters" pills>
                         <b-tab
                           v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
                           :key="paramIndex"
@@ -439,7 +439,7 @@
                       title="Secrets"
                       border-variant="primary"
                     >
-                      <b-tabs v-if="component.userSecrets">
+                      <b-tabs v-if="component.userSecrets" pills>
                         <b-tab
                           v-for="(parameter, paramIndex) in component.userSecrets"
                           :key="paramIndex"
