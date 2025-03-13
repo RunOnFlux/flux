@@ -834,6 +834,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         'syslog-address': `udp://${syslogIP}:514`,
         'syslog-facility': 'local0',
         tag: `${appSpecifications.name}`,
+        'syslog-format': 'rfc5424',
       },
     }
     : {
