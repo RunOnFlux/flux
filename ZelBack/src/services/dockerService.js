@@ -845,9 +845,8 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       Config: {
         'syslog-address': `udp://${syslogIP}:514`,
         'syslog-facility': 'local0',
-        tag: `${appName}`,
+        tag: `${appName}#${appSpecifications.name}#${nodeId}#${nodeIP}`,
         'syslog-format': 'rfc5424',
-        labels: `$component_name:${appSpecifications.name},host_id:${nodeId},host_ip:${nodeIP}`,
       },
     }
     : {
