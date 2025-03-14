@@ -4142,7 +4142,7 @@
             <b-icon
               class="mr-1"
               icon="ui-checks-grid"
-            /> Update Application Specifications / Extend subscription
+            /> Update Application Specifications / Extend Subscription
           </h5>
         </div>
         <div class="form-row form-group">
@@ -5681,7 +5681,7 @@
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
             variant="outline-success"
             aria-label="Compute Update Message"
-            class="mb-2 w-100"
+            class="mb-2 w-100 button-green"
             :disabled="tosAgreed === false"
             @click="checkFluxUpdateSpecificationsAndFormatMessage"
           >
@@ -6002,23 +6002,23 @@
           <h5>
             <b-icon
               class="mr-1"
-              icon="ui-checks-grid"
-            /> Cancel Application subscription
+              icon="calendar-x"
+            /> Cancel Application Subscription
           </h5>
         </div>
         <br>
         <div>
           Currently your application is subscribed until <b>{{ new Date(appRunningTill.current).toLocaleString('en-GB', timeoptions.shortDate) }}</b>.
           <br>
-          <b>WARNING: By cancelling your application subscription, your application will be removed from the network and all data will be lost.</b>
+          <b style="color: red;">WARNING: By cancelling your application subscription, your application will be removed from the network and all data will be lost.</b>
         </div>
         <br>
         <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="outline-success"
+            variant="outline-danger"
             aria-label="Compute Cancel Message"
-            class="mb-2 w-100"
+            class="mb-2 w-100 button-red"
             @click="checkFluxCancelSubscriptionAndFormatMessage"
           >
             Compute Cancel Message
@@ -13329,6 +13329,18 @@ td .ellipsis-wrapper {
 }
 
 .r:hover {
+  color: #39ff14;
+  border-color: #81c784;
+  box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
+}
+
+.button-red:hover {
+  color: #ff1414;
+  border-color: #ff0000;
+  box-shadow: 0 0 10px 2px rgba(211, 9, 9, 0.7);
+}
+
+.button-green:not(:disabled):hover {
   color: #39ff14;
   border-color: #81c784;
   box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
