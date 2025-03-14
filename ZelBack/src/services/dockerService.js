@@ -829,7 +829,13 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
 
   let nodeId = null;
   let nodeIP = null;
+  let labels = null;
   if (syslogTarget && syslogIP) {
+    labels = {
+      app_name: `${appName}`,
+      host_id: `${nodeId}`,
+      host_ip: `${nodeIP}`,
+    };
     const nodeCollateralInfo = await generalService.obtainNodeCollateralInformation().catch(() => { throw new Error('Host Identifier information not available at the moment'); });
     nodeId = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
     nodeIP = await fluxNetworkHelper.getMyFluxIPandPort();
@@ -845,8 +851,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       Config: {
         'syslog-address': `udp://${syslogIP}:514`,
         'syslog-facility': 'local0',
-        tag: `${appName}#${appSpecifications.name}#${nodeId}#${nodeIP}`,
+        tag: `${appSpecifications.name}#${nodeId}#${nodeIP}`,
         'syslog-format': 'rfc5424',
+        labels: 'app_name,host_id,host_ip',
       },
     }
     : {
@@ -868,6 +875,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
+    Labels: labels,
     HostConfig: {
       NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
