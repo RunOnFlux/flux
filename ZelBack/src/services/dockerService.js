@@ -6,6 +6,8 @@ const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
 const deviceHelper = require('./deviceHelper');
+const generalService = require('./generalService');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -825,6 +827,16 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     syslogIP = await getNextAvailableIPForApp(appName);
   }
 
+  let nodeId = null;
+  let nodeIP = null;
+  if (syslogTarget && syslogIP) {
+    const nodeCollateralInfo = await generalService.obtainNodeCollateralInformation().catch(() => { throw new Error('Host Identifier information not available at the moment'); });
+    nodeId = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
+    nodeIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!nodeIP) {
+      throw new Error('Not possible to get node IP');
+    }
+  }
   log.info(`syslogTarget=${syslogTarget}, syslogIP=${syslogIP}`);
 
   const logConfig = syslogTarget && syslogIP
@@ -833,7 +845,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       Config: {
         'syslog-address': `udp://${syslogIP}:514`,
         'syslog-facility': 'local0',
-        tag: `${appSpecifications.name}`,
+        tag: `${appName}#${appSpecifications.name}#${nodeId}#${nodeIP}`,
         'syslog-format': 'rfc5424',
       },
     }
