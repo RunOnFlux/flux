@@ -1696,7 +1696,7 @@
         :title-item-class="(appSpecification?.version <= 3 || (appSpecification?.version > 3 && appSpecification?.compose?.length === 1)) ? 'd-none' : ''"
       >
         <div
-          class="mb-2"
+          class="mb-1"
           style="
             border: 1px solid #ccc;
             border-radius: 8px;
@@ -1714,8 +1714,7 @@
             /> Component Control
           </h5>
         </div>
-
-        <b-tabs content-class="mt-2" pills>
+        <b-tabs content-class="mt-1" pills>
           <b-tab
             v-for="(component, index) in appSpecification.compose"
             :key="index"
@@ -1789,7 +1788,6 @@
                   </div>
                 </b-card>
               </b-col>
-
               <!-- Pause Card -->
               <b-col xs="6">
                 <b-card title="Pause" class="text-center">
