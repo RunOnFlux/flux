@@ -1185,8 +1185,8 @@
             <h5 class="d-flex align-items-center no-wrap">
               <b-icon
                 class="mr-1"
-                scale="1.2"
-                icon="info-square-fill"
+                scale="1.3"
+                icon="file-earmark-diff-fill"
               />
               File Changes
               <div class="ml-auto">
@@ -1253,13 +1253,13 @@
           <div
             class="mb-2"
             style="
-                    border: 1px solid #ccc;
-                    border-radius: 8px;
-                    height: 45px;
-                    padding: 12px;
-                    text-align: left;
-                    line-height: 0px;
-                  "
+              border: 1px solid #ccc;
+              border-radius: 8px;
+              height: 45px;
+              padding: 12px;
+              text-align: left;
+              line-height: 0px;
+            "
           >
             <h5>
               <b-icon
@@ -1835,8 +1835,6 @@
                   </div>
                 </b-card>
               </b-col>
-
-              <!-- Monitoring Card -->
               <b-col xs="6">
                 <b-card title="Monitoring" class="text-center">
                   <b-card-text class="mb-1 text-center limited-width">
@@ -1860,7 +1858,6 @@
                       confirm-button="Start Monitoring"
                       @confirm="startMonitoring(`${component.name}_${appSpecification.name}`)"
                     />
-
                     <b-button
                       :id="`stop-monitoring-${component.name}_${appSpecification.name}`"
                       v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1878,7 +1875,6 @@
                       confirm-button="Stop Monitoring"
                       @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, false)"
                     />
-
                     <b-button
                       :id="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
                       v-ripple.400="'rgba(255, 255, 255, 0.15)'"
@@ -1936,9 +1932,6 @@
                 </div>
                 <div class="mb-2">
                   <b-form-group>
-                    <!-- <h7 class="mr-1">
-                      Select the application component(s) you would like to backup:
-                    </h7> -->
                     <b-form-tags
                       id="tags-component-select"
                       v-model="selectedBackupComponents"
@@ -2026,19 +2019,17 @@
                     v-if="backupProgress === true"
                     class="mb-2 mt-2 w-100"
                     style="
-                              margin: 0 auto;
-                              padding: 12px;
-                              border: 1px solid #eaeaea;
-                              border-radius: 8px;
-                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                              text-align: center;
-
-                            "
+                      margin: 0 auto;
+                      padding: 12px;
+                      border: 1px solid #eaeaea;
+                      border-radius: 8px;
+                      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                      text-align: center;
+                    "
                   >
                     <h5 style="font-size: 16px; margin-bottom: 5px;">
                       <span v-if="backupProgress === true">
                         <b-spinner small /> {{ tarProgress }}
-                        <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                       </span>
                     </h5>
                     <b-progress
@@ -2060,7 +2051,6 @@
 
                 <div v-if="backupList?.length > 0 && backupProgress === false">
                   <div class="mb-1 text-right">
-                    <!-- Select Dropdown -->
                     <b-dropdown
                       class="mr-1"
                       text="Select"
@@ -2098,8 +2088,6 @@
                         Select none
                       </b-dropdown-item>
                     </b-dropdown>
-
-                    <!-- Download Dropdown -->
                     <b-dropdown
                       class="mr-1"
                       text="Download"
@@ -2257,32 +2245,17 @@
                   <span style="font-size: 0.9rem;">Select application component(s) you would like to upload</span>
                   <b-card-text v-if="showProgressBar">
                     <div class="mt-1">
-                      <!-- <b-progress
-                        :value="`${((downloaded / total) * 100).toFixed(2)}%`"
-                        :max="100"
-                        show-progress
-                        animated
-                      /> -->
-                      <!-- <b-progress :max="100" show-progress>
-                        <b-progress-bar :value="((downloadedSize / (totalSizeMB * 1024 * 1024)) * 100).toFixed(2)" :label="downloadLabel" show-progress animated />
-                      </b-progress> -->
-                      <!-- <div v-if="fileProgress.length > 0">
-                        <div v-for="(item, index) in computedFileProgress" :key="index">
-                          {{ item?.fileName }} - {{ item?.progress }}%
-                        </div>
-                      </div> -->
                       <div
                         v-if="fileProgress.length > 0"
                         class="mb-2 mt-2 w-100"
                         style="
-                              margin: 0 auto;
-                              padding: 12px;
-                              border: 1px solid #eaeaea;
-                              border-radius: 8px;
-                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                              text-align: center;
-
-                            "
+                          margin: 0 auto;
+                          padding: 12px;
+                          border: 1px solid #eaeaea;
+                          border-radius: 8px;
+                          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                          text-align: center;
+                        "
                       >
                         <h5 style="font-size: 16px; margin-bottom: 5px;">
                           <span v-if="!allDownloadsCompleted()">
@@ -2394,14 +2367,13 @@
                           v-if="fileProgress.length > 0"
                           class="mb-2 mt-2 w-100"
                           style="
-                                margin: 0 auto;
-                                padding: 12px;
-                                border: 1px solid #eaeaea;
-                                border-radius: 8px;
-                                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                                text-align: center;
-
-                              "
+                            margin: 0 auto;
+                            padding: 12px;
+                            border: 1px solid #eaeaea;
+                            border-radius: 8px;
+                            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                            text-align: center;
+                          "
                         >
                           <h5 style="font-size: 16px; margin-bottom: 5px;">
                             <span>
@@ -2425,21 +2397,19 @@
                         </div>
                       </div>
                     </b-card-text>
-
                     <b-card-text v-if="showFluxDriveProgressBar">
                       <div class="mt-1">
                         <div
                           v-if="fileProgressFD.length > 0"
                           class="mb-2 mt-2 w-100"
                           style="
-                                margin: 0 auto;
-                                padding: 12px;
-                                border: 1px solid #eaeaea;
-                                border-radius: 8px;
-                                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                                text-align: center;
-
-                              "
+                            margin: 0 auto;
+                            padding: 12px;
+                            border: 1px solid #eaeaea;
+                            border-radius: 8px;
+                            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                            text-align: center;
+                          "
                         >
                           <h5 style="font-size: 16px; margin-bottom: 5px;">
                             <span>
@@ -2527,7 +2497,6 @@
                     </b-col>
                   </b-row>
                 </b-form-group>
-
                 <div v-if="selectedRestoreOption === 'FluxDrive'">
                   <div v-if="sigInPrivilage === true">
                     <div>
@@ -2571,7 +2540,6 @@
                           </b-td>
                         </b-tr>
                       </template>
-
                       <template #cell(actions)="row">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
@@ -2613,7 +2581,6 @@
                       <template #cell(time)="row">
                         {{ formatDateTime(row.item.timestamp) }}
                       </template>
-
                       <template #row-details="row">
                         <b-table
                           :key="tableBackup"
@@ -2649,11 +2616,11 @@
                               v-b-tooltip.hover.top="'Add to Restore List'"
                               class="d-flex justify-content-center align-items-center"
                               style="
-                          margin: auto;
-                          width: 95px;
-                          height: 25px;
-                          display: flex;
-                        "
+                                margin: auto;
+                                width: 95px;
+                                height: 25px;
+                                display: flex;
+                              "
                               variant="outline-primary"
                               @click="addComponent(nestedRow.item, row.item.timestamp)"
                             >
@@ -2789,7 +2756,6 @@
                       <h5 style="font-size: 16px; margin-bottom: 5px;">
                         <span v-if="restoringFromFluxDrive === true">
                           <b-spinner small /> {{ restoreFromFluxDriveStatus }}
-                          <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                         </span>
                       </h5>
                     </div>
@@ -2837,7 +2803,6 @@
                     </b-input-group>
                   </div>
                   <div>
-                    <!-- Keep the input file element hidden -->
                     <input
                       id="file-selector"
                       ref="fileselector"
@@ -2971,14 +2936,6 @@
                             :class="file.uploading ? '' : 'hidden'"
                           />
                         </b-progress>
-                        <!-- <b-progress
-                          :value="file.progress"
-                          max="100"
-                          height="15px"
-                          show-value
-                          :label="`${file.progress.toFixed(2)}%`"
-                          :class="file.uploading ? '' : 'hidden'"
-                        /> -->
                       </div>
                     </div>
                   </div>
@@ -3157,7 +3114,6 @@
                       <h5 style="font-size: 16px; margin-bottom: 5px;">
                         <span v-if="downloadingFromUrl === true">
                           <b-spinner small /> {{ restoreFromRemoteURLStatus }}
-                          <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                         </span>
                       </h5>
                     </div>
@@ -3744,7 +3700,6 @@
                 @shown="onModalShown"
                 @hide="closeEditor"
               >
-                <!-- Scrollable Editor -->
                 <div class="editor-container">
                   <vue-monaco-editor
                     ref="monacoEditor"
@@ -6002,7 +5957,8 @@
           <h5>
             <b-icon
               class="mr-1"
-              icon="calendar-x"
+              icon="calendar2-x-fill"
+              scale="1.2"
             /> Cancel Application Subscription
           </h5>
         </div>
@@ -10434,7 +10390,6 @@ export default {
       }
 
       this.isConnecting = true;
-
       this.terminal = new Terminal({
         allowProposedApi: true,
         cursorBlink: true,
@@ -10611,14 +10566,12 @@ export default {
       this.callResponseInspect.data = '';
       this.logs = [];
       this.selectedLog = [];
-      // do not reset global application specifics obtained
       this.appExec.cmd = '';
       this.appExec.env = '';
       this.output = [];
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.backupToUpload = [];
-
       const tabs = this.$refs.managementTabs.$children;
       const tabTitle = tabs[index]?.title;
       if (tabTitle !== 'Interactive Terminal') {
@@ -11658,7 +11611,6 @@ export default {
     },
     async stopApp(app) {
       this.output = [];
-      // this.showToast('warning', `Stopping ${app}`);
       this.progressVisable = true;
       this.operationTitle = `Stopping ${app}...`;
       const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
@@ -11691,7 +11643,6 @@ export default {
       this.output = [];
       this.progressVisable = true;
       this.operationTitle = `Restarting ${app}...`;
-      //  this.showToast('warning', `Restarting ${app}`);
       const response = await this.executeLocalCommand(`/apps/apprestart/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
@@ -12652,7 +12603,6 @@ export default {
     },
     async onSessionConnect(session) {
       console.log(session);
-      // const msg = `0x${Buffer.from(this.loginPhrase, 'utf8').toString('hex')}`;
       const result = await this.signClient.request({
         topic: session.topic,
         chainId: 'eip155:1',
@@ -13353,7 +13303,7 @@ td .ellipsis-wrapper {
 }
 
 .cb {
-  min-width: 225px; /* Adjust width as needed */
+  min-width: 225px;
 }
 
 .r.disabled {
@@ -13529,7 +13479,7 @@ input[type="number"] {
 }
 
 .custom-modal-size {
-  max-width: 800px;  /* Set the width of the modal (90% of the viewport width) */
+  max-width: 800px;
 }
 
 .modal-backdrop {
@@ -13557,13 +13507,13 @@ input[type="number"] {
 .app-item:hover {
   background-color: rgb(255, 255, 255);
   border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* dark shadow for light backgrounds */
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 body.dark-layout .app-item:hover {
   background-color: #1D1F24;
   border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(255, 255, 255, 0.2); /* light shadow for dark backgrounds */
+  box-shadow: 0 4px 8px rgba(255, 255, 255, 0.2);
 }
 
 .app-icon {
@@ -13587,7 +13537,7 @@ body.dark-layout .app-item:hover {
 .app-header {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap; /* Ensures all items stay in one line */
+  flex-wrap: nowrap;
 }
 
 .wrap-text-info {
