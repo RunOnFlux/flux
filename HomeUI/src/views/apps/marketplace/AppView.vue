@@ -4,7 +4,7 @@
     <div class="app-detail-header">
       <!-- Header: Left -->
       <div class="app-header-left d-flex align-items-center">
-        <span class="go-back mr-1">
+        <span class="go-back mr-1 cursor-pointer">
           <feather-icon
             :icon="$store.state.appConfig.isRTL ? 'ChevronRightIcon' : 'ChevronLeftIcon'"
             size="20"
@@ -391,7 +391,7 @@
                 />
               </b-form-group>
               <div style="padding: 0;">
-                <b-tabs class="mt-1" @activate-tab="componentSelected">
+                <b-tabs pills class="mt-1" @activate-tab="componentSelected">
                   <b-tab
                     v-for="(component, index) in appData.compose"
                     :key="index"
@@ -408,7 +408,7 @@
                       title="Parameters"
                       border-variant="dark"
                     >
-                      <b-tabs v-if="component.userEnvironmentParameters">
+                      <b-tabs v-if="component.userEnvironmentParameters" pills>
                         <b-tab
                           v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
                           :key="paramIndex"
@@ -439,7 +439,7 @@
                       title="Secrets"
                       border-variant="primary"
                     >
-                      <b-tabs v-if="component.userSecrets">
+                      <b-tabs v-if="component.userSecrets" pills>
                         <b-tab
                           v-for="(parameter, paramIndex) in component.userSecrets"
                           :key="paramIndex"
@@ -537,7 +537,7 @@
             <vue-apex-charts
               class="mt-1"
               type="radialBar"
-              height="200"
+              height="190"
               :options="cpuRadialBar"
               :series="cpu.series"
             />
@@ -551,7 +551,7 @@
             <vue-apex-charts
               class="mt-1"
               type="radialBar"
-              height="200"
+              height="190"
               :options="ramRadialBar"
               :series="ram.series"
             />
@@ -565,7 +565,7 @@
             <vue-apex-charts
               class="mt-1"
               type="radialBar"
-              height="200"
+              height="190"
               :options="hddRadialBar"
               :series="hdd.series"
             />
@@ -679,9 +679,10 @@
       title="Extra Component Parameters"
       size="lg"
       centered
-      button-size="sm"
       ok-only
       ok-title="Close"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
     >
       <div v-if="currentComponent">
         <list-entry
@@ -718,12 +719,12 @@
     <b-modal
       v-model="confirmLaunchDialogCloseShowing"
       title="Finish Launching App?"
-      size="sm"
       centered
-      button-size="sm"
       ok-title="Yes"
       cancel-title="No"
-      @ok="confirmLaunchDialogCloseShowing = false; launchModalShowing = false;"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
+      @ok="closeLaunchModals"
     >
       <h5 class="text-center">
         Please ensure that you have paid for your app, or saved the payment details for later.
@@ -742,7 +743,9 @@
       no-close-on-backdrop
       no-close-on-esc
       hide-footer
-      @ok="confirmLaunchDialogCancel"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
+      @hide="confirmLaunchDialogCancel"
     >
       <form-wizard
         ref="formWizard"
@@ -2898,10 +2901,15 @@ export default {
     };
 
     const confirmLaunchDialogCancel = (modalEvt) => {
-      if (registrationHash.value !== null) {
+      if (registrationHash.value !== null && !confirmLaunchDialogCloseShowing.value && launchModalShowing.value) {
         modalEvt.preventDefault();
         confirmLaunchDialogCloseShowing.value = true;
       }
+    };
+
+    const closeLaunchModals = () => {
+      confirmLaunchDialogCloseShowing.value = false;
+      launchModalShowing.value = false;
     };
 
     const initializeFirebaseUI = () => {
@@ -2934,6 +2942,7 @@ export default {
 
     return {
       // UI
+      closeLaunchModals,
       tosAgreed,
       loading,
       completed,
@@ -3122,7 +3131,17 @@ a:hover img {
 .wizard-card {
   height: 250px;
 }
+.go-back:hover {
+  color: #2B61D1;
+}
 </style>
+
+<style>
+  .custom-modal-title {
+    color: #fff !important;
+  }
+</style>
+
 <style lang="scss">
 @import "@core/scss/vue/libs/vue-wizard.scss";
 </style>

@@ -9,6 +9,7 @@
       no-close-on-esc
       size="lg"
       header-bg-variant="primary"
+      title-class="custom-modal-title"
       :title="operationTitle"
       title-tag="h5"
     >
@@ -1907,6 +1908,8 @@
       button-size="sm"
       ok-only
       ok-title="Done"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
     >
       <b-row>
         <b-col
@@ -2104,6 +2107,8 @@
       centered
       ok-title="Import"
       cancel-title="Cancel"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
       @ok="importSpecs(importedSpecs)"
       @cancel="importAppSpecs = false; importedSpecs = ''"
     >
@@ -4386,5 +4391,10 @@ a:hover img {
     background-color: rgb(225, 224, 221);
   }
 }
+</style>
 
+<style>
+  .custom-modal-title {
+    color: #fff !important;
+  }
 </style>
