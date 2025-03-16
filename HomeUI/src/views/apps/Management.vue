@@ -3708,6 +3708,27 @@
                     @mount="handleMount"
                   />
                 </div>
+                <template #modal-header>
+                  <div class="d-flex justify-content-between align-items-center w-100">
+                    <span class="custom-modal-title text-truncate flex-grow-1 pr-3">
+                      Editing: {{ currentEditFile }}
+                    </span>
+                    <div class="d-flex align-items-center">
+                      <b-input-group class="language-selector">
+                        <b-input-group-prepend style="height: 28px;" is-text>
+                          <b-icon icon="code-square" scale="1" />
+                        </b-input-group-prepend>
+                        <b-form-select
+                          v-model="editorLanguage"
+                          :options="languageOptions"
+                          class="custom-select form-control-sm"
+                          style="width: 150px; height: 28px; padding: 2px 8px;"
+                          @change="updateEditorLanguage"
+                        />
+                      </b-input-group>
+                    </div>
+                  </div>
+                </template>
                 <template #modal-footer>
                   <b-button variant="danger" @click="closeEditor">
                     Close
@@ -7222,6 +7243,9 @@ export default {
     };
   },
   computed: {
+    languageOptions() {
+      return this.supportedLanguages.map((lang) => ({ value: lang, text: lang }));
+    },
     targetAppName() {
       console.log('targetAppName');
       console.log(this.$store.state.flux.appSpecification);
@@ -7848,6 +7872,11 @@ export default {
     this.$store.commit('flux/setAppName', '');
   },
   methods: {
+    updateEditorLanguage() {
+      if (this.$refs?.monacoEditor) {
+        this.$refs.monacoEditor.editor.updateOptions({ language: this.editorLanguage });
+      }
+    },
     getProgressVariant() {
       const percentage = this.usagePercentage;
       // eslint-disable-next-line no-nested-ternary
