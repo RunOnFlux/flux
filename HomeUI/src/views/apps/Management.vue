@@ -3922,18 +3922,25 @@
         </div>
       </b-tab>
       <b-tab title="Running Instances">
-        <div v-if="masterSlaveApp">
-          <b-card title="Primary/Standby App Information">
-            <list-entry
-              title="Current IP selected as Primary running your application"
-              :data="masterIP"
-            />
-          </b-card>
-        </div>
         <b-row>
           <b-col>
             <div class="map_m">
-              <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+              <div v-if="masterSlaveApp && masterIP">
+                <b-card class="mb-1">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <b-icon icon="hdd-network-fill" scale="1.3" class="mr-1" />
+                      <b-badge v-b-tooltip.hover.top="'Connect to your application server using this IP address.' " variant="primary">
+                        Primary Server IP Address
+                      </b-badge>
+                    </div>
+                    <kbd class="bg-primary" style="border-radius: 15px; font-family: monospace; font-size: 13px; padding: 0px 10px;">
+                      {{ masterIP }}
+                    </kbd>
+                  </div>
+                </b-card>
+              </div>
+              <flux-map class="mb-0 mt-0" :show-all="false" :filter-nodes="mapLocations" />
             </div>
           </b-col>
         </b-row>
@@ -7846,7 +7853,7 @@ export default {
       // eslint-disable-next-line no-nested-ternary
       return percentage >= 95 ? 'danger' : percentage >= 75 ? 'warning' : 'success';
     },
-    async logout() {
+    async logout(expired) {
       if (!this.logoutTigger) {
         this.logoutTigger = true;
         const zelidauth = localStorage.getItem('zelidauth');
@@ -7862,7 +7869,11 @@ export default {
               console.log(response.data.data.message);
             // SHOULD NEVER HAPPEN. Do not show any message.
             } else {
-              this.showToast('success', response.data.data.message);
+              if (expired) {
+                this.showToast('warning', 'Session expired, logging out...');
+              } else {
+                this.showToast('success', response.data.data.message);
+              }
               // Redirect to home page
               if (this.$route.path === '/') {
                 window.location.reload();
@@ -7940,9 +7951,7 @@ export default {
       const memoryUsageMB = memoryUsageBytes;
       const memoryUsagePercentage = ((memoryUsageBytes / memoryLimitBytes) * 100).toFixed(1);
       const cpuUsage = statsData.cpu_stats.cpu_usage.total_usage - statsData.precpu_stats.cpu_usage.total_usage;
-      console.log(cpuUsage);
       const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
-      console.log(systemCpuUsage);
       const onlineCpus = statsData.cpu_stats.online_cpus;
       const { nanoCpus } = statsData;
       let cpuCores;
@@ -7973,17 +7982,19 @@ export default {
       const diskUsageDocker = statsData.disk_stats?.volume ?? null;
       const diskUsageRootFs = statsData.disk_stats?.rootfs ?? null;
 
-      console.log('CPU Size:', cpuSize);
-      console.log('CPU Percent:', cpuPercent);
-      console.log('Memory Usage:', memoryUsageMB);
-      console.log('Memory Usage (%):', memoryUsagePercentage);
-      console.log('Network RX Bytes:', networkRxBytes);
-      console.log('Network TX Bytes:', networkTxBytes);
-      console.log('I/O Read Bytes:', ioReadBytes);
-      console.log('I/O Write Bytes:', ioWriteBytes);
-      console.log('Disk Usage Mounts:', diskUsageMounts);
-      console.log('Disk Usage Volume:', diskUsageDocker);
-      console.log('Disk Usage RootFS:', diskUsageRootFs);
+      console.log('Resource Metrics:', {
+        'CPU Size': cpuSize,
+        'CPU Percent': cpuPercent,
+        'Memory Usage (MB)': memoryUsageMB,
+        'Memory Usage (%)': memoryUsagePercentage,
+        'Network RX Bytes': networkRxBytes,
+        'Network TX Bytes': networkTxBytes,
+        'I/O Read Bytes': ioReadBytes,
+        'I/O Write Bytes': ioWriteBytes,
+        'Disk Usage Mounts': diskUsageMounts,
+        'Disk Usage Volume': diskUsageDocker,
+        'Disk Usage RootFS': diskUsageRootFs,
+      });
 
       this.insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp);
     },
@@ -10557,6 +10568,11 @@ export default {
       if (!this.globalZelidAuthorized) {
         return;
       }
+      window.scrollTo({ top: 0, left: 0 });
+      if (index === 1) {
+        this.callResponse.data = '';
+        this.callBResponse.data = '';
+      }
       this.noData = false;
       this.processes = [];
       this.enableHistoryStatistics = false;
@@ -10583,6 +10599,7 @@ export default {
         this.stopPollingStats();
       }
       if (!this.selectedIp) {
+        await this.getGlobalApplicationSpecifics();
         await this.getInstancesForDropDown();
         if (!this.appSpecification?.name) {
           await this.getInstalledApplicationSpecifics();
@@ -11215,7 +11232,6 @@ export default {
         const env = this.appExec.env ? this.appExec.env : '[]';
         const { cmd } = this.appExec;
         this.commandExecuting = true;
-        console.log('here');
         const data = {
           appname: name,
           cmd: splitargs(cmd),
@@ -11767,15 +11783,12 @@ export default {
       const maxTime = 1.5 * 60 * 60 * 1000;
       const mesTime = auth?.loginPhrase?.substring(0, 13) || 0;
       const expiryTime = +mesTime + maxTime;
-      const expiryDate = new Date(expiryTime).toLocaleString();
-      console.log(`Current time: ${new Date(timestamp).toLocaleString()}`);
-      console.log(`Authorization will expire at: ${expiryDate}`);
       if (+mesTime > 0 && timestamp < expiryTime) {
         this.globalZelidAuthorized = true;
       } else {
         this.globalZelidAuthorized = false;
-        this.showToast('danger', 'Session expired. Please log into FluxOS again');
-        await this.logout();
+        console.log('Session expired, logging out...');
+        await this.logout(true);
       }
     },
     async delay(ms) {
@@ -11797,7 +11810,7 @@ export default {
         }
         this.getZelidAuthority();
         if (!this.globalZelidAuthorized) {
-          throw new Error('Session expired. Please log into FluxOS again');
+          return null;
         }
 
         const url = this.selectedIp.split(':')[0];
@@ -11828,7 +11841,7 @@ export default {
         };
         this.getZelidAuthority();
         if (!this.globalZelidAuthorized) {
-          throw new Error('Session expired. Please log into FluxOS again');
+          return;
         }
 
         // get app instances
