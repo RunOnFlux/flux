@@ -874,7 +874,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
-   // Conditionally include Labels only if it's not null
+    // Conditionally include Labels only if it's not null
     ...(labels && { Labels: labels }),
     HostConfig: {
       NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
