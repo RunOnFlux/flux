@@ -8,11 +8,11 @@
       hide-footer
       centered
       hide-header-close
-      header-class="custom-modal-header"
       no-close-on-backdrop
       no-close-on-esc
       size="lg"
       header-bg-variant="primary"
+      title-class="custom-modal-title"
       :title="operationTitle"
       title-tag="h5"
     >
@@ -95,7 +95,6 @@
           <b-form-select
             v-model="selectedIp"
             :options="null"
-            @change="selectedIpChanged"
           >
             <b-form-select-option
               v-for="instance in instances.data"
@@ -123,7 +122,7 @@
       @input="index => updateManagementTab(index)"
     >
       <b-tab
-        v-if="windowWidth > 860"
+        :title-item-class="windowWidth > 860 ? '' : 'd-none'"
         title="Local App Management"
         disabled
       />
@@ -147,14 +146,9 @@
               <b-icon
                 class="mr-1"
                 scale="1.2"
-                icon="gear-fill"
+                icon="list-task"
               />
-              Application Specifications &nbsp;
-              <kbd v-if="appSpecification?.name" class="alert-info" style="border-radius: 15px; font-family: monospace; font-size: 14px;">
-                <span>
-                  {{ appSpecification.name }}
-                </span>
-              </kbd>
+              Application Specifications
             </h5>
           </div>
           <div class="wrap-text-info">
@@ -278,9 +272,9 @@
                     <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                       <b-icon
                         scale="1"
-                        icon="box"
+                        icon="building"
                         class="ml-1"
-                        style="margin-top: 2px;"
+                        style="margin-top: 1px;"
                       />
                       <span style="margin-left: 10px;">Composition</span>
                     </kbd>
@@ -290,8 +284,9 @@
                       <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
                         <b-icon
                           scale="1"
-                          icon="menu-app-fill"
+                          icon="box"
                           class="ml-1"
+                          style="margin-top: 1px;"
                         /> &nbsp;{{ callResponse.data.name }}&nbsp;</kbd>
                     </h3>
                     <div style="margin-left: 20px;">
@@ -391,8 +386,9 @@
                         <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
                           <b-icon
                             scale="1"
-                            icon="menu-app-fill"
+                            icon="box"
                             class="ml-1"
+                            style="margin-top: 1px;"
                           /> &nbsp;{{ component.name }}&nbsp;</kbd>
                       </h3>
                       <div
@@ -610,9 +606,9 @@
                     <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
                       <b-icon
                         scale="1"
-                        icon="box"
+                        icon="building"
                         class="ml-1"
-                        style="margin-top: 2px;"
+                        style="margin-top: 1px;"
                       />
                       <span style="margin-left: 10px;">Composition</span>
                     </kbd>
@@ -622,8 +618,9 @@
                       <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
                         <b-icon
                           scale="1"
-                          icon="menu-app-fill"
+                          icon="box"
                           class="ml-1"
+                          style="margin-top: 1px;"
                         /> &nbsp;{{ callResponse.data.name }}&nbsp;</kbd>
                     </h3>
                     <div style="margin-left: 20px;">
@@ -723,8 +720,9 @@
                         <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
                           <b-icon
                             scale="1"
-                            icon="menu-app-fill"
+                            icon="box"
                             class="ml-1"
+                            style="margin-top: 1px;"
                           /> &nbsp;{{ component.name }}&nbsp;</kbd>
                       </h3>
                       <div
@@ -858,40 +856,26 @@
         </b-card>
       </b-tab>
       <b-tab title="Information">
-        <b-card>
+        <b-card class="h-100 d-flex flex-column">
+          <!-- Header -->
           <div
-            class="mb-2"
+            class="mb-1"
             style="
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            height: 45px;
-            padding: 12px;
-            text-align: left;
-            line-height: 0px;
-          "
+              border: 1px solid #ccc;
+              border-radius: 8px;
+              height: 45px;
+              padding: 12px;
+              text-align: left;
+              line-height: 0px;
+            "
           >
             <h5 class="d-flex align-items-center">
-              <b-icon
-                class="mr-1"
-                scale="1.2"
-                icon="info-square-fill"
-              />
-              Information &nbsp;
-              <kbd v-if="appSpecification?.name" class="alert-info" style="border-radius: 15px; font-family: monospace; font-size: 14px;">
-                <span>
-                  {{ appSpecification.name }}
-                </span>
-              </kbd>
+              <b-icon class="mr-1" scale="1.2" icon="info-square-fill" />
+              Information
             </h5>
           </div>
-          <h3 v-if="appSpecification.version <= 3" class="no-wrap">
-            <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace;">
-              <b-icon
-                scale="1"
-                icon="menu-app-fill"
-                class="ml-1"
-              /> &nbsp;{{ appSpecification.name }}&nbsp;</kbd>
-          </h3>
+
+          <!-- Loading State -->
           <div v-if="commandExecutingInspect">
             <div style="display: flex; align-items: center;">
               <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
@@ -900,21 +884,21 @@
               </h5>
             </div>
           </div>
-          <div v-if="appSpecification.version >= 4">
-            <div
+
+          <!-- Separate Tabs for Each Component (Version >= 4) -->
+          <b-tabs v-if="appSpecification.version >= 4" v-model="activeTabInfo" pills>
+            <b-tab
               v-for="(component, index) in callResponseInspect.data"
               :key="index"
+              :title="component.name"
             >
-              <h3 class="no-wrap">
-                <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace;">
-                  <b-icon
-                    scale="1"
-                    icon="menu-app-fill"
-                    class="ml-1"
-                  /> &nbsp;{{ component.name }}&nbsp;</kbd>
-              </h3>
+              <template #title>
+                <b-icon icon="box" scale="1" class="mr-1" />
+                {{ component.name }}
+              </template>
               <div v-if="component.callData">
                 <json-viewer
+                  :key="activeTabInfo"
                   :value="component.callData"
                   :expand-depth="5"
                   copyable
@@ -922,17 +906,25 @@
                   theme="jv-dark"
                 />
               </div>
-            </div>
-          </div>
+            </b-tab>
+          </b-tabs>
+
+          <!-- Default JSON Viewer for Older Versions -->
           <div v-else>
             <div v-if="callResponseInspect.data && callResponseInspect.data[0]">
-              <json-viewer
-                :value="callResponseInspect.data[0].callData"
-                :expand-depth="5"
-                copyable
-                boxed
-                theme="jv-dark"
-              />
+              <b-tabs pills>
+                <b-tab
+                  :title="appSpecification.name"
+                >
+                  <json-viewer
+                    :value="callResponseInspect.data[0].callData"
+                    :expand-depth="5"
+                    copyable
+                    boxed
+                    theme="jv-dark"
+                  />
+                </b-tab>
+              </b-tabs>
             </div>
           </div>
         </b-card>
@@ -1180,44 +1172,30 @@
       <b-tab title="File Changes">
         <b-card>
           <div
-            class="mb-2"
+            class="mb-1"
             style="
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            height: 45px;
-            padding: 12px;
-            text-align: left;
-            line-height: 0px;
-          "
+              border: 1px solid #ccc;
+              border-radius: 8px;
+              height: 45px;
+              padding: 12px;
+              text-align: left;
+              line-height: 0px;
+            "
           >
-            <h5 class="d-flex align-items-center">
+            <h5 class="d-flex align-items-center no-wrap">
               <b-icon
                 class="mr-1"
-                scale="1.2"
-                icon="info-square-fill"
+                scale="1.3"
+                icon="file-earmark-diff-fill"
               />
-              File Changes &nbsp;
-              <kbd v-if="appSpecification?.name" class="alert-info" style="border-radius: 15px; font-family: monospace; font-size: 14px;">
-                <span>
-                  {{ appSpecification.name }}
-                </span>
-              </kbd>
+              File Changes
               <div class="ml-auto">
-                <kbd class="bg-primary mr-1" style="border-radius: 15px; font-family: monospace; font-size: 12px;">Kind: 0 = Modified</kbd>
+                <kbd class="bg-primary mr-1 ml-1" style="border-radius: 15px; font-family: monospace; font-size: 12px;">Kind: 0 = Modified</kbd>
                 <kbd class="bg-success mr-1" style="border-radius: 15px; font-family: monospace; font-size: 12px;">Kind: 1 = Added </kbd>
                 <kbd class="bg-danger" style="border-radius: 15px; font-family: monospace; font-size: 12px;">Kind: 2 = Deleted</kbd>
               </div>
             </h5>
           </div>
-          <h3 v-if="appSpecification.version <= 3" class="no-wrap">
-            <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace;">
-              <b-icon
-                scale="1"
-                icon="menu-app-fill"
-                class="ml-1"
-              /> &nbsp;{{ appSpecification.name }}&nbsp;
-            </kbd>
-          </h3>
           <div v-if="commandExecutingChanges">
             <div style="display: flex; align-items: center;">
               <v-icon class="spin-icon" name="spinner" style="margin-right: 5px;" />
@@ -1227,41 +1205,45 @@
             </div>
           </div>
           <div v-if="appSpecification.version >= 4">
-            <div
-              v-for="(component, index) in callResponseChanges.data"
-              :key="index"
-            >
-              <h3 class="no-wrap">
-                <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace;">
-                  <b-icon
-                    scale="1"
-                    icon="menu-app-fill"
-                    class="ml-1"
-                  /> &nbsp;{{ component.name }}&nbsp;
-                </kbd>
-              </h3>
-              <div v-if="component.callData">
-                <json-viewer
-                  class="mt-1"
-                  :value="component.callData"
-                  :expand-depth="5"
-                  copyable
-                  boxed
-                  theme="jv-dark"
-                />
-              </div>
-            </div>
+            <b-tabs v-if="appSpecification.version >= 4" v-model="activeTabFile" pills>
+              <b-tab
+                v-for="(component, index) in callResponseChanges.data"
+                :key="index"
+                :title="component.name"
+              >
+                <template #title>
+                  <b-icon icon="box" scale="1" class="mr-1" />
+                  {{ component.name }}
+                </template>
+                <div v-if="component.callData">
+                  <json-viewer
+                    :key="activeTabFile"
+                    :value="component.callData"
+                    :expand-depth="5"
+                    class="mt-0"
+                    copyable
+                    boxed
+                    theme="jv-dark"
+                  />
+                </div>
+              </b-tab>
+            </b-tabs>
           </div>
           <div v-else>
             <div v-if="callResponseChanges.data && callResponseChanges.data[0]">
-              <json-viewer
-                class="mt-1"
-                :value="callResponseChanges.data[0].callData"
-                :expand-depth="5"
-                copyable
-                boxed
-                theme="jv-dark"
-              />
+              <b-tabs pills>
+                <b-tab
+                  :title="appSpecification.name"
+                >
+                  <json-viewer
+                    :value="callResponseChanges.data[0].callData"
+                    :expand-depth="5"
+                    copyable
+                    boxed
+                    theme="jv-dark"
+                  />
+                </b-tab>
+              </b-tabs>
             </div>
           </div>
         </b-card>
@@ -1271,13 +1253,13 @@
           <div
             class="mb-2"
             style="
-                    border: 1px solid #ccc;
-                    border-radius: 8px;
-                    height: 45px;
-                    padding: 12px;
-                    text-align: left;
-                    line-height: 0px;
-                  "
+              border: 1px solid #ccc;
+              border-radius: 8px;
+              height: 45px;
+              padding: 12px;
+              text-align: left;
+              line-height: 0px;
+            "
           >
             <h5>
               <b-icon
@@ -1452,22 +1434,44 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Control">
+      <b-tab title="Application Control">
+        <div
+          class="mb-2"
+          style="
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            height: 45px;
+            padding: 12px;
+            text-align: left;
+            line-height: 0px;
+          "
+        >
+          <h5>
+            <b-icon
+              class="mr-1"
+              scale="1.2"
+              icon="gear-fill"
+            /> Application Control
+          </h5>
+        </div>
         <b-row class="match-height ">
           <b-col xs="6">
             <b-card title="Control">
               <b-card-text class="mb-2">
-                General options to control running status of App.
+                General options to control running status of Application.
               </b-card-text>
-              <div class="text-center">
+              <div class="d-flex flex-column align-items-center">
                 <b-button
                   id="start-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Start App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Start App
+                  <span class="icon-circle">
+                    <b-icon icon="play-fill" />
+                  </span>
+                  <span class="ml-1">Start Application</span>
                 </b-button>
                 <confirm-dialog
                   target="start-app"
@@ -1477,11 +1481,14 @@
                 <b-button
                   id="stop-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Stop App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Stop App
+                  <span class="icon-circle">
+                    <b-icon icon="stop-fill" />
+                  </span>
+                  <span class="ml-1">Stop Application</span>
                 </b-button>
                 <confirm-dialog
                   target="stop-app"
@@ -1491,11 +1498,14 @@
                 <b-button
                   id="restart-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Restart App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Restart App
+                  <span class="icon-circle">
+                    <b-icon icon="arrow-clockwise" />
+                  </span>
+                  <span class="ml-1">Restart Application</span>
                 </b-button>
                 <confirm-dialog
                   target="restart-app"
@@ -1508,17 +1518,20 @@
           <b-col xs="6">
             <b-card title="Pause">
               <b-card-text class="mb-2">
-                The Pause command suspends all processes in the specified App.
+                The Pause command suspends all processes in the specified Application.
               </b-card-text>
-              <div class="text-center">
+              <div class="d-flex flex-column align-items-center">
                 <b-button
                   id="pause-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Pause App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Pause App
+                  <span class="icon-circle">
+                    <b-icon icon="pause-circle-fill" />
+                  </span>
+                  <span class="ml-1">Pause Application</span>
                 </b-button>
                 <confirm-dialog
                   target="pause-app"
@@ -1528,11 +1541,14 @@
                 <b-button
                   id="unpause-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Unpause App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Unpause App
+                  <span class="icon-circle">
+                    <b-icon icon="play-circle" />
+                  </span>
+                  <span class="ml-1">Unpause Application</span>
                 </b-button>
                 <confirm-dialog
                   target="unpause-app"
@@ -1547,15 +1563,18 @@
               <b-card-text class="mb-2">
                 Controls Application Monitoring
               </b-card-text>
-              <div class="text-center">
+              <div class="d-flex flex-column align-items-center">
                 <b-button
                   id="start-monitoring"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Start Monitoring"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Start Monitoring
+                  <span class="icon-circle">
+                    <b-icon icon="play-circle-fill" />
+                  </span>
+                  <span class="ml-1">Start Monitoring</span>
                 </b-button>
                 <confirm-dialog
                   target="start-monitoring"
@@ -1565,11 +1584,14 @@
                 <b-button
                   id="stop-monitoring"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Stop Monitoring"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Stop Monitoring
+                  <span class="icon-circle">
+                    <b-icon icon="stop-circle-fill" />
+                  </span>
+                  <span class="ml-1">Stop Monitoring</span>
                 </b-button>
                 <confirm-dialog
                   target="stop-monitoring"
@@ -1579,11 +1601,14 @@
                 <b-button
                   id="stop-monitoring-delete"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Stop Monitoring and Delete Monitored Data"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Stop Monitoring and Delete Monitored Data
+                  <span class="icon-circle">
+                    <b-icon icon="trash-fill" />
+                  </span>
+                  <span class="ml-1">Stop & Delete Data</span>
                 </b-button>
                 <confirm-dialog
                   target="stop-monitoring-delete"
@@ -1604,11 +1629,14 @@
                 <b-button
                   id="redeploy-app-soft"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Soft Redeploy App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Soft Reinstall
+                  <span class="icon-circle">
+                    <b-icon icon="arrow-repeat" />
+                  </span>
+                  <span class="ml-1">Soft Reinstall</span>
                 </b-button>
                 <confirm-dialog
                   target="redeploy-app-soft"
@@ -1618,11 +1646,14 @@
                 <b-button
                   id="redeploy-app-hard"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Hard Redeploy App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Hard Reinstall
+                  <span class="icon-circle">
+                    <b-icon icon="recycle" />
+                  </span>
+                  <span class="ml-1">Hard Reinstall</span>
                 </b-button>
                 <confirm-dialog
                   target="redeploy-app-hard"
@@ -1641,11 +1672,14 @@
                 <b-button
                   id="remove-app"
                   v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                  variant="success"
+                  variant="outline-dark"
                   aria-label="Remove App"
-                  class="mx-1 my-1"
+                  class="mx-1 my-1 align-items-center cb"
                 >
-                  Remove App
+                  <span class="icon-circle">
+                    <b-icon icon="trash-fill" />
+                  </span>
+                  <span class="ml-1">Remove Application</span>
                 </b-button>
                 <confirm-dialog
                   target="remove-app"
@@ -1658,157 +1692,210 @@
         </b-row>
       </b-tab>
       <b-tab
-        v-if="windowWidth > 860"
         title="Component Control"
-        :disabled="!isApplicationInstalledLocally || appSpecification.version <= 3"
+        :title-item-class="(appSpecification?.version <= 3 || (appSpecification?.version > 3 && appSpecification?.compose?.length === 1)) ? 'd-none' : ''"
       >
-        <b-card
-          v-for="(component, index) of appSpecification.compose"
-          :key="index"
+        <div
+          class="mb-1"
+          style="
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            height: 45px;
+            padding: 12px;
+            text-align: left;
+            line-height: 0px;
+          "
         >
-          <h4>{{ component.name }} Component</h4>
-          <b-row class="match-height">
-            <b-col xs="6">
-              <b-card title="Control">
-                <b-card-text class="mb-2">
-                  General options to control running status of Component.
-                </b-card-text>
-                <div class="text-center">
-                  <b-button
-                    :id="`start-app-${component.name}_${appSpecification.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Start Component"
-                    class="mx-1 my-1"
-                  >
-                    Start Component
-                  </b-button>
-                  <confirm-dialog
-                    :target="`start-app-${component.name}_${appSpecification.name}`"
-                    confirm-button="Start Component"
-                    @confirm="startApp(`${component.name}_${appSpecification.name}`)"
-                  />
-                  <b-button
-                    :id="`stop-app-${component.name}_${appSpecification.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Stop Component"
-                    class="mx-1 my-1"
-                  >
-                    Stop Component
-                  </b-button>
-                  <confirm-dialog
-                    :target="`stop-app-${component.name}_${appSpecification.name}`"
-                    confirm-button="Stop App"
-                    @confirm="stopApp(`${component.name}_${appSpecification.name}`)"
-                  />
-                  <b-button
-                    :id="`restart-app-${component.name}_${appSpecification.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Restart Component"
-                    class="mx-1 my-1"
-                  >
-                    Restart Component
-                  </b-button>
-                  <confirm-dialog
-                    :target="`restart-app-${component.name}_${appSpecification.name}`"
-                    confirm-button="Restart Component"
-                    @confirm="restartApp(`${component.name}_${appSpecification.name}`)"
-                  />
-                </div>
-              </b-card>
-            </b-col>
-            <b-col xs="6">
-              <b-card title="Pause">
-                <b-card-text class="mb-2">
-                  The Pause command suspends all processes in the specified Component.
-                </b-card-text>
-                <div class="text-center">
-                  <b-button
-                    :id="`pause-app-${component.name}_${appSpecification.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Pause Component"
-                    class="mx-1 my-1"
-                  >
-                    Pause Component
-                  </b-button>
-                  <confirm-dialog
-                    :target="`pause-app-${component.name}_${appSpecification.name}`"
-                    confirm-button="Pause Component"
-                    @confirm="pauseApp(`${component.name}_${appSpecification.name}`)"
-                  />
-                  <b-button
-                    :id="`unpause-app-${component.name}_${appSpecification.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Unpause Component"
-                    class="mx-1 my-1"
-                  >
-                    Unpause Component
-                  </b-button>
-                  <confirm-dialog
-                    :target="`unpause-app-${component.name}_${appSpecification.name}`"
-                    confirm-button="Unpause Component"
-                    @confirm="unpauseApp(`${component.name}_${appSpecification.name}`)"
-                  />
-                </div>
-              </b-card>
-            </b-col>
-            <b-col xs="6">
-              <b-card title="Monitoring">
-                <b-card-text class="mb-2">
-                  Controls Component Monitoring
-                </b-card-text>
-                <div class="text-center">
-                  <b-button
-                    :id="`start-monitoring-${component.name}_${appSpecification.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Start Monitoring"
-                    class="mx-1 my-1"
-                  >
-                    Start Monitoring
-                  </b-button>
-                  <confirm-dialog
-                    :target="`start-monitoring-${component.name}_${appSpecification.name}`"
-                    confirm-button="Start Monitoring"
-                    @confirm="startMonitoring(`${component.name}_${appSpecification.name}`)"
-                  />
-                  <b-button
-                    :id="`stop-monitoring-${component.name}_${appSpecification.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Stop Monitoring"
-                    class="mx-1 my-1"
-                  >
-                    Stop Monitoring
-                  </b-button>
-                  <confirm-dialog
-                    :target="`stop-monitoring-${component.name}_${appSpecification.name}`"
-                    confirm-button="Stop Monitoring"
-                    @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, false)"
-                  />
-                  <b-button
-                    :id="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
-                    aria-label="Stop Monitoring and Delete Monitored Data"
-                    class="mx-1 my-1"
-                  >
-                    Stop Monitoring and Delete Monitored Data
-                  </b-button>
-                  <confirm-dialog
-                    :target="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
-                    confirm-button="Stop Monitoring"
-                    @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, true)"
-                  />
-                </div>
-              </b-card>
-            </b-col>
-          </b-row>
-        </b-card>
+          <h5>
+            <b-icon
+              class="mr-1"
+              scale="1.2"
+              icon="grid"
+            /> Component Control
+          </h5>
+        </div>
+        <b-tabs content-class="mt-1" pills>
+          <b-tab
+            v-for="(component, index) in appSpecification.compose"
+            :key="index"
+            :title="component.name"
+          >
+            <template #title>
+              <b-icon icon="box" scale="1" class="mr-1" />
+              {{ component.name }}
+            </template>
+            <b-row class="match-height">
+              <!-- Control Card -->
+              <b-col xs="6">
+                <b-card title="Control" class="text-center">
+                  <b-card-text class="mb-1 text-center limited-width">
+                    Control and manage the component running state.
+                  </b-card-text>
+                  <div class="d-flex flex-column align-items-center">
+                    <b-button
+                      :id="`start-app-${component.name}_${appSpecification.name}`"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-dark"
+                      aria-label="Start Component"
+                      class="mx-1 my-1 d-flex align-items-center cb"
+                    >
+                      <span class="icon-circle">
+                        <b-icon icon="play-fill" />
+                      </span>
+                      <span class="ml-1">Start Component</span>
+                    </b-button>
+                    <confirm-dialog
+                      :target="`start-app-${component.name}_${appSpecification.name}`"
+                      confirm-button="Start Component"
+                      @confirm="startApp(`${component.name}_${appSpecification.name}`)"
+                    />
+
+                    <b-button
+                      :id="`stop-app-${component.name}_${appSpecification.name}`"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-dark"
+                      aria-label="Stop Component"
+                      class="mx-1 my-1 d-flex align-items-center cb"
+                    >
+                      <span class="icon-circle">
+                        <b-icon icon="stop-fill" />
+                      </span>
+                      <span class="ml-1">Stop Component</span>
+                    </b-button>
+                    <confirm-dialog
+                      :target="`stop-app-${component.name}_${appSpecification.name}`"
+                      confirm-button="Stop Component"
+                      @confirm="stopApp(`${component.name}_${appSpecification.name}`)"
+                    />
+
+                    <b-button
+                      :id="`restart-app-${component.name}_${appSpecification.name}`"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-dark"
+                      aria-label="Restart Component"
+                      class="mx-1 my-1 d-flex align-items-center cb"
+                    >
+                      <span class="icon-circle">
+                        <b-icon icon="arrow-clockwise" />
+                      </span>
+                      <span class="ml-1">Restart Component</span>
+                    </b-button>
+                    <confirm-dialog
+                      :target="`restart-app-${component.name}_${appSpecification.name}`"
+                      confirm-button="Restart Component"
+                      @confirm="restartApp(`${component.name}_${appSpecification.name}`)"
+                    />
+                  </div>
+                </b-card>
+              </b-col>
+              <!-- Pause Card -->
+              <b-col xs="6">
+                <b-card title="Pause" class="text-center">
+                  <b-card-text class="mb-1 text-center limited-width">
+                    Pauses all processes in the selected component.
+                  </b-card-text>
+                  <div class="d-flex flex-column align-items-center">
+                    <b-button
+                      :id="`pause-app-${component.name}_${appSpecification.name}`"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-dark"
+                      aria-label="Pause Component"
+                      class="mx-1 my-1 d-flex align-items-center cb"
+                    >
+                      <span class="icon-circle">
+                        <b-icon icon="pause-circle-fill" />
+                      </span>
+                      <span class="ml-1">Pause Component</span>
+                    </b-button>
+                    <confirm-dialog
+                      :target="`pause-app-${component.name}_${appSpecification.name}`"
+                      confirm-button="Pause Component"
+                      @confirm="pauseApp(`${component.name}_${appSpecification.name}`)"
+                    />
+
+                    <b-button
+                      :id="`unpause-app-${component.name}_${appSpecification.name}`"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-dark"
+                      aria-label="Unpause Component"
+                      class="mx-1 my-1 d-flex align-items-center cb"
+                    >
+                      <span class="icon-circle">
+                        <b-icon icon="play-circle" />
+                      </span>
+                      <span class="ml-1">Unpause Component</span>
+                    </b-button>
+                    <confirm-dialog
+                      :target="`unpause-app-${component.name}_${appSpecification.name}`"
+                      confirm-button="Unpause Component"
+                      @confirm="unpauseApp(`${component.name}_${appSpecification.name}`)"
+                    />
+                  </div>
+                </b-card>
+              </b-col>
+              <b-col xs="6">
+                <b-card title="Monitoring" class="text-center">
+                  <b-card-text class="mb-1 text-center limited-width">
+                    Monitor component activity and manage its data collection.
+                  </b-card-text>
+                  <div class="d-flex flex-column align-items-center">
+                    <b-button
+                      :id="`start-monitoring-${component.name}_${appSpecification.name}`"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-dark"
+                      aria-label="Start Monitoring"
+                      class="mx-1 my-1 d-flex align-items-center cb"
+                    >
+                      <span class="icon-circle">
+                        <b-icon icon="play-circle-fill" />
+                      </span>
+                      <span class="ml-1">Start Monitoring</span>
+                    </b-button>
+                    <confirm-dialog
+                      :target="`start-monitoring-${component.name}_${appSpecification.name}`"
+                      confirm-button="Start Monitoring"
+                      @confirm="startMonitoring(`${component.name}_${appSpecification.name}`)"
+                    />
+                    <b-button
+                      :id="`stop-monitoring-${component.name}_${appSpecification.name}`"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-dark"
+                      aria-label="Stop Monitoring"
+                      class="mx-1 my-1 d-flex align-items-center cb"
+                    >
+                      <span class="icon-circle">
+                        <b-icon icon="stop-circle-fill" />
+                      </span>
+                      <span class="ml-1">Stop Monitoring</span>
+                    </b-button>
+                    <confirm-dialog
+                      :target="`stop-monitoring-${component.name}_${appSpecification.name}`"
+                      confirm-button="Stop Monitoring"
+                      @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, false)"
+                    />
+                    <b-button
+                      :id="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-dark"
+                      aria-label="Stop Monitoring and Delete Data"
+                      class="mx-1 my-1 d-flex align-items-center cb"
+                    >
+                      <span class="icon-circle">
+                        <b-icon icon="trash-fill" />
+                      </span>
+                      <span class="ml-1">Stop & Delete Data</span>
+                    </b-button>
+                    <confirm-dialog
+                      :target="`stop-monitoring-delete-${component.name}_${appSpecification.name}`"
+                      confirm-button="Stop Monitoring"
+                      @confirm="stopMonitoring(`${component.name}_${appSpecification.name}`, true)"
+                    />
+                  </div>
+                </b-card>
+              </b-col>
+            </b-row>
+          </b-tab>
+        </b-tabs>
       </b-tab>
       <b-tab
         title="Backup/Restore"
@@ -1843,9 +1930,6 @@
                 </div>
                 <div class="mb-2">
                   <b-form-group>
-                    <!-- <h7 class="mr-1">
-                      Select the application component(s) you would like to backup:
-                    </h7> -->
                     <b-form-tags
                       id="tags-component-select"
                       v-model="selectedBackupComponents"
@@ -1933,19 +2017,17 @@
                     v-if="backupProgress === true"
                     class="mb-2 mt-2 w-100"
                     style="
-                              margin: 0 auto;
-                              padding: 12px;
-                              border: 1px solid #eaeaea;
-                              border-radius: 8px;
-                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                              text-align: center;
-
-                            "
+                      margin: 0 auto;
+                      padding: 12px;
+                      border: 1px solid #eaeaea;
+                      border-radius: 8px;
+                      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                      text-align: center;
+                    "
                   >
                     <h5 style="font-size: 16px; margin-bottom: 5px;">
                       <span v-if="backupProgress === true">
                         <b-spinner small /> {{ tarProgress }}
-                        <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                       </span>
                     </h5>
                     <b-progress
@@ -1967,7 +2049,6 @@
 
                 <div v-if="backupList?.length > 0 && backupProgress === false">
                   <div class="mb-1 text-right">
-                    <!-- Select Dropdown -->
                     <b-dropdown
                       class="mr-1"
                       text="Select"
@@ -2005,8 +2086,6 @@
                         Select none
                       </b-dropdown-item>
                     </b-dropdown>
-
-                    <!-- Download Dropdown -->
                     <b-dropdown
                       class="mr-1"
                       text="Download"
@@ -2164,32 +2243,17 @@
                   <span style="font-size: 0.9rem;">Select application component(s) you would like to upload</span>
                   <b-card-text v-if="showProgressBar">
                     <div class="mt-1">
-                      <!-- <b-progress
-                        :value="`${((downloaded / total) * 100).toFixed(2)}%`"
-                        :max="100"
-                        show-progress
-                        animated
-                      /> -->
-                      <!-- <b-progress :max="100" show-progress>
-                        <b-progress-bar :value="((downloadedSize / (totalSizeMB * 1024 * 1024)) * 100).toFixed(2)" :label="downloadLabel" show-progress animated />
-                      </b-progress> -->
-                      <!-- <div v-if="fileProgress.length > 0">
-                        <div v-for="(item, index) in computedFileProgress" :key="index">
-                          {{ item?.fileName }} - {{ item?.progress }}%
-                        </div>
-                      </div> -->
                       <div
                         v-if="fileProgress.length > 0"
                         class="mb-2 mt-2 w-100"
                         style="
-                              margin: 0 auto;
-                              padding: 12px;
-                              border: 1px solid #eaeaea;
-                              border-radius: 8px;
-                              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                              text-align: center;
-
-                            "
+                          margin: 0 auto;
+                          padding: 12px;
+                          border: 1px solid #eaeaea;
+                          border-radius: 8px;
+                          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                          text-align: center;
+                        "
                       >
                         <h5 style="font-size: 16px; margin-bottom: 5px;">
                           <span v-if="!allDownloadsCompleted()">
@@ -2301,14 +2365,13 @@
                           v-if="fileProgress.length > 0"
                           class="mb-2 mt-2 w-100"
                           style="
-                                margin: 0 auto;
-                                padding: 12px;
-                                border: 1px solid #eaeaea;
-                                border-radius: 8px;
-                                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                                text-align: center;
-
-                              "
+                            margin: 0 auto;
+                            padding: 12px;
+                            border: 1px solid #eaeaea;
+                            border-radius: 8px;
+                            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                            text-align: center;
+                          "
                         >
                           <h5 style="font-size: 16px; margin-bottom: 5px;">
                             <span>
@@ -2332,21 +2395,19 @@
                         </div>
                       </div>
                     </b-card-text>
-
                     <b-card-text v-if="showFluxDriveProgressBar">
                       <div class="mt-1">
                         <div
                           v-if="fileProgressFD.length > 0"
                           class="mb-2 mt-2 w-100"
                           style="
-                                margin: 0 auto;
-                                padding: 12px;
-                                border: 1px solid #eaeaea;
-                                border-radius: 8px;
-                                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                                text-align: center;
-
-                              "
+                            margin: 0 auto;
+                            padding: 12px;
+                            border: 1px solid #eaeaea;
+                            border-radius: 8px;
+                            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                            text-align: center;
+                          "
                         >
                           <h5 style="font-size: 16px; margin-bottom: 5px;">
                             <span>
@@ -2434,7 +2495,6 @@
                     </b-col>
                   </b-row>
                 </b-form-group>
-
                 <div v-if="selectedRestoreOption === 'FluxDrive'">
                   <div v-if="sigInPrivilage === true">
                     <div>
@@ -2478,7 +2538,6 @@
                           </b-td>
                         </b-tr>
                       </template>
-
                       <template #cell(actions)="row">
                         <div class="d-flex justify-content-center align-items-center">
                           <b-button
@@ -2520,7 +2579,6 @@
                       <template #cell(time)="row">
                         {{ formatDateTime(row.item.timestamp) }}
                       </template>
-
                       <template #row-details="row">
                         <b-table
                           :key="tableBackup"
@@ -2556,11 +2614,11 @@
                               v-b-tooltip.hover.top="'Add to Restore List'"
                               class="d-flex justify-content-center align-items-center"
                               style="
-                          margin: auto;
-                          width: 95px;
-                          height: 25px;
-                          display: flex;
-                        "
+                                margin: auto;
+                                width: 95px;
+                                height: 25px;
+                                display: flex;
+                              "
                               variant="outline-primary"
                               @click="addComponent(nestedRow.item, row.item.timestamp)"
                             >
@@ -2696,7 +2754,6 @@
                       <h5 style="font-size: 16px; margin-bottom: 5px;">
                         <span v-if="restoringFromFluxDrive === true">
                           <b-spinner small /> {{ restoreFromFluxDriveStatus }}
-                          <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                         </span>
                       </h5>
                     </div>
@@ -2744,7 +2801,6 @@
                     </b-input-group>
                   </div>
                   <div>
-                    <!-- Keep the input file element hidden -->
                     <input
                       id="file-selector"
                       ref="fileselector"
@@ -2878,14 +2934,6 @@
                             :class="file.uploading ? '' : 'hidden'"
                           />
                         </b-progress>
-                        <!-- <b-progress
-                          :value="file.progress"
-                          max="100"
-                          height="15px"
-                          show-value
-                          :label="`${file.progress.toFixed(2)}%`"
-                          :class="file.uploading ? '' : 'hidden'"
-                        /> -->
                       </div>
                     </div>
                   </div>
@@ -3064,7 +3112,6 @@
                       <h5 style="font-size: 16px; margin-bottom: 5px;">
                         <span v-if="downloadingFromUrl === true">
                           <b-spinner small /> {{ restoreFromRemoteURLStatus }}
-                          <!-- <b-spinner small /> Backing up {{ tarProgress[0] }}... -->
                         </span>
                       </h5>
                     </div>
@@ -3433,13 +3480,13 @@
                     </b-button>
                     <b-modal
                       v-model="createDirectoryDialogVisible"
-                      header-class="custom-modal-header"
                       title="Create Folder"
                       size="lg"
                       centered
                       ok-only
                       ok-title="Create Folder"
                       header-bg-variant="primary"
+                      title-class="custom-modal-title"
                       @ok="createFolder(newDirName)"
                     >
                       <b-form-group
@@ -3456,10 +3503,10 @@
                     </b-modal>
                     <b-modal
                       v-model="uploadFilesDialog"
-                      header-class="custom-modal-header"
                       title="Upload Files"
                       size="lg"
                       header-bg-variant="primary"
+                      title-class="custom-modal-title"
                       centered
                       hide-footer
                       @close="refreshFolder()"
@@ -3618,7 +3665,7 @@
               <b-modal
                 v-model="renameDialogVisible"
                 header-bg-variant="primary"
-                header-class="custom-modal-header"
+                title-class="custom-modal-title"
                 hide-header-close
                 title="Rename"
                 size="lg"
@@ -3642,7 +3689,7 @@
                 v-model="editDialogVisible"
                 :title="`Editing: ${currentEditFile}`"
                 header-bg-variant="primary"
-                header-class="custom-modal-header"
+                title-class="custom-modal-title"
                 no-close-on-backdrop
                 no-close-on-esc
                 hide-header-close
@@ -3651,7 +3698,6 @@
                 @shown="onModalShown"
                 @hide="closeEditor"
               >
-                <!-- Scrollable Editor -->
                 <div class="editor-container">
                   <vue-monaco-editor
                     ref="monacoEditor"
@@ -3662,6 +3708,27 @@
                     @mount="handleMount"
                   />
                 </div>
+                <template #modal-header>
+                  <div class="d-flex justify-content-between align-items-center w-100">
+                    <span class="custom-modal-title text-truncate flex-grow-1 pr-3">
+                      Editing: {{ currentEditFile }}
+                    </span>
+                    <div class="d-flex align-items-center">
+                      <b-input-group class="language-selector">
+                        <b-input-group-prepend style="height: 28px;" is-text>
+                          <b-icon icon="code-square" scale="1" />
+                        </b-input-group-prepend>
+                        <b-form-select
+                          v-model="editorLanguage"
+                          :options="languageOptions"
+                          class="custom-select form-control-sm"
+                          style="width: 150px; height: 28px; padding: 2px 8px;"
+                          @change="updateEditorLanguage"
+                        />
+                      </b-input-group>
+                    </div>
+                  </div>
+                </template>
                 <template #modal-footer>
                   <b-button variant="danger" @click="closeEditor">
                     Close
@@ -3682,7 +3749,7 @@
         </div>
       </b-tab>
       <b-tab
-        v-if="windowWidth > 860"
+        :title-item-class="windowWidth > 860 ? '' : 'd-none'"
         title="Global App Management"
         disabled
       />
@@ -3698,11 +3765,14 @@
                   <b-button
                     id="start-app-global"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Start App"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 cb"
                   >
-                    Start App
+                    <span class="icon-circle">
+                      <b-icon icon="play-fill" />
+                    </span>
+                    <span class="ml-1">Start Application</span>
                   </b-button>
                   <confirm-dialog
                     target="start-app-global"
@@ -3712,11 +3782,14 @@
                   <b-button
                     id="stop-app-global"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Stop App"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 cb"
                   >
-                    Stop App
+                    <span class="icon-circle">
+                      <b-icon icon="stop-fill" />
+                    </span>
+                    <span class="ml-1">Stop Application</span>
                   </b-button>
                   <confirm-dialog
                     target="stop-app-global"
@@ -3726,11 +3799,14 @@
                   <b-button
                     id="restart-app-global"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Restart App"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 cb"
                   >
-                    Restart App
+                    <span class="icon-circle">
+                      <b-icon icon="arrow-clockwise" />
+                    </span>
+                    <span class="ml-1">Restart Application</span>
                   </b-button>
                   <confirm-dialog
                     target="restart-app-global"
@@ -3749,11 +3825,14 @@
                   <b-button
                     id="pause-app-global"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Pause App"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 cb"
                   >
-                    Pause App
+                    <span class="icon-circle">
+                      <b-icon icon="pause-circle-fill" />
+                    </span>
+                    <span class="ml-1">Pause Application</span>
                   </b-button>
                   <confirm-dialog
                     target="pause-app-global"
@@ -3763,11 +3842,14 @@
                   <b-button
                     id="unpause-app-global"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Unpause App"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 cb"
                   >
-                    Unpause App
+                    <span class="icon-circle">
+                      <b-icon icon="play-circle" />
+                    </span>
+                    <span class="ml-1">Unpause Application</span>
                   </b-button>
                   <confirm-dialog
                     target="unpause-app-global"
@@ -3794,11 +3876,14 @@
                   <b-button
                     id="redeploy-app-soft-global"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Soft Redeploy App"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 cb"
                   >
-                    Soft Reinstall
+                    <span class="icon-circle">
+                      <b-icon icon="arrow-repeat" />
+                    </span>
+                    <span class="ml-1">Soft Reinstall</span>
                   </b-button>
                   <confirm-dialog
                     target="redeploy-app-soft-global"
@@ -3808,11 +3893,14 @@
                   <b-button
                     id="redeploy-app-hard-global"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Hard Redeploy App"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 cb"
                   >
-                    Hard Reinstall
+                    <span class="icon-circle">
+                      <b-icon icon="recycle" />
+                    </span>
+                    <span class="ml-1">Hard Reinstall</span>
                   </b-button>
                   <confirm-dialog
                     target="redeploy-app-hard-global"
@@ -3831,11 +3919,14 @@
                   <b-button
                     id="remove-app-global"
                     v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="success"
+                    variant="outline-dark"
                     aria-label="Reinstall App"
-                    class="mx-1 my-1"
+                    class="mx-1 my-1 cb"
                   >
-                    Get New Instances
+                    <span class="icon-circle">
+                      <b-icon icon="bootstrap-reboot" />
+                    </span>
+                    <span class="ml-1">Get New Instances</span>
                   </b-button>
                   <confirm-dialog
                     target="remove-app-global"
@@ -3852,18 +3943,25 @@
         </div>
       </b-tab>
       <b-tab title="Running Instances">
-        <div v-if="masterSlaveApp">
-          <b-card title="Primary/Standby App Information">
-            <list-entry
-              title="Current IP selected as Primary running your application"
-              :data="masterIP"
-            />
-          </b-card>
-        </div>
         <b-row>
           <b-col>
             <div class="map_m">
-              <flux-map class="mb-0" :show-all="false" :filter-nodes="mapLocations" />
+              <div v-if="masterSlaveApp && masterIP">
+                <b-card class="mb-1">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <b-icon icon="hdd-network-fill" scale="1.3" class="mr-1" />
+                      <b-badge v-b-tooltip.hover.top="'Connect to your application server using this IP address.' " variant="primary">
+                        Primary Server IP Address
+                      </b-badge>
+                    </div>
+                    <kbd class="bg-primary" style="border-radius: 15px; font-family: monospace; font-size: 13px; padding: 0px 10px;">
+                      {{ masterIP }}
+                    </kbd>
+                  </div>
+                </b-card>
+              </div>
+              <flux-map class="mb-0 mt-0" :show-all="false" :filter-nodes="mapLocations" />
             </div>
           </b-col>
         </b-row>
@@ -4025,7 +4123,7 @@
             <b-icon
               class="mr-1"
               icon="ui-checks-grid"
-            /> Update Application Specifications / Extend subscription
+            /> Update Application Specifications / Extend Subscription
           </h5>
         </div>
         <div class="form-row form-group">
@@ -5564,7 +5662,7 @@
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
             variant="outline-success"
             aria-label="Compute Update Message"
-            class="mb-2 w-100"
+            class="mb-2 w-100 button-green"
             :disabled="tosAgreed === false"
             @click="checkFluxUpdateSpecificationsAndFormatMessage"
           >
@@ -5885,23 +5983,24 @@
           <h5>
             <b-icon
               class="mr-1"
-              icon="ui-checks-grid"
-            /> Cancel Application subscription
+              icon="calendar2-x-fill"
+              scale="1.2"
+            /> Cancel Application Subscription
           </h5>
         </div>
         <br>
         <div>
           Currently your application is subscribed until <b>{{ new Date(appRunningTill.current).toLocaleString('en-GB', timeoptions.shortDate) }}</b>.
           <br>
-          <b>WARNING: By cancelling your application subscription, your application will be removed from the network and all data will be lost.</b>
+          <b style="color: red;">WARNING: By cancelling your application subscription, your application will be removed from the network and all data will be lost.</b>
         </div>
         <br>
         <div>
           <b-button
             v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-            variant="outline-success"
+            variant="outline-danger"
             aria-label="Compute Cancel Message"
-            class="mb-2 w-100"
+            class="mb-2 w-100 button-red"
             @click="checkFluxCancelSubscriptionAndFormatMessage"
           >
             Compute Cancel Message
@@ -6097,8 +6196,8 @@
     </div>
     <b-modal
       v-model="chooseEnterpriseDialog"
-      header-class="custom-modal-header"
       header-bg-variant="primary"
+      title-class="custom-modal-title"
       title="Select Enterprise Nodes"
       size="xl"
       centered
@@ -6469,6 +6568,8 @@ export default {
   },
   data() {
     return {
+      activeTabInfo: null,
+      activeTabFile: null,
       operationTask: '',
       monacoReady: false,
       maxEditSize: 3 * 1024 * 1024,
@@ -7131,7 +7232,7 @@ export default {
       masterIP: '',
       selectedIp: null,
       masterSlaveApp: false,
-      applicationManagementAndStatus: '',
+      applicationManagementAndStatus: [],
       fiatCheckoutURL: '',
       stripeEnabled: true,
       paypalEnabled: true,
@@ -7142,6 +7243,14 @@ export default {
     };
   },
   computed: {
+    languageOptions() {
+      return this.supportedLanguages.map((lang) => ({ value: lang, text: lang }));
+    },
+    targetAppName() {
+      console.log('targetAppName');
+      console.log(this.$store.state.flux.appSpecification);
+      return this.$store.state.flux.appSpecification?.name;
+    },
     infoMessage() {
       // Default message
       const defaultMessage = 'Waiting for the operation to be completed...';
@@ -7564,6 +7673,9 @@ export default {
     },
   },
   watch: {
+    selectedIp(newVal) {
+      this.selectedIpChanged(newVal);
+    },
     skin() {
       if (this.memoryChart !== null) {
         this.updateCharts();
@@ -7739,7 +7851,8 @@ export default {
     this.appExec.env = '';
     this.checkFluxCommunication();
     this.getAppOwner();
-    this.getGlobalApplicationSpecifics();
+    // this.getGlobalApplicationSpecifics();
+    // this.getInstalledApplicationSpecifics();
     this.appsDeploymentInformation();
     this.getGeolocationData();
     this.getMarketPlace();
@@ -7756,14 +7869,20 @@ export default {
       this.editorInstance.dispose();
       this.editorInstance = null;
     }
+    this.$store.commit('flux/setAppName', '');
   },
   methods: {
+    updateEditorLanguage() {
+      if (this.$refs?.monacoEditor) {
+        this.$refs.monacoEditor.editor.updateOptions({ language: this.editorLanguage });
+      }
+    },
     getProgressVariant() {
       const percentage = this.usagePercentage;
       // eslint-disable-next-line no-nested-ternary
       return percentage >= 95 ? 'danger' : percentage >= 75 ? 'warning' : 'success';
     },
-    async logout() {
+    async logout(expired) {
       if (!this.logoutTigger) {
         this.logoutTigger = true;
         const zelidauth = localStorage.getItem('zelidauth');
@@ -7779,7 +7898,11 @@ export default {
               console.log(response.data.data.message);
             // SHOULD NEVER HAPPEN. Do not show any message.
             } else {
-              this.showToast('success', response.data.data.message);
+              if (expired) {
+                this.showToast('warning', 'Session expired, logging out...');
+              } else {
+                this.showToast('success', response.data.data.message);
+              }
               // Redirect to home page
               if (this.$route.path === '/') {
                 window.location.reload();
@@ -7857,9 +7980,7 @@ export default {
       const memoryUsageMB = memoryUsageBytes;
       const memoryUsagePercentage = ((memoryUsageBytes / memoryLimitBytes) * 100).toFixed(1);
       const cpuUsage = statsData.cpu_stats.cpu_usage.total_usage - statsData.precpu_stats.cpu_usage.total_usage;
-      console.log(cpuUsage);
       const systemCpuUsage = statsData.cpu_stats.system_cpu_usage - statsData.precpu_stats.system_cpu_usage;
-      console.log(systemCpuUsage);
       const onlineCpus = statsData.cpu_stats.online_cpus;
       const { nanoCpus } = statsData;
       let cpuCores;
@@ -7890,17 +8011,19 @@ export default {
       const diskUsageDocker = statsData.disk_stats?.volume ?? null;
       const diskUsageRootFs = statsData.disk_stats?.rootfs ?? null;
 
-      console.log('CPU Size:', cpuSize);
-      console.log('CPU Percent:', cpuPercent);
-      console.log('Memory Usage:', memoryUsageMB);
-      console.log('Memory Usage (%):', memoryUsagePercentage);
-      console.log('Network RX Bytes:', networkRxBytes);
-      console.log('Network TX Bytes:', networkTxBytes);
-      console.log('I/O Read Bytes:', ioReadBytes);
-      console.log('I/O Write Bytes:', ioWriteBytes);
-      console.log('Disk Usage Mounts:', diskUsageMounts);
-      console.log('Disk Usage Volume:', diskUsageDocker);
-      console.log('Disk Usage RootFS:', diskUsageRootFs);
+      console.log('Resource Metrics:', {
+        'CPU Size': cpuSize,
+        'CPU Percent': cpuPercent,
+        'Memory Usage (MB)': memoryUsageMB,
+        'Memory Usage (%)': memoryUsagePercentage,
+        'Network RX Bytes': networkRxBytes,
+        'Network TX Bytes': networkTxBytes,
+        'I/O Read Bytes': ioReadBytes,
+        'I/O Write Bytes': ioWriteBytes,
+        'Disk Usage Mounts': diskUsageMounts,
+        'Disk Usage Volume': diskUsageDocker,
+        'Disk Usage RootFS': diskUsageRootFs,
+      });
 
       this.insertChartData(cpuPercent, memoryUsageMB, memoryUsagePercentage, networkRxBytes, networkTxBytes, ioReadBytes, ioWriteBytes, diskUsageMounts, diskUsageDocker, diskUsageRootFs, cpuSize, timeStamp);
     },
@@ -10305,7 +10428,6 @@ export default {
       }
 
       this.isConnecting = true;
-
       this.terminal = new Terminal({
         allowProposedApi: true,
         cursorBlink: true,
@@ -10471,24 +10593,28 @@ export default {
       }
     },
     async updateManagementTab(index) {
-      console.log(index);
       await this.getZelidAuthority();
       if (!this.globalZelidAuthorized) {
         return;
       }
+      window.scrollTo({ top: 0, left: 0 });
+      if (index === 1) {
+        this.callResponse.data = '';
+        this.callBResponse.data = '';
+      }
       this.noData = false;
       this.processes = [];
       this.enableHistoryStatistics = false;
-      this.callResponse.data = '';
-      this.callResponse.status = '';
-      // do not reset global application specifics obtained
+      this.callResponseChanges.data = '';
+      this.callResponseInspect.data = '';
+      this.logs = [];
+      this.selectedLog = [];
       this.appExec.cmd = '';
       this.appExec.env = '';
       this.output = [];
       this.downloadOutput = {};
       this.downloadOutputReturned = false;
       this.backupToUpload = [];
-
       const tabs = this.$refs.managementTabs.$children;
       const tabTitle = tabs[index]?.title;
       if (tabTitle !== 'Interactive Terminal') {
@@ -10502,29 +10628,32 @@ export default {
         this.stopPollingStats();
       }
       if (!this.selectedIp) {
+        await this.getGlobalApplicationSpecifics();
         await this.getInstancesForDropDown();
-        await this.getInstalledApplicationSpecifics();
+        if (!this.appSpecification?.name) {
+          await this.getInstalledApplicationSpecifics();
+          await this.$nextTick();
+        }
+        await this.$nextTick();
         this.getApplicationLocations().catch(() => {
           this.isBusy = false;
           this.showToast('danger', 'Error loading application locations');
         });
       }
-      this.getApplicationManagementAndStatus();
+      await this.getApplicationManagementAndStatus();
+      await this.$nextTick();
+      if (this.applicationManagementAndStatus?.length === 0) {
+        console.log('Application not found. Instance switching...');
+        this.switchInstance(true);
+      }
       switch (index) {
         case 1:
-          this.callResponse.data = '';
-          this.callBResponse.data = '';
-          this.getInstalledApplicationSpecifics();
-          this.getGlobalApplicationSpecifics();
+          await this.getInstalledApplicationSpecifics();
+          await this.getGlobalApplicationSpecifics();
           break;
         case 2:
-          this.callResponseInspect.data = '';
           this.getApplicationInspect();
           break;
-        // case 3:
-        //   this.callResponseStats.data = '';
-        //   this.getApplicationStats();
-        //   break;
         case 3:
           this.$nextTick(() => {
             this.initCharts();
@@ -10532,16 +10661,9 @@ export default {
           });
           break;
         case 4:
-          this.callResponseChanges.data = '';
           this.getApplicationChanges();
           break;
-        // case 6:
-        //   this.callResponseProcesses.data = '';
-        //   this.getApplicationProcesses();
-        //   break;
         case 5:
-          this.logs = [];
-          this.selectedLog = [];
           this.fetchLogsForSelectedContainer();
           break;
         case 8:
@@ -10570,8 +10692,8 @@ export default {
     async appsGetListAllApps() {
       const response = await this.executeLocalCommand('/apps/listallapps', null, null, true);
       console.log(response);
-      this.getAllAppsResponse.status = response.data.status;
-      this.getAllAppsResponse.data = response.data.data;
+      this.getAllAppsResponse.status = response?.data?.status;
+      this.getAllAppsResponse.data = response?.data?.data;
       this.getApplicationManagementAndStatus(true);
     },
     goBackToApps() {
@@ -10690,10 +10812,7 @@ export default {
           this.callResponse.status = response.data.status;
           this.callResponse.data = response.data.data[0];
           this.appSpecification = response.data.data[0];
-          // /* eslint-disable no-restricted-syntax */
-          // if (this.apps.length === 1) {
-          // this.apps = this.appSpecification.compose.map((component) => component.name); // Update apps array
-          // }
+          this.$store.commit('flux/setAppName', this.appSpecification.name);
         }
       }
     },
@@ -11142,7 +11261,6 @@ export default {
         const env = this.appExec.env ? this.appExec.env : '[]';
         const { cmd } = this.appExec;
         this.commandExecuting = true;
-        console.log('here');
         const data = {
           appname: name,
           cmd: splitargs(cmd),
@@ -11523,9 +11641,19 @@ export default {
       }
       this.selectedAppOwner = response.data.data;
     },
+    switchInstance(notFound = false) {
+      const newInstance = this.instances.data.find((instance) => instance.ip !== this.selectedIp);
+      if (newInstance) {
+        this.selectedIp = newInstance.ip;
+        if (!notFound) {
+          this.showToast('info', `Instance switched to ${this.selectedIp}.`);
+        } else {
+          this.showToast('info', `Application not found. Instance has been switched to ${this.selectedIp}.`);
+        }
+      }
+    },
     async stopApp(app) {
       this.output = [];
-      // this.showToast('warning', `Stopping ${app}`);
       this.progressVisable = true;
       this.operationTitle = `Stopping ${app}...`;
       const response = await this.executeLocalCommand(`/apps/appstop/${app}`);
@@ -11558,7 +11686,6 @@ export default {
       this.output = [];
       this.progressVisable = true;
       this.operationTitle = `Restarting ${app}...`;
-      //  this.showToast('warning', `Restarting ${app}`);
       const response = await this.executeLocalCommand(`/apps/apprestart/${app}`);
       if (response.data.status === 'success') {
         this.showToast('success', response.data.data.message || response.data.data);
@@ -11673,12 +11800,8 @@ export default {
         } else {
           this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
           setTimeout(() => {
-            const newInstance = self.instances.data.find((instance) => instance.ip !== self.selectedIp);
-            if (newInstance) {
-              self.selectedIp = newInstance.ip;
-              self.showToast('info', `Instance switched to ${self.selectedIp}.`);
-            }
-          }, 5000);
+            this.switchInstance();
+          }, 4000);
         }
       }
     },
@@ -11689,15 +11812,12 @@ export default {
       const maxTime = 1.5 * 60 * 60 * 1000;
       const mesTime = auth?.loginPhrase?.substring(0, 13) || 0;
       const expiryTime = +mesTime + maxTime;
-      const expiryDate = new Date(expiryTime).toLocaleString();
-      console.log(`Current time: ${new Date(timestamp).toLocaleString()}`);
-      console.log(`Authorization will expire at: ${expiryDate}`);
       if (+mesTime > 0 && timestamp < expiryTime) {
         this.globalZelidAuthorized = true;
       } else {
         this.globalZelidAuthorized = false;
-        this.showToast('danger', 'Session expired. Please log into FluxOS again');
-        await this.logout();
+        console.log('Session expired, logging out...');
+        await this.logout(true);
       }
     },
     async delay(ms) {
@@ -11719,7 +11839,7 @@ export default {
         }
         this.getZelidAuthority();
         if (!this.globalZelidAuthorized) {
-          throw new Error('Session expired. Please log into FluxOS again');
+          return null;
         }
 
         const url = this.selectedIp.split(':')[0];
@@ -11750,7 +11870,7 @@ export default {
         };
         this.getZelidAuthority();
         if (!this.globalZelidAuthorized) {
-          throw new Error('Session expired. Please log into FluxOS again');
+          return;
         }
 
         // get app instances
@@ -12523,7 +12643,6 @@ export default {
     },
     async onSessionConnect(session) {
       console.log(session);
-      // const msg = `0x${Buffer.from(this.loginPhrase, 'utf8').toString('hex')}`;
       const result = await this.signClient.request({
         topic: session.topic,
         chainId: 'eip155:1',
@@ -12770,6 +12889,20 @@ export default {
         return 'primary';
       }
     },
+    getComponentInfo(appName) {
+      const foundComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(appName));
+      if (!foundComponent) {
+        return false;
+      }
+
+      const componentName = appName.substring(0, appName.lastIndexOf('_')) || appName;
+      return {
+        name: componentName,
+        state: foundComponent.State || 'N/A',
+        status: foundComponent.Status ? foundComponent.Status.toLowerCase() : 'N/A',
+        image: foundComponent.Image || 'N/A',
+      };
+    },
     async getApplicationManagementAndStatus(skip = false) {
       if (!this.globalZelidAuthorized || !this.selectedIp) {
         return;
@@ -12777,27 +12910,20 @@ export default {
       if (skip === false) {
         await this.appsGetListAllApps();
       }
+      if (!this.appSpecification?.name) {
+        await this.getInstalledApplicationSpecifics();
+        await this.$nextTick();
+      }
       const appInfoArray = [];
       if (this.appSpecification && this.appSpecification.version >= 4) {
         // eslint-disable-next-line no-restricted-syntax
         for (const component of this.appSpecification.compose) {
-          const foundComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(`${component.name}_${this.appSpecification.name}`)) || {};
-          appInfoArray.push({
-            name: component.name,
-            state: foundComponent.State ? foundComponent.State : 'N/A',
-            status: foundComponent.Status ? foundComponent.Status.toLowerCase() : 'N/A',
-            image: foundComponent.Image,
-          });
+          const infoObject = this.getComponentInfo(`${component.name}_${this.appSpecification.name}`);
+          if (infoObject) appInfoArray.push(infoObject);
         }
       } else {
-        // eslint-disable-next-line no-unused-vars
-        const foundComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(this.appSpecification.name)) || {};
-        appInfoArray.push({
-          name: this.appSpecification.name,
-          state: foundComponent.State ? foundComponent.State : 'N/A',
-          status: foundComponent.Status ? foundComponent.Status.toLowerCase() : 'N/A',
-          image: foundComponent.Image,
-        });
+        const infoObject = this.getComponentInfo(this.appSpecification.name);
+        if (infoObject) appInfoArray.push(infoObject);
       }
 
       this.applicationManagementAndStatus = appInfoArray;
@@ -13198,6 +13324,28 @@ td .ellipsis-wrapper {
   box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
 }
 
+.button-red:hover {
+  color: #ff1414;
+  border-color: #ff0000;
+  box-shadow: 0 0 10px 2px rgba(211, 9, 9, 0.7);
+}
+
+.button-green:not(:disabled):hover {
+  color: #39ff14;
+  border-color: #81c784;
+  box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
+}
+
+.cb:hover {
+  color: #39ff14;
+  border-color: #81c784;
+  box-shadow: 0 0 10px 2px rgba(129, 199, 132, 0.7);
+}
+
+.cb {
+  min-width: 225px;
+}
+
 .r.disabled {
   animation: spin 2s linear infinite;
   opacity: 0.5;
@@ -13371,15 +13519,14 @@ input[type="number"] {
 }
 
 .custom-modal-size {
-  max-width: 800px;  /* Set the width of the modal (90% of the viewport width) */
+  max-width: 800px;
 }
 
 .modal-backdrop {
   background-color: rgba(0, 0, 0, 1) !important;
 }
 
-.custom-modal-header .modal-title,
-.custom-modal-header {
+.custom-modal-title {
   color: #fff !important;
 }
 
@@ -13400,13 +13547,13 @@ input[type="number"] {
 .app-item:hover {
   background-color: rgb(255, 255, 255);
   border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* dark shadow for light backgrounds */
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 body.dark-layout .app-item:hover {
   background-color: #1D1F24;
   border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(255, 255, 255, 0.2); /* light shadow for dark backgrounds */
+  box-shadow: 0 4px 8px rgba(255, 255, 255, 0.2);
 }
 
 .app-icon {
@@ -13430,7 +13577,7 @@ body.dark-layout .app-item:hover {
 .app-header {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap; /* Ensures all items stay in one line */
+  flex-wrap: nowrap;
 }
 
 .wrap-text-info {
@@ -13446,6 +13593,17 @@ body.dark-layout .app-item:hover {
 .jv-container.boxed {
   border: 1px solid #eee !important;
   border-radius: 6px
+}
+
+.hidden-tab {
+  display: none !important;
+}
+
+.limited-width {
+  max-width: 225px;
+  display: inline-block;
+  text-align: center;
+  word-wrap: break-word;
 }
 
 </style>

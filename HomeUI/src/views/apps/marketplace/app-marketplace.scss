@@ -1,7 +1,7 @@
 @import '@core/scss/base/bootstrap-extended/include'; // Bootstrap includes
 @import '@core/scss/base/components/include'; // Components includes
 
-$app_details_header_height: 5rem;
+$app_details_header_height: 2rem;
 
 // Todo Application css starts
 .marketplace-application {
@@ -86,8 +86,7 @@ $app_details_header_height: 5rem;
       // ToDo task list area
       .marketplace-app-list {
         position: relative;
-        height: calc(100% - 1.75rem); // ? search box height (3.49rem) + 1px bottom border till 2 decimals
-        // background-color: $white;
+        height: calc(100vh - 155px - 50px) !important; // Fix: Ensure height in dev mode
         border-radius: 0;
         .marketplace-media-list {
           padding: 0;
@@ -98,7 +97,7 @@ $app_details_header_height: 5rem;
             li:nth-child(#{$i}) {
               animation-delay: 0.1s * $i;
             }
-          }
+          }     
           li {
             cursor: pointer;
             transition: all 0.2s, background 0s, border-color 0s, color 0s;
@@ -208,10 +207,8 @@ $app_details_header_height: 5rem;
       justify-content: space-between;
       align-items: center;
       box-shadow: 0 4px 6px rgba($black, 0.04);
-      border-bottom: 1px solid $kbd-bg;
       position: relative;
-      padding: 0.5rem 2rem;
-      // background-color: $white;
+      padding: 0.9rem 2rem;
       height: $app_details_header_height;
     }
     .app-header-left {

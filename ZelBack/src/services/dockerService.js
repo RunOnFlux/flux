@@ -6,6 +6,8 @@ const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
 const deviceHelper = require('./deviceHelper');
+const generalService = require('./generalService');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
 const log = require('../lib/log');
 
 const fluxDirPath = path.join(__dirname, '../../../');
@@ -825,16 +827,32 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     syslogIP = await getNextAvailableIPForApp(appName);
   }
 
+  let nodeId = null;
+  let nodeIP = null;
+  let labels = null;
+  if (syslogTarget && syslogIP) {
+    const nodeCollateralInfo = await generalService.obtainNodeCollateralInformation().catch(() => { throw new Error('Host Identifier information not available at the moment'); });
+    nodeId = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
+    nodeIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!nodeIP) {
+      throw new Error('Not possible to get node IP');
+    }
+    labels = {
+      app_name: `${appName}`,
+      host_id: `${nodeId}`,
+      host_ip: `${nodeIP}`,
+    };
+  }
   log.info(`syslogTarget=${syslogTarget}, syslogIP=${syslogIP}`);
 
   const logConfig = syslogTarget && syslogIP
     ? {
-      Type: 'syslog',
+      Type: 'gelf',
       Config: {
-        'syslog-address': `udp://${syslogIP}:514`,
-        'syslog-facility': 'local0',
+        'gelf-address': `udp://${syslogIP}:514`,
+        'gelf-compression-type': 'none',
         tag: `${appSpecifications.name}`,
-        'syslog-format': 'rfc5424',
+        labels: 'app_name,host_id,host_ip',
       },
     }
     : {
@@ -856,6 +874,8 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
+    // Conditionally include Labels only if it's not null
+    ...(labels && { Labels: labels }),
     HostConfig: {
       NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),

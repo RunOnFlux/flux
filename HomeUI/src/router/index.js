@@ -87,17 +87,30 @@ const router = new VueRouter({
 router.beforeEach(async (to, from, next) => {
   const zelidauth = localStorage.getItem('zelidauth');
   const auth = qs.parse(zelidauth);
-  store.commit('flux/setPrivilege', 'none');
+
   if (auth && auth.zelid && auth.signature && auth.loginPhrase) {
     try {
       const response = await IDService.checkUserLogged(auth.zelid, auth.signature, auth.loginPhrase);
-      const privilege = response.data.data.message;
+      const privilege = response.data.data.message || 'none';
       store.commit('flux/setPrivilege', privilege);
       if (privilege === 'none') {
         localStorage.removeItem('zelidauth');
+      } else if (auth.privilege && auth.privilege !== privilege) {
+        auth.privilege = privilege;
+        localStorage.setItem('zelidauth', qs.stringify(auth));
       }
     } catch (error) {
-      console.log(error);
+      console.log('API error:', error);
+      store.commit('flux/setPrivilege', 'none');
+      localStorage.removeItem('zelidauth');
+      console.log('Reset privilege to "none" due to API error');
+    }
+  } else {
+    if (store.state.flux.privilege !== 'none') {
+      store.commit('flux/setPrivilege', 'none');
+    }
+    if (zelidauth && !auth.zelid) {
+      localStorage.removeItem('zelidauth');
     }
   }
 
