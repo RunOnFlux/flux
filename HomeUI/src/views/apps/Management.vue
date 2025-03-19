@@ -12932,6 +12932,7 @@ export default {
       this.applicationManagementAndStatus = appInfoArray;
     },
     async selectedIpChanged() {
+      this.disconnectTerminal();
       this.updateManagementTab(this.$refs.managementTabs.currentTab);
     },
     cleanData() {
