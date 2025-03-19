@@ -10504,16 +10504,20 @@ export default {
             }
             this.socket.emit('cmd', "alias ls='ls --color'\n");
             this.socket.emit('cmd', "alias ll='ls -alF'\n");
-            this.socket.emit('cmd', "clear\n");
           }
           /* eslint-disable quotes */
           setTimeout(() => {
-            this.isConnecting = false;
-            this.isVisible = true;
             this.$nextTick(() => {
               setTimeout(() => {
-                this.terminal.focus();
-                fitAddon.fit();
+                this.isConnecting = false;
+                this.isVisible = true;
+                this.terminal.clear();
+                this.$nextTick(() => {
+                  this.terminal.focus();
+                  setTimeout(() => {
+                    fitAddon.fit();
+                  }, 100);
+                });
               }, 500);
             });
           }, 1400);
@@ -12890,17 +12894,16 @@ export default {
       }
     },
     getComponentInfo(appName) {
-      const foundComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(appName));
-      if (!foundComponent) {
-        return false;
-      }
+      const apps = this.getAllAppsResponse?.data;
+      if (!Array.isArray(apps)) return false;
+      const foundComponent = apps.find((app) => app.Names?.[0] === this.getAppDockerNameIdentifier(appName));
+      if (!foundComponent) return false;
 
-      const componentName = appName.substring(0, appName.lastIndexOf('_')) || appName;
       return {
-        name: componentName,
-        state: foundComponent.State || 'N/A',
-        status: foundComponent.Status ? foundComponent.Status.toLowerCase() : 'N/A',
-        image: foundComponent.Image || 'N/A',
+        name: appName.substring(0, appName.lastIndexOf('_')) || appName,
+        state: foundComponent.State ?? 'N/A',
+        status: foundComponent.Status?.toLowerCase() ?? 'N/A',
+        image: foundComponent.Image ?? 'N/A',
       };
     },
     async getApplicationManagementAndStatus(skip = false) {
