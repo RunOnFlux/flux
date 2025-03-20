@@ -6,27 +6,21 @@ class FluxWebsocketServer {
 
   #socketServer = new WebSocketServer({
     noServer: true,
-    perMessageDeflate: (req) => {
-      const userAgent = (req.headers && req.headers['user-agent']) ? req.headers['user-agent'] : '';
-      if (userAgent.toLowerCase().includes('firefox')) {
-        return false; // Disable compression for Firefox
-      }
-      return {
-        zlibDeflateOptions: {
-          chunkSize: 1024,
-          memLevel: 9,
-          level: 9,
-        },
-        zlibInflateOptions: {
-          chunkSize: 10 * 1024,
-        },
-        clientNoContextTakeover: true,
-        serverNoContextTakeover: true,
-        serverMaxWindowBits: 15,
-        clientMaxWindowBits: 15,
-        concurrencyLimit: 2,
-        threshold: 128,
-      };
+    perMessageDeflate: {
+      zlibDeflateOptions: {
+        chunkSize: 1024,
+        memLevel: 9,
+        level: 9,
+      },
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024,
+      },
+      clientNoContextTakeover: false, // Allow client to decide (Fixes Firefox)
+      serverNoContextTakeover: true, // Safe to enforce
+      clientMaxWindowBits: false, // Allow Firefox to use default settings
+      serverMaxWindowBits: false, // Let browsers negotiate (Default 15)
+      concurrencyLimit: 2,
+      threshold: 1024, // Avoid compressing very small messages
     },
   });
 
