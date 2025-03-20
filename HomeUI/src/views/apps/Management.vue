@@ -5756,7 +5756,6 @@
               <b-card class="text-center" title="Sign with">
                 <div class="loginRow">
                   <a
-                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
                     @click="initiateSignWSUpdate"
                   >
                     <img
