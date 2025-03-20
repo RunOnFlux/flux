@@ -15,8 +15,8 @@ class FluxWebsocketServer {
       zlibInflateOptions: {
         chunkSize: 10 * 1024,
       },
-      clientNoContextTakeover: false, // Allow client to decide (Fixes Firefox)
-      serverNoContextTakeover: true, // Safe to enforce
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: false,
       clientMaxWindowBits: false, // Allow Firefox to use default settings
       serverMaxWindowBits: false, // Let browsers negotiate (Default 15)
       concurrencyLimit: 2,
