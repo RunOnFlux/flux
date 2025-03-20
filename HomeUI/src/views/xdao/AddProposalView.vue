@@ -285,7 +285,12 @@ export default {
         if (window.zelcore) {
           window.zelcore.protocol(protocol);
         } else {
-          window.open(protocol);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         }
       } catch (error) {
         showToast('danger', error.message);

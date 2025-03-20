@@ -963,13 +963,20 @@ export default {
     },
     initZelcore() {
       try {
+        const protocolUrl = `zel:?action=sign&message=${this.loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+
         if (window.zelcore) {
-          window.zelcore.protocol(`zel:?action=sign&message=${this.loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`);
+          window.zelcore.protocol(protocolUrl);
         } else {
-          window.open(`zel:?action=sign&message=${this.loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocolUrl;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         }
       } catch (error) {
-        this.showToast('danger', error.message);
+        this.showToast('warning', 'Failed to sign message, please try again.');
       }
     },
     async initSSP() {

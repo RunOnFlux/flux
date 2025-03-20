@@ -1526,7 +1526,12 @@ export default {
         if (window.zelcore) {
           window.zelcore.protocol(protocol);
         } else {
-          window.open(protocol);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         }
       } catch (error) {
         showToast('warning', 'Failed to sign message, please try again.');
@@ -1931,7 +1936,12 @@ export default {
         if (window.zelcore) {
           window.zelcore.protocol(protocol);
         } else {
-          window.open(protocol);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         }
       } catch (error) {
         showToast('warning', 'Failed to sign message, please try again.');
@@ -1954,9 +1964,19 @@ export default {
             data,
           );
           const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
-          window.open(zelProtocol);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = zelProtocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         } else {
-          window.open(`zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         }
       } catch (error) {
         showToast('warning', 'Failed to sign message, please try again.');

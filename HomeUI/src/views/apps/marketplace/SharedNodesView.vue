@@ -997,8 +997,8 @@
               Pay with<br>Zelcore
             </h3>
             <a
-              @click="initZelcorePayB"
               class="col"
+              @click="initZelcorePayB"
             >
               <img
                 class="zelidLogin"
@@ -1560,8 +1560,8 @@
                   Pay with<br>Zelcore
                 </h3>
                 <a
-                  @click="initZelcorePay"
                   class="col"
+                  @click="initZelcorePay"
                 >
                   <img
                     class="zelidLogin"
@@ -1800,7 +1800,12 @@ export default {
         if (window.zelcore) {
           window.zelcore.protocol(protocol);
         } else {
-          window.open(protocol);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         }
       } catch (error) {
         showToast('danger', error.message);
@@ -2424,7 +2429,12 @@ export default {
         if (window.zelcore) {
           window.zelcore.protocol(protocol);
         } else {
-          window.open(protocol);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         }
       } catch (error) {
         showToast('warning', 'Failed to sign message, please try again.');
@@ -2437,7 +2447,12 @@ export default {
         if (window.zelcore) {
           window.zelcore.protocol(protocol);
         } else {
-          window.open(protocol);
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
         }
       } catch (error) {
         showToast('warning', 'Failed to sign message, please try again.');
