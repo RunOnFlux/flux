@@ -10400,11 +10400,12 @@ export default {
         const composeValues = Object.values(this.appSpecification.compose);
         const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
         if (!foundInName) {
-          this.showToast('danger', 'Please select an container app before connecting.');
+          this.showToast('danger', 'Please select a container app before connecting.');
           return;
         }
       }
       let consoleInit = 0;
+      let skipToast = 0;
       if (this.selectedApp || this.appSpecification.version <= 3) {
         if (this.selectedCmd === null) {
           this.showToast('danger', 'No command selected.');
@@ -10423,7 +10424,7 @@ export default {
           console.log(`App name: ${name}`);
         }
       } else {
-        this.showToast('danger', 'Please select an container app before connecting.');
+        this.showToast('danger', 'Please select a container app before connecting.');
         return;
       }
 
@@ -10494,18 +10495,28 @@ export default {
       });
 
       this.socket.on('show', (data) => {
+        if (typeof data === 'string' && consoleInit === 0 && data.includes('OCI runtime exec')) {
+          skipToast = 1;
+          const failedCommand = this.customValue || this.selectedCmd;
+          console.error(`Error: ${data}`);
+          const errorMessage = `The command "${failedCommand}" is not supported in this container.`;
+          this.showToast('danger', errorMessage);
+          this.disconnectTerminal();
+          return;
+        }
+
         if (consoleInit === 0) {
-          /* eslint-disable quotes */
           consoleInit = 1;
           if (!this.customValue) {
+            // eslint-disable-next-line quotes
             this.socket.emit('cmd', "export TERM=xterm\n");
             if (this.selectedCmd === '/bin/bash') {
+              // eslint-disable-next-line quotes
               this.socket.emit('cmd', "PS1=\"\\[\\033[01;31m\\]\\u\\[\\033[01;33m\\]@\\[\\033[01;36m\\]\\h \\[\\033[01;33m\\]\\w \\[\\033[01;35m\\]\\$ \\[\\033[00m\\]\"\n");
             }
             this.socket.emit('cmd', "alias ls='ls --color'\n");
             this.socket.emit('cmd', "alias ll='ls -alF'\n");
           }
-          /* eslint-disable quotes */
           setTimeout(() => {
             this.$nextTick(() => {
               setTimeout(() => {
@@ -10526,7 +10537,9 @@ export default {
       });
 
       this.socket.on('disconnect', () => {
-        this.showToast('warning', 'Disconnected from terminal.');
+        if (skipToast === 0) {
+          this.showToast('warning', 'Disconnected from terminal.');
+        }
         this.disconnectTerminal();
       });
 
@@ -11050,7 +11063,7 @@ export default {
         signature: this.signature,
       };
       this.progressVisable = true;
-      this.operationTitle = "Propagating message accross Flux network...";
+      this.operationTitle = 'Propagating message accross Flux network...';
       const response = await AppsService.updateApp(zelidauth, data).catch((error) => {
         this.showToast('danger', error.message || error);
       });
@@ -11100,7 +11113,7 @@ export default {
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
-        this.operationTitle = " Compute update message...";
+        this.operationTitle = ' Compute update message...';
         this.progressVisable = true;
         const appSpecification = this.appUpdateSpecification;
         let secretsPresent = false;
@@ -11234,7 +11247,7 @@ export default {
     async checkFluxCancelSubscriptionAndFormatMessage() {
       try {
         this.progressVisable = true;
-        this.operationTitle = `Cancelling subscription...`;
+        this.operationTitle = 'Cancelling subscription...';
         const appSpecification = this.appUpdateSpecification;
         appSpecification.geolocation = this.generateGeolocations();
         appSpecification.expire = 100;
