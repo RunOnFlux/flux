@@ -903,7 +903,6 @@
             class="text-center wizard-card"
           >
             <a
-              :href="(sendingRequest || requestSent || requestFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -998,7 +997,7 @@
               Pay with<br>Zelcore
             </h3>
             <a
-              :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.fundingAddress}&amount=${selectedStake.collateral}&message=${selectedStake.signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
+              @click="initZelcorePayB"
               class="col"
             >
               <img
@@ -1144,7 +1143,6 @@
             class="text-center wizard-card"
           >
             <a
-              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1279,7 +1277,6 @@
             class="text-center wizard-card"
           >
             <a
-              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1469,7 +1466,6 @@
             class="text-center wizard-card"
           >
             <a
-              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
               @click="initiateSignWS"
             >
               <img
@@ -1564,7 +1560,7 @@
                   Pay with<br>Zelcore
                 </h3>
                 <a
-                  :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.fundingAddress}&amount=${stakeAmount}&message=${signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
+                  @click="initZelcorePay"
                   class="col"
                 >
                   <img
@@ -1798,10 +1794,24 @@ export default {
       console.log(evt);
     };
 
+    const initZelcore = () => {
+      try {
+        const protocol = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          window.open(protocol);
+        }
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
     const initiateSignWS = () => {
       if (stakeRegistered.value || registeringStake.value || stakeRegisterFailed.value) {
         return;
       }
+      initZelcore();
       const { protocol, hostname } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -2408,6 +2418,32 @@ export default {
 
     const formatPaymentTooltip = (stake) => `Send a payment of ${stake.collateral} Flux to<br>${titanConfig.value.nodeAddress}<br>with a message<br>${stake.signatureHash}`;
 
+    const initZelcorePay = () => {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${titanConfig.value.fundingAddress}&amount=${stakeAmount.value}&message=${signatureHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          window.open(protocol);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+
+    const initZelcorePayB = () => {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${titanConfig.value.fundingAddress}&amount=${selectedStake.value.collateral}&message=${selectedStake.value.signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          window.open(protocol);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+
     return {
 
       // UI
@@ -2512,6 +2548,9 @@ export default {
 
       tierColors,
       indexedTierColors,
+
+      initZelcorePay,
+      initZelcorePayB,
     };
   },
 };
