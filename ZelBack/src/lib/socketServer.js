@@ -17,8 +17,8 @@ class FluxWebsocketServer {
       },
       clientNoContextTakeover: true,
       serverNoContextTakeover: false,
-      clientMaxWindowBits: false, // Allow Firefox to use default settings
-      serverMaxWindowBits: false, // Let browsers negotiate (Default 15)
+      clientMaxWindowBits: true, // Allow Firefox to use default settings
+      serverMaxWindowBits: true, // Let browsers negotiate (Default 15)
       concurrencyLimit: 2,
       threshold: 1024, // Avoid compressing very small messages
     },
