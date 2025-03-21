@@ -2296,14 +2296,11 @@ export default {
     },
     async appsGetListGlobalApps() {
       this.tableconfig.globalAvailable.loading = true;
-      console.log('CALL1');
       const response = await AppsService.globalAppSpecifications();
       console.log(response);
-      console.log('CALL2');
       // remove marketplace apps from the list and extract
       // marketplace apps to parse the title
       const apps = response.data.data.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
-      console.log('CALL3');
       this.tableconfig.globalAvailable.apps = apps;
       this.tableconfig.globalAvailable.loading = false;
       this.tableconfig.globalAvailable.status = response.data.status;

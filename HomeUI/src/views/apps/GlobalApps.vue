@@ -1492,7 +1492,6 @@ export default {
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         if (!auth.zelid) {
-          this.tableconfig.my_expired.loading = false;
           return;
         }
         const response = await AppsService.permanentMessagesOwner(auth.zelid);
@@ -1521,8 +1520,6 @@ export default {
             expiredApps.push(app);
           }
         }
-        this.tableconfig.my_expired.apps = expiredApps;
-        this.tableconfig.my_expired.loading = false;
       } catch (error) {
         console.log(error);
       }
