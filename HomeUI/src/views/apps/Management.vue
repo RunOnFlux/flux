@@ -152,6 +152,12 @@
             </h5>
           </div>
           <div class="wrap-text-info">
+            <div v-if="noInstanceAvailable" class="placeholder-box">
+              <p style="color: red; font-size: 16px;">
+                ⚠️ <b>No deployed application detected.</b>
+              </p>
+              <small>🔄 Try to refresh or 🌐 switch to another instance.</small>
+            </div>
             <div
               v-if="callResponse.data"
               style="text-align: left;"
@@ -503,7 +509,7 @@
               </div>
             </div>
             <div v-else>
-              <div class="d-flex align-items-center justify-content-left mb-2">
+              <div v-if="!noInstanceAvailable" class="d-flex align-items-center justify-content-left mb-2">
                 <v-icon class="spin-icon" name="spinner" style="margin-right: 8px;" />
                 <h5 class="mb-0">
                   Local specification loading...
@@ -855,7 +861,7 @@
           </div>
         </b-card>
       </b-tab>
-      <b-tab title="Information">
+      <b-tab title="Information" :disabled="noInstanceAvailable">
         <b-card class="h-100 d-flex flex-column">
           <!-- Header -->
           <div
@@ -874,7 +880,6 @@
               Information
             </h5>
           </div>
-
           <!-- Loading State -->
           <div v-if="commandExecutingInspect">
             <div style="display: flex; align-items: center;">
@@ -929,7 +934,7 @@
           </div>
         </b-card>
       </b-tab>
-      <b-tab title="Monitoring">
+      <b-tab title="Monitoring" :disabled="noInstanceAvailable">
         <div class="container">
           <div
             class="d-flex mb-1 align-items-center justify-content-between"
@@ -1169,7 +1174,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="File Changes">
+      <b-tab title="File Changes" :disabled="noInstanceAvailable">
         <b-card>
           <div
             class="mb-1"
@@ -1248,7 +1253,7 @@
           </div>
         </b-card>
       </b-tab>
-      <b-tab title="Logs">
+      <b-tab title="Logs" :disabled="noInstanceAvailable">
         <div>
           <div
             class="mb-2"
@@ -1434,7 +1439,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Application Control">
+      <b-tab title="Application Control" :disabled="noInstanceAvailable">
         <div
           class="mb-2"
           style="
@@ -1694,6 +1699,7 @@
       <b-tab
         title="Component Control"
         :title-item-class="(appSpecification?.version <= 3 || (appSpecification?.version > 3 && appSpecification?.compose?.length === 1)) ? 'd-none' : ''"
+        :disabled="noInstanceAvailable"
       >
         <div
           class="mb-1"
@@ -1899,7 +1905,7 @@
       </b-tab>
       <b-tab
         title="Backup/Restore"
-        :disabled="!appSpecification?.compose"
+        :disabled="!appSpecification?.compose || noInstanceAvailable"
       >
         <div>
           <b-card no-body>
@@ -3135,7 +3141,7 @@
           </b-card>
         </div>
       </b-tab>
-      <b-tab title="Interactive Terminal">
+      <b-tab title="Interactive Terminal" :disabled="noInstanceAvailable">
         <div class="text-center ">
           <div>
             <b-card-group deck>
@@ -6566,6 +6572,7 @@ export default {
   },
   data() {
     return {
+      noInstanceAvailable: false,
       activeTabInfo: null,
       activeTabFile: null,
       operationTask: '',
@@ -10645,10 +10652,6 @@ export default {
       if (!this.selectedIp) {
         await this.getGlobalApplicationSpecifics();
         await this.getInstancesForDropDown();
-        if (!this.appSpecification?.name) {
-          await this.getInstalledApplicationSpecifics();
-          await this.$nextTick();
-        }
         await this.$nextTick();
         this.getApplicationLocations().catch(() => {
           this.isBusy = false;
@@ -10659,8 +10662,14 @@ export default {
       await this.$nextTick();
       if (this.applicationManagementAndStatus?.length === 0) {
         console.log('Application not found. Instance switching...');
-        this.switchInstance(true);
+        await this.switchInstance();
+        if (this.applicationManagementAndStatus?.length === 0) {
+          await this.getGlobalApplicationSpecifics();
+          this.noInstanceAvailable = true;
+          return;
+        }
       }
+      this.noInstanceAvailable = false;
       switch (index) {
         case 1:
           await this.getInstalledApplicationSpecifics();
@@ -10854,17 +10863,18 @@ export default {
       console.log(evt);
     },
 
-    async getInstalledApplicationSpecifics() {
-      const response = await this.executeLocalCommand(`/apps/installedapps/${this.appName}`);
+    async getInstalledApplicationSpecifics(silent = false) {
+      const response = await this.executeLocalCommand(`/apps/installedapps/${this.appName}`, null, null, true);
       console.log(response);
       if (response) {
         if (response.data.status === 'error' || !response.data.data[0]) {
-          this.showToast('danger', response.data.data.message || response.data.data);
+          if (!silent) {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          }
         } else {
           this.callResponse.status = response.data.status;
           this.callResponse.data = response.data.data[0];
           this.appSpecification = response.data.data[0];
-          this.$store.commit('flux/setAppName', this.appSpecification.name);
         }
       }
     },
@@ -10927,6 +10937,7 @@ export default {
         this.callBResponse.data = response.data.data;
         const specs = response.data.data;
         console.log(specs);
+        this.$store.commit('flux/setAppName', specs.name);
         this.appUpdateSpecification = JSON.parse(JSON.stringify(specs));
         this.appUpdateSpecification.instances = specs.instances || 3;
         if (this.instancesLocked) {
@@ -11693,16 +11704,29 @@ export default {
       }
       this.selectedAppOwner = response.data.data;
     },
-    switchInstance(notFound = false) {
-      const newInstance = this.instances.data.find((instance) => instance.ip !== this.selectedIp);
-      if (newInstance) {
-        this.selectedIp = newInstance.ip;
-        if (!notFound) {
-          this.showToast('info', `Instance switched to ${this.selectedIp}.`);
-        } else {
-          this.showToast('info', `Application not found. Instance has been switched to ${this.selectedIp}.`);
+    async switchInstance() {
+      if (!this.instances?.data?.length) {
+        this.applicationManagementAndStatus = [];
+        return;
+      }
+      // const tried = new Set();
+      // eslint-disable-next-line no-restricted-syntax
+      for (const instance of this.instances.data) {
+        // eslint-disable-next-line no-continue
+        // if (tried.has(instance.ip)) continue;
+        // tried.add(instance.ip);
+        // eslint-disable-next-line no-await-in-loop
+        await this.getApplicationManagementAndStatus();
+        // eslint-disable-next-line no-await-in-loop
+        await this.$nextTick();
+        if (this.applicationManagementAndStatus?.length > 0) {
+          this.selectedIp = instance.ip;
+          console.log(`✅ Instance switched to ${this.selectedIp}`);
+          this.showToast('success', `Instance switched to ${this.selectedIp}.`);
+          return;
         }
       }
+      this.applicationManagementAndStatus = [];
     },
     async stopApp(app) {
       this.output = [];
@@ -11851,8 +11875,8 @@ export default {
           this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-          setTimeout(() => {
-            this.switchInstance();
+          setTimeout(async () => {
+            await this.switchInstance();
           }, 4000);
         }
       }
@@ -11960,12 +11984,15 @@ export default {
     },
     async redeployAppSoftGlobally(app) {
       this.executeCommand(app, 'redeploy', `Soft redeploying ${app} globally. This will take a while...`, 'false');
+      this.noInstanceAvailable = true;
     },
     async redeployAppHardGlobally(app) {
       this.executeCommand(app, 'redeploy', `Hard redeploying ${app} globally. This will take a while...`, 'true');
+      this.noInstanceAvailable = true;
     },
     async removeAppGlobally(app) {
       this.executeCommand(app, 'appremove', `Reinstalling ${app} globally. This will take a while...`, 'true');
+      this.noInstanceAvailable = true;
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);
@@ -12962,7 +12989,12 @@ export default {
         await this.appsGetListAllApps();
       }
       if (!this.appSpecification?.name) {
-        await this.getInstalledApplicationSpecifics();
+        await this.getInstalledApplicationSpecifics(true);
+        if (!this.appSpecification?.name) {
+          this.applicationManagementAndStatus = [];
+          await this.$nextTick();
+          return;
+        }
         await this.$nextTick();
       }
       const appInfoArray = [];
@@ -13656,6 +13688,15 @@ body.dark-layout .app-item:hover {
   display: inline-block;
   text-align: center;
   word-wrap: break-word;
+}
+
+.placeholder-box {
+  padding: 30px;
+  border: 1px solid #ccc;
+  text-align: center;
+  border-radius: 8px;
+  color: #888;
+  margin: 20px;
 }
 
 </style>
