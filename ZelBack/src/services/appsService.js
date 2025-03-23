@@ -10340,8 +10340,9 @@ async function reinstallOldApplications() {
               return;
             }
             try {
+              const reversedCompose = [...appSpecifications.compose].reverse();
               // eslint-disable-next-line no-restricted-syntax
-              for (const appComponent of appSpecifications.compose.reverse()) {
+              for (const appComponent of reversedCompose) {
                 if (appComponent.tiered) {
                   const hddTier = `hdd${tier}`;
                   const ramTier = `ram${tier}`;
