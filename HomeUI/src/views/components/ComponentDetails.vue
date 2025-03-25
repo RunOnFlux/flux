@@ -112,8 +112,20 @@
       </list-entry>
       <list-entry title="Environment Parameters" :data="Array.isArray(component?.environmentParameters) && component?.environmentParameters?.length > 0 ? component.environmentParameters.toString() : ''" :hide-if-empty="true" title-icon="gear" title-icon-scale="1.3" kbd-variant="secondary" />
       <list-entry title="Commands" :data="Array.isArray(component?.commands) && component.commands.length > 0 ? component.commands.toString() : ''" :hide-if-empty="true" title-icon="terminal" title-icon-scale="1.2" kbd-variant="secondary" />
-      <list-entry title="Secret Environment Parameters" :data="component.secrets ? 'Content Encrypted' : ''" :hide-if-empty="true" title-icon="database-fill-lock" title-icon-scale="1.2" kbd-variant="secondary" />
-
+      <list-entry
+        v-if="component?.secrets"
+        title="Secret Environment Parameters"
+        title-icon="database-fill-lock"
+        title-icon-scale="1.2"
+        kbd-variant="secondary"
+      >
+        <template #default>
+          <kbd class="alert-secondary resource-kbd d-inline-flex align-items-center">
+            <smart-icon icon="lock-fill" scale="1.2" style="margin-right: 3px;" />
+            Content Encrypted
+          </kbd>
+        </template>
+      </list-entry>
       <list-entry
         v-for="(resource, rIndex) in buildResources(component)"
         :key="rIndex"
