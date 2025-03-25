@@ -53,7 +53,7 @@
       </list-entry>
       <list-entry
         title="Automatic Domains"
-        :data="constructAutomaticDomains(component?.ports, component.name, index)"
+        :data="constructAutomaticDomains(component?.ports, appName, index)"
         title-icon="globe"
         title-icon-scale="1.2"
         :hide-if-empty="true"
@@ -61,7 +61,7 @@
         <template #default>
           <div class="kbd-list">
             <b-link
-              v-for="(domain, aIndex) in constructAutomaticDomains(component?.ports, component.name, index)"
+              v-for="(domain, aIndex) in constructAutomaticDomains(component?.ports, appName, index)"
               :key="aIndex"
               :href="`https://${domain}`"
               target="_blank"
@@ -155,6 +155,7 @@ export default {
   props: {
     component: { type: Object, required: true },
     index: { type: Number, required: true },
+    appName: { type: String, required: true },
   },
   methods: {
     sanitized(value) {

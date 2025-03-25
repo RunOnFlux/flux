@@ -210,7 +210,7 @@
                       </template>
                       <transition name="tab-slide" mode="out-in">
                         <div v-if="activeTabLocalIndexSpec === index" :key="index" class="mb-2">
-                          <component-details :component="component" :index="index" />
+                          <component-details :component="component" :app-name="callResponse.data?.name || ''" :index="index" />
                         </div>
                       </transition>
                     </b-tab>
@@ -272,7 +272,7 @@
                       </template>
                       <transition name="tab-slide" mode="out-in">
                         <div v-if="activeTabGlobalIndexSpec === index" :key="index" class="mb-2">
-                          <component-details :component="component" :index="index" />
+                          <component-details :component="component" :app-name="callBResponse.data?.name || ''" :index="index" />
                         </div>
                       </transition>
                     </b-tab>
