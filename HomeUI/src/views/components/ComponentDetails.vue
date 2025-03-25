@@ -149,11 +149,15 @@ export default {
       if (!value) return [];
 
       if (Array.isArray(value)) {
-        return value.flatMap((item) => (typeof item === 'string' ? item.split(',').map((i) => i.trim()) : [item]));
+        return value
+          .flatMap((item) => (typeof item === 'string' ? item.split(',').map((i) => i.trim()) : [item])).filter((v) => v);
       }
 
       if (typeof value === 'string') {
-        return value.split(',').map((i) => i.trim());
+        return value
+          .split(',')
+          .map((i) => i.trim())
+          .filter((v) => v);
       }
 
       return [];
