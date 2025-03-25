@@ -70,6 +70,7 @@
               :sort-desc.sync="tableOptions.sortDesc"
               :sort-direction="tableOptions.sortDirection"
               :filter="tableOptions.filter"
+              :filter-included-fields="['name']"
               :per-page="tableOptions.perPage"
               :current-page="tableOptions.currentPage"
               show-empty

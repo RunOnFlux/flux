@@ -680,6 +680,7 @@
                     :items="tableconfig.globalAvailable.apps"
                     :fields="isFluxAdminLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
                     :filter="tableconfig.globalAvailable.filter"
+                    :filter-included-fields="['name']"
                     show-empty
                     sort-icon-left
                     empty-text="No Flux Apps Globally Available"
@@ -1246,6 +1247,7 @@
                     :sort-desc.sync="tableconfig.local.sortDesc"
                     :sort-direction="tableconfig.local.sortDirection"
                     :filter="tableconfig.local.filter"
+                    :filter-included-fields="['name']"
                     show-empty
                     sort-icon-left
                     :empty-text="'No Local Apps owned.'"
