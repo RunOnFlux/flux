@@ -680,6 +680,7 @@
                     :items="tableconfig.globalAvailable.apps"
                     :fields="isFluxAdminLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
                     :filter="tableconfig.globalAvailable.filter"
+                    :filter-included-fields="['name']"
                     show-empty
                     sort-icon-left
                     empty-text="No Flux Apps Globally Available"
@@ -1246,6 +1247,7 @@
                     :sort-desc.sync="tableconfig.local.sortDesc"
                     :sort-direction="tableconfig.local.sortDirection"
                     :filter="tableconfig.local.filter"
+                    :filter-included-fields="['name']"
                     show-empty
                     sort-icon-left
                     :empty-text="'No Local Apps owned.'"
@@ -2296,14 +2298,11 @@ export default {
     },
     async appsGetListGlobalApps() {
       this.tableconfig.globalAvailable.loading = true;
-      console.log('CALL1');
       const response = await AppsService.globalAppSpecifications();
       console.log(response);
-      console.log('CALL2');
       // remove marketplace apps from the list and extract
       // marketplace apps to parse the title
       const apps = response.data.data.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
-      console.log('CALL3');
       this.tableconfig.globalAvailable.apps = apps;
       this.tableconfig.globalAvailable.loading = false;
       this.tableconfig.globalAvailable.status = response.data.status;

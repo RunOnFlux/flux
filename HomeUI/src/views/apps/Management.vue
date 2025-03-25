@@ -49,10 +49,11 @@
           <div class="app-list d-flex">
             <div v-for="(app, index) in applicationManagementAndStatus" :key="index">
               <div :id="`app-item-${index}`" class="app-item">
-                <b-icon
-                  icon="broadcast"
+                <smart-icon
+                  icon="heart-pulse-fill"
                   :variant="getIconVariant(app.state, app.status)"
                   class="app-icon"
+                  scale="1.5"
                 />
                 <div class="app-details">
                   <div class="app-name">
@@ -152,23 +153,19 @@
             </h5>
           </div>
           <div class="wrap-text-info">
-            <div
-              v-if="callResponse.data"
-              style="text-align: left;"
-            >
+            <div v-if="noInstanceAvailable" class="placeholder-box">
+              <p style="color: red; font-size: 16px;">
+                ⚠️ <b>No deployed application detected.</b>
+              </p>
+              <small>🔄 Try to refresh or 🌐 switch to another instance.</small>
+            </div>
+            <div v-if="callResponse.data" style="text-align: left;">
               <div>
                 <h3 class="no-wrap align-items-center justify-content-center mb-1">
                   <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
-                    <b-icon
-                      scale="1"
-                      icon="info-square"
-                      class="ml-1"
-                      style="margin-top: 2px;"
-                    />
+                    <b-icon scale="1" icon="info-square" class="ml-1" style="margin-top: 2px;" />
                     <div class="no-wrap align-items-center justify-content-center">
-                      <span style="margin-left: 10px;">
-                        Local Specification
-                      </span>
+                      <span style="margin-left: 10px;">Local Specification</span>
                       <b-icon
                         v-if="callResponse?.data && callBResponse?.data && callBResponse?.data?.hash !== callResponse?.data?.hash"
                         v-b-tooltip.hover.top="'Application does not match global specifications!'"
@@ -176,8 +173,7 @@
                         scale="1"
                         icon="wifi-off"
                         variant="danger"
-                        class="ml-0"
-                        style="margin-top: 2px;"
+                        style="margin-top: 2px;margin-left: 4px;"
                       />
                       <b-icon
                         v-if="callResponse?.data && callBResponse?.data && callBResponse?.data?.hash === callResponse?.data?.hash"
@@ -186,324 +182,44 @@
                         scale="1"
                         icon="wifi"
                         variant="success"
-                        class="ml-0"
-                        style="margin-top: 2px;"
+                        style="margin-top: 2px;margin-left: 4px;"
                       />
                     </div>
                   </kbd>
                 </h3>
-                <div
-                  style="margin-left: 20px;"
-                >
-                  <list-entry
-                    title="Name"
-                    :data="callResponse.data.name"
+                <div style="margin-left: 20px;">
+                  <app-info
+                    :data="callResponse.data"
+                    :get-geolocation="getGeolocation"
+                    :get-new-expire-label="getNewExpireLabel"
                   />
-                  <list-entry
-                    title="Description"
-                    :data="callResponse.data.description"
-                  />
-                  <list-entry
-                    title="Owner"
-                    :data="callResponse.data.owner"
-                  />
-                  <list-entry
-                    title="Hash"
-                    :data="callResponse.data.hash"
-                  />
-                  <div v-if="callResponse.data.version >= 5">
-                    <div v-if="callResponse.data.geolocation.length">
-                      <div
-                        v-for="location in callResponse.data.geolocation"
-                        :key="location"
-                      >
-                        <list-entry
-                          title="Geolocation"
-                          :data="getGeolocation(location)"
-                        />
-                      </div>
-                    </div>
-                    <div v-else>
-                      <list-entry
-                        title="Continent"
-                        data="All"
-                      />
-                      <list-entry
-                        title="Country"
-                        data="All"
-                      />
-                      <list-entry
-                        title="Region"
-                        data="All"
-                      />
-                    </div>
-                  </div>
-                  <list-entry
-                    v-if="callResponse.data.instances"
-                    title="Instances"
-                    :data="callResponse.data.instances.toString()"
-                  />
-                  <list-entry
-                    title="Specifications version"
-                    :number="callResponse.data.version"
-                  />
-                  <list-entry
-                    title="Registered on Blockheight"
-                    :number="callResponse.data.height"
-                  />
-                  <list-entry
-                    v-if="callResponse.data.hash && callResponse.data.hash.length === 64"
-                    title="Expires on Blockheight"
-                    :number="callResponse.data.height + (callResponse.data.expire || 22000)"
-                  />
-                  <list-entry
-                    title="Expires in"
-                    :data="getNewExpireLabel"
-                  />
-                  <list-entry
-                    title="Enterprise Nodes"
-                    :data="callResponse.data.nodes ? callResponse.data.nodes.toString() : 'Not scoped'"
-                  />
-                  <list-entry
-                    title="Static IP"
-                    :data="callResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                  />
-                  <h3 v-if="callResponse.data.version >= 4" class="no-wrap align-items-center justify-content-center mb-1">
+                  <h3 class="no-wrap align-items-center justify-content-center mb-1">
                     <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
-                      <b-icon
-                        scale="1"
-                        icon="building"
-                        class="ml-1"
-                        style="margin-top: 1px;"
-                      />
+                      <smart-icon scale="1" icon="boxes" class="ml-1" style="margin-top: 1px;" />
                       <span style="margin-left: 10px;">Composition</span>
                     </kbd>
                   </h3>
-                  <div v-if="callResponse.data.version <= 3">
-                    <h3 class="no-wrap mb-2">
-                      <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
-                        <b-icon
-                          scale="1"
-                          icon="box"
-                          class="ml-1"
-                          style="margin-top: 1px;"
-                        /> &nbsp;{{ callResponse.data.name }}&nbsp;</kbd>
-                    </h3>
-                    <div style="margin-left: 20px;">
-                      <list-entry
-                        title="Repository"
-                        :data="callResponse.data.repotag"
-                      />
-                      <list-entry
-                        title="Custom Domains"
-                        :data="callResponse.data.domains.toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Automatic Domains"
-                        :data="constructAutomaticDomains(callResponse.data.ports, callResponse.data.name).toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Ports"
-                        :data="callResponse.data.ports.toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Container Ports"
-                        :data="callResponse.data.containerPorts.toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Container Data"
-                        :data="callResponse.data.containerData.toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Environment Parameters"
-                        :data="callResponse.data.enviromentParameters.length > 0 ? callResponse.data.enviromentParameters.toString() : 'none'"
-                      />
-                      <list-entry
-                        title="Commands"
-                        :data="callResponse.data.commands.length > 0 ? callResponse.data.commands.toString() : 'none'"
-                      />
-                      <div v-if="callResponse.data.tiered">
-                        <list-entry
-                          title="CPU Cumulus"
-                          :data="`${callResponse.data.cpubasic} vCore`"
-                        />
-                        <list-entry
-                          title="CPU Nimbus"
-                          :data="`${callResponse.data.cpusuper} vCore`"
-                        />
-                        <list-entry
-                          title="CPU Stratus"
-                          :data="`${callResponse.data.cpubamf} vCore`"
-                        />
-                        <list-entry
-                          title="RAM Cumulus"
-                          :data="`${callResponse.data.rambasic} MB`"
-                        />
-                        <list-entry
-                          title="RAM Nimbus"
-                          :data="`${callResponse.data.ramsuper} MB`"
-                        />
-                        <list-entry
-                          title="RAM Stratus"
-                          :data="`${callResponse.data.rambamf} MB`"
-                        />
-                        <list-entry
-                          title="SSD Cumulus"
-                          :data="`${callResponse.data.hddbasic} GB`"
-                        />
-                        <list-entry
-                          title="SSD Nimbus"
-                          :data="`${callResponse.data.hddsuper} GB`"
-                        />
-                        <list-entry
-                          title="SSD Stratus"
-                          :data="`${callResponse.data.hddbamf} GB`"
-                        />
-                      </div>
-                      <div v-else>
-                        <list-entry
-                          title="CPU"
-                          :data="`${callResponse.data.cpu} vCore`"
-                        />
-                        <list-entry
-                          title="RAM"
-                          :data="`${callResponse.data.ram} MB`"
-                        />
-                        <list-entry
-                          title="SSD"
-                          :data="`${callResponse.data.hdd} GB`"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div v-else>
-                    <div
-                      v-for="(component, index) in callResponse.data.compose"
+                  <b-tabs v-model="activeTabLocalIndexSpec" content-class="my-1" class="ml-1" pills>
+                    <b-tab
+                      v-for="(component, index) in normalizeComponents(callResponse.data)"
                       :key="index"
-                      class="mb-2"
                     >
-                      <h3 class="no-wrap mb-2">
-                        <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
-                          <b-icon
-                            scale="1"
-                            icon="box"
-                            class="ml-1"
-                            style="margin-top: 1px;"
-                          /> &nbsp;{{ component.name }}&nbsp;</kbd>
-                      </h3>
-                      <div
-                        style="margin-left: 20px;"
-                      >
-                        <list-entry
-                          title="Name"
-                          :data="component.name"
-                        />
-                        <list-entry
-                          title="Description"
-                          :data="component.description"
-                        />
-                        <list-entry
-                          title="Repository"
-                          :data="component.repotag"
-                        />
-                        <list-entry
-                          title="Repository Authentication"
-                          :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                        />
-                        <list-entry
-                          title="Custom Domains"
-                          :data="component.domains.toString() || 'none'"
-                        />
-                        <list-entry
-                          title="Automatic Domains"
-                          :data="constructAutomaticDomains(component.ports, callResponse.data.name, index).toString() || 'none'"
-                        />
-                        <list-entry
-                          title="Ports"
-                          :data="component.ports.toString() || 'none'"
-                        />
-                        <list-entry
-                          title="Container Ports"
-                          :data="component.containerPorts.toString() || 'none'"
-                        />
-                        <list-entry
-                          title="Container Data"
-                          :data="component.containerData"
-                        />
-                        <list-entry
-                          title="Environment Parameters"
-                          :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                        />
-                        <list-entry
-                          title="Commands"
-                          :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                        />
-                        <list-entry
-                          title="Secret Environment Parameters"
-                          :data="component.secrets ? 'Content Encrypted' : 'none'"
-                        />
-                        <div v-if="component.tiered">
-                          <list-entry
-                            title="CPU Cumulus"
-                            :data="`${component.cpubasic} vCore`"
-                          />
-                          <list-entry
-                            title="CPU Nimbus"
-                            :data="`${component.cpusuper} vCore`"
-                          />
-                          <list-entry
-                            title="CPU Stratus"
-                            :data="`${component.cpubamf} vCore`"
-                          />
-                          <list-entry
-                            title="RAM Cumulus"
-                            :data="`${component.rambasic} MB`"
-                          />
-                          <list-entry
-                            title="RAM Nimbus"
-                            :data="`${component.ramsuper} MB`"
-                          />
-                          <list-entry
-                            title="RAM Stratus"
-                            :data="`${component.rambamf} MB`"
-                          />
-                          <list-entry
-                            title="SSD Cumulus"
-                            :data="`${component.hddbasic} GB`"
-                          />
-                          <list-entry
-                            title="SSD Nimbus"
-                            :data="`${component.hddsuper} GB`"
-                          />
-                          <list-entry
-                            title="SSD Stratus"
-                            :data="`${component.hddbamf} GB`"
-                            class="force-mb-0"
-                          />
+                      <template #title>
+                        <b-icon icon="box" scale="1" class="mr-1" />
+                        {{ component.name }}
+                      </template>
+                      <transition name="tab-slide" mode="out-in">
+                        <div v-if="activeTabLocalIndexSpec === index" :key="index" class="mb-2">
+                          <component-details :component="component" :app-name="callResponse.data?.name || ''" :index="index" />
                         </div>
-                        <div v-else>
-                          <list-entry
-                            title="CPU"
-                            :data="`${component.cpu} vCore`"
-                          />
-                          <list-entry
-                            title="RAM"
-                            :data="`${component.ram} MB`"
-                          />
-                          <list-entry
-                            title="SSD"
-                            :data="`${component.hdd} GB`"
-                            class="force-mb-0"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                      </transition>
+                    </b-tab>
+                  </b-tabs>
                 </div>
               </div>
             </div>
             <div v-else>
-              <div class="d-flex align-items-center justify-content-left mb-2">
+              <div v-if="!noInstanceAvailable" class="d-flex align-items-center justify-content-left mb-2">
                 <v-icon class="spin-icon" name="spinner" style="margin-right: 8px;" />
                 <h5 class="mb-0">
                   Local specification loading...
@@ -529,310 +245,38 @@
                 <div
                   style="margin-left: 20px;"
                 >
-                  <list-entry
-                    title="Name"
-                    :data="callBResponse.data.name"
+                  <app-info
+                    :data="callBResponse.data"
+                    :get-geolocation="getGeolocation"
+                    :get-new-expire-label="getNewExpireLabel"
                   />
-                  <list-entry
-                    title="Description"
-                    :data="callBResponse.data.description"
-                  />
-                  <list-entry
-                    title="Owner"
-                    :data="callBResponse.data.owner"
-                  />
-                  <list-entry
-                    title="Hash"
-                    :data="callBResponse.data.hash"
-                  />
-                  <div v-if="callBResponse.data.version >= 5">
-                    <div v-if="callBResponse.data.geolocation.length">
-                      <div
-                        v-for="location in callBResponse.data.geolocation"
-                        :key="location"
-                      >
-                        <list-entry
-                          title="Geolocation"
-                          :data="getGeolocation(location)"
-                        />
-                      </div>
-                    </div>
-                    <div v-else>
-                      <list-entry
-                        title="Continent"
-                        data="All"
-                      />
-                      <list-entry
-                        title="Country"
-                        data="All"
-                      />
-                      <list-entry
-                        title="Region"
-                        data="All"
-                      />
-                    </div>
-                  </div>
-                  <list-entry
-                    v-if="callBResponse.data.instances"
-                    title="Instances"
-                    :data="callBResponse.data.instances.toString()"
-                  />
-                  <list-entry
-                    title="Specifications version"
-                    :number="callBResponse.data.version"
-                  />
-                  <list-entry
-                    title="Registered on Blockheight"
-                    :number="callBResponse.data.height"
-                  />
-                  <list-entry
-                    v-if="callBResponse.data.hash && callBResponse.data.hash.length === 64"
-                    title="Expires on Blockheight"
-                    :number="callBResponse.data.height + (callBResponse.data.expire || 22000)"
-                  />
-                  <list-entry
-                    title="Expires in"
-                    :data="getNewExpireLabel"
-                  />
-                  <list-entry
-                    title="Enterprise Nodes"
-                    :data="callBResponse.data.nodes ? callBResponse.data.nodes.toString() : 'Not scoped'"
-                  />
-                  <list-entry
-                    title="Static IP"
-                    :data="callBResponse.data.staticip ? 'Yes, Running only on Static IP nodes' : 'No, Running on all nodes'"
-                  />
-                  <h3 v-if="callResponse.data.version >= 4" class="no-wrap align-items-center justify-content-center mb-1">
+                  <h3 class="no-wrap align-items-center justify-content-center mb-1">
                     <kbd class="alert-info d-flex" style="border-radius: 15px; font-family: monospace; padding-right: 100%">
-                      <b-icon
+                      <smart-icon
                         scale="1"
-                        icon="building"
+                        icon="boxes"
                         class="ml-1"
                         style="margin-top: 1px;"
                       />
                       <span style="margin-left: 10px;">Composition</span>
                     </kbd>
                   </h3>
-                  <div v-if="callBResponse.data.version <= 3">
-                    <h3 class="no-wrap mb-2">
-                      <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
-                        <b-icon
-                          scale="1"
-                          icon="box"
-                          class="ml-1"
-                          style="margin-top: 1px;"
-                        /> &nbsp;{{ callResponse.data.name }}&nbsp;</kbd>
-                    </h3>
-                    <div style="margin-left: 20px;">
-                      <list-entry
-                        title="Repository"
-                        :data="callBResponse.data.repotag"
-                      />
-                      <list-entry
-                        title="Custom Domains"
-                        :data="callBResponse.data.domains.toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Automatic Domains"
-                        :data="constructAutomaticDomainsGlobal.toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Ports"
-                        :data="callBResponse.data.ports.toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Container Ports"
-                        :data="callBResponse.data.containerPorts.toString() || 'none'"
-                      />
-                      <list-entry
-                        title="Container Data"
-                        :data="callBResponse.data.containerData"
-                      />
-                      <list-entry
-                        title="Environment Parameters"
-                        :data="callBResponse.data.enviromentParameters.length > 0 ? callBResponse.data.enviromentParameters.toString() : 'none'"
-                      />
-                      <list-entry
-                        title="Commands"
-                        :data="callBResponse.data.commands.length > 0 ? callBResponse.data.commands.toString() : 'none'"
-                      />
-                      <div v-if="callBResponse.data.tiered">
-                        <list-entry
-                          title="CPU Cumulus"
-                          :data="`${callBResponse.data.cpubasic} vCore`"
-                        />
-                        <list-entry
-                          title="CPU Nimbus"
-                          :data="`${callBResponse.data.cpusuper} vCore`"
-                        />
-                        <list-entry
-                          title="CPU Stratus"
-                          :data="`${callBResponse.data.cpubamf} vCore`"
-                        />
-                        <list-entry
-                          title="RAM Cumulus"
-                          :data="`${callBResponse.data.rambasic} MB`"
-                        />
-                        <list-entry
-                          title="RAM Nimbus"
-                          :data="`${callBResponse.data.ramsuper} MB`"
-                        />
-                        <list-entry
-                          title="RAM Stratus"
-                          :data="`${callBResponse.data.rambamf} MB`"
-                        />
-                        <list-entry
-                          title="SSD Cumulus"
-                          :data="`${callBResponse.data.hddbasic} GB`"
-                        />
-                        <list-entry
-                          title="SSD Nimbus"
-                          :data="`${callBResponse.data.hddsuper} GB`"
-                        />
-                        <list-entry
-                          title="SSD Stratus"
-                          :data="`${callBResponse.data.hddbamf} GB`"
-                        />
-                      </div>
-                      <div v-else>
-                        <list-entry
-                          title="CPU"
-                          :data="`${callBResponse.data.cpu} vCore`"
-                        />
-                        <list-entry
-                          title="RAM"
-                          :data="`${callBResponse.data.ram} MB`"
-                        />
-                        <list-entry
-                          title="SSD"
-                          :data="`${callBResponse.data.hdd} GB`"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div v-else>
-                    <div
-                      v-for="(component, index) in callBResponse.data.compose"
+                  <b-tabs v-model="activeTabGlobalIndexSpec" content-class="my-1" class="ml-1" pills>
+                    <b-tab
+                      v-for="(component, index) in normalizeComponents(callBResponse.data)"
                       :key="index"
-                      class="mb-2"
                     >
-                      <h3 class="no-wrap mb-2">
-                        <kbd class="alert-success d-flex" style="border-radius: 15px; font-family: monospace; max-width: 500px;">
-                          <b-icon
-                            scale="1"
-                            icon="box"
-                            class="ml-1"
-                            style="margin-top: 1px;"
-                          /> &nbsp;{{ component.name }}&nbsp;</kbd>
-                      </h3>
-                      <div
-                        style="margin-left: 20px;"
-                      >
-                        <list-entry
-                          title="Name"
-                          :data="component.name"
-                        />
-                        <list-entry
-                          title="Description"
-                          :data="component.description"
-                        />
-                        <list-entry
-                          title="Repository"
-                          :data="component.repotag"
-                        />
-                        <list-entry
-                          title="Repository Authentication"
-                          :data="component.repoauth ? 'Content Encrypted' : 'Public'"
-                        />
-                        <list-entry
-                          title="Custom Domains"
-                          :data="component.domains.toString() || 'none'"
-                        />
-                        <list-entry
-                          title="Automatic Domains"
-                          :data="constructAutomaticDomains(component.ports, callBResponse.data.name, index).toString() || 'none'"
-                        />
-                        <list-entry
-                          title="Ports"
-                          :data="component.ports.toString() || 'none'"
-                        />
-                        <list-entry
-                          title="Container Ports"
-                          :data="component.containerPorts.toString() || 'none'"
-                        />
-                        <list-entry
-                          title="Container Data"
-                          :data="component.containerData"
-                        />
-                        <list-entry
-                          title="Environment Parameters"
-                          :data="component.environmentParameters.length > 0 ? component.environmentParameters.toString() : 'none'"
-                        />
-                        <list-entry
-                          title="Commands"
-                          :data="component.commands.length > 0 ? component.commands.toString() : 'none'"
-                        />
-                        <list-entry
-                          title="Secret Environment Parameters"
-                          :data="component.secrets ? 'Content Encrypted' : 'none'"
-                        />
-                        <div v-if="component.tiered">
-                          <list-entry
-                            title="CPU Cumulus"
-                            :data="`${component.cpubasic} vCore`"
-                          />
-                          <list-entry
-                            title="CPU Nimbus"
-                            :data="`${component.cpusuper} vCore`"
-                          />
-                          <list-entry
-                            title="CPU Stratus"
-                            :data="`${component.cpubamf} vCore`"
-                          />
-                          <list-entry
-                            title="RAM Cumulus"
-                            :data="`${component.rambasic} MB`"
-                          />
-                          <list-entry
-                            title="RAM Nimbus"
-                            :data="`${component.ramsuper} MB`"
-                          />
-                          <list-entry
-                            title="RAM Stratus"
-                            :data="`${component.rambamf} MB`"
-                          />
-                          <list-entry
-                            title="SSD Cumulus"
-                            :data="`${component.hddbasic} GB`"
-                          />
-                          <list-entry
-                            title="SSD Nimbus"
-                            :data="`${component.hddsuper} GB`"
-                          />
-                          <list-entry
-                            title="SSD Stratus"
-                            :data="`${component.hddbamf} GB`"
-                            class="force-mb-0"
-                          />
+                      <template #title>
+                        <b-icon icon="box" scale="1" class="mr-1" />
+                        {{ component.name }}
+                      </template>
+                      <transition name="tab-slide" mode="out-in">
+                        <div v-if="activeTabGlobalIndexSpec === index" :key="index" class="mb-2">
+                          <component-details :component="component" :app-name="callBResponse.data?.name || ''" :index="index" />
                         </div>
-                        <div v-else>
-                          <list-entry
-                            title="CPU"
-                            :data="`${component.cpu} vCore`"
-                          />
-                          <list-entry
-                            title="RAM"
-                            :data="`${component.ram} MB`"
-                          />
-                          <list-entry
-                            title="SSD"
-                            :data="`${component.hdd} GB`"
-                            class="force-mb-0"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                      </transition>
+                    </b-tab>
+                  </b-tabs>
                 </div>
               </div>
             </div>
@@ -855,7 +299,7 @@
           </div>
         </b-card>
       </b-tab>
-      <b-tab title="Information">
+      <b-tab title="Information" :disabled="noInstanceAvailable">
         <b-card class="h-100 d-flex flex-column">
           <!-- Header -->
           <div
@@ -874,7 +318,6 @@
               Information
             </h5>
           </div>
-
           <!-- Loading State -->
           <div v-if="commandExecutingInspect">
             <div style="display: flex; align-items: center;">
@@ -929,7 +372,7 @@
           </div>
         </b-card>
       </b-tab>
-      <b-tab title="Monitoring">
+      <b-tab title="Monitoring" :disabled="noInstanceAvailable">
         <div class="container">
           <div
             class="d-flex mb-1 align-items-center justify-content-between"
@@ -1169,7 +612,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="File Changes">
+      <b-tab title="File Changes" :disabled="noInstanceAvailable">
         <b-card>
           <div
             class="mb-1"
@@ -1248,7 +691,7 @@
           </div>
         </b-card>
       </b-tab>
-      <b-tab title="Logs">
+      <b-tab title="Logs" :disabled="noInstanceAvailable">
         <div>
           <div
             class="mb-2"
@@ -1434,7 +877,7 @@
           </div>
         </div>
       </b-tab>
-      <b-tab title="Application Control">
+      <b-tab title="Application Control" :disabled="noInstanceAvailable">
         <div
           class="mb-2"
           style="
@@ -1694,6 +1137,7 @@
       <b-tab
         title="Component Control"
         :title-item-class="(appSpecification?.version <= 3 || (appSpecification?.version > 3 && appSpecification?.compose?.length === 1)) ? 'd-none' : ''"
+        :disabled="noInstanceAvailable"
       >
         <div
           class="mb-1"
@@ -1899,7 +1343,7 @@
       </b-tab>
       <b-tab
         title="Backup/Restore"
-        :disabled="!appSpecification?.compose"
+        :disabled="!appSpecification?.compose || noInstanceAvailable"
       >
         <div>
           <b-card no-body>
@@ -3135,7 +2579,7 @@
           </b-card>
         </div>
       </b-tab>
-      <b-tab title="Interactive Terminal">
+      <b-tab title="Interactive Terminal" :disabled="noInstanceAvailable">
         <div class="text-center ">
           <div>
             <b-card-group deck>
@@ -5756,7 +5200,6 @@
               <b-card class="text-center" title="Sign with">
                 <div class="loginRow">
                   <a
-                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
                     @click="initiateSignWSUpdate"
                   >
                     <img
@@ -5927,7 +5370,7 @@
                   Pay with Zelcore/SSP
                 </h4>
                 <div class="loginRow">
-                  <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerSpecs}&message=${updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                  <a @click="initZelcorePay">
                     <img
                       class="walletIcon"
                       src="@/assets/images/FluxID.svg"
@@ -6077,7 +5520,6 @@
               <b-card class="text-center" title="Sign with">
                 <div class="loginRow">
                   <a
-                    :href="`zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
                     @click="initiateSignWSUpdate"
                   >
                     <img
@@ -6438,7 +5880,8 @@ import Ripple from 'vue-ripple-directive';
 import { mapState } from 'vuex';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import ConfirmDialog from '@/views/components/ConfirmDialog.vue';
-import ListEntry from '@/views/components/ListEntry.vue';
+import ComponentDetails from '@/views/components/ComponentDetails.vue';
+import AppInfo from '@/views/components/AppInfo.vue';
 import FluxMap from '@/views/components/FluxMap.vue';
 import JsonViewer from 'vue-json-viewer';
 import FileUpload from '@/views/components/FileUpload.vue';
@@ -6503,9 +5946,11 @@ const geolocations = require('../../libs/geolocation');
 
 export default {
   components: {
+    AppInfo,
     VueMonacoEditor,
     FileUpload,
     JsonViewer,
+    ComponentDetails,
     BAlert,
     BTabs,
     BTab,
@@ -6542,7 +5987,6 @@ export default {
     BProgressBar,
     ConfirmDialog,
     FluxMap,
-    ListEntry,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
     // eslint-disable-next-line vue/no-unused-components
@@ -6568,6 +6012,9 @@ export default {
   },
   data() {
     return {
+      activeTabLocalIndexSpec: 0,
+      activeTabGlobalIndexSpec: 0,
+      noInstanceAvailable: false,
       activeTabInfo: null,
       activeTabFile: null,
       operationTask: '',
@@ -7872,6 +7319,10 @@ export default {
     this.$store.commit('flux/setAppName', '');
   },
   methods: {
+    normalizeComponents(data) {
+      if (!data) return [];
+      return data.version >= 4 ? data.compose : [{ ...data, repoauth: false }];
+    },
     updateEditorLanguage() {
       if (this.$refs?.monacoEditor) {
         this.$refs.monacoEditor.editor.updateOptions({ language: this.editorLanguage });
@@ -10400,11 +9851,12 @@ export default {
         const composeValues = Object.values(this.appSpecification.compose);
         const foundInName = composeValues.some((obj) => obj.name === this.selectedApp);
         if (!foundInName) {
-          this.showToast('danger', 'Please select an container app before connecting.');
+          this.showToast('danger', 'Please select a container app before connecting.');
           return;
         }
       }
       let consoleInit = 0;
+      let skipToast = 0;
       if (this.selectedApp || this.appSpecification.version <= 3) {
         if (this.selectedCmd === null) {
           this.showToast('danger', 'No command selected.');
@@ -10423,7 +9875,7 @@ export default {
           console.log(`App name: ${name}`);
         }
       } else {
-        this.showToast('danger', 'Please select an container app before connecting.');
+        this.showToast('danger', 'Please select a container app before connecting.');
         return;
       }
 
@@ -10494,26 +9946,40 @@ export default {
       });
 
       this.socket.on('show', (data) => {
+        if (typeof data === 'string' && consoleInit === 0 && data.includes('OCI runtime exec')) {
+          skipToast = 1;
+          const failedCommand = this.customValue || this.selectedCmd;
+          console.error(`Error: ${data}`);
+          const errorMessage = `The command "${failedCommand}" is not supported in this container.`;
+          this.showToast('danger', errorMessage);
+          this.disconnectTerminal();
+          return;
+        }
+
         if (consoleInit === 0) {
-          /* eslint-disable quotes */
           consoleInit = 1;
           if (!this.customValue) {
+            // eslint-disable-next-line quotes
             this.socket.emit('cmd', "export TERM=xterm\n");
             if (this.selectedCmd === '/bin/bash') {
+              // eslint-disable-next-line quotes
               this.socket.emit('cmd', "PS1=\"\\[\\033[01;31m\\]\\u\\[\\033[01;33m\\]@\\[\\033[01;36m\\]\\h \\[\\033[01;33m\\]\\w \\[\\033[01;35m\\]\\$ \\[\\033[00m\\]\"\n");
             }
             this.socket.emit('cmd', "alias ls='ls --color'\n");
             this.socket.emit('cmd', "alias ll='ls -alF'\n");
-            this.socket.emit('cmd', "clear\n");
           }
-          /* eslint-disable quotes */
           setTimeout(() => {
-            this.isConnecting = false;
-            this.isVisible = true;
             this.$nextTick(() => {
               setTimeout(() => {
-                this.terminal.focus();
-                fitAddon.fit();
+                this.isConnecting = false;
+                this.isVisible = true;
+                this.terminal.clear();
+                this.$nextTick(() => {
+                  this.terminal.focus();
+                  setTimeout(() => {
+                    fitAddon.fit();
+                  }, 100);
+                });
               }, 500);
             });
           }, 1400);
@@ -10522,7 +9988,9 @@ export default {
       });
 
       this.socket.on('disconnect', () => {
-        this.showToast('warning', 'Disconnected from terminal.');
+        if (skipToast === 0) {
+          this.showToast('warning', 'Disconnected from terminal.');
+        }
         this.disconnectTerminal();
       });
 
@@ -10630,10 +10098,6 @@ export default {
       if (!this.selectedIp) {
         await this.getGlobalApplicationSpecifics();
         await this.getInstancesForDropDown();
-        if (!this.appSpecification?.name) {
-          await this.getInstalledApplicationSpecifics();
-          await this.$nextTick();
-        }
         await this.$nextTick();
         this.getApplicationLocations().catch(() => {
           this.isBusy = false;
@@ -10644,8 +10108,14 @@ export default {
       await this.$nextTick();
       if (this.applicationManagementAndStatus?.length === 0) {
         console.log('Application not found. Instance switching...');
-        this.switchInstance(true);
+        await this.switchInstance();
+        if (this.applicationManagementAndStatus?.length === 0) {
+          await this.getGlobalApplicationSpecifics();
+          this.noInstanceAvailable = true;
+          return;
+        }
       }
+      this.noInstanceAvailable = false;
       switch (index) {
         case 1:
           await this.getInstalledApplicationSpecifics();
@@ -10695,6 +10165,7 @@ export default {
       this.getAllAppsResponse.status = response?.data?.status;
       this.getAllAppsResponse.data = response?.data?.data;
       this.getApplicationManagementAndStatus(true);
+      await this.$nextTick();
     },
     goBackToApps() {
       this.$emit('back');
@@ -10722,23 +10193,60 @@ export default {
         this.showToast('warning', 'Failed to sign message, please try again.');
       }
     },
-    async initiateSignWSUpdate() {
-      if (this.dataToSign.length > 1800) {
-        const message = this.dataToSign;
-        // upload to flux storage
-        const data = {
-          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
-          public: message,
-        };
-        await axios.post(
-          'https://storage.runonflux.io/v1/public',
-          data,
-        );
-        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
-        window.location.href = zelProtocol;
-      } else {
-        window.location.href = `zel:?action=sign&message=${this.dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+    initZelcorePay() {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${this.deploymentAddress}&amount=${this.appPricePerSpecs}&message=${this.updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
       }
+    },
+    async initZelcore() {
+      try {
+        const protocol = `zel:?action=sign&message=${this.dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else if (this.dataToSign.length > 1800) {
+          const message = this.dataToSign;
+          // upload to flux storage
+          const data = {
+            publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+            public: message,
+          };
+          await axios.post(
+            'https://storage.runonflux.io/v1/public',
+            data,
+          );
+          const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = zelProtocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
+      }
+    },
+    async initiateSignWSUpdate() {
+      await this.initZelcore();
       const self = this;
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
@@ -10802,17 +10310,18 @@ export default {
       console.log(evt);
     },
 
-    async getInstalledApplicationSpecifics() {
-      const response = await this.executeLocalCommand(`/apps/installedapps/${this.appName}`);
+    async getInstalledApplicationSpecifics(silent = false) {
+      const response = await this.executeLocalCommand(`/apps/installedapps/${this.appName}`, null, null, true);
       console.log(response);
       if (response) {
         if (response.data.status === 'error' || !response.data.data[0]) {
-          this.showToast('danger', response.data.data.message || response.data.data);
+          if (!silent) {
+            this.showToast('danger', response.data.data.message || response.data.data);
+          }
         } else {
           this.callResponse.status = response.data.status;
           this.callResponse.data = response.data.data[0];
           this.appSpecification = response.data.data[0];
-          this.$store.commit('flux/setAppName', this.appSpecification.name);
         }
       }
     },
@@ -10875,6 +10384,7 @@ export default {
         this.callBResponse.data = response.data.data;
         const specs = response.data.data;
         console.log(specs);
+        this.$store.commit('flux/setAppName', specs.name);
         this.appUpdateSpecification = JSON.parse(JSON.stringify(specs));
         this.appUpdateSpecification.instances = specs.instances || 3;
         if (this.instancesLocked) {
@@ -11046,7 +10556,7 @@ export default {
         signature: this.signature,
       };
       this.progressVisable = true;
-      this.operationTitle = "Propagating message accross Flux network...";
+      this.operationTitle = 'Propagating message accross Flux network...';
       const response = await AppsService.updateApp(zelidauth, data).catch((error) => {
         this.showToast('danger', error.message || error);
       });
@@ -11096,7 +10606,7 @@ export default {
         if (!this.tosAgreed) {
           throw new Error('Please agree to Terms of Service');
         }
-        this.operationTitle = " Compute update message...";
+        this.operationTitle = ' Compute update message...';
         this.progressVisable = true;
         const appSpecification = this.appUpdateSpecification;
         let secretsPresent = false;
@@ -11230,7 +10740,7 @@ export default {
     async checkFluxCancelSubscriptionAndFormatMessage() {
       try {
         this.progressVisable = true;
-        this.operationTitle = `Cancelling subscription...`;
+        this.operationTitle = 'Cancelling subscription...';
         const appSpecification = this.appUpdateSpecification;
         appSpecification.geolocation = this.generateGeolocations();
         appSpecification.expire = 100;
@@ -11524,11 +11034,11 @@ export default {
               this.masterIP = 'Defining New Primary In Progress';
             }
             if (!this.selectedIp) {
-              this.selectedIp = this.instances.data[0].ip;
+              this.selectedIp = this.instances.data[0]?.ip;
             }
           }
         } else if (!this.selectedIp) {
-          this.selectedIp = this.instances.data[0].ip;
+          this.selectedIp = this.instances.data[0]?.ip;
         }
         console.log(this.ipAccess);
         if (this.ipAccess) {
@@ -11581,7 +11091,7 @@ export default {
                   const ipElement = fdmServer.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
                   if (ipElement) {
                     console.log('FDM_Data_IP_Found');
-                    this.masterIP = ipElement.value.value.split(':')[0];
+                    this.masterIP = ipElement.value.value?.split(':')[0];
                     console.log(this.masterIP);
                   } else {
                     this.masterIP = 'Defining New Primary In Progress';
@@ -11601,8 +11111,8 @@ export default {
         setTimeout(async () => {
           // eslint-disable-next-line no-restricted-syntax
           for (const node of appsLocations) {
-            const ip = node.ip.split(':')[0];
-            const port = node.ip.split(':')[1] || 16127;
+            const ip = node.ip?.split(':')[0];
+            const port = node.ip?.split(':')[1] || 16127;
             let url = `https://${ip.replace(/\./g, '-')}-${port}.node.api.runonflux.io/flux/geolocation`;
             if (this.ipAccess) {
               url = `http://${ip}:${port}/flux/geolocation`;
@@ -11641,16 +11151,29 @@ export default {
       }
       this.selectedAppOwner = response.data.data;
     },
-    switchInstance(notFound = false) {
-      const newInstance = this.instances.data.find((instance) => instance.ip !== this.selectedIp);
-      if (newInstance) {
-        this.selectedIp = newInstance.ip;
-        if (!notFound) {
-          this.showToast('info', `Instance switched to ${this.selectedIp}.`);
-        } else {
-          this.showToast('info', `Application not found. Instance has been switched to ${this.selectedIp}.`);
+    async switchInstance() {
+      if (!this.instances?.data?.length) {
+        this.applicationManagementAndStatus = [];
+        return;
+      }
+      // const tried = new Set();
+      // eslint-disable-next-line no-restricted-syntax
+      for (const instance of this.instances.data) {
+        // eslint-disable-next-line no-continue
+        // if (tried.has(instance.ip)) continue;
+        // tried.add(instance.ip);
+        // eslint-disable-next-line no-await-in-loop
+        await this.getApplicationManagementAndStatus();
+        // eslint-disable-next-line no-await-in-loop
+        await this.$nextTick();
+        if (this.applicationManagementAndStatus?.length > 0) {
+          this.selectedIp = instance.ip;
+          console.log(`✅ Instance switched to ${this.selectedIp}`);
+          this.showToast('success', `Instance switched to ${this.selectedIp}.`);
+          return;
         }
       }
+      this.applicationManagementAndStatus = [];
     },
     async stopApp(app) {
       this.output = [];
@@ -11799,8 +11322,8 @@ export default {
           this.showToast('warning', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
         } else {
           this.showToast('success', this.output[this.output.length - 1].data.message || this.output[this.output.length - 1].data);
-          setTimeout(() => {
-            this.switchInstance();
+          setTimeout(async () => {
+            await this.switchInstance();
           }, 4000);
         }
       }
@@ -11842,8 +11365,13 @@ export default {
           return null;
         }
 
-        const url = this.selectedIp.split(':')[0];
-        const urlPort = this.selectedIp.split(':')[1] || 16127;
+        const url = this.selectedIp?.split(':')[0];
+        const urlPort = this.selectedIp?.split(':')[1] || 16127;
+
+        if (!url) {
+          throw new Error('Instance not found with deployed application.');
+        }
+
         let response = null;
         let queryUrl = `https://${url.replace(/\./g, '-')}-${urlPort}.node.api.runonflux.io${command}`;
         if (this.ipAccess) {
@@ -11908,12 +11436,15 @@ export default {
     },
     async redeployAppSoftGlobally(app) {
       this.executeCommand(app, 'redeploy', `Soft redeploying ${app} globally. This will take a while...`, 'false');
+      this.noInstanceAvailable = true;
     },
     async redeployAppHardGlobally(app) {
       this.executeCommand(app, 'redeploy', `Hard redeploying ${app} globally. This will take a while...`, 'true');
+      this.noInstanceAvailable = true;
     },
     async removeAppGlobally(app) {
       this.executeCommand(app, 'appremove', `Reinstalling ${app} globally. This will take a while...`, 'true');
+      this.noInstanceAvailable = true;
     },
     openApp(name, _ip, _port) {
       console.log(name, _ip, _port);
@@ -12344,7 +11875,7 @@ export default {
         const regionName = locations[2];
         const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
         const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
-        let locationString = `Allowed location: Continent: ${continentExists.name}`;
+        let locationString = `Allowed: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
         }
@@ -12361,7 +11892,7 @@ export default {
         const regionName = locations[2];
         const continentExists = geolocations.continents.find((continent) => continent.code === continentCode) || { name: 'ALL' };
         const countryExists = geolocations.countries.find((country) => country.code === countryCode) || { name: 'ALL' };
-        let locationString = `Forbidden location: Continent: ${continentExists.name}`;
+        let locationString = `Forbidden: Continent: ${continentExists.name}`;
         if (countryCode) {
           locationString += `, Country: ${countryExists.name}`;
         }
@@ -12370,7 +11901,7 @@ export default {
         }
         return locationString;
       }
-      return 'All locations allowed';
+      return 'Worldwide';
     },
     adjustMaxInstancesPossible() {
       const currentGeolocations = this.generateGeolocations();
@@ -12890,17 +12421,16 @@ export default {
       }
     },
     getComponentInfo(appName) {
-      const foundComponent = this.getAllAppsResponse.data.find((app) => app.Names[0] === this.getAppDockerNameIdentifier(appName));
-      if (!foundComponent) {
-        return false;
-      }
+      const apps = this.getAllAppsResponse?.data;
+      if (!Array.isArray(apps)) return false;
+      const foundComponent = apps.find((app) => app.Names?.[0] === this.getAppDockerNameIdentifier(appName));
+      if (!foundComponent) return false;
 
-      const componentName = appName.substring(0, appName.lastIndexOf('_')) || appName;
       return {
-        name: componentName,
-        state: foundComponent.State || 'N/A',
-        status: foundComponent.Status ? foundComponent.Status.toLowerCase() : 'N/A',
-        image: foundComponent.Image || 'N/A',
+        name: appName.substring(0, appName.lastIndexOf('_')) || appName,
+        state: foundComponent.State ?? 'N/A',
+        status: foundComponent.Status?.toLowerCase() ?? 'N/A',
+        image: foundComponent.Image ?? 'N/A',
       };
     },
     async getApplicationManagementAndStatus(skip = false) {
@@ -12911,7 +12441,12 @@ export default {
         await this.appsGetListAllApps();
       }
       if (!this.appSpecification?.name) {
-        await this.getInstalledApplicationSpecifics();
+        await this.getInstalledApplicationSpecifics(true);
+        if (!this.appSpecification?.name) {
+          this.applicationManagementAndStatus = [];
+          await this.$nextTick();
+          return;
+        }
         await this.$nextTick();
       }
       const appInfoArray = [];
@@ -12929,6 +12464,8 @@ export default {
       this.applicationManagementAndStatus = appInfoArray;
     },
     async selectedIpChanged() {
+      this.disconnectTerminal();
+      await this.getInstalledApplicationSpecifics(true);
       this.updateManagementTab(this.$refs.managementTabs.currentTab);
     },
     cleanData() {
@@ -13604,6 +13141,27 @@ body.dark-layout .app-item:hover {
   display: inline-block;
   text-align: center;
   word-wrap: break-word;
+}
+
+.placeholder-box {
+  padding: 30px;
+  border: 1px solid #ccc;
+  text-align: center;
+  border-radius: 8px;
+  color: #888;
+  margin: 20px;
+}
+
+.tab-slide-enter-active, .tab-slide-leave-active {
+  transition: all 1s ease;
+}
+.tab-slide-enter {
+  opacity: 0;
+  transform: translateX(100px);
+}
+.tab-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-100px);
 }
 
 </style>

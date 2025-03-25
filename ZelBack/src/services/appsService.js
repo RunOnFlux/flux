@@ -9255,9 +9255,14 @@ async function trySpawningGlobalApplication() {
       appFromAppsSyncthingToBeCheckedLater = true;
     } else {
       const myNodeLocation = nodeFullGeolocation();
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.find((loc) => `ac${myNodeLocation}`.startsWith(loc)))
-        && (app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP)));
+      // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !spawnErrorsLongerAppCache.has(app.hash) && !trySpawningGlobalAppCache.has(app.hash) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+      // filter apps that are non enterprise or are marked to install on my node
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP));
+      // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('a!c')).length === 0 || !app.geolocation.find((loc) => loc.startsWith('a!c') && `a!c${myNodeLocation}`.startsWith(loc.replace('_NONE', '')))));
+      // filter apps that dont have geolocation or have and match my node geolocation
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('ac')).length === 0 || app.geolocation.find((loc) => loc.startsWith('ac') && `ac${myNodeLocation}`.startsWith(loc))));
       if (globalAppNamesLocation.length === 0) {
         log.info('trySpawningGlobalApplication - No app currently to be processed');
         await serviceHelper.delay(30 * 60 * 1000);
@@ -9278,13 +9283,13 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
       if (appToRunAux.required === appToRunAux.actual + 1 && appToRunAux.nodes.length === 0 && Math.random() > 0.4) {
         log.info('trySpawningGlobalApplication - app missing one instance failed the 40% probability check to install');
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(10 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
       if (appToRunAux.required === appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.75) {
         log.info('trySpawningGlobalApplication - app missing two instances failed the 75% probability check to install');
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(10 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -10340,8 +10345,9 @@ async function reinstallOldApplications() {
               return;
             }
             try {
+              const reversedCompose = [...appSpecifications.compose].reverse();
               // eslint-disable-next-line no-restricted-syntax
-              for (const appComponent of appSpecifications.compose.reverse()) {
+              for (const appComponent of reversedCompose) {
                 if (appComponent.tiered) {
                   const hddTier = `hdd${tier}`;
                   const ramTier = `ram${tier}`;

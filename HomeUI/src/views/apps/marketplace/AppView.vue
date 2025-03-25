@@ -167,7 +167,6 @@
                 </b-card-text>
                 <div class="loginRow">
                   <a
-                    :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueLogin()}`"
                     title="Login with Zelcore"
                     @click="initiateLoginWS"
                   >
@@ -985,7 +984,7 @@
                   Pay with Zelcore/SSP
                 </h4>
                 <div class="loginRow">
-                  <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                  <a @click="initZelcorePay">
                     <img
                       class="walletIcon"
                       src="@/assets/images/FluxID.svg"
@@ -1484,7 +1483,63 @@ export default {
       console.log('Message received:', data);
     };
 
+    const callbackValueLogin = () => {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          vm.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          vm.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        // eslint-disable-next-line no-use-before-define
+        mybackend += config.value.apiPort;
+      }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/id/verifylogin`;
+      return encodeURI(url);
+    };
+
+    const initZelcoreLogin = () => {
+      try {
+        const protocol = `zel:?action=sign&message=${loginPhrase.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueLogin()}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+
     const initiateLoginWS = () => {
+      initZelcoreLogin();
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -1527,43 +1582,6 @@ export default {
       websocket.value.onclose = (evt) => onCloseLogin(evt);
       websocket.value.onmessage = (evt) => onMessageLogin(evt);
       websocket.value.onerror = (evt) => onErrorLogin(evt);
-    };
-
-    const callbackValueLogin = () => {
-      const { protocol, hostname, port } = window.location;
-      let mybackend = '';
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.split('-')[4]) { // node specific domain
-        const splitted = hostname.split('-');
-        const names = splitted[4].split('.');
-        const adjP = +names[0] + 1;
-        names[0] = adjP.toString();
-        names[2] = 'api';
-        splitted[4] = '';
-        mybackend += splitted.join('-');
-        mybackend += names.join('.');
-      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        if (typeof hostname === 'string') {
-          vm.$store.commit('flux/setUserIp', hostname);
-        }
-        if (+port > 16100) {
-          const apiPort = +port + 1;
-          vm.$store.commit('flux/setFluxPort', apiPort);
-        }
-        mybackend += hostname;
-        mybackend += ':';
-        // eslint-disable-next-line no-use-before-define
-        mybackend += config.value.apiPort;
-      }
-      const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/id/verifylogin`;
-      return encodeURI(url);
     };
 
     const uiConfig = {
@@ -1792,6 +1810,7 @@ export default {
     const expireOptions = ref([]);
     const expirePosition = ref(Number(0));
     const tosAgreed = ref(false);
+    const deploymentAddress = ref(null);
     expireOptions.value = [
       {
         value: 22000,
@@ -1911,23 +1930,60 @@ export default {
         showToast('warning', 'Failed to sign message, please try again.');
       }
     };
-    const initiateSignWS = async () => {
-      if (dataToSign.value.length > 1800) {
-        const message = dataToSign.value;
-        // upload to flux storage
-        const data = {
-          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
-          public: message,
-        };
-        await axios.post(
-          'https://storage.runonflux.io/v1/public',
-          data,
-        );
-        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
-        window.location.href = zelProtocol;
-      } else {
-        window.location.href = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
+    const initZelcorePay = () => {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${deploymentAddress.value}&amount=${appPricePerDeployment.value}&message=${registrationHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
       }
+    };
+    const initZelcore = async () => {
+      try {
+        const protocol = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else if (dataToSign.value.length > 1800) {
+          const message = dataToSign.value;
+          // upload to flux storage
+          const data = {
+            publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+            public: message,
+          };
+          await axios.post(
+            'https://storage.runonflux.io/v1/public',
+            data,
+          );
+          const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = zelProtocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+    const initiateSignWS = async () => {
+      await initZelcore();
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -2040,9 +2096,9 @@ export default {
           return;
         }
         const data = {
-          message: this.registrationHash,
-          amount: (+this.appPricePerDeployment || 0).toString(),
-          address: this.deploymentAddress,
+          message: registrationHash.value,
+          amount: (+appPricePerDeployment.value || 0).toString(),
+          address: deploymentAddress.value,
           chain: 'flux',
         };
         const responseData = await window.ssp.request('pay', data);
@@ -2185,7 +2241,7 @@ export default {
 
     const onSessionConnect = async (session) => {
       console.log(session);
-      // const msg = `0x${Buffer.from(this.loginPhrase, 'utf8').toString('hex')}`;
+      // const msg = `0x${Buffer.from(loginPhrase.value, 'utf8').toString('hex')}`;
       const result = await signClient.value.request({
         topic: session.topic,
         chainId: 'eip155:1',
@@ -2405,7 +2461,6 @@ export default {
       return domains;
     };
 
-    const deploymentAddress = ref(null);
     const appsDeploymentInformation = async () => {
       const response = await AppsService.appsDeploymentInformation();
       const { data } = response.data;
@@ -3020,6 +3075,7 @@ export default {
       initStripePay,
       openSite,
       initSignFluxSSO,
+      initZelcorePay,
       initWalletConnect,
       initWalletConnectLogin,
       onSessionConnect,

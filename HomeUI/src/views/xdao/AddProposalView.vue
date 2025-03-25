@@ -165,7 +165,7 @@
                   </p>
                   <div>
                     <a
-                      :href="`zel:?action=pay&coin=zelcash&address=${foundationAddress}&amount=${proposalPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
+                      @click="initZelcore"
                     >
                       <img
                         class="zelidLogin"
@@ -279,6 +279,24 @@ export default {
       }
     };
 
+    const initZelcore = async () => {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${foundationAddress.value}&amount=${proposalPrice.value}&message=${registrationHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
     const validateProposal = () => {
       if (proposalTopic.value === '') {
         showToast('danger', 'Proposal Topic is Mandatory');
@@ -359,6 +377,8 @@ export default {
       registrationHash,
       validTill,
       foundationAddress,
+
+      initZelcore,
 
       register,
     };

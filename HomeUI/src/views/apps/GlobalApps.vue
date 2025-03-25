@@ -74,6 +74,7 @@
                   :sort-desc.sync="tableconfig.active.sortDesc"
                   :sort-direction="tableconfig.active.sortDirection"
                   :filter="tableconfig.active.filter"
+                  :filter-included-fields="['name']"
                   sort-icon-left
                   show-empty
                   empty-text="No Flux Apps are active"
@@ -686,6 +687,7 @@
                   :per-page="tableconfig.active_marketplace.perPage"
                   :current-page="tableconfig.active_marketplace.currentPage"
                   :filter="tableconfig.active_marketplace.filter"
+                  :filter-included-fields="['name']"
                   show-empty
                   sort-icon-left
                   empty-text="No Flux Marketplace Apps are active"
@@ -1492,7 +1494,6 @@ export default {
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         if (!auth.zelid) {
-          this.tableconfig.my_expired.loading = false;
           return;
         }
         const response = await AppsService.permanentMessagesOwner(auth.zelid);
@@ -1521,8 +1522,6 @@ export default {
             expiredApps.push(app);
           }
         }
-        this.tableconfig.my_expired.apps = expiredApps;
-        this.tableconfig.my_expired.loading = false;
       } catch (error) {
         console.log(error);
       }
