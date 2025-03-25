@@ -44,7 +44,7 @@
               :href="`https://${domain}`"
               target="_blank"
               rel="noopener noreferrer"
-              class="mr-1 d-inline-block"
+              class="d-inline-block"
             >
               <kbd class="alert-info resource-kbd animated-link">{{ domain }}</kbd>
             </b-link>
@@ -145,8 +145,18 @@ export default {
     index: { type: Number, required: true },
   },
   methods: {
-    sanitized(key) {
-      return (key || []).filter(Boolean);
+    sanitized(value) {
+      if (!value) return [];
+
+      if (Array.isArray(value)) {
+        return value.flatMap((item) => (typeof item === 'string' ? item.split(',').map((i) => i.trim()) : [item]));
+      }
+
+      if (typeof value === 'string') {
+        return value.split(',').map((i) => i.trim());
+      }
+
+      return [];
     },
     getRepositoryLink(tag) {
       if (!tag) return null;
