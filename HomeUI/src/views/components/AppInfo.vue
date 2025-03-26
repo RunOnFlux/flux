@@ -5,6 +5,15 @@
     <list-entry title="Owner" :data="data.owner" title-icon="person-bounding-box" title-icon-scale="1.3" kbd-variant="secondary" />
     <list-entry title="Hash" :data="data.hash" title-icon="code-square" title-icon-scale="1.3" kbd-variant="secondary" />
     <list-entry
+      v-if="data?.contacts && data.contacts.length > 0"
+      title="Contacts"
+      :data="sanitized(data.contacts)"
+      title-icon="envelope-at-fill"
+      title-icon-scale="1.3"
+      kbd-variant="secondary"
+      :hide-if-empty="true"
+    />
+    <list-entry
       title="Geolocation"
       title-icon="globe-americas"
       title-icon-scale="1.3"
@@ -16,6 +25,8 @@
           <div
             v-for="(location, index) in (data?.geolocation?.length > 0 ? data.geolocation : ['Worldwide'])"
             :key="index"
+            class="d-inline-block"
+            style="margin-right: 5px;"
           >
             <kbd
               :class="[
@@ -101,6 +112,25 @@ export default {
     getNewExpireLabel: {
       type: [String, Number, Function],
       required: true,
+    },
+  },
+  methods: {
+    sanitized(value) {
+      if (!value) return [];
+
+      if (Array.isArray(value)) {
+        return value
+          .flatMap((item) => (typeof item === 'string' ? item.split(',').map((i) => i.trim()) : [item])).filter((v) => v);
+      }
+
+      if (typeof value === 'string') {
+        return value
+          .split(',')
+          .map((i) => i.trim())
+          .filter((v) => v);
+      }
+
+      return [];
     },
   },
 };
