@@ -8,7 +8,7 @@
       v-if="data?.contacts && data.contacts.length > 0"
       title="Contacts"
       :data="sanitized(data.contacts)"
-      title-icon="envelope-at-fill"
+      :title-icon="contactIcon(sanitized(data.contacts))"
       title-icon-scale="1.3"
       kbd-variant="secondary"
       :hide-if-empty="true"
@@ -78,7 +78,7 @@
       :data="getNewExpireLabel"
       title-icon="clock"
       title-icon-scale="1.2"
-      kbd-variant="success"
+      :kbd-variant="isExpiringSoon('getNewExpireLabel') ? 'danger' : 'success'"
     />
     <list-entry
       title="Enterprise Nodes"
@@ -115,6 +115,26 @@ export default {
     },
   },
   methods: {
+    isExpiringSoon(label) {
+      const timeParts = label.match(/\d+\s*(day|hour|minute)/gi);
+      if (!timeParts) return false;
+
+      const totalMinutes = timeParts.reduce((sum, part) => {
+        const [num, unit] = part.match(/\d+|\D+/g).map((s) => s.trim());
+        const value = parseInt(num, 10);
+        if (unit.startsWith('day')) return sum + value * 1440;
+        if (unit.startsWith('hour')) return sum + value * 60;
+        if (unit.startsWith('minute')) return sum + value;
+        return sum;
+      }, 0);
+
+      return totalMinutes < 2880;
+    },
+    contactIcon() {
+      return this.data.contacts.some((contact) => typeof contact === 'string' && contact.includes('@'))
+        ? 'envelope-at-fill'
+        : 'envelope-arrow-down-fill';
+    },
     sanitized(value) {
       if (!value) return [];
 
