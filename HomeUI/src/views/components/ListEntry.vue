@@ -196,4 +196,15 @@ export default {
     word-break: break-word;
     line-height: 1.5;
   }
+
+  @media (max-width: 576px) {
+    dl.row > dt.col-sm-3,
+    dl.row > dd.col-sm-9 {
+      width: 100% !important; /* Force full width */
+    }
+
+    dl.row > dt.col-sm-3 {
+      margin-bottom: 0.25rem;
+    }
+  }
 </style>

@@ -9442,36 +9442,6 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    // ToDo: Move this to global
-    const architecture = await systemArchitecture();
-
-    // TODO evaluate later to move to more broad check as image can be shared among multiple apps
-    const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
-    // eslint-disable-next-line no-restricted-syntax
-    for (const componentToInstall of compositedSpecification) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const installedApp of apps) {
-        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of installedAppCompositedSpecification) {
-          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
-            log.info(`trySpawningGlobalApplication - ${componentToInstall.repotag} Image is already running on this Flux`);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(30 * 60 * 1000);
-            trySpawningGlobalApplication();
-            return;
-          }
-        }
-      }
-
-      // check image is whitelisted and repotag is available for download
-      // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
-        throw error;
-      });
-    }
-
     if (!appFromAppsToBeCheckedLater && appToRunAux.nodes.length === 0) {
       const tier = await generalService.nodeTier();
       const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
@@ -9515,6 +9485,36 @@ async function trySpawningGlobalApplication() {
         trySpawningGlobalApplication();
         return;
       }
+    }
+
+    // ToDo: Move this to global
+    const architecture = await systemArchitecture();
+
+    // TODO evaluate later to move to more broad check as image can be shared among multiple apps
+    const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
+    // eslint-disable-next-line no-restricted-syntax
+    for (const componentToInstall of compositedSpecification) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const installedApp of apps) {
+        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of installedAppCompositedSpecification) {
+          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
+            log.info(`trySpawningGlobalApplication - ${componentToInstall.repotag} Image is already running on this Flux`);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(30 * 60 * 1000);
+            trySpawningGlobalApplication();
+            return;
+          }
+        }
+      }
+
+      // check image is whitelisted and repotag is available for download
+      // eslint-disable-next-line no-await-in-loop
+      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
+        spawnErrorsLongerAppCache.set(appHash, appHash);
+        throw error;
+      });
     }
 
     // an application was selected and checked that it can run on this node. try to install and run it locally
