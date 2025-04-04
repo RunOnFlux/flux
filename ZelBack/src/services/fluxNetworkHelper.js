@@ -689,154 +689,6 @@ function getMaxNumberOfIpChanges() {
 }
 
 /**
- * To check user's FluxNode availability.
- * @param {number} retryNumber Number of retries.
- * @returns {boolean} True if all checks passed.
- */
-async function checkMyFluxAvailability(retryNumber = 0) {
-  if (dosTooManyIpChanges) {
-    dosState += 11;
-    setDosMessage('IP changes over the limit allowed, one in 20 hours');
-    return false;
-  }
-  let userBlockedPorts = userconfig.initial.blockedPorts || [];
-  userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
-  if (Array.isArray(userBlockedPorts)) {
-    if (userBlockedPorts.length > 100) {
-      dosState += 11;
-      setDosMessage('User blocked ports above 100 limit');
-      return false;
-    }
-  }
-  let userBlockedRepositories = userconfig.initial.blockedRepositories || [];
-  userBlockedRepositories = serviceHelper.ensureObject(userBlockedRepositories);
-  if (Array.isArray(userBlockedRepositories)) {
-    if (userBlockedRepositories.length > 10) {
-      dosState += 11;
-      setDosMessage('User blocked repositories above 10 limit');
-      return false;
-    }
-  }
-  const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
-  if (!fluxBenchVersionAllowed) {
-    return false;
-  }
-  let askingIP = await getRandomConnection();
-  if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
-    return false;
-  }
-  let askingIpPort = config.server.apiport;
-  if (askingIP.includes(':')) { // has port specification
-    // it has port specification
-    const splittedIP = askingIP.split(':');
-    askingIP = splittedIP[0];
-    askingIpPort = splittedIP[1];
-  }
-  let myIP = myFluxIP;
-  const oldIP = myFluxIP;
-  if (myIP.includes(':')) { // has port specification
-    myIP = myIP.split(':')[0];
-  }
-  let availabilityError = null;
-  const axiosConfigAux = {
-    timeout: 7000,
-  };
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
-  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
-    log.error(`${askingIP} is not reachable`);
-    log.error(error);
-    availabilityError = true;
-  });
-  if (!resMyAvailability || availabilityError) {
-    dosState += 2;
-    if (dosState > 10) {
-      setDosMessage(dosMessage || 'Flux communication is limited, other nodes on the network cannot reach yours through API calls');
-      log.error(dosMessage);
-      return false;
-    }
-    if (retryNumber <= 6) {
-      const newRetryIndex = retryNumber + 1;
-      return checkMyFluxAvailability(newRetryIndex);
-    }
-    return false;
-  }
-  if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
-    log.error(`My Flux unavailability detected from ${askingIP}`);
-    // Asked Flux cannot reach me lets check if ip changed
-    if (retryNumber === 4 || dosState > 10) {
-      log.info('Getting publicIp from FluxBench');
-      const benchIpResponse = await benchmarkService.getPublicIp();
-      if (benchIpResponse.status === 'success') {
-        const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-        if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
-          await serviceHelper.delay(2 * 1000); // await two seconds
-          const newIP = await getMyFluxIPandPort(); // to update node Ip on FluxOs;
-          if (newIP && newIP !== oldIP) { // double check
-            log.info('FluxBench reported a new IP');
-            if (await ipChangesOverLimit()) {
-              dosState += 11;
-              setDosMessage('IP changes over the limit allowed, one in 20 hours');
-              log.error(dosMessage);
-            }
-            return true;
-          }
-        } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
-          log.info('FluxBench reported the same Ip that was already in use');
-        } else {
-          setDosMessage('Error getting publicIp from FluxBench');
-          dosState += 15;
-          log.error('FluxBench wasnt able to detect flux node public ip');
-        }
-      } else {
-        setDosMessage('Error getting publicIp from FluxBench');
-        dosState += 15;
-        log.error(dosMessage);
-        return false;
-      }
-    }
-    dosState += 2;
-    if (dosState > 10) {
-      setDosMessage(dosMessage || 'Flux is not available for outside communication');
-      log.error(dosMessage);
-      return false;
-    }
-    if (retryNumber <= 6) {
-      const newRetryIndex = retryNumber + 1;
-      return checkMyFluxAvailability(newRetryIndex);
-    }
-    return false;
-  }
-  const measuredUptime = fluxUptime();
-  if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
-    const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    // nodeList must include our fluxnode ip myIP
-    let myCorrectIp = `${myIP}:${apiPort}`;
-    if (apiPort === 16127 || apiPort === '16127') {
-      myCorrectIp = myCorrectIp.split(':')[0];
-    }
-    const myNodeExists = nodeList.find((node) => node.ip === myCorrectIp);
-    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing && myNodeExists) { // our node MUST be in confirmed list in order to have some peers
-      // check sufficient connections
-      const connectionInfo = isCommunicationEstablished();
-      if (connectionInfo.status === 'error') {
-        dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
-        if (dosState > 10) {
-          setDosMessage(connectionInfo.data.message || 'Flux does not have sufficient peers');
-          log.error(dosMessage);
-          return false;
-        }
-        return true; // availability ok
-      }
-    }
-  } else if (measuredUptime.status === 'error') {
-    log.error('Flux uptime is not available'); // introduce dos increment
-  }
-  dosState = 0;
-  setDosMessage(null);
-  return true;
-}
-
-/**
  * To adjust an external IP.
  * @param {string} ip IP address.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
@@ -927,6 +779,160 @@ async function adjustExternalIP(ip) {
 }
 
 /**
+ * To check user's FluxNode availability.
+ * @param {number} retryNumber Number of retries.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkMyFluxAvailability(retryNumber = 0) {
+  if (dosTooManyIpChanges) {
+    dosState += 11;
+    setDosMessage('IP changes over the limit allowed, one in 20 hours');
+    return false;
+  }
+  let userBlockedPorts = userconfig.initial.blockedPorts || [];
+  userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
+  if (Array.isArray(userBlockedPorts)) {
+    if (userBlockedPorts.length > 100) {
+      dosState += 11;
+      setDosMessage('User blocked ports above 100 limit');
+      return false;
+    }
+  }
+  let userBlockedRepositories = userconfig.initial.blockedRepositories || [];
+  userBlockedRepositories = serviceHelper.ensureObject(userBlockedRepositories);
+  if (Array.isArray(userBlockedRepositories)) {
+    if (userBlockedRepositories.length > 10) {
+      dosState += 11;
+      setDosMessage('User blocked repositories above 10 limit');
+      return false;
+    }
+  }
+  const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
+  if (!fluxBenchVersionAllowed) {
+    return false;
+  }
+  let askingIP = await getRandomConnection();
+  if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
+    return false;
+  }
+  let askingIpPort = config.server.apiport;
+  if (askingIP.includes(':')) { // has port specification
+    // it has port specification
+    const splittedIP = askingIP.split(':');
+    askingIP = splittedIP[0];
+    askingIpPort = splittedIP[1];
+  }
+  let myIP = myFluxIP;
+  if (myIP.includes(':')) { // has port specification
+    myIP = myIP.split(':')[0];
+  }
+  let availabilityError = null;
+  const axiosConfigAux = {
+    timeout: 7000,
+  };
+  const apiPort = userconfig.initial.apiport || config.server.apiport;
+  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
+    log.error(`${askingIP} is not reachable`);
+    log.error(error);
+    availabilityError = true;
+  });
+  if (!resMyAvailability || availabilityError) {
+    dosState += 2;
+    if (dosState > 10) {
+      setDosMessage(dosMessage || 'Flux communication is limited, other nodes on the network cannot reach yours through API calls');
+      log.error(dosMessage);
+      return false;
+    }
+    if (retryNumber <= 6) {
+      const newRetryIndex = retryNumber + 1;
+      return checkMyFluxAvailability(newRetryIndex);
+    }
+    return false;
+  }
+  if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
+    log.error(`My Flux unavailability detected from ${askingIP}`);
+    // Asked Flux cannot reach me lets check if ip changed
+    if (retryNumber === 4 || dosState > 10) {
+      log.info('Getting publicIp from FluxBench');
+      const benchIpResponse = await benchmarkService.getPublicIp();
+      if (benchIpResponse.status === 'success') {
+        log.info(`FluxBench reported public IP: ${benchIpResponse.data}`);
+        const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+        if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
+          daemonServiceUtils.setStandardCache('getbenchmarks', null);
+          log.info('FluxBench reported a new IP');
+          if (await ipChangesOverLimit()) {
+            log.info('IP changes over the limit allowed, one in 20 hours');
+            dosState += 11;
+            setDosMessage('IP changes over the limit allowed, one in 20 hours');
+            log.error(dosMessage);
+          } else {
+            dosState = 0;
+            setDosMessage(null);
+          }
+          await adjustExternalIP(benchMyIP.split(':')[0]);
+          return true;
+        } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
+          log.info('FluxBench reported the same Ip that was already in use');
+        } else {
+          log.info('FluxBench reported a invalid IP');
+          setDosMessage('Error getting publicIp from FluxBench');
+          dosState += 15;
+          log.error('FluxBench wasnt able to detect flux node public ip');
+        }
+      } else {
+        log.info('FluxBench reported returned error on getpublicipcall');
+        setDosMessage('Error getting publicIp from FluxBench');
+        dosState += 15;
+        log.error(dosMessage);
+        return false;
+      }
+    }
+    dosState += 2;
+    if (dosState > 10) {
+      setDosMessage(dosMessage || 'Flux is not available for outside communication');
+      log.error(dosMessage);
+      return false;
+    }
+    if (retryNumber <= 6) {
+      const newRetryIndex = retryNumber + 1;
+      return checkMyFluxAvailability(newRetryIndex);
+    }
+    return false;
+  }
+  const measuredUptime = fluxUptime();
+  if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
+    const nodeList = await fluxCommunicationUtils.deterministicFluxList();
+    // nodeList must include our fluxnode ip myIP
+    let myCorrectIp = `${myIP}:${apiPort}`;
+    if (apiPort === 16127 || apiPort === '16127') {
+      myCorrectIp = myCorrectIp.split(':')[0];
+    }
+    const myNodeExists = nodeList.find((node) => node.ip === myCorrectIp);
+    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing && myNodeExists) { // our node MUST be in confirmed list in order to have some peers
+      // check sufficient connections
+      const connectionInfo = isCommunicationEstablished();
+      if (connectionInfo.status === 'error') {
+        dosState += 0.13; // slow increment, DOS after ~75 minutes. 0.13 per minute. This check depends on other nodes being able to connect to my node
+        if (dosState > 10) {
+          setDosMessage(connectionInfo.data.message || 'Flux does not have sufficient peers');
+          log.error(dosMessage);
+          return false;
+        }
+        await adjustExternalIP(myIP.split(':')[0]);
+        return true; // availability ok
+      }
+    }
+  } else if (measuredUptime.status === 'error') {
+    log.error('Flux uptime is not available'); // introduce dos increment
+  }
+  dosState = 0;
+  setDosMessage(null);
+  await adjustExternalIP(myIP.split(':')[0]);
+  return true;
+}
+
+/**
  * To check deterministic node collisions (i.e. if multiple FluxNode instances detected).
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
@@ -1000,7 +1006,7 @@ async function checkDeterministicNodesCollisions() {
           if (errorCall) {
             const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
             log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
-            if (getDosMessage().includes('is confirmed and reachable on flux network')) {
+            if (getDosMessage() && getDosMessage().includes('is confirmed and reachable on flux network')) {
               dosState = 0;
               setDosMessage(null);
             }
@@ -1009,23 +1015,14 @@ async function checkDeterministicNodesCollisions() {
       }
       // early stages of the network or testnet
       if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing) {
-        const availabilityOk = await checkMyFluxAvailability();
-        if (availabilityOk) {
-          await adjustExternalIP(myIP.split(':')[0]);
-        }
+        await checkMyFluxAvailability();
       } else { // sufficient amount of nodes has to appear on the network within 6 hours
         const measuredUptime = fluxUptime();
         if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime * 12)) {
-          const availabilityOk = await checkMyFluxAvailability();
-          if (availabilityOk) {
-            await adjustExternalIP(myIP.split(':')[0]);
-          }
+          await checkMyFluxAvailability();
         } else if (measuredUptime.status === 'error') {
           log.error('Flux uptime unavailable');
-          const availabilityOk = await checkMyFluxAvailability();
-          if (availabilityOk) {
-            await adjustExternalIP(myIP.split(':')[0]);
-          }
+          await checkMyFluxAvailability();
         }
       }
     } else {
