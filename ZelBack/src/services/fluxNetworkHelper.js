@@ -859,7 +859,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         log.info(`FluxBench reported public IP: ${benchIpResponse.data}`);
         const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
         if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
-          daemonServiceUtils.setStandardCache('getbenchmarks', null);
+          daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
           log.info('FluxBench reported a new IP');
           if (await ipChangesOverLimit()) {
             log.info('IP changes over the limit allowed, one in 20 hours');
@@ -1331,7 +1331,7 @@ async function adjustFirewall() {
       log.info(`Router IP: ${routerIP}`);
       if (serviceHelper.validIpv4Address(routerIP)
         && (routerIP.startsWith('192.168.') || routerIP.startsWith('10.') || routerIP.startsWith('172.16.')
-       || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
+          || routerIP.startsWith('100.64.') || routerIP.startsWith('198.18.') || routerIP.startsWith('169.254.'))) {
         const execRouterAllowA = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow out from any to ${routerIP} proto tcp > /dev/null 2>&1`;
         const execRouterAllowB = `LANG="en_US.UTF-8" && sudo ufw insert 1 allow from ${routerIP} to any proto udp > /dev/null 2>&1`;
         await cmdAsync(execRouterAllowA);
