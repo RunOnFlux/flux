@@ -1030,6 +1030,24 @@ async function checkDeterministicNodesCollisions() {
       if (dosState > 10) {
         setDosMessage(dosMessage || 'Flux IP detection failed');
         log.error(dosMessage);
+      } else {
+        const measuredUptime = fluxUptime();
+        if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime)) {
+          const benchIpResponse = await benchmarkService.getPublicIp();
+          if (benchIpResponse.status === 'success') {
+            log.info(`FluxBench was previoulsy without ip and now reported public IP: ${benchIpResponse.data}`);
+            const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
+            if (benchMyIP) {
+              daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
+              if (await ipChangesOverLimit()) {
+                log.info('IP changes over the limit allowed, one in 20 hours');
+                dosState += 11;
+                setDosMessage('IP changes over the limit allowed, one in 20 hours');
+                log.error(dosMessage);
+              }
+            }
+          }
+        }
       }
     }
     setTimeout(() => {
