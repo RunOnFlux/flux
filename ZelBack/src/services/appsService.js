@@ -9517,6 +9517,16 @@ async function trySpawningGlobalApplication() {
       });
     }
 
+    // triple check if app is installed on the number of instances requested
+    runningAppList = await getRunningAppList(appToRun);
+    if (runningAppList.length >= minInstances) {
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
+      trySpawningGlobalAppCache.delete(appHash);
+      await serviceHelper.delay(30 * 60 * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
+
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // install the app
     const registerOk = await registerAppLocally(appSpecifications); // can throw
