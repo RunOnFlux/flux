@@ -9293,6 +9293,12 @@ async function trySpawningGlobalApplication() {
         trySpawningGlobalApplication();
         return;
       }
+      if (appToRunAux.required > appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.60) {
+        log.info('trySpawningGlobalApplication - app missing more than two instances failed the 60% probability check to install');
+        await serviceHelper.delay(10 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
+      }
     }
 
     trySpawningGlobalAppCache.set(appHash, appHash);
