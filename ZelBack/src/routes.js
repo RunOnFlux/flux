@@ -252,6 +252,9 @@ module.exports = (app) => {
   app.get('/flux/id', cache('30 seconds'), (req, res) => {
     fluxService.getFluxZelID(req, res);
   });
+  app.get('/flux/fluxids', cache('30 seconds'), (req, res) => {
+    fluxService.getFluxIds(req, res);
+  });
   app.get('/flux/pgp', cache('30 seconds'), (req, res) => {
     fluxService.getFluxPGPidentity(req, res);
   });
