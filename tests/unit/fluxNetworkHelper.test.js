@@ -855,7 +855,7 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkFluxbenchVersionAllowed tests', () => {
-    // minimumFluxBenchAllowedVersion = '4.0.0';
+    // minimumFluxBenchAllowedVersion = '5.0.0';
     let benchmarkInfoResponseStub;
 
     beforeEach(() => {
@@ -868,7 +868,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is higher than minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -876,7 +876,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return true if bench version is equal to minimal and stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -884,7 +884,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return false if bench version is lower than minimal and is stored in cache', async () => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('3.0.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
 
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
@@ -910,7 +910,7 @@ describe('fluxNetworkHelper tests', () => {
       const benchmarkInfoResponse = {
         status: 'success',
         data: {
-          version: '4.0.0',
+          version: '5.0.0',
         },
       };
       benchmarkInfoResponseStub.returns(benchmarkInfoResponse);
@@ -918,7 +918,7 @@ describe('fluxNetworkHelper tests', () => {
       const isFluxbenchVersionAllowed = await fluxNetworkHelper.checkFluxbenchVersionAllowed();
 
       expect(isFluxbenchVersionAllowed).to.equal(true);
-      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('4.0.0');
+      expect(fluxNetworkHelper.getStoredFluxBenchAllowed()).to.equal('5.0.0');
     });
 
     it('should return false if the version is lower than minimal and is not set in cache', async () => {
@@ -963,7 +963,7 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('checkMyFluxAvailability tests', () => {
     beforeEach(() => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       const deterministicFluxnodeListResponse = [
         {
@@ -1206,7 +1206,7 @@ describe('fluxNetworkHelper tests', () => {
     let deterministicFluxnodeListResponse;
 
     beforeEach(() => {
-      fluxNetworkHelper.setStoredFluxBenchAllowed('4.0.0');
+      fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
