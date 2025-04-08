@@ -565,7 +565,7 @@ describe('serviceHelper tests', () => {
     const majorOnly = '20230311';
 
     it('should return true if major version is higher than minimalVersion', async () => {
-      const versionAllowed = await serviceHelper.minVersionSatisfy('4.0.0', minimalVersion);
+      const versionAllowed = await serviceHelper.minVersionSatisfy('5.0.0', minimalVersion);
 
       expect(versionAllowed).to.equal(true);
     });
