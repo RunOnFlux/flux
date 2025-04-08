@@ -41,7 +41,7 @@ describe('fluxNetworkHelper tests', () => {
     const fluxAvailabilitySuccessResponse = {
       data: {
         status: 'success',
-        data: '5.4.0',
+        data: '5.43.0',
       },
     };
     Object.setPrototypeOf(fluxAvailabilitySuccessResponse.data, { // axios on home expects string
@@ -52,7 +52,7 @@ describe('fluxNetworkHelper tests', () => {
     const fluxAvailabilityErrorResponse = {
       data: {
         status: 'error',
-        data: '5.4.0',
+        data: '5.43.0',
       },
     };
     const generateResponse = () => {
@@ -259,7 +259,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '5.4.0',
+          data: '5.43.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
@@ -283,7 +283,7 @@ describe('fluxNetworkHelper tests', () => {
       const mockResponse = {
         data: {
           status: 'success',
-          data: '5.4.0',
+          data: '5.43.0',
         },
       };
       Object.setPrototypeOf(mockResponse.data, { // axios on home expects string
