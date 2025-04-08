@@ -678,6 +678,12 @@ function getFluxZelID(req, res) {
   return res ? res.json(message) : message;
 }
 
+/**
+ * Returns Flux Team and Support Team Flux IDs.
+ * @param {object} req Request object
+ * @param {object} res Response object
+ * @returns {object} JSON response with team IDs
+ */
 function getFluxIds(req, res) {
   const fluxConfig = {
     fluxTeamFluxID: configDefault.fluxTeamFluxID,
