@@ -1701,12 +1701,12 @@
               <b-button
                 v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                 variant="primary"
-                aria-label="Flux Single Sign On"
+                aria-label="Flux Single Sign On/Email"
                 class="my-1"
                 style="width: 250px"
                 @click="initSignFluxSSO"
               >
-                Flux Single Sign On (SSO)
+                Flux Single Sign On (SSO)/Email
               </b-button>
             </div>
           </b-card>
@@ -3042,6 +3042,7 @@ export default {
           return;
         }
         this.signature = signSSO.data.signature;
+        this.showToast('success', 'Message signed.');
       } catch (error) {
         this.showToast('warning', 'Failed to sign message, please try again.');
       }

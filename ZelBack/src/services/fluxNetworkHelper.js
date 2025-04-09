@@ -731,6 +731,13 @@ async function adjustExternalIP(ip) {
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
       const oldIP = userconfig.initial.apiport !== 16127 ? `${oldUserConfigIp}:${userconfig.initial.apiport}` : oldUserConfigIp;
       log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
+      const measuredUptime = fluxUptime();
+      if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
+        log.info('IP changes over the limit allowed, one in 20 hours');
+        dosState += 11;
+        setDosMessage('IP changes over the limit allowed, one in 20 hours');
+        log.error(dosMessage);
+      }
       // eslint-disable-next-line global-require
       const appsService = require('./appsService');
       let apps = await appsService.installedApps();
@@ -861,15 +868,8 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
           log.info('FluxBench reported a new IP');
-          if (await ipChangesOverLimit()) {
-            log.info('IP changes over the limit allowed, one in 20 hours');
-            dosState += 11;
-            setDosMessage('IP changes over the limit allowed, one in 20 hours');
-            log.error(dosMessage);
-          } else {
-            dosState = 0;
-            setDosMessage(null);
-          }
+          dosState = 0;
+          setDosMessage(null);
           await adjustExternalIP(benchMyIP.split(':')[0]);
           return true;
         } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
@@ -1039,12 +1039,6 @@ async function checkDeterministicNodesCollisions() {
             const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
             if (benchMyIP) {
               daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
-              if (await ipChangesOverLimit()) {
-                log.info('IP changes over the limit allowed, one in 20 hours');
-                dosState += 11;
-                setDosMessage('IP changes over the limit allowed, one in 20 hours');
-                log.error(dosMessage);
-              }
             }
           }
         }
