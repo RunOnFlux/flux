@@ -2,6 +2,33 @@
   <div>
     <b-row class="match-height">
       <b-col
+        v-if="!!isArcane"
+        sm="12"
+        lg="6"
+        xl="4"
+      >
+        <b-card title="Benchmark">
+          <b-card-text class="mb-3">
+            An easy way to update your Benchmark daemon to the latest version. Benchmark will be automatically started once update is done.
+          </b-card-text>
+          <div class="text-center">
+            <b-button
+              id="update-benchmark"
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="success"
+              aria-label="Update Benchmark"
+            >
+              Update Benchmark
+            </b-button>
+            <confirm-dialog
+              target="update-benchmark"
+              confirm-button="Update Benchmark"
+              @confirm="updateBenchmark()"
+            />
+          </div>
+        </b-card>
+      </b-col>
+      <b-col
         sm="12"
         lg="6"
         xl="4"
@@ -118,10 +145,31 @@ export default {
   directives: {
     Ripple,
   },
+  data() {
+    return {
+      isArcane: false,
+    };
+  },
   mounted() {
     this.checkBenchmarkVersion();
+    this.fetchFluxInfo();
   },
   methods: {
+    async fetchFluxInfo() {
+      try {
+        const response = await FluxService.getFluxInfo();
+        const version = response?.data?.data?.flux?.arcaneVersion;
+
+        if (version) {
+          this.isArcane = true;
+        } else {
+          this.isArcane = false;
+        }
+        console.log(`isArcane: ${this.isArcane}`);
+      } catch (err) {
+        console.error('Failed to fetch Flux info:', err);
+      }
+    },
     checkBenchmarkVersion() {
       BenchmarkService.getInfo()
         .then((benchmarkResponse) => {
