@@ -3,32 +3,7 @@
     <b-row class="match-height">
       <b-col
         sm="12"
-        lg="6"
-      >
-        <b-card title="Daemon">
-          <b-card-text class="mb-3">
-            An easy way to update your Flux daemon to the latest version. Flux will be automatically started once update is done.
-          </b-card-text>
-          <div class="text-center">
-            <b-button
-              id="update-daemon"
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Update Daemon"
-            >
-              Update Daemon
-            </b-button>
-            <confirm-dialog
-              target="update-daemon"
-              confirm-button="Update Daemon"
-              @confirm="updateDaemon()"
-            />
-          </div>
-        </b-card>
-      </b-col>
-      <b-col
-        sm="12"
-        lg="6"
+        lg="12"
       >
         <b-card title="Manage Process">
           <b-card-text class="mb-3">

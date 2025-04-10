@@ -6,32 +6,6 @@
         lg="6"
         xl="4"
       >
-        <b-card title="Benchmark">
-          <b-card-text class="mb-3">
-            An easy way to update your Benchmark daemon to the latest version. Benchmark will be automatically started once update is done.
-          </b-card-text>
-          <div class="text-center">
-            <b-button
-              id="update-benchmark"
-              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-              variant="success"
-              aria-label="Update Benchmark"
-            >
-              Update Benchmark
-            </b-button>
-            <confirm-dialog
-              target="update-benchmark"
-              confirm-button="Update Benchmark"
-              @confirm="updateBenchmark()"
-            />
-          </div>
-        </b-card>
-      </b-col>
-      <b-col
-        sm="12"
-        lg="6"
-        xl="4"
-      >
         <b-card title="Manage Process">
           <b-card-text class="mb-3">
             Here you can manage your Benchmark daemon process.
