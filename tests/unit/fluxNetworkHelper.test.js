@@ -200,7 +200,7 @@ describe('fluxNetworkHelper tests', () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
       benchStub.resolves(getBenchmarkResponseData);
 
@@ -1228,11 +1228,11 @@ describe('fluxNetworkHelper tests', () => {
       sinon.restore();
     });
 
-    it('should not change dosMessage ', async () => {
+    it('should not change dosMessage', async () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
@@ -1277,7 +1277,7 @@ describe('fluxNetworkHelper tests', () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
@@ -1301,7 +1301,7 @@ describe('fluxNetworkHelper tests', () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
