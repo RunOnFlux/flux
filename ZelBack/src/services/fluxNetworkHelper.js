@@ -14,7 +14,6 @@ const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
-const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs');
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
@@ -363,10 +362,10 @@ function getDosStateValue() {
 
 /**
  * To get Flux IP adress and port.
- * @returns {string} IP address and port.
+ * @returns {Promise<string>} IP address and port.
  */
 async function getMyFluxIPandPort() {
-  const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+  const benchmarkResponse = await benchmarkService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -730,7 +729,7 @@ async function adjustExternalIP(ip) {
       myCache.set(ip, ip);
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
       const oldIP = userconfig.initial.apiport !== 16127 ? `${oldUserConfigIp}:${userconfig.initial.apiport}` : oldUserConfigIp;
-      log.info(`New public Ip detected: ${newIP}, old Ip:${oldIP} , updating the FluxNode info in the network`);
+      log.info(`New public Ip detected: ${newIP}, old Ip: ${oldIP} , updating the FluxNode info on the network`);
       const measuredUptime = fluxUptime();
       if (await ipChangesOverLimit() && measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) {
         log.info('IP changes over the limit allowed, one in 20 hours');
@@ -867,7 +866,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
         const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
         if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
-          log.info('FluxBench reported a new IP');
+          log.info('New IP found... updating network');
           dosState = 0;
           setDosMessage(null);
           await adjustExternalIP(benchMyIP.split(':')[0]);

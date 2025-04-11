@@ -12,7 +12,6 @@ const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
@@ -187,14 +186,14 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('getMyFluxIPandPort tests', () => {
-    let daemonStub;
+    let benchStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+      benchStub = sinon.stub(benchmarkService, 'getBenchmarks');
     });
 
     afterEach(() => {
-      daemonStub.restore();
+      benchStub.restore();
     });
 
     it('should return IP and Port if benchmark response is correct', async () => {
@@ -203,24 +202,24 @@ describe('fluxNetworkHelper tests', () => {
         status: 'success',
         data: JSON.stringify({ ipaddress: ip }),
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchStub.resolves(getBenchmarkResponseData);
 
       const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
 
       expect(getIpResult).to.equal(ip);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchStub);
     });
 
     it('should return null if daemon\'s response is invalid', async () => {
       const getBenchmarkResponseData = {
         status: 'error',
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchStub.resolves(getBenchmarkResponseData);
 
       const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
 
       expect(getIpResult).to.be.null;
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchStub);
     });
 
     it('should return null if daemon\'s response IP is too short', async () => {
@@ -229,12 +228,12 @@ describe('fluxNetworkHelper tests', () => {
         status: 'success',
         data: JSON.stringify({ ipaddress: ip }),
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchStub.resolves(getBenchmarkResponseData);
 
       const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
 
       expect(getIpResult).to.be.null;
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchStub);
     });
   });
 
@@ -1096,13 +1095,6 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
-      const getBenchmarkStub = {
-        status: 'success',
-        data: JSON.stringify({
-          ipaddress: '129.0.0.1',
-        }),
-      };
-      sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks').resolves(getBenchmarkStub);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
@@ -1224,7 +1216,7 @@ describe('fluxNetworkHelper tests', () => {
           amount: '1000.00',
           rank: 0,
         }];
-      getBenchmarksStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+      getBenchmarksStub = sinon.stub(benchmarkService, 'getBenchmarks');
       isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
       getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
