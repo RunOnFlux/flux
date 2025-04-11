@@ -1,10 +1,11 @@
 /* eslint-disable no-underscore-dangle */
+global.userconfig = require('../../config/userconfig');
+
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
 const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
-const proxyquire = require('proxyquire');
 const fs = require('fs').promises;
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
@@ -15,19 +16,13 @@ const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonSer
 const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
-
-const adminConfig = require('../../config/userconfig');
-
-const fluxNetworkHelper = proxyquire(
-  '../../ZelBack/src/services/fluxNetworkHelper',
-  { '../../../config/userconfig': adminConfig },
-);
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -1166,7 +1161,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should not write to file if the config already has same exact ip', () => {
-      const newIp = adminConfig.initial.ipaddress;
+      const newIp = userconfig.initial.ipaddress;
 
       fluxNetworkHelper.adjustExternalIP(newIp);
 
