@@ -365,16 +365,19 @@ function getDosStateValue() {
  * @returns {Promise<string>} IP address and port.
  */
 async function getMyFluxIPandPort() {
+  // I'm not sure of the intent here, but it does what it used to do.
+  // Fetches the ip, sets the ip to the fetched value on success, or sets
+  // it to null on error.
+  //
+  // I'm not sure we should be setting it to null, a bench call could fail
+  // for whatever reason, I believe we should only be setting this on success,
+  // or we should count failures to allow for bad rpc calls.
   const benchmarkResponse = await benchmarkService.getBenchmarks();
-  let myIP = null;
-  if (benchmarkResponse.status === 'success') {
-    const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
-    if (benchmarkResponseData.ipaddress) {
-      myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
-    }
-  }
-  setMyFluxIp(myIP);
-  return myIP;
+  const { status, data: { ipaddress = null } = {} } = benchmarkResponse;
+  const ip = status === 'success' ? ipaddress : null;
+
+  setMyFluxIp(ip);
+  return ip;
 }
 
 /**
