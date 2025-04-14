@@ -4339,8 +4339,12 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     }
     let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
     if (instancesAdditional > 0) {
-      const additionalPrice = (appPrice * instancesAdditional) / 3;
-      appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+      if (appPrice < 1.50) {
+        appPrice += (instancesAdditional * 0.50);
+      } else {
+        const additionalPrice = (appPrice * instancesAdditional) / 3;
+        appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+      }
     }
     if (appPrice < priceSpecifications.minPrice) {
       appPrice = priceSpecifications.minPrice;
@@ -4384,8 +4388,12 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   }
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
   if (instancesAdditional > 0) {
-    const additionalPrice = (appPrice * instancesAdditional) / 3;
-    appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+    if (appPrice < 1.50) {
+      appPrice += (instancesAdditional * 0.50);
+    } else {
+      const additionalPrice = (appPrice * instancesAdditional) / 3;
+      appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+    }
   }
 
   if (appPrice < priceSpecifications.minPrice) {
