@@ -1,33 +1,27 @@
 /* eslint-disable no-underscore-dangle */
+global.userconfig = require('../../config/userconfig');
+
 const chai = require('chai');
 const sinon = require('sinon');
 const WebSocket = require('ws');
 const path = require('path');
 const chaiAsPromised = require('chai-as-promised');
-const proxyquire = require('proxyquire');
 const fs = require('fs').promises;
 const util = require('util');
 const log = require('../../ZelBack/src/lib/log');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
-const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceWalletRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceWalletRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
-
-const adminConfig = require('../../config/userconfig');
-
-const fluxNetworkHelper = proxyquire(
-  '../../ZelBack/src/services/fluxNetworkHelper',
-  { '../../../config/userconfig': adminConfig },
-);
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -192,40 +186,40 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('getMyFluxIPandPort tests', () => {
-    let daemonStub;
+    let benchStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+      benchStub = sinon.stub(benchmarkService, 'getBenchmarks');
     });
 
     afterEach(() => {
-      daemonStub.restore();
+      benchStub.restore();
     });
 
     it('should return IP and Port if benchmark response is correct', async () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchStub.resolves(getBenchmarkResponseData);
 
       const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
 
       expect(getIpResult).to.equal(ip);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchStub);
     });
 
     it('should return null if daemon\'s response is invalid', async () => {
       const getBenchmarkResponseData = {
         status: 'error',
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchStub.resolves(getBenchmarkResponseData);
 
       const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
 
       expect(getIpResult).to.be.null;
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchStub);
     });
 
     it('should return null if daemon\'s response IP is too short', async () => {
@@ -234,12 +228,12 @@ describe('fluxNetworkHelper tests', () => {
         status: 'success',
         data: JSON.stringify({ ipaddress: ip }),
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchStub.resolves(getBenchmarkResponseData);
 
       const getIpResult = await fluxNetworkHelper.getMyFluxIPandPort();
 
       expect(getIpResult).to.be.null;
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchStub);
     });
   });
 
@@ -1101,13 +1095,6 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
-      const getBenchmarkStub = {
-        status: 'success',
-        data: JSON.stringify({
-          ipaddress: '129.0.0.1',
-        }),
-      };
-      sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks').resolves(getBenchmarkStub);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
@@ -1166,7 +1153,7 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should not write to file if the config already has same exact ip', () => {
-      const newIp = adminConfig.initial.ipaddress;
+      const newIp = userconfig.initial.ipaddress;
 
       fluxNetworkHelper.adjustExternalIP(newIp);
 
@@ -1229,7 +1216,7 @@ describe('fluxNetworkHelper tests', () => {
           amount: '1000.00',
           rank: 0,
         }];
-      getBenchmarksStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+      getBenchmarksStub = sinon.stub(benchmarkService, 'getBenchmarks');
       isDaemonSyncedStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
       getFluxNodeStatusStub = sinon.stub(daemonServiceFluxnodeRpcs, 'getFluxNodeStatus');
@@ -1241,11 +1228,11 @@ describe('fluxNetworkHelper tests', () => {
       sinon.restore();
     });
 
-    it('should not change dosMessage ', async () => {
+    it('should not change dosMessage', async () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
@@ -1290,7 +1277,7 @@ describe('fluxNetworkHelper tests', () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });
@@ -1314,7 +1301,7 @@ describe('fluxNetworkHelper tests', () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
       isDaemonSyncedStub.returns({ data: { synced: true } });

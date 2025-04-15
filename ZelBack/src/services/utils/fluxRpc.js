@@ -247,7 +247,10 @@ class FluxRpc {
       let errorMessage;
       let errorCode;
 
-      if (data) {
+      if (typeof data === 'string') {
+        errorCode = 500;
+        errorMessage = data;
+      } else if (data) {
         const { code: rpcErrorCode, message: rpcErrorMsg } = data.error;
 
         errorCode = rpcErrorCode;

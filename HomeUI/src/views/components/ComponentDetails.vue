@@ -161,15 +161,20 @@ export default {
     sanitized(value) {
       if (!value) return [];
 
+      const removeProtocol = (url) => url.replace(/^https?:\/\//, '');
+
       if (Array.isArray(value)) {
         return value
-          .flatMap((item) => (typeof item === 'string' ? item.split(',').map((i) => i.trim()) : [item])).filter((v) => v);
+          .flatMap((item) => (typeof item === 'string'
+            ? item.split(',').map((i) => removeProtocol(i.trim()))
+            : [item]))
+          .filter((v) => v);
       }
 
       if (typeof value === 'string') {
         return value
           .split(',')
-          .map((i) => i.trim())
+          .map((i) => removeProtocol(i.trim()))
           .filter((v) => v);
       }
 
