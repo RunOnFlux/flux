@@ -2,7 +2,7 @@
   <div>
     <b-row class="match-height">
       <b-col
-        v-if="!!isArcane"
+        v-if="!isArcane"
         sm="12"
         lg="6"
       >
