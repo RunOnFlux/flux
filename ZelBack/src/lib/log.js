@@ -70,7 +70,7 @@ function debug(args) {
     return;
   }
   try {
-    console.log(args);
+    if (process.stdout.isTTY) console.log(args);
     // write to file
     const filepath = `${homeDirPath}debug.log`;
     writeToFile(filepath, args);
