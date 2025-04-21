@@ -10291,6 +10291,36 @@ async function reinstallOldApplications() {
         // eslint-disable-next-line no-await-in-loop
         log.warn(`Application ${installedApp.name} version is obsolete.`);
         if (randomNumber === 0) {
+          // check if the app spec was changed
+          const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
+          const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
+          delete auxAppSpecifications.description;
+          delete auxAppSpecifications.expire;
+          delete auxAppSpecifications.hash;
+          delete auxAppSpecifications.height;
+          delete auxAppSpecifications.instances;
+          delete auxAppSpecifications.owner;
+
+          delete auxInstalledApp.description;
+          delete auxInstalledApp.expire;
+          delete auxInstalledApp.hash;
+          delete auxInstalledApp.height;
+          delete auxInstalledApp.instances;
+          delete auxInstalledApp.owner;
+
+          if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
+            log.warn(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
+            // connect to mongodb
+            const dbopen = dbHelper.databaseConnection();
+            const appsDatabase = dbopen.db(config.database.appslocal.database);
+            const appsQuery = { name: appSpecifications.name };
+            const appsProjection = {};
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.findOneAndUpdateInDatabase(appsDatabase, localAppsInformation, appsQuery, appSpecifications, appsProjection);
+            log.warn('Database updated');
+            // eslint-disable-next-line no-continue
+            continue;
+          }
           // check if node is capable to run it according to specifications
           // run the verification
           // get tier and adjust specifications
@@ -10318,46 +10348,13 @@ async function reinstallOldApplications() {
             if (appSpecifications.hdd === installedApp.hdd) {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
               // soft redeployment
-              try {
-                try {
-                  // eslint-disable-next-line no-await-in-loop
-                  await softRemoveAppLocally(installedApp.name);
-                  log.warn('Application softly removed. Awaiting installation...');
-                } catch (error) {
-                  log.error(error);
-                  removalInProgress = false;
-                  throw error;
-                }
-                // eslint-disable-next-line no-await-in-loop
-                await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we don't have more removals at the same time
-                // eslint-disable-next-line no-await-in-loop
-                await checkAppRequirements(appSpecifications);
-                // install the app
-                // eslint-disable-next-line no-await-in-loop
-                await softRegisterAppLocally(appSpecifications);
-              } catch (error) {
-                log.error(error);
-                removeAppLocally(appSpecifications.name, null, true, true, true);
-              }
+              // eslint-disable-next-line no-await-in-loop
+              await softRedeploy(appSpecifications);
             } else {
               log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
               // hard redeployment
-              try {
-                // eslint-disable-next-line no-await-in-loop
-                await removeAppLocally(installedApp.name);
-                log.warn('Application removed. Awaiting installation...');
-                // eslint-disable-next-line no-await-in-loop
-                await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins so we don't have more removals at the same time
-                // eslint-disable-next-line no-await-in-loop
-                await checkAppRequirements(appSpecifications);
-
-                // install the app
-                // eslint-disable-next-line no-await-in-loop
-                await registerAppLocally(appSpecifications); // can throw
-              } catch (error) {
-                log.error(error);
-                removeAppLocally(appSpecifications.name, null, true, true, true);
-              }
+              // eslint-disable-next-line no-await-in-loop
+              await hardRedeploy(appSpecifications);
             }
           } else {
             // composed application
@@ -10385,7 +10382,9 @@ async function reinstallOldApplications() {
 
                 const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
 
-                if (appComponent.hdd === installedComponent.hdd) {
+                if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
+                  log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
+                } else if (appComponent.hdd === installedComponent.hdd) {
                   log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // soft redeployment
                   // eslint-disable-next-line no-await-in-loop
@@ -10433,7 +10432,9 @@ async function reinstallOldApplications() {
 
                 const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
 
-                if (appComponent.hdd === installedComponent.hdd) {
+                if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
+                  log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
+                } else if (appComponent.hdd === installedComponent.hdd) {
                   log.warn(`Continuing Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -10453,6 +10454,9 @@ async function reinstallOldApplications() {
               // eslint-disable-next-line no-await-in-loop
               await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
               log.warn(`Composed application ${appSpecifications.name} updated.`);
+              log.warn(`Restarting application ${appSpecifications.name}`);
+              // eslint-disable-next-line no-await-in-loop, no-use-before-define
+              await appDockerRestart(appSpecifications.name);
             } catch (error) {
               log.error(error);
               removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
