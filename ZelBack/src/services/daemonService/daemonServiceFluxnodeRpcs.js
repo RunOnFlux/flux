@@ -42,10 +42,10 @@ async function listFluxNodes(req, res) {
 
   response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
-  // we allow a 7 digit filter (zero is not allowed)
+  // we allow a 7 digit limit (zero is not allowed)
   const limitResponse = response.status === 'success'
     && limit
-    && /^[1-9]\d{1,7}$/.test(limit);
+    && /^[1-9]\d{0,6}$/.test(limit);
 
   if (limitResponse) {
     // slice works with string numbers so we don't need to convert
