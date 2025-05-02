@@ -7005,7 +7005,7 @@ export default {
     isAppOwner() {
       const zelidauth = localStorage.getItem('zelidauth');
       const zelidHeader = qs.parse(zelidauth);
-      if (zelidauth && zelidHeader && zelidHeader.zelid && this.selectedAppOwner === zelidHeader.zelid) {
+      if (zelidauth && zelidHeader && zelidHeader.zelid && (this.selectedAppOwner === zelidHeader.zelid || this.privilege === 'fluxteam')) {
         return true;
       }
       return false;
