@@ -218,7 +218,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', []);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', []);
     });
 
     it('should trigger rpc, response passed', async () => {
@@ -238,7 +238,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', []);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', []);
     });
 
     it('should trigger rpc, data passed in params, no response passed', async () => {
@@ -256,7 +256,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', [req.params.filter]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', [req.params.filter]);
     });
 
     it('should trigger rpc, data passed in query, no response passed', async () => {
@@ -274,7 +274,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', [req.query.filter]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', [req.query.filter]);
     });
   });
 
