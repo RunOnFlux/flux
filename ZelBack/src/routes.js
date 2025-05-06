@@ -56,10 +56,10 @@ module.exports = (app) => {
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
   app.get('/daemon/viewdeterministicfluxnodelist/:filter?', cache('30 seconds'), (req, res) => {
-    daemonServiceNodeRpcs.viewDeterministicFluxNodeList(req, res);
+    daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
   app.get('/daemon/viewdeterministiczelnodelist/:filter?', cache('30 seconds'), (req, res) => { // DEPRECATED
-    daemonServiceNodeRpcs.viewDeterministicFluxNodeList(req, res);
+    daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
   app.get('/daemon/getfluxnodecount', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.getFluxNodeCount(req, res);
