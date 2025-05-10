@@ -5,6 +5,8 @@ const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
+const dgram = require('dgram');
+const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const { LRUCache } = require('lru-cache');
@@ -298,6 +300,69 @@ async function checkAppAvailability(req, res) {
         }
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
+      res.json(successResponse);
+    } catch (error) {
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
+}
+
+/**
+ * Used to keep UPNP ports open because with miniupnpd after 10m on a port without traffic it is automatically closed.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function keepUPNPPortsOpen(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+
+      const processedBody = serviceHelper.ensureObject(body);
+
+      const {
+        ip, ports, pubKey, signature,
+      } = processedBody;
+
+      // pubkey of the message has to be on the list
+      const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+      const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+      const dataToVerify = processedBody;
+      delete dataToVerify.signature;
+      const messageToVerify = JSON.stringify(dataToVerify);
+      const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
+      if ((verified !== true || !node) && authorized !== true) {
+        throw new Error('Unable to verify request authenticity');
+      }
+
+      let tcpSocket;
+      let udpSocket;
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of ports) {
+        try {
+          tcpSocket = new net.Socket();
+          tcpSocket.connect(port, ip);
+        } finally {
+          tcpSocket.resetAndDestroy();
+        }
+        try {
+          udpSocket = dgram.createSocket('udp4');
+          const message = Buffer.from('T');
+          udpSocket.send(message, 0, message.length, port, ip);
+        } finally {
+          udpSocket.close();
+        }
+      }
+      const successResponse = messageHelper.createSuccessMessage('Connectivity finished successfully.');
       res.json(successResponse);
     } catch (error) {
       const errorResponse = messageHelper.createErrorMessage(
@@ -1795,4 +1860,5 @@ module.exports = {
   getMaxNumberOfIpChanges,
   allowOnlyDockerNetworksToFluxNodeService,
   addFluxNodeServiceIpToLoopback,
+  keepUPNPPortsOpen,
 };

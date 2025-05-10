@@ -12188,6 +12188,98 @@ async function signCheckAppData(message) {
 }
 
 /**
+ * Periodically call other nodes to stablish a connection with the ports I have open on UPNP to remain OPEN
+*/
+async function callOtherNodeToKeepUpnpPortsOpen() {
+  try {
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!myIP) {
+      return;
+    }
+    myIP = myIP.split(':')[0];
+    const myPort = myIP.split(':')[1] || 16127;
+    let askingIP = await fluxNetworkHelper.getRandomConnection();
+    if (!askingIP) {
+      return;
+    }
+    let askingIpPort = config.server.apiport;
+    if (askingIP.includes(':')) { // has port specification
+      // it has port specification
+      const splittedIP = askingIP.split(':');
+      askingIP = splittedIP[0];
+      askingIpPort = splittedIP[1];
+    }
+    if (myIP === askingIP) {
+      callOtherNodeToKeepUpnpPortsOpen();
+      return;
+    }
+    if (failedNodesTestPortsCache.has(askingIP)) {
+      callOtherNodeToKeepUpnpPortsOpen();
+      return;
+    }
+
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      return;
+    }
+    const apps = installedAppsRes.data;
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const appPorts = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      if (app.version === 1) {
+        appPorts.push(+app.port);
+      } else if (app.version <= 3) {
+        app.ports.forEach((port) => {
+          appPorts.push(+port);
+        });
+      } else {
+        app.compose.forEach((component) => {
+          component.ports.forEach((port) => {
+            appPorts.push(+port);
+          });
+        });
+      }
+    }
+
+    appPorts.push(apiPort);
+    appPorts.push(apiPort - 1);
+    appPorts.push(apiPort - 2);
+    appPorts.push(apiPort - 3);
+    appPorts.push(apiPort - 4);
+    appPorts.push(apiPort - 5);
+    appPorts.push(apiPort + 1);
+    appPorts.push(apiPort + 2);
+    appPorts.push(apiPort + 3);
+
+    const timeout = 30000;
+    const axiosConfig = {
+      timeout,
+    };
+
+    const dataUPNP = {
+      ip: myIP,
+      port: myPort,
+      appname: 'appPortsTest',
+      ports: appPorts,
+      pubKey,
+    };
+    const stringData = JSON.stringify(dataUPNP);
+    // eslint-disable-next-line no-await-in-loop
+    const signature = await signCheckAppData(stringData);
+    dataUPNP.signature = signature;
+    // first check against our IP address
+    // eslint-disable-next-line no-await-in-loop
+    axios.post(`http://${askingIP}:${askingIpPort}/flux/keepupnpportsopen`, JSON.stringify(dataUPNP), axiosConfig).catch(() => {
+      // do nothing
+    });
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * Periodically check for our applications port range is available
 */
 let failedPort;
@@ -13796,4 +13888,5 @@ module.exports = {
   checkApplicationsCpuUSage,
   monitorNodeStatus,
   monitorSharedDBApps,
+  callOtherNodeToKeepUpnpPortsOpen,
 };

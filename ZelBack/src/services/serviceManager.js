@@ -37,6 +37,12 @@ async function startFluxFunctions() {
       setInterval(() => {
         upnpService.adjustFirewallForUPNP();
       }, 1 * 60 * 60 * 1000); // every 1 hours
+      setTimeout(() => {
+        appsService.callOtherNodeToKeepUpnpPortsOpen();
+        setInterval(() => {
+          appsService.callOtherNodeToKeepUpnpPortsOpen();
+        }, 4 * 60 * 1000);
+      }, 1 * 60 * 1000);
     }
     await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
     await fluxNetworkHelper.allowOnlyDockerNetworksToFluxNodeService();
