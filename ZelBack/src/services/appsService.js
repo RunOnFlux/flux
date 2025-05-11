@@ -12253,7 +12253,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     appPorts.push(apiPort + 2);
     appPorts.push(apiPort + 3);
 
-    const timeout = 30000;
+    const timeout = 5000;
     const axiosConfig = {
       timeout,
     };
@@ -12261,16 +12261,13 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     const dataUPNP = {
       ip: myIP,
       port: myPort,
-      appname: 'appPortsTest',
       ports: appPorts,
       pubKey,
     };
     const stringData = JSON.stringify(dataUPNP);
-    // eslint-disable-next-line no-await-in-loop
     const signature = await signCheckAppData(stringData);
     dataUPNP.signature = signature;
-    // first check against our IP address
-    // eslint-disable-next-line no-await-in-loop
+    log.info(`callOtherNodeToKeepUpnpPortsOpen - calling ${askingIP}:${askingIpPort} to test ports: ${JSON.stringify(appPorts)}.`);
     axios.post(`http://${askingIP}:${askingIpPort}/flux/keepupnpportsopen`, JSON.stringify(dataUPNP), axiosConfig).catch(() => {
       // do nothing
     });

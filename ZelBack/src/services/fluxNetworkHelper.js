@@ -316,7 +316,7 @@ async function checkAppAvailability(req, res) {
  * Used to keep UPNP ports open because with miniupnpd after 10m on a port without traffic it is automatically closed.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {void} there is no return on this method.
  */
 async function keepUPNPPortsOpen(req, res) {
   let body = '';
@@ -343,7 +343,7 @@ async function keepUPNPPortsOpen(req, res) {
       if ((verified !== true || !node) && authorized !== true) {
         throw new Error('Unable to verify request authenticity');
       }
-
+      log.info(`keepUPNPPortsOpen - called from  ${ip} to test ports: ${JSON.stringify(ports)}.`);
       let tcpSocket;
       let udpSocket;
       // eslint-disable-next-line no-restricted-syntax
@@ -362,15 +362,8 @@ async function keepUPNPPortsOpen(req, res) {
           udpSocket.close();
         }
       }
-      const successResponse = messageHelper.createSuccessMessage('Connectivity finished successfully.');
-      res.json(successResponse);
     } catch (error) {
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
+      log.error(`keepUPNPPortsOpen error - ${error}`);
     }
   });
 }
