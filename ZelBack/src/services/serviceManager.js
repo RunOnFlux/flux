@@ -36,7 +36,7 @@ async function startFluxFunctions() {
     if (userconfig.initial.routerIP) {
       setInterval(() => {
         upnpService.adjustFirewallForUPNP();
-      }, 1 * 60 * 60 * 1000); // every 1 hours
+      }, (10 * 60 * 1000) + 1000 ); // every 10m and 1 second
       setTimeout(() => {
         appsService.callOtherNodeToKeepUpnpPortsOpen();
         setInterval(() => {
