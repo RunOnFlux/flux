@@ -13643,10 +13643,10 @@ async function downloadAppsFile(req, res) {
  */
 async function getAppSpecsUSDPrice(req, res) {
   try {
-    const resMessage = serviceHelper.createDataMessage(config.fluxapps.usdprice);
+    const resMessage = messageHelper.createDataMessage(config.fluxapps.usdprice);
     res.json(resMessage);
   } catch (error) {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
   }
