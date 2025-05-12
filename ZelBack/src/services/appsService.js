@@ -12243,7 +12243,9 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       }
     }
 
-    ports.push(apiPort);
+    // We don't add the api port, as the remote node will callback to our
+    // api port to make sure it can connect before testing any other ports
+    // this is so that we know the remote end can reach us.
     ports.push(apiPort - 1);
     ports.push(apiPort - 2);
     ports.push(apiPort - 3);
