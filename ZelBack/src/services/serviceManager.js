@@ -43,7 +43,7 @@ async function startFluxFunctions() {
         appsService.callOtherNodeToKeepUpnpPortsOpen();
         setInterval(() => {
           appsService.callOtherNodeToKeepUpnpPortsOpen();
-        }, 9 * 60 * 1000);
+        }, 8 * 60 * 1000);
       }, 1 * 60 * 1000);
     }
     await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
