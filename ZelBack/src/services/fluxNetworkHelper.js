@@ -313,59 +313,89 @@ async function checkAppAvailability(req, res) {
 }
 
 /**
- * Used to keep UPNP ports open because with miniupnpd after 10m on a port without traffic it is automatically closed.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {void} there is no return on this method.
+ * Connects to a TCP socket with timeout. Immediately sends RST and ends the connection
+ * Solely used to keep a UPnP mapping open
+ * @param {string} host The ip we are connecting to
+ * @param {string} port The port we are connecting to
+ * @param {number} timeout The connect timeout in ms
+ * @returns {void}
+ */
+function tcpConnectAndDestroy(host, port, timeout) {
+  const socket = new net.Socket();
+
+  const timer = setTimeout(() => {
+    socket.destroy();
+  }, timeout);
+
+  socket.connect(port, host, () => {
+    clearTimeout(timer);
+    socket.resetAndDestroy();
+  });
+
+  socket.on('error', () => {
+    clearTimeout(timer);
+  });
+}
+
+/**
+ * Used to keep UPNP ports open because with miniupnpd after 10m on a port
+ * without traffic it can be automatically closed. (Depending on if miniupnpd has
+ * set for clean_ruleset_interval)
+ *
+ * This function *should* only take a max of ~5 seconds to run. That would be for a
+ * node that has 20 ports open. (The ports can take a max of 3 seconds to test, but that
+ * is asynchronous)
+ *
+ * The way we are doing this is quite inefficient, app specs don't make a differentiation
+ * between TCP/UDP (they should). So we have to test both protocols.
+ * We should just check the mappings themselves - and refresh whatever is open.
+ *
+ * @param {object} req Request
+ * @param {object} res Response
+ * @returns {Promise<void>}
  */
 async function keepUPNPPortsOpen(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-      const processedBody = serviceHelper.ensureObject(body);
+    const { body } = req;
+    const processedBody = serviceHelper.ensureObject(body);
 
-      const {
-        ip, ports, pubKey, signature,
-      } = processedBody;
+    const {
+      ip, ports, pubKey, signature,
+    } = processedBody;
 
-      // pubkey of the message has to be on the list
-      const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
-      const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-      const dataToVerify = processedBody;
-      delete dataToVerify.signature;
-      const messageToVerify = JSON.stringify(dataToVerify);
-      const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-      if ((verified !== true || !node) && authorized !== true) {
-        throw new Error('Unable to verify request authenticity');
-      }
-      log.info(`keepUPNPPortsOpen - called from  ${ip} to test ports: ${JSON.stringify(ports)}.`);
-      let tcpSocket;
-      let udpSocket;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of ports) {
-        try {
-          tcpSocket = new net.Socket();
-          tcpSocket.connect(port, ip);
-        } finally {
-          tcpSocket.resetAndDestroy();
-        }
-        try {
-          udpSocket = dgram.createSocket('udp4');
-          const message = Buffer.from('T');
-          udpSocket.send(message, 0, message.length, port, ip);
-        } finally {
-          udpSocket.close();
-        }
-      }
-    } catch (error) {
-      log.error(`keepUPNPPortsOpen error - ${error}`);
+    // pubkey of the message has to be on the list
+    const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+    const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+    const dataToVerify = processedBody;
+    delete dataToVerify.signature;
+    const messageToVerify = JSON.stringify(dataToVerify);
+    const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
+    if ((verified !== true || !node) && authorized !== true) {
+      res.status(401).end();
+      throw new Error('Unable to verify request authenticity');
     }
-  });
+
+    res.status(202).end();
+
+    log.info(`keepUPNPPortsOpen - called from  ${ip} to test ports: ${ports}`);
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of ports) {
+      tcpConnectAndDestroy(ip, port, 3_000);
+      const udpSocket = dgram.createSocket('udp4');
+      udpSocket.send('D', 0, 1, port, ip, () => {
+        udpSocket.close();
+      });
+      // just add a small delay between requests here. As we can have quite a few
+      // ports to open
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(250);
+    }
+  } catch (error) {
+    log.error(`keepUPNPPortsOpen error - ${error}`);
+  }
 }
 
 /**
