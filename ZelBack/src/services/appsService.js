@@ -3150,7 +3150,7 @@ function checkAppStaticIpRequirements(appSpecs) {
  * @returns {boolean} True if all checks passed.
  */
 async function checkAppNodesRequirements(appSpecs) {
-  if (appSpecs.version >= 7 && appSpecs.nodes && appSpecs.nodes.length) {
+  if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
     const benchmarkResponse = await benchmarkService.getBenchmarks();
     if (benchmarkResponse.status === 'error') {
@@ -5168,6 +5168,11 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     expire,
     nodes,
     staticip,
+    originalOwner,
+    enterprise,
+    cpuSum,
+    ramSum,
+    hddSum
   } = appSpecification;
 
   if (!version) {
@@ -5366,7 +5371,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
         throw new Error('Invalid tiered HW specifications');
       }
     }
-  } else { // v4+
+  } else if (version <= 7) { // v4 to v7
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
     }
@@ -5483,6 +5488,105 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
         }
       }
     });
+  } else { // v8+
+    if (typeof enterprise !== 'boolean') {
+      throw new Error('Missing enteprise flag parameter.');
+    } 
+    if (typeof originalOwner !== 'string') {
+      throw new Error('Missing originalOwner property');
+    }
+    if (typeof cpuSum !== 'number' || typeof ramSum !== 'number' || typeof hddSum !== 'number') {
+      throw new Error('Invalid HW specifications');
+    }
+    if (!serviceHelper.isDecimalLimit(cpuSum) || !serviceHelper.isDecimalLimit(ramSum) || !serviceHelper.isDecimalLimit(hddSum)) {
+      throw new Error('Invalid HW specifications decimal limits');
+    }
+    if (!compose) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    if (typeof compose !== 'object') {
+      throw new Error('Invalid Flux App Specifications');
+    }
+    if (!Array.isArray(compose)) {
+      throw new Error('Invalid Flux App Specifications');
+    }
+    compose.forEach((appComponent) => {
+      if (Array.isArray(appComponent)) {
+        throw new Error('Invalid Flux App Specifications');
+      }
+      if (typeof appComponent.name !== 'string') {
+        throw new Error('Invalid Flux App component name');
+      }
+      if (typeof appComponent.description !== 'string') {
+        throw new Error(`Invalid Flux App component ${appComponent.name} description`);
+      }
+      if (Array.isArray(appComponent.ports)) {
+        appComponent.ports.forEach((parameter) => {
+          if (typeof parameter !== 'number') {
+            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+          }
+          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
+            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid decimals`);
+          }
+        });
+      } else {
+        throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.domains)) {
+        appComponent.domains.forEach((parameter) => {
+          if (typeof parameter !== 'string') {
+            throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.environmentParameters)) {
+        appComponent.environmentParameters.forEach((parameter) => {
+          if (typeof parameter !== 'string') {
+            throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.commands)) {
+        appComponent.commands.forEach((command) => {
+          if (typeof command !== 'string') {
+            throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
+      }
+      if (Array.isArray(appComponent.containerPorts)) {
+        appComponent.containerPorts.forEach((parameter) => {
+          if (typeof parameter !== 'number') {
+            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
+          }
+          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
+            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid decimals`);
+          }
+        });
+      } else {
+        throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+
+      const cpuB = appComponent.cpu;
+      const ramB = appComponent.ram;
+      const hddB = appComponent.hdd;
+      if (typeof cpuB !== 'number' || typeof ramB !== 'number' || typeof hddB !== 'number') {
+        throw new Error('Invalid HW specifications');
+      }
+      if (!serviceHelper.isDecimalLimit(cpuB) || !serviceHelper.isDecimalLimit(ramB) || !serviceHelper.isDecimalLimit(hddB)) {
+        throw new Error('Invalid HW specifications decimal limits');
+      }
+
+      if (typeof appComponent.repoauth !== 'string') {
+        throw new Error(`Repository Authentication for Flux App component ${appComponent.name} are invalid`);
+      }
+
+    });
   }
 
   if (version >= 3) {
@@ -5566,7 +5670,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   const minPort = height >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
   const maxPort = height >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7 && appSpecifications.version !== 8) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (appSpecifications.name.length > 32) {
@@ -5765,7 +5869,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
       }
 
-      if (appSpecifications.version >= 7) {
+      if (appSpecifications.version === 7) {
         if (!appSpecifications.nodes.length) { // this is NOT an enterprise app, no nodes scoping
           if (appComponent.secrets.length) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
             throw new Error('Secrets can not be defined for non Enterprise Applications');
@@ -5777,6 +5881,17 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
           if (appComponent.secrets.length > 15000) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
             throw new Error('Maximum length of secrets is 15000. Consider uploading to Flux Storage for bigger payload.');
           }
+          if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
+            throw new Error('Maximum length of repoauth is 15000.');
+          }
+        }
+      }
+      if (appSpecifications.version >= 8) {
+        if (!appSpecifications.enterpise) { // this is NOT an enterprise app
+          if (appComponent.repoauth.length) { // pgp encrypted message.
+            throw new Error('Private repositories are only allowed for Enterprise Applications');
+          }
+        } else {
           if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
             throw new Error('Maximum length of repoauth is 15000.');
           }
@@ -5996,6 +6111,28 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes((sKey))) {
           throw new Error('Unsupported parameter for v7 app specifications');
+        }
+      });
+    });
+  } else if (appSpecifications.version === 8) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip', 'originalOwner,', 'enterprise', 'cpuSum', 'ramSum', 'hddSum', 
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'repoauth',
+      'cpu', 'ram', 'hdd',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v8 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v8 app specifications');
         }
       });
     });
@@ -7459,7 +7596,7 @@ async function registerAppGlobalyApi(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
@@ -7591,7 +7728,7 @@ async function updateAppGlobalyApi(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
@@ -10885,7 +11022,7 @@ async function verifyAppRegistrationParameters(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
@@ -10942,7 +11079,7 @@ async function verifyAppUpdateParameters(req, res) {
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
