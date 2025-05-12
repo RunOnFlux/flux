@@ -373,6 +373,26 @@ async function keepUPNPPortsOpen(req, res) {
       return;
     }
 
+    if (!ip || !apiPort || !pubKey || !signature) {
+      res.status(422).end();
+      return;
+    }
+
+    if (!Array.isArray(ports)) {
+      res.status(422).end();
+      return;
+    }
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of ports) {
+      if (!Number.isInteger(port)) {
+        res.status(422).end();
+        return;
+      }
+    }
+
+
+
     // pubkey of the message has to be on the list
     const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
     const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
