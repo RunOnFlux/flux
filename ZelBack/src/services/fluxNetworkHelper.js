@@ -362,8 +362,16 @@ async function keepUPNPPortsOpen(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
 
     const {
-      ip, ports, pubKey, signature,
+      ip, ports, pubKey, timestamp, signature,
     } = processedBody;
+
+    const now = Math.floor(Date.now() / 1000);
+
+    // allow 10 minutes for clock drift. Prevent packet from being replayed.
+    if (!Number.isInteger(timestamp) || timestamp + 600 < now) {
+      res.status(401).end();
+      return;
+    }
 
     // pubkey of the message has to be on the list
     const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.

@@ -12261,6 +12261,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       ip: myIP,
       ports,
       pubKey,
+      timestamp: Math.floor(Date.now() / 1000),
     };
 
     const stringData = JSON.stringify(dataUPNP);
@@ -12271,7 +12272,9 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     log.info(logMsg);
 
     const url = `http://${askingIP}:${askingIpPort}/flux/keepupnpportsopen`;
-    axios.post(url, dataUPNP, axiosConfig).catch(() => {});
+    axios.post(url, dataUPNP, axiosConfig).catch(() => {
+      callOtherNodeToKeepUpnpPortsOpen();
+    });
   } catch (error) {
     log.error(error);
   }
