@@ -12259,6 +12259,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 
     const dataUPNP = {
       ip: myIP,
+      apiPort,
       ports,
       pubKey,
       timestamp: Math.floor(Date.now() / 1000),

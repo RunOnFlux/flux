@@ -362,7 +362,7 @@ async function keepUPNPPortsOpen(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
 
     const {
-      ip, ports, pubKey, timestamp, signature,
+      ip, apiPort, ports, pubKey, timestamp, signature,
     } = processedBody;
 
     const now = Math.floor(Date.now() / 1000);
@@ -384,6 +384,15 @@ async function keepUPNPPortsOpen(req, res) {
       res.status(401).end();
       throw new Error('Unable to verify request authenticity');
     }
+
+    // make sure that we can reach the api port first. This is in case of nodes that
+    // are able to receive communcation from another node, but because of routing issues,
+    // can connect back the other way. This has a timeout of 3 seconds, whereas the other end
+    // has a 5 second timeout.
+    await serviceHelper.axiosGet(`http://${ip}:${apiPort}/flux/uptime`, { timeout: 3_000 }).catch(() => {
+      res.status(503).end();
+      throw new Error('Unable to connect back to api port');
+    });
 
     res.status(202).end();
 
