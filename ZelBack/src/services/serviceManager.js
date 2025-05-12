@@ -35,7 +35,7 @@ async function startFluxFunctions() {
     // User configured UPnP node with routerIP, UPnP has already been verified and setup
     if (userconfig.initial.routerIP) {
       setInterval(() => {
-        // this is only used as a protection against node operators removing mappings
+        // this is only used as a protection against node operators removing rules
         // on legacy nodes.
         upnpService.adjustFirewallForUPNP();
       }, (60 * 60 * 1000) + 1000); // every 60m.
