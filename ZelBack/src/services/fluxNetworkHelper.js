@@ -369,7 +369,7 @@ async function keepUPNPPortsOpen(req, res) {
 
     // allow 10 minutes for clock drift. Prevent packet from being replayed.
     if (!Number.isInteger(timestamp) || timestamp + 600 < now) {
-      res.status(401).end();
+      res.status(422).end();
       return;
     }
 
