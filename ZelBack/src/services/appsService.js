@@ -4806,7 +4806,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       if (intervals) {
         const addressInfo = intervals[intervals.length - 1];
         log.info(`verifyAppMessageUpdateSignature - ${JSON.stringify(addressInfo)}`);
-        if (addressInfo.height >= daemonHeight) {
+        if (daemonHeight >= addressInfo.height) {
           fluxSupportTeamFluxID = addressInfo.address;
           log.info(`verifyAppMessageUpdateSignature - ${fluxSupportTeamFluxID}`);
           const numbersOnAppName = appSpec.name.match(/\d+/g);
