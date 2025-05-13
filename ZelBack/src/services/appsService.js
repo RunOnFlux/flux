@@ -4805,8 +4805,10 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight);
       if (intervals) {
         const addressInfo = intervals[intervals.length - 1];
+        log.info(`verifyAppMessageUpdateSignature - ${JSON.stringify(addressInfo)}`);
         if (addressInfo.height >= daemonHeight) {
           fluxSupportTeamFluxID = addressInfo.address;
+          log.info(`verifyAppMessageUpdateSignature - ${fluxSupportTeamFluxID}`);
           const numbersOnAppName = appSpec.name.match(/\d+/g);
           if (numbersOnAppName && numbersOnAppName.length > 0) {
             const dateBeforeReleaseMarketplace = Date.parse('2020-01-01');
@@ -4818,6 +4820,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
               }
             }
             if (marketplaceApp) {
+              log.info('verifyAppMessageUpdateSignature - marketplaceApp - validating fluxSupportTeamFluxID signature');
               isValidSignature = signatureVerifier.verifySignature(messageToVerify, fluxSupportTeamFluxID, signature); // btc, eth
             }
           }
