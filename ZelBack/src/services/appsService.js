@@ -66,6 +66,8 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 const testingAppExpress = express();
 let testingAppserver = http.createServer(testingAppExpress);
 testingAppserver = httpShutdown(testingAppserver);
@@ -7593,6 +7595,27 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        if(!isArcane) {
+          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+        }
+        const inputData = {
+          fluxID: appSpecFormatted.originalOwner,
+          appName: appSpecFormatted.name,
+          message: appSpecFormatted.enterprise,
+          blockHeight: daemonHeight
+        }
+        const dataReturned = await benchmarkService.decryptMessage(inputData);
+        const { status, data } = dataReturned;
+        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
+        if (enterprise) {
+          appSpecFormatted.compose = enterprise.compose;
+          appSpecFormatted.contacts = enterprise.contacts;
+        } else {
+          throw new Error('Error decrypting applications specifications.');
+        }
+      }
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
@@ -11019,6 +11042,10 @@ async function verifyAppRegistrationParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        // appSpecFormatted.compose = 
+      }
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
@@ -11075,6 +11102,27 @@ async function verifyAppUpdateParameters(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        if(!isArcane) {
+          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+        }
+        const inputData = {
+          fluxID: appSpecFormatted.originalOwner,
+          appName: appSpecFormatted.name,
+          message: appSpecFormatted.enterprise,
+          blockHeight: daemonHeight
+        }
+        const dataReturned = await benchmarkService.decryptMessage(inputData);
+        const { status, data } = dataReturned;
+        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
+        if (enterprise) {
+          appSpecFormatted.compose = enterprise.compose;
+          appSpecFormatted.contacts = enterprise.contacts;
+        } else {
+          throw new Error('Error decrypting applications specifications.');
+        }
+      }
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);

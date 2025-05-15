@@ -190,6 +190,7 @@ class FluxRpc {
       ['help', null],
       ['stop', null],
       ['getinfo', null],
+      ['decryptmessage', null],
     ]),
   };
 

@@ -155,6 +155,16 @@ async function signFluxTransactionPost(req, res) {
   });
 }
 
+/**
+ * Ask FLuxBench to decrypt message
+ * @param {object} message message object with information to be decrypted.
+ */
+async function decryptMessage(message) {
+    const rpccall = 'decryptmessage';
+    const rpcparameters = [message];
+    return await executeCall(rpccall, rpcparameters);
+}
+
 // == Control ==
 /**
  * To request help message.
@@ -294,4 +304,6 @@ module.exports = {
 
   // == UPNP FluxBecnh ==
   executeUpnpBench,
+  // 
+  decryptMessage
 };
