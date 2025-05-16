@@ -12,6 +12,16 @@ const socketIoHandlers = require('./socketIoHandlers');
 const { FluxWebsocketServer } = require('./socketServer');
 const { FluxSocketIoServer } = require('./socketIoServer');
 
+function shouldCompress(req, res) {
+  if (req.headers['x-no-compression']) {
+    // don't compress responses with this request header
+    return false;
+  }
+
+  // fallback to standard filter function
+  return compression.filter(req, res);
+}
+
 /**
  * Combines an http(s) server, classic websocket server, and socket.io server
  */
@@ -23,7 +33,7 @@ class FluxServer {
   static supportedModes = ['http', 'https'];
 
   static defaultMiddlewares = [
-    compression(),
+    compression({ filter: shouldCompress }),
     morgan('combined'),
     express.json(),
     cors(),
@@ -31,7 +41,7 @@ class FluxServer {
 
   static defaultRouteBuilder = routes;
 
-  static defaultErrorHandler = () => { };
+  static defaultErrorHandler = () => {};
 
   /**
    * The Flux socket io server instance
@@ -77,7 +87,7 @@ class FluxServer {
 
     const server = FluxServer.servers[mode].createServer(
       sslConfig,
-      this.expressApp,
+      this.expressApp
     );
 
     this.socketServer = new FluxWebsocketServer({
