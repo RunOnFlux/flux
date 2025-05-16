@@ -13618,6 +13618,7 @@ async function downloadAppsFile(req, res) {
       // beautify name
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
+      res.setHeader('Cache-Control: no-transform');
       res.download(filepath, fileName);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
