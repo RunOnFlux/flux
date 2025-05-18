@@ -13889,7 +13889,7 @@ async function monitorNodeStatus() {
 }
 
 /**
- * To get Public Key to Encrypt Enterprise Content. On applications updates originalOwner shoul be passed
+ * To get Public Key to Encrypt Enterprise Content.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {string} Key.
@@ -13910,8 +13910,7 @@ async function getPublicKey(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       let appSpecification = processedBody;
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      const owner = appSpecification.originalOwner || appSpecification.owner; // on registration owner on updates originalOwner
-      if(!owner || appSpecification.name) {
+      if(!appSpecification.originalOwner || !appSpecification.name) {
         throw new Error('Input parameters missing.');
       }
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -13924,7 +13923,7 @@ async function getPublicKey(req, res) {
         throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
       }
       const inputData = {
-        fluxID: owner,
+        fluxID: appSpecification.originalOwner,
         appName: appSpecification.name,
         blockHeight: daemonHeight
       }
