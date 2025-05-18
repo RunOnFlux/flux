@@ -6740,18 +6740,26 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        log.info(`App ${appSpecFormatted.name} specs are not going to be validated as it is a enterprise encrypted app`);
+      } else {
+        await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+        await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+      }
       await verifyAppHash(message);
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
       // stadard verifications
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        log.info(`App ${appSpecFormatted.name} specs are not going to be validated as it is a enterprise encrypted app`);
+      } else {
+        await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+        // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+        await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
+      }
       await verifyAppHash(message);
-      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       // get previousAppSpecifications as we need previous owner
       const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
       const { owner } = previousAppSpecs;
@@ -7747,6 +7755,27 @@ async function updateAppGlobalyApi(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
+
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        if(!isArcane) {
+          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+        }
+        const inputData = {
+          fluxID: appSpecFormatted.originalOwner,
+          appName: appSpecFormatted.name,
+          message: appSpecFormatted.enterprise,
+          blockHeight: daemonHeight
+        }
+        const dataReturned = await benchmarkService.decryptMessage(inputData);
+        const { status, data } = dataReturned;
+        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
+        if (enterprise) {
+          appSpecFormatted.compose = enterprise.compose;
+          appSpecFormatted.contacts = enterprise.contacts;
+        } else {
+          throw new Error('Error decrypting applications specifications.');
+        }
+      }
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -11043,7 +11072,24 @@ async function verifyAppRegistrationParameters(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        // appSpecFormatted.compose = 
+        if(!isArcane) {
+          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+        }
+        const inputData = {
+          fluxID: appSpecFormatted.originalOwner,
+          appName: appSpecFormatted.name,
+          message: appSpecFormatted.enterprise,
+          blockHeight: daemonHeight
+        }
+        const dataReturned = await benchmarkService.decryptMessage(inputData);
+        const { status, data } = dataReturned;
+        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
+        if (enterprise) {
+          appSpecFormatted.compose = enterprise.compose;
+          appSpecFormatted.contacts = enterprise.contacts;
+        } else {
+          throw new Error('Error decrypting applications specifications.');
+        }
       }
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
@@ -13842,6 +13888,67 @@ async function monitorNodeStatus() {
   }
 }
 
+/**
+ * To get Public Key to Encrypt Enterprise Content. On applications updates originalOwner shoul be passed
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {string} Key.
+ */
+async function getPublicKey(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const owner = appSpecification.originalOwner || appSpecification.owner; // on registration owner on updates originalOwner
+      if(!owner || appSpecification.name) {
+        throw new Error('Input parameters missing.');
+      }
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      if(!isArcane) {
+        throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+      }
+      const inputData = {
+        fluxID: owner,
+        appName: appSpecification.name,
+        blockHeight: daemonHeight
+      }
+      const dataReturned = await benchmarkService.getPublicKey(inputData);
+      const { status, data } = dataReturned;
+      const publicKey = status === 'success' && data.status === 'ok' ? data.message : null;
+      if (!publicKey) {
+        throw new Error('Error getting public key to encrypt app enterprise content.');
+      }
+      // respond with formatted specifications
+      const response = messageHelper.createDataMessage(publicKey);
+      return res.json(response);
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -13981,4 +14088,5 @@ module.exports = {
   checkApplicationsCpuUSage,
   monitorNodeStatus,
   monitorSharedDBApps,
+  getPublicKey,
 };

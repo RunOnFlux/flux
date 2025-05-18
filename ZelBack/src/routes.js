@@ -1056,6 +1056,9 @@ module.exports = (app) => {
   app.get('/flux/getgateway', (req, res) => {
     upnpService.getGatewayApi(req, res);
   });
+  app.get('/flux/isarcaneos', cache('1 day'), (req, res) => {
+    fluxService.isArcaneOs(req, res);
+  });
 
   app.get('/benchmark/start', (req, res) => {
     fluxService.startBenchmark(req, res);
@@ -1251,6 +1254,9 @@ module.exports = (app) => {
   });
   app.post('/apps/appupdate', (req, res) => {
     appsService.updateAppGlobalyApi(req, res);
+  });
+  app.post('/apps/getpublickey', (req, res) => {
+    appsService.getPublicKey(req, res);
   });
 
   // POST PROTECTED API - FluxNode owner level
