@@ -5491,9 +5491,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       }
     });
   } else { // v8+
-    if (typeof enterprise !== 'boolean') {
-      throw new Error('Missing enteprise flag parameter.');
-    } 
     if (typeof originalOwner !== 'string') {
       throw new Error('Missing originalOwner property');
     }
