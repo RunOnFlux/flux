@@ -9231,15 +9231,56 @@ async function getStrictApplicationSpecifications(appName) {
  */
 async function getApplicationSpecificationAPI(req, res) {
   try {
-    let { appname } = req.params;
+    let { appname, decrypt } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No Application Name specified');
     }
+    
+    decrypt = decrypt || req.query.decrypt;
+    if (decrypt) {
+      const mainAppName = appname.split('_')[1] || appname;
+      const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res ? res.json(errMessage) : errMessage;
+      }
+    }    
+
     const specifications = await getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
+
+    if (decrypt) {
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      if (specifications.version >= 8 && specifications.enterprise) {
+        if(!isArcane) {
+          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+        }
+        const inputData = {
+          fluxID: specifications.originalOwner,
+          appName: specifications.name,
+          message: specifications.enterprise,
+          blockHeight: daemonHeight
+        }
+        const dataReturned = await benchmarkService.decryptMessage(inputData);
+        const { status, data } = dataReturned;
+        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
+        if (enterprise) {
+          specifications.compose = enterprise.compose;
+          specifications.contacts = enterprise.contacts;
+        } else {
+          throw new Error('Error decrypting applications specifications.');
+        }
+      }
+    } 
+
     const specResponse = messageHelper.createDataMessage(specifications);
     res.json(specResponse);
   } catch (error) {
