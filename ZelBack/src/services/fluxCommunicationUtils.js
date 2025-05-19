@@ -17,7 +17,6 @@ const ArcaneNodesoptions = {
   maxAge: 1000 * 60 * 60 * 24, // 24 hours
 };
 
-
 const myCache = new LRUCache(LRUoptions);
 const arcaneNodesIPsCache = new LRUCache(ArcaneNodesoptions);
 
@@ -185,18 +184,17 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
             log.warn(`Received message for enteprise app from original node not connected to the network, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
             return false;
           }
-          if(!arcaneNodesIPsCache.has(dataObj.data.ip)) {
+          if (!arcaneNodesIPsCache.has(dataObj.data.ip)) {
             const axiosConfig = {
               timeout: 5000,
             };
-            const port = dataObj.data.ip.split(':')[1] || '16127'
-            let response = await axios.get(`http://${dataObj.data.ip}:${port}/flux/isarcaneos`, axiosConfig).catch((error) => log.error(error));
+            const port = dataObj.data.ip.split(':')[1] || '16127';
+            const response = await serviceHelper.axiosGet(`http://${dataObj.data.ip}:${port}/flux/isarcaneos`, axiosConfig).catch((error) => log.error(error));
             if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
               log.warn(`Failed to validate if node who sent enteprise app is running ArcaneOS, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
               return false;
-            } else {
-              arcaneNodesIPsCache.set(dataObj.data.ip);
             }
+            arcaneNodesIPsCache.set(dataObj.data.ip);
           }
         }
       }

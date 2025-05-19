@@ -5171,10 +5171,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     nodes,
     staticip,
     originalOwner,
-    enterprise,
     cpuSum,
     ramSum,
-    hddSum
+    hddSum,
   } = appSpecification;
 
   if (!version) {
@@ -5584,7 +5583,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       if (typeof appComponent.repoauth !== 'string') {
         throw new Error(`Repository Authentication for Flux App component ${appComponent.name} are invalid`);
       }
-
     });
   }
 
@@ -5890,10 +5888,8 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
           if (appComponent.repoauth.length) { // pgp encrypted message.
             throw new Error('Private repositories are only allowed for Enterprise Applications');
           }
-        } else {
-          if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
-            throw new Error('Maximum length of repoauth is 15000.');
-          }
+        } else if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
+          throw new Error('Maximum length of repoauth is 15000.');
         }
       }
     }
@@ -6115,7 +6111,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     });
   } else if (appSpecifications.version === 8) {
     const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip', 'originalOwner,', 'enterprise', 'cpuSum', 'ramSum', 'hddSum', 
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip', 'originalOwner,', 'enterprise', 'cpuSum', 'ramSum', 'hddSum',
     ];
     const componentSpecifications = [
       'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'repoauth',
@@ -7601,15 +7597,15 @@ async function registerAppGlobalyApi(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if(!isArcane) {
+        if (!isArcane) {
           throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
         }
         const inputData = {
           fluxID: appSpecFormatted.originalOwner,
           appName: appSpecFormatted.name,
           message: appSpecFormatted.enterprise,
-          blockHeight: daemonHeight
-        }
+          blockHeight: daemonHeight,
+        };
         const dataReturned = await benchmarkService.decryptMessage(inputData);
         const { status, data } = dataReturned;
         const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
@@ -7754,15 +7750,15 @@ async function updateAppGlobalyApi(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if(!isArcane) {
+        if (!isArcane) {
           throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
         }
         const inputData = {
           fluxID: appSpecFormatted.originalOwner,
           appName: appSpecFormatted.name,
           message: appSpecFormatted.enterprise,
-          blockHeight: daemonHeight
-        }
+          blockHeight: daemonHeight,
+        };
         const dataReturned = await benchmarkService.decryptMessage(inputData);
         const { status, data } = dataReturned;
         const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
@@ -9229,6 +9225,7 @@ async function getStrictApplicationSpecifications(appName) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
+// eslint-disable-next-line consistent-return
 async function getApplicationSpecificationAPI(req, res) {
   try {
     let { appname, decrypt } = req.params;
@@ -9236,7 +9233,7 @@ async function getApplicationSpecificationAPI(req, res) {
     if (!appname) {
       throw new Error('No Application Name specified');
     }
-    
+
     decrypt = decrypt || req.query.decrypt;
     if (decrypt) {
       const mainAppName = appname.split('_')[1] || appname;
@@ -9245,7 +9242,7 @@ async function getApplicationSpecificationAPI(req, res) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         return res ? res.json(errMessage) : errMessage;
       }
-    }    
+    }
 
     const specifications = await getApplicationSpecifications(appname);
     if (!specifications) {
@@ -9260,15 +9257,15 @@ async function getApplicationSpecificationAPI(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       if (specifications.version >= 8 && specifications.enterprise) {
-        if(!isArcane) {
+        if (!isArcane) {
           throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
         }
         const inputData = {
           fluxID: specifications.originalOwner,
           appName: specifications.name,
           message: specifications.enterprise,
-          blockHeight: daemonHeight
-        }
+          blockHeight: daemonHeight,
+        };
         const dataReturned = await benchmarkService.decryptMessage(inputData);
         const { status, data } = dataReturned;
         const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
@@ -9279,7 +9276,7 @@ async function getApplicationSpecificationAPI(req, res) {
           throw new Error('Error decrypting applications specifications.');
         }
       }
-    } 
+    }
 
     const specResponse = messageHelper.createDataMessage(specifications);
     res.json(specResponse);
@@ -11110,15 +11107,15 @@ async function verifyAppRegistrationParameters(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if(!isArcane) {
+        if (!isArcane) {
           throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
         }
         const inputData = {
           fluxID: appSpecFormatted.originalOwner,
           appName: appSpecFormatted.name,
           message: appSpecFormatted.enterprise,
-          blockHeight: daemonHeight
-        }
+          blockHeight: daemonHeight,
+        };
         const dataReturned = await benchmarkService.decryptMessage(inputData);
         const { status, data } = dataReturned;
         const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
@@ -11135,7 +11132,8 @@ async function verifyAppRegistrationParameters(req, res) {
         appSpecFormatted.cpuSum = 0;
         appSpecFormatted.ramSum = 0;
         appSpecFormatted.hddSum = 0;
-        for (const component of appSpecFormatted.compose){
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of appSpecFormatted.compose) {
           appSpecFormatted.cpuSum += component.cpu;
           appSpecFormatted.ramSum += component.ram;
           appSpecFormatted.hddSum += component.hdd;
@@ -11200,15 +11198,15 @@ async function verifyAppUpdateParameters(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if(!isArcane) {
+        if (!isArcane) {
           throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
         }
         const inputData = {
           fluxID: appSpecFormatted.originalOwner,
           appName: appSpecFormatted.name,
           message: appSpecFormatted.enterprise,
-          blockHeight: daemonHeight
-        }
+          blockHeight: daemonHeight,
+        };
         const dataReturned = await benchmarkService.decryptMessage(inputData);
         const { status, data } = dataReturned;
         const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
@@ -11224,7 +11222,8 @@ async function verifyAppUpdateParameters(req, res) {
         appSpecFormatted.cpuSum = 0;
         appSpecFormatted.ramSum = 0;
         appSpecFormatted.hddSum = 0;
-        for (const component of appSpecFormatted.compose){
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of appSpecFormatted.compose) {
           appSpecFormatted.cpuSum += component.cpu;
           appSpecFormatted.ramSum += component.ram;
           appSpecFormatted.hddSum += component.hdd;
@@ -13971,7 +13970,7 @@ async function getPublicKey(req, res) {
       const processedBody = serviceHelper.ensureObject(body);
       let appSpecification = processedBody;
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      if(!appSpecification.originalOwner || !appSpecification.name) {
+      if (!appSpecification.originalOwner || !appSpecification.name) {
         throw new Error('Input parameters missing.');
       }
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -13980,14 +13979,14 @@ async function getPublicKey(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      if(!isArcane) {
+      if (!isArcane) {
         throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
       }
       const inputData = {
         fluxID: appSpecification.originalOwner,
         appName: appSpecification.name,
-        blockHeight: daemonHeight
-      }
+        blockHeight: daemonHeight,
+      };
       const dataReturned = await benchmarkService.getPublicKey(inputData);
       const { status, data } = dataReturned;
       const publicKey = status === 'success' && data.status === 'ok' ? data.message : null;

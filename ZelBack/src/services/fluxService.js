@@ -2032,7 +2032,6 @@ async function isArcaneOs(req, res) {
   res.json(response);
 }
 
-
 module.exports = {
   adjustAPIPort,
   adjustBlockedPorts,
@@ -2098,5 +2097,5 @@ module.exports = {
   lockStreamLock,
   tailFluxLog,
   unlockStreamLock,
-  isArcaneOs
+  isArcaneOs,
 };
