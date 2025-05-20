@@ -334,11 +334,14 @@ module.exports = (app) => {
   app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getGlobalAppsSpecifications(req, res);
   });
-  app.get('/apps/appspecifications/:appname?/:decrypt?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/appspecifications/:appname?/:decrypt?/:update?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appowner/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationOwnerAPI(req, res);
+  });
+  app.get('/apps/apporiginalowner/:appname?', cache('30 seconds'), (req, res) => {
+    appsService.getApplicationOriginalOwner(req, res);
   });
   app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
     appsService.getAppHashes(req, res);
