@@ -10891,12 +10891,58 @@ async function reinstallOldApplications() {
             // eslint-disable-next-line no-continue
             continue;
           }
+
           // check if node is capable to run it according to specifications
           // run the verification
           // get tier and adjust specifications
           // eslint-disable-next-line no-await-in-loop
           const tier = await generalService.nodeTier();
-          if (appSpecifications.version <= 3) {
+          if (appSpecifications.version >= 4 && installedApp.version <= 3) {
+            if (removalInProgress) {
+              log.warn('Another application is undergoing removal');
+              return;
+            }
+            if (installationInProgress) {
+              log.warn('Another application is undergoing installation');
+              return;
+            }
+            log.warn('Updating from old application version, doing hard redeploy...');
+            // eslint-disable-next-line no-await-in-loop
+            await removeAppLocally(appSpecifications.name, null, true, false);
+            // connect to mongodb
+            const dbopen = dbHelper.databaseConnection();
+            const appsDatabase = dbopen.db(config.database.appslocal.database);
+            const appsQuery = { name: appSpecifications.name };
+            const appsProjection = {};
+            log.warn('Cleaning up database...');
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+            const databaseStatus2 = {
+              status: 'Database cleaned',
+            };
+            log.warn('Database cleaned');
+            log.warn(databaseStatus2);
+            log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
+            // composition removal done. Remove from installed apps and being installation
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppRequirements(appSpecifications); // entire app
+            // eslint-disable-next-line no-restricted-syntax
+            for (const appComponent of appSpecifications.compose) {
+              log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+              // install the app
+              // eslint-disable-next-line no-await-in-loop
+              await registerAppLocally(appSpecifications, appComponent); // component
+            }
+            // register the app
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+            log.warn(`Composed application ${appSpecifications.name} updated.`);
+            log.warn(`Restarting application ${appSpecifications.name}`);
+            // eslint-disable-next-line no-await-in-loop, no-use-before-define
+            await appDockerRestart(appSpecifications.name);
+          } else if (appSpecifications.version <= 3) {
             if (appSpecifications.tiered) {
               const hddTier = `hdd${tier}`;
               const ramTier = `ram${tier}`;
