@@ -9265,6 +9265,8 @@ function updateToLatestAppSpecifications(appSpec) {
       staticip: false,
       compose: [component],
       enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
     };
     return newAppSpec;
   } if (appSpec.version === 2) {
@@ -9300,6 +9302,8 @@ function updateToLatestAppSpecifications(appSpec) {
       staticip: false,
       compose: [component],
       enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
     };
     return newAppSpec;
   } if (appSpec.version === 3) {
@@ -9336,6 +9340,8 @@ function updateToLatestAppSpecifications(appSpec) {
       staticip: false,
       compose: [component],
       enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
     };
     return newAppSpec;
   } if (appSpec.version === 4) {
@@ -9357,6 +9363,8 @@ function updateToLatestAppSpecifications(appSpec) {
       nodes: [],
       staticip: false,
       enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
     };
     const components = [];
     // eslint-disable-next-line no-restricted-syntax
@@ -9399,6 +9407,8 @@ function updateToLatestAppSpecifications(appSpec) {
       nodes: [],
       staticip: false,
       enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
     };
     const components = [];
     // eslint-disable-next-line no-restricted-syntax
@@ -9441,6 +9451,8 @@ function updateToLatestAppSpecifications(appSpec) {
       nodes: [],
       staticip: false,
       enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
     };
     const components = [];
     // eslint-disable-next-line no-restricted-syntax
@@ -9483,6 +9495,8 @@ function updateToLatestAppSpecifications(appSpec) {
       nodes: [], // we don't fill the nodes as they were used for different thing.
       staticip: appSpec.staticip,
       enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
     };
     const components = [];
     // eslint-disable-next-line no-restricted-syntax
