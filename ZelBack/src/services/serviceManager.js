@@ -35,8 +35,16 @@ async function startFluxFunctions() {
     // User configured UPnP node with routerIP, UPnP has already been verified and setup
     if (userconfig.initial.routerIP) {
       setInterval(() => {
+        // this is only used as a protection against node operators removing rules
+        // on legacy nodes.
         upnpService.adjustFirewallForUPNP();
-      }, 1 * 60 * 60 * 1000); // every 1 hours
+      }, (60 * 60 * 1000) + 1000); // every 60m.
+      setTimeout(() => {
+        appsService.callOtherNodeToKeepUpnpPortsOpen();
+        setInterval(() => {
+          appsService.callOtherNodeToKeepUpnpPortsOpen();
+        }, 8 * 60 * 1000);
+      }, 1 * 60 * 1000);
     }
     await fluxNetworkHelper.addFluxNodeServiceIpToLoopback();
     await fluxNetworkHelper.allowOnlyDockerNetworksToFluxNodeService();

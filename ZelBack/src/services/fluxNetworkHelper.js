@@ -5,6 +5,8 @@ const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os');
+const dgram = require('dgram');
+const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const { LRUCache } = require('lru-cache');
@@ -308,6 +310,127 @@ async function checkAppAvailability(req, res) {
       res.json(errorResponse);
     }
   });
+}
+
+/**
+ * Connects to a TCP socket with timeout. Immediately sends RST and ends the connection
+ * Solely used to keep a UPnP mapping open
+ * @param {string} host The ip we are connecting to
+ * @param {string} port The port we are connecting to
+ * @param {number} timeout The connect timeout in ms
+ * @returns {void}
+ */
+function tcpConnectAndDestroy(host, port, timeout) {
+  const socket = new net.Socket();
+
+  const timer = setTimeout(() => {
+    socket.destroy();
+  }, timeout);
+
+  socket.connect(port, host, () => {
+    clearTimeout(timer);
+    socket.resetAndDestroy();
+  });
+
+  socket.on('error', () => {
+    clearTimeout(timer);
+  });
+}
+
+/**
+ * Used to keep UPNP ports open because with miniupnpd after 10m on a port
+ * without traffic it can be automatically closed. (Depending on if miniupnpd has
+ * set for clean_ruleset_interval)
+ *
+ * This function *should* only take a max of ~5 seconds to run. That would be for a
+ * node that has 20 ports open. (The ports can take a max of 3 seconds to test, but that
+ * is asynchronous)
+ *
+ * The way we are doing this is quite inefficient, app specs don't make a differentiation
+ * between TCP/UDP (they should). So we have to test both protocols.
+ * We should just check the mappings themselves - and refresh whatever is open.
+ *
+ * @param {object} req Request
+ * @param {object} res Response
+ * @returns {Promise<void>}
+ */
+async function keepUPNPPortsOpen(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+
+    const { body } = req;
+    const processedBody = serviceHelper.ensureObject(body);
+
+    const {
+      ip, apiPort, ports, pubKey, timestamp, signature,
+    } = processedBody;
+
+    const now = Math.floor(Date.now() / 1000);
+
+    // allow 10 minutes for clock drift. Prevent packet from being replayed.
+    if (!Number.isInteger(timestamp) || timestamp + 600 < now) {
+      res.status(422).end();
+      return;
+    }
+
+    if (!ip || !apiPort || !pubKey || !signature) {
+      res.status(422).end();
+      return;
+    }
+
+    if (!Array.isArray(ports)) {
+      res.status(422).end();
+      return;
+    }
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of ports) {
+      if (!Number.isInteger(port)) {
+        res.status(422).end();
+        return;
+      }
+    }
+
+    // pubkey of the message has to be on the list
+    const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+    const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+    const dataToVerify = processedBody;
+    delete dataToVerify.signature;
+    const messageToVerify = JSON.stringify(dataToVerify);
+    const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
+    if ((verified !== true || !node) && authorized !== true) {
+      res.status(401).end();
+      throw new Error('Unable to verify request authenticity');
+    }
+
+    // make sure that we can reach the api port first. This is in case of nodes that
+    // are able to receive communcation from another node, but because of routing issues,
+    // can connect back the other way. This has a timeout of 3 seconds, whereas the other end
+    // has a 5 second timeout.
+    await serviceHelper.axiosGet(`http://${ip}:${apiPort}/flux/uptime`, { timeout: 3_000 }).catch(() => {
+      res.status(503).end();
+      throw new Error('Unable to connect back to api port');
+    });
+
+    res.status(202).end();
+
+    log.info(`keepUPNPPortsOpen - called from  ${ip} to test ports: ${ports}`);
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of ports) {
+      tcpConnectAndDestroy(ip, port, 3_000);
+      const udpSocket = dgram.createSocket('udp4');
+      udpSocket.send('D', 0, 1, port, ip, () => {
+        udpSocket.close();
+      });
+      // just add a small delay between requests here. As we can have quite a few
+      // ports to open
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(250);
+    }
+  } catch (error) {
+    log.error(`keepUPNPPortsOpen error - ${error}`);
+  }
 }
 
 /**
@@ -1795,4 +1918,5 @@ module.exports = {
   getMaxNumberOfIpChanges,
   allowOnlyDockerNetworksToFluxNodeService,
   addFluxNodeServiceIpToLoopback,
+  keepUPNPPortsOpen,
 };

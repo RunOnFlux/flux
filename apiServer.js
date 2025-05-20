@@ -152,6 +152,23 @@ function setAxiosDefaults(socketIoServers) {
   );
 }
 
+/**
+ * Utility function to log error before exiting. As the logging is async, if
+ * we don't wait a while, the process exits bofore the logging takes place
+ *
+ * @param {string} msg
+ * @param {{delay?: number, exitCode?: number}} options
+ */
+async function logErrorAndExit(msg, options = {}) {
+  const delay = options.delay || 1_000;
+  const exitCode = options.exitCode || 0;
+
+  if (msg) log.error(msg);
+
+  await new Promise((r) => { setTimeout(r, delay); });
+  process.exit(exitCode);
+}
+
 async function loadUpnpIfRequired() {
   try {
     let verifyUpnp = false;
@@ -164,12 +181,10 @@ async function loadUpnpIfRequired() {
     }
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
       if (verifyUpnp !== true) {
-        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
-        process.exit();
+        await logErrorAndExit(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
       }
       if (setupUpnp !== true) {
-        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
-        process.exit();
+        await logErrorAndExit(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
       }
     }
   } catch (error) {
@@ -207,11 +222,9 @@ async function configReload() {
  *
  * @returns {Promise<String>}
  */
-
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
-    log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
-    process.exit();
+    await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`, { exitCode: 1 });
   }
 
   process.on('uncaughtException', (err) => {
@@ -219,17 +232,15 @@ async function initiate() {
     // the express server port in use is uncatchable for some reason
     // remove this in future
     if (err.code === 'EADDRINUSE') {
-      log.error('Flux api server port in use, shutting down.');
       // if shutting down clean, nodemon won't restart
-      process.exit();
+      logErrorAndExit('Flux api server port in use, shutting down.');
     } else if (dnsErrors.includes(err.code) && err.hostname) {
       log.error('Uncaught DNS Lookup Error!!, swallowing.');
       log.error(err);
       return;
     }
 
-    log.error(err);
-    process.exit(1);
+    logErrorAndExit(err, { exitCode: 1 });
   });
 
   await createDnsCache();

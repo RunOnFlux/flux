@@ -300,6 +300,9 @@ module.exports = (app) => {
   app.post('/flux/checkappavailability', (req, res) => {
     fluxNetworkHelper.checkAppAvailability(req, res);
   });
+  app.post('/flux/keepupnpportsopen', (req, res) => {
+    fluxNetworkHelper.keepUPNPPortsOpen(req, res);
+  });
 
   app.get('/apps/listrunningapps', cache('5 seconds'), (req, res) => {
     appsService.listRunningApps(req, res);
