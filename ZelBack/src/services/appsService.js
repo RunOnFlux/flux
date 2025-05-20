@@ -10097,13 +10097,35 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    if (!appFromAppsToBeCheckedLater && appToRunAux.nodes.length === 0) {
+    if (!appFromAppsToBeCheckedLater) {
       const tier = await generalService.nodeTier();
       const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
       let delay = false;
-      if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+      if (!appToRunAux.enterprise && isArcane) {
         const appToCheck = {
-          timeToCheck: Date.now() + 1.95 * 60 * 60 * 1000,
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 1 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+        };
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around 1h if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appHash);
+        delay = true;
+      } else if (appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => ip === myIP)) {
+        const appToCheck = {
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.5 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+        };
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs have target ips, will check in around 0.5h if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appHash);
+        delay = true;
+      } else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        const appToCheck = {
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.5 * 60 * 60 * 1000 : Date.now() + 1.95 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
@@ -10112,9 +10134,9 @@ async function trySpawningGlobalApplication() {
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appHash);
         delay = true;
-      } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+      } else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
         const appToCheck = {
-          timeToCheck: Date.now() + 1.45 * 60 * 60 * 1000,
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.35 * 60 * 60 * 1000 : Date.now() + 1.45 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
@@ -10123,9 +10145,9 @@ async function trySpawningGlobalApplication() {
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appHash);
         delay = true;
-      } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+      } else if (appToRunAux.nodes.length === 0 && tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
-          timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.2 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
