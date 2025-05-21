@@ -7525,6 +7525,67 @@ function specificationFormatter(appSpecification) {
 }
 
 /**
+ * Decrypts app specs if they are encrypted
+ * @param {object} appSpec application specifications.
+ * @param {integer} daemonHeight daemon block height.
+ * @param {string} owner original owner of the application.
+ * @returns {object} Return appSpecs decrypted if it is enterprise.
+ */
+async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = null) {
+  const appSpecs = appSpec;
+  let block = daemonHeight;
+  let appOwner = owner;
+  if (appSpec.version >= 8 && appSpec.enterprise) {
+    if (!isArcane) {
+      throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+    }
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    let appsQuery = null;
+    if (!appOwner) {
+      log.info(`Searching register permanent messages for ${appSpecs.name} to get registration message`);
+      appsQuery = {
+        'appSpecifications.name': appSpecs.name,
+        type: 'fluxappregister',
+      };
+      const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+      const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+      appOwner = lastAppRegistration.owner;
+    }
+    if (!block) {
+      log.info(`Searching register permanent messages for ${appSpecs.name} to get latest update`);
+      appsQuery = {
+        'appSpecifications.name': appSpecs.name,
+      };
+      const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+      const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
+      block = lastUpdate.height;
+    }
+    const inputData = {
+      fluxID: appOwner,
+      appName: appSpec.name,
+      message: appSpec.enterprise,
+      blockHeight: block,
+    };
+    const dataReturned = await benchmarkService.decryptMessage(inputData);
+    const { status, data } = dataReturned;
+    const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
+    if (enterprise) {
+      appSpecs.compose = enterprise.compose;
+      appSpecs.contacts = enterprise.contacts;
+    } else {
+      throw new Error('Error decrypting applications specifications.');
+    }
+  }
+  return appSpecs;
+}
+
+/**
  * To register an app globally via API. Performs various checks before the app can be registered. Only accessible by users.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -7579,7 +7640,7 @@ async function registerAppGlobalyApi(req, res) {
         throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
       }
 
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -7587,26 +7648,7 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if (!isArcane) {
-          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-        }
-        const inputData = {
-          fluxID: appSpecFormatted.owner,
-          appName: appSpecFormatted.name,
-          message: appSpecFormatted.enterprise,
-          blockHeight: daemonHeight,
-        };
-        const dataReturned = await benchmarkService.decryptMessage(inputData);
-        const { status, data } = dataReturned;
-        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
-        if (enterprise) {
-          appSpecFormatted.compose = enterprise.compose;
-          appSpecFormatted.contacts = enterprise.contacts;
-        } else {
-          throw new Error('Error decrypting applications specifications.');
-        }
-      }
+      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -7732,7 +7774,7 @@ async function updateAppGlobalyApi(req, res) {
         throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
       }
 
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -7740,41 +7782,7 @@ async function updateAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if (!isArcane) {
-          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-        }
-
-        const db = dbHelper.databaseConnection();
-        const database = db.db(config.database.appsglobal.database);
-        const projection = {
-          projection: {
-            _id: 0,
-          },
-        };
-        log.info(`Searching register permanent messages for ${appSpecFormatted.name}`);
-        const appsQuery = {
-          'appSpecifications.name': appSpecFormatted.name,
-          type: 'fluxappregister',
-        };
-        const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-        const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-        const inputData = {
-          fluxID: lastAppRegistration.appSpecifications.owner,
-          appName: appSpecFormatted.name,
-          message: appSpecFormatted.enterprise,
-          blockHeight: lastAppRegistration.height,
-        };
-        const dataReturned = await benchmarkService.decryptMessage(inputData);
-        const { status, data } = dataReturned;
-        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
-        if (enterprise) {
-          appSpecFormatted.compose = enterprise.compose;
-          appSpecFormatted.contacts = enterprise.contacts;
-        } else {
-          throw new Error('Error decrypting applications specifications.');
-        }
-      }
+      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -9137,39 +9145,8 @@ async function getApplicationGlobalSpecifications(appName) {
       _id: 0,
     },
   };
-  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (appInfo.version >= 8 && appInfo.enterprise) {
-    if (!isArcane) {
-      throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-    }
-    log.info(`Searching register permanent messages for ${appInfo.name}`);
-    let appsQuery = {
-      'appSpecifications.name': appInfo.name,
-      type: 'fluxappregister',
-    };
-    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-    appsQuery = {
-      'appSpecifications.name': appInfo.name,
-    };
-    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
-    const inputData = {
-      fluxID: lastAppRegistration.appSpecifications.owner,
-      appName: appInfo.name,
-      message: appInfo.enterprise,
-      blockHeight: lastUpdate.height,
-    };
-    const dataReturned = await benchmarkService.decryptMessage(inputData);
-    const { status, data } = dataReturned;
-    const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
-    if (enterprise) {
-      appInfo.compose = enterprise.compose;
-      appInfo.contacts = enterprise.contacts;
-    } else {
-      throw new Error('Error decrypting applications specifications.');
-    }
-  }
+  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -9232,38 +9209,7 @@ async function getApplicationSpecifications(appName) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
-  if (appInfo.version >= 8 && appInfo.enterprise) {
-    if (!isArcane) {
-      throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-    }
-    log.info(`Searching register permanent messages for ${appInfo.name}`);
-    let appsQuery = {
-      'appSpecifications.name': appInfo.name,
-      type: 'fluxappregister',
-    };
-    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-    appsQuery = {
-      'appSpecifications.name': appInfo.name,
-    };
-    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
-    const inputData = {
-      fluxID: lastAppRegistration.appSpecifications.owner,
-      appName: appInfo.name,
-      message: appInfo.enterprise,
-      blockHeight: lastUpdate.height,
-    };
-    const dataReturned = await benchmarkService.decryptMessage(inputData);
-    const { status, data } = dataReturned;
-    const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
-    if (enterprise) {
-      appInfo.compose = enterprise.compose;
-      appInfo.contacts = enterprise.contacts;
-    } else {
-      throw new Error('Error decrypting applications specifications.');
-    }
-  }
+  appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -9287,38 +9233,7 @@ async function getStrictApplicationSpecifications(appName) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name === appName);
   }
-  if (appInfo.version >= 8 && appInfo.enterprise) {
-    if (!isArcane) {
-      throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-    }
-    log.info(`Searching register permanent messages for ${appInfo.name}`);
-    let appsQuery = {
-      'appSpecifications.name': appInfo.name,
-      type: 'fluxappregister',
-    };
-    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-    appsQuery = {
-      'appSpecifications.name': appInfo.name,
-    };
-    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
-    const inputData = {
-      fluxID: lastAppRegistration.appSpecifications.owner,
-      appName: appInfo.name,
-      message: appInfo.enterprise,
-      blockHeight: lastUpdate.height,
-    };
-    const dataReturned = await benchmarkService.decryptMessage(inputData);
-    const { status, data } = dataReturned;
-    const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
-    if (enterprise) {
-      appInfo.compose = enterprise.compose;
-      appInfo.contacts = enterprise.contacts;
-    } else {
-      throw new Error('Error decrypting applications specifications.');
-    }
-  }
+  appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -11618,7 +11533,7 @@ async function verifyAppRegistrationParameters(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -11626,26 +11541,7 @@ async function verifyAppRegistrationParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if (!isArcane) {
-          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-        }
-        const inputData = {
-          fluxID: appSpecFormatted.owner,
-          appName: appSpecFormatted.name,
-          message: appSpecFormatted.enterprise,
-          blockHeight: daemonHeight,
-        };
-        const dataReturned = await benchmarkService.decryptMessage(inputData);
-        const { status, data } = dataReturned;
-        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
-        if (enterprise) {
-          appSpecFormatted.compose = enterprise.compose;
-          appSpecFormatted.contacts = enterprise.contacts;
-        } else {
-          throw new Error('Error decrypting applications specifications.');
-        }
-      }
+      appSpecFormatted = checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -11696,7 +11592,7 @@ async function verifyAppUpdateParameters(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -11704,40 +11600,7 @@ async function verifyAppUpdateParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        if (!isArcane) {
-          throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-        }
-        const db = dbHelper.databaseConnection();
-        const database = db.db(config.database.appsglobal.database);
-        const projection = {
-          projection: {
-            _id: 0,
-          },
-        };
-        log.info(`Searching register permanent messages for ${appSpecFormatted.name}`);
-        const appsQuery = {
-          'appSpecifications.name': appSpecFormatted.name,
-          type: 'fluxappregister',
-        };
-        const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-        const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-        const inputData = {
-          fluxID: lastAppRegistration.appSpecifications.owner,
-          appName: appSpecFormatted.name,
-          message: appSpecFormatted.enterprise,
-          blockHeight: lastAppRegistration.height,
-        };
-        const dataReturned = await benchmarkService.decryptMessage(inputData);
-        const { status, data } = dataReturned;
-        const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
-        if (enterprise) {
-          appSpecFormatted.compose = enterprise.compose;
-          appSpecFormatted.contacts = enterprise.contacts;
-        } else {
-          throw new Error('Error decrypting applications specifications.');
-        }
-      }
+      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
