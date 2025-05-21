@@ -474,7 +474,7 @@ async function appStart(req, res) {
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName, true);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -548,7 +548,7 @@ async function appStop(req, res) {
     } else {
       // ask for stopping entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName, true);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -620,7 +620,7 @@ async function appRestart(req, res) {
     } else {
       // ask for restarting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName, true);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -680,7 +680,7 @@ async function appKill(req, res) {
     } else {
       // ask for killing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName, true);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -748,7 +748,7 @@ async function appPause(req, res) {
     } else {
       // ask for pausing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName, true);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -816,7 +816,7 @@ async function appUnpause(req, res) {
     } else {
       // ask for unpausing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName, true);
+      const appSpecs = await getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -9143,17 +9143,22 @@ async function getApplicationGlobalSpecifications(appName) {
       throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
     }
     log.info(`Searching register permanent messages for ${appInfo.name}`);
-    const appsQuery = {
+    let appsQuery = {
       'appSpecifications.name': appInfo.name,
       type: 'fluxappregister',
     };
     const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
     const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+    appsQuery = {
+      'appSpecifications.name': appInfo.name,
+    };
+    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
     const inputData = {
       fluxID: lastAppRegistration.appSpecifications.owner,
       appName: appInfo.name,
       message: appInfo.enterprise,
-      blockHeight: lastAppRegistration.height,
+      blockHeight: lastUpdate.height,
     };
     const dataReturned = await benchmarkService.decryptMessage(inputData);
     const { status, data } = dataReturned;
@@ -9182,10 +9187,9 @@ async function getApplicationLocalSpecifications(appName) {
 /**
  * To get app specifications for a specific app if global/local status is unkown. First searches global apps and if not found then searches local apps.
  * @param {string} appName App name.
- * @param {boolean} decrypt Case app is enterprise if wants to get the specs decrypted.
  * @returns {object} Document with app info.
  */
-async function getApplicationSpecifications(appName, decrypt) {
+async function getApplicationSpecifications(appName) {
   // appSpecs: {
   //   version: 2,
   //   name: 'FoldingAtHomeB',
@@ -9228,22 +9232,27 @@ async function getApplicationSpecifications(appName, decrypt) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
-  if (appInfo.version >= 8 && appInfo.enterprise && decrypt) {
+  if (appInfo.version >= 8 && appInfo.enterprise) {
     if (!isArcane) {
       throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
     }
     log.info(`Searching register permanent messages for ${appInfo.name}`);
-    const appsQuery = {
+    let appsQuery = {
       'appSpecifications.name': appInfo.name,
       type: 'fluxappregister',
     };
     const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
     const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+    appsQuery = {
+      'appSpecifications.name': appInfo.name,
+    };
+    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
     const inputData = {
       fluxID: lastAppRegistration.appSpecifications.owner,
       appName: appInfo.name,
       message: appInfo.enterprise,
-      blockHeight: lastAppRegistration.height,
+      blockHeight: lastUpdate.height,
     };
     const dataReturned = await benchmarkService.decryptMessage(inputData);
     const { status, data } = dataReturned;
@@ -9283,17 +9292,22 @@ async function getStrictApplicationSpecifications(appName) {
       throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
     }
     log.info(`Searching register permanent messages for ${appInfo.name}`);
-    const appsQuery = {
+    let appsQuery = {
       'appSpecifications.name': appInfo.name,
       type: 'fluxappregister',
     };
     const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
     const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+    appsQuery = {
+      'appSpecifications.name': appInfo.name,
+    };
+    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
     const inputData = {
       fluxID: lastAppRegistration.appSpecifications.owner,
       appName: appInfo.name,
       message: appInfo.enterprise,
-      blockHeight: lastAppRegistration.height,
+      blockHeight: lastUpdate.height,
     };
     const dataReturned = await benchmarkService.decryptMessage(inputData);
     const { status, data } = dataReturned;
@@ -9622,24 +9636,45 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('No Application Name specified');
     }
 
+    const mainAppName = appname.split('_')[1] || appname;
+    let authorized = false;
     decrypt = decrypt || req.query.decrypt;
-    if (decrypt) {
-      const mainAppName = appname.split('_')[1] || appname;
-      const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        return res.json(errMessage);
-      }
-    }
 
-    const specifications = await getApplicationSpecifications(appname, decrypt);
+    const specifications = await getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
+    }
+
+    if (specifications.version >= 8 && specifications.enterprise) {
+      if (decrypt) {
+        authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
+        if (!authorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          return res.json(errMessage);
+        }
+        specifications.enterprise = true;
+      }
+      authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+      if (authorized) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of specifications.compose) {
+          component.environmentParameters = [];
+          component.repoauth = '';
+        }
+      } else {
+        specifications.compose = [];
+        specifications.contacts = [];
+      }
     }
 
     update = update || req.query.update;
     let updatedSpecifications = specifications;
     if (update) {
+      authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
       updatedSpecifications = updateToLatestAppSpecifications(specifications);
       const specResponse = messageHelper.createDataMessage(updatedSpecifications);
       return res.json(specResponse);
