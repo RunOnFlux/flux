@@ -4807,7 +4807,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight);
       if (intervals) {
         const addressInfo = intervals[intervals.length - 1];
-        if (addressInfo.height >= daemonHeight) {
+        if (daemonHeight >= addressInfo.height) {
           fluxSupportTeamFluxID = addressInfo.address;
           const numbersOnAppName = appSpec.name.match(/\d+/g);
           if (numbersOnAppName && numbersOnAppName.length > 0) {
@@ -12988,6 +12988,102 @@ async function signCheckAppData(message) {
 }
 
 /**
+ * Periodically call other nodes to stablish a connection with the ports I have open on UPNP to remain OPEN
+*/
+async function callOtherNodeToKeepUpnpPortsOpen() {
+  try {
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!myIP) {
+      return;
+    }
+    myIP = myIP.split(':')[0];
+
+    let askingIP = await fluxNetworkHelper.getRandomConnection();
+    if (!askingIP) {
+      return;
+    }
+    let askingIpPort = config.server.apiport;
+    if (askingIP.includes(':')) { // has port specification
+      // it has port specification
+      const splittedIP = askingIP.split(':');
+      askingIP = splittedIP[0];
+      askingIpPort = splittedIP[1];
+    }
+    if (myIP === askingIP) {
+      callOtherNodeToKeepUpnpPortsOpen();
+      return;
+    }
+    if (failedNodesTestPortsCache.has(askingIP)) {
+      callOtherNodeToKeepUpnpPortsOpen();
+      return;
+    }
+
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      return;
+    }
+    const apps = installedAppsRes.data;
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const ports = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      if (app.version === 1) {
+        ports.push(+app.port);
+      } else if (app.version <= 3) {
+        app.ports.forEach((port) => {
+          ports.push(+port);
+        });
+      } else {
+        app.compose.forEach((component) => {
+          component.ports.forEach((port) => {
+            ports.push(+port);
+          });
+        });
+      }
+    }
+
+    // We don't add the api port, as the remote node will callback to our
+    // api port to make sure it can connect before testing any other ports
+    // this is so that we know the remote end can reach us.
+    ports.push(apiPort - 1);
+    ports.push(apiPort - 2);
+    ports.push(apiPort - 3);
+    ports.push(apiPort - 4);
+    ports.push(apiPort - 5);
+    ports.push(apiPort + 1);
+    ports.push(apiPort + 2);
+    ports.push(apiPort + 3);
+
+    const axiosConfig = {
+      timeout: 5_000,
+    };
+
+    const dataUPNP = {
+      ip: myIP,
+      apiPort,
+      ports,
+      pubKey,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+
+    const stringData = JSON.stringify(dataUPNP);
+    const signature = await signCheckAppData(stringData);
+    dataUPNP.signature = signature;
+
+    const logMsg = `callOtherNodeToKeepUpnpPortsOpen - calling ${askingIP}:${askingIpPort} to test ports: ${ports}`;
+    log.info(logMsg);
+
+    const url = `http://${askingIP}:${askingIpPort}/flux/keepupnpportsopen`;
+    axios.post(url, dataUPNP, axiosConfig).catch(() => {
+      // callOtherNodeToKeepUpnpPortsOpen();
+    });
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * Periodically check for our applications port range is available
 */
 let failedPort;
@@ -14351,10 +14447,10 @@ async function downloadAppsFile(req, res) {
  */
 async function getAppSpecsUSDPrice(req, res) {
   try {
-    const resMessage = serviceHelper.createDataMessage(config.fluxapps.usdprice);
+    const resMessage = messageHelper.createDataMessage(config.fluxapps.usdprice);
     res.json(resMessage);
   } catch (error) {
-    const errMessage = serviceHelper.createErrorMessage(error.message, error.name, error.code);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
     log.error(error);
   }
@@ -14656,6 +14752,7 @@ module.exports = {
   checkApplicationsCpuUSage,
   monitorNodeStatus,
   monitorSharedDBApps,
+  callOtherNodeToKeepUpnpPortsOpen,
   getPublicKey,
   getApplicationOriginalOwner,
 };
