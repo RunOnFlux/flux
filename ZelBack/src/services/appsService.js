@@ -9548,7 +9548,7 @@ function updateToLatestAppSpecifications(appSpec) {
 // eslint-disable-next-line consistent-return
 async function getApplicationSpecificationAPI(req, res) {
   try {
-    let { appname, decrypt, update } = req.params;
+    let { appname } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No Application Name specified');
@@ -9556,7 +9556,7 @@ async function getApplicationSpecificationAPI(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
     let authorized = false;
-    decrypt = decrypt || req.query.decrypt;
+    const { decrypt, update } = req.query;
 
     const specifications = await getApplicationSpecifications(appname);
     if (!specifications) {
@@ -9585,7 +9585,6 @@ async function getApplicationSpecificationAPI(req, res) {
       }
     }
 
-    update = update || req.query.update;
     let updatedSpecifications = specifications;
     if (update) {
       authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
