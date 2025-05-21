@@ -11496,7 +11496,7 @@ async function redeployAPI(req, res) {
       return;
     }
 
-    const specifications = await getApplicationSpecifications(appname, true);
+    const specifications = await getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
