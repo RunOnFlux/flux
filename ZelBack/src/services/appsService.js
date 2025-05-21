@@ -5490,6 +5490,9 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (enterprise === null) { // enterprise can be false or a encrypted string with a object with contacts and components
       throw new Error('Missing enterprise property');
     }
+    if (!enterprise && nodes && nodes.length > 0) {
+      throw new Error('Nodes can only be used in enterprise apps');
+    }
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
     }
