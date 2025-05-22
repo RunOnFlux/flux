@@ -173,7 +173,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
           return false;
         }
       }
-    } else if (dataObj.data && (dataObj.data.type === 'fluxappregister' || dataObj.data.type === 'fluxappupdate' || dataObj.data.type === 'zelappregister' || dataObj.data.type === 'zelappupdate')) {
+    } else if (dataObj.data && (dataObj.data.type === 'fluxappregister' || dataObj.data.type === 'fluxappupdate')) {
       const specifications = message.appSpecifications || message.zelAppSpecifications;
       if (specifications.version >= 8 && specifications.enterprise) {
         node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
