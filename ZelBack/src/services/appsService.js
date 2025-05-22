@@ -5487,7 +5487,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       }
     });
   } else { // v8+
-    if (enterprise === null) { // enterprise can be false or a encrypted string with a object with contacts and components
+    if (enterprise === null || enterprise === undefined) { // enterprise can be false or a encrypted string with a object with contacts and components
       throw new Error('Missing enterprise property');
     }
     if (!enterprise && nodes && nodes.length > 0) {
