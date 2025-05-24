@@ -66,6 +66,8 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 const testingAppExpress = express();
 let testingAppserver = http.createServer(testingAppExpress);
 testingAppserver = httpShutdown(testingAppserver);
@@ -3150,7 +3152,7 @@ function checkAppStaticIpRequirements(appSpecs) {
  * @returns {boolean} True if all checks passed.
  */
 async function checkAppNodesRequirements(appSpecs) {
-  if (appSpecs.version >= 7 && appSpecs.nodes && appSpecs.nodes.length) {
+  if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
     const benchmarkResponse = await benchmarkService.getBenchmarks();
     if (benchmarkResponse.status === 'error') {
@@ -5168,6 +5170,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     expire,
     nodes,
     staticip,
+    enterprise,
   } = appSpecification;
 
   if (!version) {
@@ -5366,7 +5369,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
         throw new Error('Invalid tiered HW specifications');
       }
     }
-  } else { // v4+
+  } else if (version <= 7) { // v4 to v7
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
     }
@@ -5483,6 +5486,98 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
         }
       }
     });
+  } else { // v8+
+    if (enterprise === null || enterprise === undefined) { // enterprise can be false or a encrypted string with a object with contacts and components
+      throw new Error('Missing enterprise property');
+    }
+    if (!enterprise && nodes && nodes.length > 0) {
+      throw new Error('Nodes can only be used in enterprise apps');
+    }
+    if (!compose) {
+      throw new Error('Missing Flux App specification parameter');
+    }
+    if (typeof compose !== 'object') {
+      throw new Error('Invalid Flux App Specifications');
+    }
+    if (!Array.isArray(compose)) {
+      throw new Error('Invalid Flux App Specifications');
+    }
+    compose.forEach((appComponent) => {
+      if (Array.isArray(appComponent)) {
+        throw new Error('Invalid Flux App Specifications');
+      }
+      if (typeof appComponent.name !== 'string') {
+        throw new Error('Invalid Flux App component name');
+      }
+      if (typeof appComponent.description !== 'string') {
+        throw new Error(`Invalid Flux App component ${appComponent.name} description`);
+      }
+      if (Array.isArray(appComponent.ports)) {
+        appComponent.ports.forEach((parameter) => {
+          if (typeof parameter !== 'number') {
+            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+          }
+          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
+            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid decimals`);
+          }
+        });
+      } else {
+        throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.domains)) {
+        appComponent.domains.forEach((parameter) => {
+          if (typeof parameter !== 'string') {
+            throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.environmentParameters)) {
+        appComponent.environmentParameters.forEach((parameter) => {
+          if (typeof parameter !== 'string') {
+            throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
+      }
+      if (Array.isArray(appComponent.commands)) {
+        appComponent.commands.forEach((command) => {
+          if (typeof command !== 'string') {
+            throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
+          }
+        });
+      } else {
+        throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
+      }
+      if (Array.isArray(appComponent.containerPorts)) {
+        appComponent.containerPorts.forEach((parameter) => {
+          if (typeof parameter !== 'number') {
+            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
+          }
+          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
+            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid decimals`);
+          }
+        });
+      } else {
+        throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+
+      const cpuB = appComponent.cpu;
+      const ramB = appComponent.ram;
+      const hddB = appComponent.hdd;
+      if (typeof cpuB !== 'number' || typeof ramB !== 'number' || typeof hddB !== 'number') {
+        throw new Error('Invalid HW specifications');
+      }
+      if (!serviceHelper.isDecimalLimit(cpuB) || !serviceHelper.isDecimalLimit(ramB) || !serviceHelper.isDecimalLimit(hddB)) {
+        throw new Error('Invalid HW specifications decimal limits');
+      }
+
+      if (typeof appComponent.repoauth !== 'string') {
+        throw new Error(`Repository Authentication for Flux App component ${appComponent.name} are invalid`);
+      }
+    });
   }
 
   if (version >= 3) {
@@ -5566,7 +5661,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   const minPort = height >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
   const maxPort = height >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7) {
+  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7 && appSpecifications.version !== 8) {
     throw new Error('Flux App message version specification is invalid');
   }
   if (appSpecifications.name.length > 32) {
@@ -5765,7 +5860,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
       }
 
-      if (appSpecifications.version >= 7) {
+      if (appSpecifications.version === 7) {
         if (!appSpecifications.nodes.length) { // this is NOT an enterprise app, no nodes scoping
           if (appComponent.secrets.length) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
             throw new Error('Secrets can not be defined for non Enterprise Applications');
@@ -5780,6 +5875,15 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
           if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
             throw new Error('Maximum length of repoauth is 15000.');
           }
+        }
+      }
+      if (appSpecifications.version >= 8) {
+        if (!appSpecifications.enterpise) { // this is NOT an enterprise app
+          if (appComponent.repoauth.length) { // pgp encrypted message.
+            throw new Error('Private repositories are only allowed for Enterprise Applications');
+          }
+        } else if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
+          throw new Error('Maximum length of repoauth is 15000.');
         }
       }
     }
@@ -5996,6 +6100,28 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes((sKey))) {
           throw new Error('Unsupported parameter for v7 app specifications');
+        }
+      });
+    });
+  } else if (appSpecifications.version === 8) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip', 'enterprise',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'repoauth',
+      'cpu', 'ram', 'hdd',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v8 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v8 app specifications');
         }
       });
     });
@@ -6601,18 +6727,26 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        log.info(`App ${appSpecFormatted.name} specs are not going to be validated as it is a enterprise encrypted app`);
+      } else {
+        await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+        await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+      }
       await verifyAppHash(message);
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
     } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
       // stadard verifications
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+        log.info(`App ${appSpecFormatted.name} specs are not going to be validated as it is a enterprise encrypted app`);
+      } else {
+        await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+        // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+        await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
+      }
       await verifyAppHash(message);
-      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       // get previousAppSpecifications as we need previous owner
       const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
       const { owner } = previousAppSpecs;
@@ -7394,6 +7528,67 @@ function specificationFormatter(appSpecification) {
 }
 
 /**
+ * Decrypts app specs if they are encrypted
+ * @param {object} appSpec application specifications.
+ * @param {integer} daemonHeight daemon block height.
+ * @param {string} owner original owner of the application.
+ * @returns {object} Return appSpecs decrypted if it is enterprise.
+ */
+async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = null) {
+  const appSpecs = appSpec;
+  let block = daemonHeight;
+  let appOwner = owner;
+  if (appSpec.version >= 8 && appSpec.enterprise) {
+    if (!isArcane) {
+      throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+    }
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    let appsQuery = null;
+    if (!appOwner) {
+      log.info(`Searching register permanent messages for ${appSpecs.name} to get registration message`);
+      appsQuery = {
+        'appSpecifications.name': appSpecs.name,
+        type: 'fluxappregister',
+      };
+      const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+      const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+      appOwner = lastAppRegistration.owner;
+    }
+    if (!block) {
+      log.info(`Searching register permanent messages for ${appSpecs.name} to get latest update`);
+      appsQuery = {
+        'appSpecifications.name': appSpecs.name,
+      };
+      const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+      const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
+      block = lastUpdate.height;
+    }
+    const inputData = {
+      fluxID: appOwner,
+      appName: appSpec.name,
+      message: appSpec.enterprise,
+      blockHeight: block,
+    };
+    const dataReturned = await benchmarkService.decryptMessage(inputData);
+    const { status, data } = dataReturned;
+    const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
+    if (enterprise) {
+      appSpecs.compose = enterprise.compose;
+      appSpecs.contacts = enterprise.contacts;
+    } else {
+      throw new Error('Error decrypting applications specifications.');
+    }
+  }
+  return appSpecs;
+}
+
+/**
  * To register an app globally via API. Performs various checks before the app can be registered. Only accessible by users.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -7448,7 +7643,7 @@ async function registerAppGlobalyApi(req, res) {
         throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
       }
 
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -7456,10 +7651,12 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
+      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
@@ -7580,7 +7777,7 @@ async function updateAppGlobalyApi(req, res) {
         throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
       }
 
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -7588,10 +7785,12 @@ async function updateAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
+      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight);
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
@@ -8949,7 +9148,8 @@ async function getApplicationGlobalSpecifications(appName) {
       _id: 0,
     },
   };
-  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -9012,6 +9212,7 @@ async function getApplicationSpecifications(appName) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
+  appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -9035,7 +9236,308 @@ async function getStrictApplicationSpecifications(appName) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name === appName);
   }
+  appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
+}
+
+/**
+ * To get app specifications updated to the latest version of the network.
+ * @param {object} appSpec original specifications.
+ * @return {object} appSpec update to the latest version.
+ */
+function updateToLatestAppSpecifications(appSpec) {
+  // current latest version is 8
+  if (appSpec.version === 1) {
+    /* const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'port', 'containerPort', 'enviromentParameters', 'commands', 'containerData',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ]; */
+    const component = {
+      name: appSpec.name,
+      description: appSpec.description,
+      repotag: appSpec.repotag,
+      ports: [appSpec.port],
+      containerPorts: [appSpec.containerPort],
+      environmentParameters: appSpec.enviromentParameters,
+      commands: appSpec.commands,
+      containerData: appSpec.containerData,
+      cpu: appSpec.cpu || 0,
+      ram: appSpec.ram || 0,
+      hdd: appSpec.hdd || 0,
+      repoauth: '',
+    };
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: [],
+      expire: 22000,
+      geolocation: [],
+      istances: 3,
+      nodes: [],
+      owner: appSpec.owner,
+      staticip: false,
+      compose: [component],
+      enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    return newAppSpec;
+  } if (appSpec.version === 2) {
+    /* const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ]; */
+    const component = {
+      name: appSpec.name,
+      description: appSpec.description,
+      repotag: appSpec.repotag,
+      ports: appSpec.ports,
+      containerPorts: appSpec.containerPorts,
+      environmentParameters: appSpec.enviromentParameters,
+      commands: appSpec.commands,
+      domains: appSpec.domains,
+      containerData: appSpec.containerData,
+      cpu: appSpec.cpu || 0,
+      ram: appSpec.ram || 0,
+      hdd: appSpec.hdd || 0,
+      repoauth: '',
+    };
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: [],
+      expire: 22000,
+      geolocation: [],
+      istances: 3,
+      nodes: [],
+      owner: appSpec.owner,
+      staticip: false,
+      compose: [component],
+      enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    return newAppSpec;
+  } if (appSpec.version === 3) {
+    /* const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains', 'instances',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    ]; */
+    const component = {
+      name: appSpec.name,
+      description: appSpec.description,
+      repotag: appSpec.repotag,
+      ports: appSpec.ports,
+      containerPorts: appSpec.containerPorts,
+      environmentParameters: appSpec.enviromentParameters,
+      commands: appSpec.commands,
+      domains: appSpec.domains,
+      containerData: appSpec.containerData,
+      cpu: appSpec.cpu || 0,
+      ram: appSpec.ram || 0,
+      hdd: appSpec.hdd || 0,
+      repoauth: '',
+    };
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: [],
+      expire: 22000,
+      geolocation: [],
+      istances: appSpec.instances,
+      nodes: [],
+      owner: appSpec.owner,
+      staticip: false,
+      compose: [component],
+      enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    return newAppSpec;
+  } if (appSpec.version === 4) {
+    /* const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ]; */
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: [],
+      expire: 22000,
+      geolocation: [],
+      istances: appSpec.instances,
+      nodes: [],
+      staticip: false,
+      enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    const components = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of appSpec.compose) {
+      const newComponent = {
+        name: component.name,
+        description: component.description,
+        repotag: component.repotag,
+        ports: component.ports,
+        containerPorts: component.containerPorts,
+        environmentParameters: component.environmentParameters,
+        commands: component.commands,
+        domains: component.domains,
+        containerData: component.containerData,
+        cpu: component.cpu || 0,
+        ram: component.ram || 0,
+        hdd: component.hdd || 0,
+        repoauth: '',
+      };
+      components.push(newComponent);
+    }
+    newAppSpec.compose = components;
+    return newAppSpec;
+  } if (appSpec.version === 5) {
+    /* const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ]; */
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: appSpec.contacts,
+      expire: 22000,
+      geolocation: appSpec.geolocation,
+      istances: appSpec.instances,
+      nodes: [],
+      staticip: false,
+      enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    const components = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of appSpec.compose) {
+      const newComponent = {
+        name: component.name,
+        description: component.description,
+        repotag: component.repotag,
+        ports: component.ports,
+        containerPorts: component.containerPorts,
+        environmentParameters: component.environmentParameters,
+        commands: component.commands,
+        domains: component.domains,
+        containerData: component.containerData,
+        cpu: component.cpu || 0,
+        ram: component.ram || 0,
+        hdd: component.hdd || 0,
+        repoauth: '',
+      };
+      components.push(newComponent);
+    }
+    newAppSpec.compose = components;
+    return newAppSpec;
+  } if (appSpec.version === 6) {
+    /* const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ]; */
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: appSpec.contacts,
+      expire: appSpec.expire,
+      geolocation: appSpec.geolocation,
+      istances: appSpec.instances,
+      nodes: [],
+      staticip: false,
+      enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    const components = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of appSpec.compose) {
+      const newComponent = {
+        name: component.name,
+        description: component.description,
+        repotag: component.repotag,
+        ports: component.ports,
+        containerPorts: component.containerPorts,
+        environmentParameters: component.environmentParameters,
+        commands: component.commands,
+        domains: component.domains,
+        containerData: component.containerData,
+        cpu: component.cpu || 0,
+        ram: component.ram || 0,
+        hdd: component.hdd || 0,
+        repoauth: '',
+      };
+      components.push(newComponent);
+    }
+    newAppSpec.compose = components;
+    return newAppSpec;
+  } if (appSpec.version === 7) {
+    /* const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'secrets', 'repoauth',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ]; */
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: appSpec.contacts,
+      expire: appSpec.expire,
+      geolocation: appSpec.geolocation,
+      istances: appSpec.instances,
+      nodes: [], // we don't fill the nodes as they were used for different thing.
+      staticip: appSpec.staticip,
+      enterprise: false,
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    const components = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of appSpec.compose) {
+      const newComponent = {
+        name: component.name,
+        description: component.description,
+        repotag: component.repotag,
+        ports: component.ports,
+        containerPorts: component.containerPorts,
+        environmentParameters: component.environmentParameters,
+        commands: component.commands,
+        domains: component.domains,
+        containerData: component.containerData,
+        cpu: component.cpu || 0,
+        ram: component.ram || 0,
+        hdd: component.hdd || 0,
+        repoauth: component.repoauth,
+      };
+      components.push(newComponent);
+    }
+    newAppSpec.compose = components;
+    return newAppSpec;
+  } if (appSpec.version === 8) {
+    return appSpec;
+  }
+  throw new Error('Original application version not recognized');
 }
 
 /**
@@ -9043,18 +9545,59 @@ async function getStrictApplicationSpecifications(appName) {
  * @param {object} req Request.
  * @param {object} res Response.
  */
+// eslint-disable-next-line consistent-return
 async function getApplicationSpecificationAPI(req, res) {
   try {
-    let { appname } = req.params;
+    let { appname, update, decrypt } = req.params;
     appname = appname || req.query.appname;
     if (!appname) {
       throw new Error('No Application Name specified');
     }
+
+    const mainAppName = appname.split('_')[1] || appname;
+    let authorized = false;
+    update = update || req.query.update;
+    decrypt = decrypt || req.query.decrypt;
+
     const specifications = await getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
-    const specResponse = messageHelper.createDataMessage(specifications);
+
+    if (specifications.version >= 8 && specifications.enterprise) {
+      if (decrypt) {
+        authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
+        if (!authorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          return res.json(errMessage);
+        }
+        specifications.enterprise = true;
+      }
+      authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+      if (authorized) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of specifications.compose) {
+          component.environmentParameters = [];
+          component.repoauth = '';
+        }
+      } else {
+        specifications.compose = [];
+        specifications.contacts = [];
+      }
+    }
+
+    let updatedSpecifications = specifications;
+    if (update) {
+      authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+      updatedSpecifications = updateToLatestAppSpecifications(specifications);
+      const specResponse = messageHelper.createDataMessage(updatedSpecifications);
+      return res.json(specResponse);
+    }
+    const specResponse = messageHelper.createDataMessage(updatedSpecifications);
     res.json(specResponse);
   } catch (error) {
     log.error(error);
@@ -9084,6 +9627,45 @@ async function getApplicationOwnerAPI(req, res) {
       throw new Error('Application not found');
     }
     const ownerResponse = messageHelper.createDataMessage(owner);
+    res.json(ownerResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To get app original owner for a specific app (global or local) via API.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getApplicationOriginalOwner(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No Application Name specified');
+    }
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    log.info(`Searching register permanent messages for ${appname}`);
+    const appsQuery = {
+      'appSpecifications.name': appname,
+      type: 'fluxappregister',
+    };
+    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+    const ownerResponse = messageHelper.createDataMessage(lastAppRegistration.appSpecifications.owner);
     res.json(ownerResponse);
   } catch (error) {
     log.error(error);
@@ -9223,6 +9805,8 @@ async function trySpawningGlobalApplication() {
           nodes: { $ifNull: ['$nodes', []] },
           geolocation: { $ifNull: ['$geolocation', []] },
           hash: '$hash',
+          version: '$version',
+          enterprise: '$enterprise',
         },
       },
       { $sort: { name: 1 } },
@@ -9266,7 +9850,7 @@ async function trySpawningGlobalApplication() {
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !spawnErrorsLongerAppCache.has(app.hash) && !trySpawningGlobalAppCache.has(app.hash) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
       // filter apps that are non enterprise or are marked to install on my node
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP));
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP) || app.version >= 8);
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('a!c')).length === 0 || !app.geolocation.find((loc) => loc.startsWith('a!c') && `a!c${myNodeLocation}`.startsWith(loc.replace('_NONE', '')))));
       // filter apps that dont have geolocation or have and match my node geolocation
@@ -9285,10 +9869,20 @@ async function trySpawningGlobalApplication() {
         random = Math.floor(Math.random() * filterAppsWithNyNodeIP.length);
         appToRunAux = filterAppsWithNyNodeIP[random];
       }
+
       appToRun = appToRunAux.name;
       appHash = appToRunAux.hash;
       minInstances = appToRunAux.required;
+
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
+      if (appToRunAux.enterprise && !isArcane) {
+        log.info('trySpawningGlobalApplication - app missing one instance failed the 15% probability check to install');
+        spawnErrorsLongerAppCache.set(appHash, appHash);
+        await serviceHelper.delay(5 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
+      }
+
       if (appToRunAux.required === appToRunAux.actual + 1 && appToRunAux.nodes.length === 0 && Math.random() > 0.15) {
         log.info('trySpawningGlobalApplication - app missing one instance failed the 15% probability check to install');
         await serviceHelper.delay(5 * 60 * 1000);
@@ -9456,13 +10050,35 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    if (!appFromAppsToBeCheckedLater && appToRunAux.nodes.length === 0) {
+    if (!appFromAppsToBeCheckedLater) {
       const tier = await generalService.nodeTier();
       const appHWrequirements = totalAppHWRequirements(appSpecifications, tier);
       let delay = false;
-      if (tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+      if (!appToRunAux.enterprise && isArcane) {
         const appToCheck = {
-          timeToCheck: Date.now() + 1.95 * 60 * 60 * 1000,
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 1 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+        };
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around 1h if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appHash);
+        delay = true;
+      } else if (appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => ip === myIP)) {
+        const appToCheck = {
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.5 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+        };
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs have target ips, will check in around 0.5h if instances are still missing`);
+        appsToBeCheckedLater.push(appToCheck);
+        trySpawningGlobalAppCache.delete(appHash);
+        delay = true;
+      } else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        const appToCheck = {
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.5 * 60 * 60 * 1000 : Date.now() + 1.95 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
@@ -9471,9 +10087,9 @@ async function trySpawningGlobalApplication() {
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appHash);
         delay = true;
-      } else if (tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+      } else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
         const appToCheck = {
-          timeToCheck: Date.now() + 1.45 * 60 * 60 * 1000,
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.35 * 60 * 60 * 1000 : Date.now() + 1.45 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
@@ -9482,9 +10098,9 @@ async function trySpawningGlobalApplication() {
         appsToBeCheckedLater.push(appToCheck);
         trySpawningGlobalAppCache.delete(appHash);
         delay = true;
-      } else if (tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+      } else if (appToRunAux.nodes.length === 0 && tier === 'super' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
-          timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
+          timeToCheck: appToRunAux.enterprise ? Date.now() + 0.2 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
@@ -10321,12 +10937,58 @@ async function reinstallOldApplications() {
             // eslint-disable-next-line no-continue
             continue;
           }
+
           // check if node is capable to run it according to specifications
           // run the verification
           // get tier and adjust specifications
           // eslint-disable-next-line no-await-in-loop
           const tier = await generalService.nodeTier();
-          if (appSpecifications.version <= 3) {
+          if (appSpecifications.version >= 4 && installedApp.version <= 3) {
+            if (removalInProgress) {
+              log.warn('Another application is undergoing removal');
+              return;
+            }
+            if (installationInProgress) {
+              log.warn('Another application is undergoing installation');
+              return;
+            }
+            log.warn('Updating from old application version, doing hard redeploy...');
+            // eslint-disable-next-line no-await-in-loop
+            await removeAppLocally(appSpecifications.name, null, true, false);
+            // connect to mongodb
+            const dbopen = dbHelper.databaseConnection();
+            const appsDatabase = dbopen.db(config.database.appslocal.database);
+            const appsQuery = { name: appSpecifications.name };
+            const appsProjection = {};
+            log.warn('Cleaning up database...');
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+            const databaseStatus2 = {
+              status: 'Database cleaned',
+            };
+            log.warn('Database cleaned');
+            log.warn(databaseStatus2);
+            log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
+            // composition removal done. Remove from installed apps and being installation
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppRequirements(appSpecifications); // entire app
+            // eslint-disable-next-line no-restricted-syntax
+            for (const appComponent of appSpecifications.compose) {
+              log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+              // install the app
+              // eslint-disable-next-line no-await-in-loop
+              await registerAppLocally(appSpecifications, appComponent); // component
+            }
+            // register the app
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+            log.warn(`Composed application ${appSpecifications.name} updated.`);
+            log.warn(`Restarting application ${appSpecifications.name}`);
+            // eslint-disable-next-line no-await-in-loop, no-use-before-define
+            await appDockerRestart(appSpecifications.name);
+          } else if (appSpecifications.version <= 3) {
             if (appSpecifications.tiered) {
               const hddTier = `hdd${tier}`;
               const ramTier = `ram${tier}`;
@@ -10874,7 +11536,7 @@ async function verifyAppRegistrationParameters(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -10882,10 +11544,12 @@ async function verifyAppRegistrationParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
+      appSpecFormatted = checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
@@ -10931,7 +11595,7 @@ async function verifyAppUpdateParameters(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -10939,10 +11603,12 @@ async function verifyAppUpdateParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
+      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight);
+
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      if (appSpecFormatted.version >= 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
@@ -13753,6 +14419,66 @@ async function monitorNodeStatus() {
   }
 }
 
+/**
+ * To get Public Key to Encrypt Enterprise Content.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {string} Key.
+ */
+async function getPublicKey(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      if (!appSpecification.owner || !appSpecification.name) {
+        throw new Error('Input parameters missing.');
+      }
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      if (!isArcane) {
+        throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+      }
+      const inputData = {
+        fluxID: appSpecification.owner,
+        appName: appSpecification.name,
+        blockHeight: daemonHeight,
+      };
+      const dataReturned = await benchmarkService.getPublicKey(inputData);
+      const { status, data } = dataReturned;
+      const publicKey = status === 'success' && data.status === 'ok' ? data.message : null;
+      if (!publicKey) {
+        throw new Error('Error getting public key to encrypt app enterprise content.');
+      }
+      // respond with formatted specifications
+      const response = messageHelper.createDataMessage(publicKey);
+      return res.json(response);
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -13893,4 +14619,6 @@ module.exports = {
   monitorNodeStatus,
   monitorSharedDBApps,
   callOtherNodeToKeepUpnpPortsOpen,
+  getPublicKey,
+  getApplicationOriginalOwner,
 };

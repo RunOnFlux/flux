@@ -2022,6 +2022,16 @@ async function streamChain(req, res) {
   }
 }
 
+/**
+ * Returns information if node is running ArcaneOS
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function isArcaneOs(req, res) {
+  const response = messageHelper.createDataMessage(isArcane);
+  res.json(response);
+}
+
 module.exports = {
   adjustAPIPort,
   adjustBlockedPorts,
@@ -2087,4 +2097,5 @@ module.exports = {
   lockStreamLock,
   tailFluxLog,
   unlockStreamLock,
+  isArcaneOs,
 };

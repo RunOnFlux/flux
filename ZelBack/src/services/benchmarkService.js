@@ -155,6 +155,26 @@ async function signFluxTransactionPost(req, res) {
   });
 }
 
+/**
+ * Ask FLuxBench to decrypt message
+ * @param {object} message message object with information to be decrypted.
+ */
+async function decryptMessage(message) {
+    const rpccall = 'decryptmessage';
+    const rpcparameters = [message];
+    return await executeCall(rpccall, rpcparameters);
+}
+
+/**
+ * Ask FLuxBench to get public key to encrypt enterprise content
+ * @param {object} message message object with the key.
+ */
+async function getPublicKey(message) {
+    const rpccall = 'getpublickey';
+    const rpcparameters = [message];
+    return await executeCall(rpccall, rpcparameters);
+}
+
 // == Control ==
 /**
  * To request help message.
@@ -294,4 +314,7 @@ module.exports = {
 
   // == UPNP FluxBecnh ==
   executeUpnpBench,
+  // 
+  decryptMessage,
+  getPublicKey
 };
