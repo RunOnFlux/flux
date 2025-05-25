@@ -465,5 +465,7 @@
    "testnet32/flights_scraper",
    "kingsimpa69/50-50.io",
    "archivebox",
-   "jlesage/firefox"
+   "jlesage/firefox",
+   "ghcr.io/pzkpfw44/pulse360-backend",
+   "ghcr.io/pzkpfw44/pulse360-frontend"
 ]
