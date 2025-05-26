@@ -14479,6 +14479,34 @@ async function getPublicKey(req, res) {
   });
 }
 
+/**
+ * Method responsable to sync permenant app messages from node running arcane OS (api.runonflux.io only have ArcaneOS nodes)
+ */
+async function syncAppsMessages() {
+  try {
+    const axiosConfig = {
+      timeout: 120000,
+    };
+    log.info('syncAppsMessages - Getting permanentmessages from api.runonflux.io');
+    const response = await serviceHelper.axiosGet('http://api.runonflux.io/apps/permanentmessages', axiosConfig).catch((error) => log.error(error));
+    if (!response || !response.data || response.status !== 'success') {
+      log.info('Failed to get permanentappmessages from api.runonflux.io');
+      return;
+    }
+    log.info('syncAppsMessages - api response received');
+    const options = {
+      ordered: false, // If false, continue with remaining inserts when one fails.
+    };
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    log.info(`syncAppsMessages - Inserting ${response.data.length} permanentappmessages on db.`);
+    await dbHelper.insertManyToDatabase(database, globalAppsMessages, response.data, options);
+    log.info('syncAppsMessages - Finished.');
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -14621,4 +14649,5 @@ module.exports = {
   callOtherNodeToKeepUpnpPortsOpen,
   getPublicKey,
   getApplicationOriginalOwner,
+  syncAppsMessages,
 };

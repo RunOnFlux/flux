@@ -806,6 +806,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       // what if 2 app adjustment come in the same block?
       // log.info(resultE, resultF);
       log.info('Preparation done');
+      // let's try to sync permanent app messages from Arcane Node
+      await appsService.syncAppsMessages();
     }
     if (daemonHeight > scannedBlockHeight) {
       if (scannedBlockHeight !== 0 && restoreDatabase === true) {
