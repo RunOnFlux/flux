@@ -14489,7 +14489,7 @@ async function syncAppsMessages() {
     };
     log.info('syncAppsMessages - Getting permanentmessages from api.runonflux.io');
     const response = await serviceHelper.axiosGet('http://api.runonflux.io/apps/permanentmessages', axiosConfig).catch((error) => log.error(error));
-    if (!response || !response.data || response.status !== 'success') {
+    if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
       log.info('Failed to get permanentappmessages from api.runonflux.io');
       return;
     }
@@ -14499,8 +14499,8 @@ async function syncAppsMessages() {
     };
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-    log.info(`syncAppsMessages - Inserting ${response.data.length} permanentappmessages on db.`);
-    await dbHelper.insertManyToDatabase(database, globalAppsMessages, response.data, options);
+    log.info(`syncAppsMessages - Inserting ${response.data.data.length} permanentappmessages on db.`);
+    await dbHelper.insertManyToDatabase(database, globalAppsMessages, response.data.data, options);
     log.info('syncAppsMessages - Finished.');
   } catch (error) {
     log.error(error);
