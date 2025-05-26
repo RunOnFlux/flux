@@ -8852,7 +8852,6 @@ async function continuousFluxAppHashesCheck(force = false) {
         messageNotFound: 1,
       },
     };
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
     // sort it by height, so we request oldest messages first
     results.sort((a, b) => a.height - b.height);
