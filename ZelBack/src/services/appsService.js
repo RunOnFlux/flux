@@ -14488,7 +14488,7 @@ async function syncAppsMessages() {
       timeout: 120000,
     };
     log.info('syncAppsMessages - Getting permanentmessages from api.runonflux.io');
-    const response = await serviceHelper.axiosGet('http://api.runonflux.io/apps/permanentmessages', axiosConfig).catch((error) => log.error(error));
+    const response = await serviceHelper.axiosGet('https://api.runonflux.io/apps/permanentmessages', axiosConfig).catch((error) => log.error(error));
     if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
       log.info('Failed to get permanentappmessages from api.runonflux.io');
       return;
