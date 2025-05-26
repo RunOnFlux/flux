@@ -25,6 +25,7 @@ let isInInitiationOfBP = false;
 let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
+let appsTransactions = [];
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
@@ -266,7 +267,6 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
-  const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
@@ -346,6 +346,14 @@ async function processInsight(blockDataVerbose, database) {
       }
     }
   }
+}
+
+/**
+ * To process transactions inserts on database and calling app messages.
+ * @param {string} database Database.
+ */
+async function processTransactions(database) {
+  log.info(`processTransactions - Processing ${appsTransactions.length} transactions`);
   if (appsTransactions.length > 0) {
     const options = {
       ordered: false, // If false, continue with remaining inserts when one fails.
@@ -360,8 +368,8 @@ async function processInsight(blockDataVerbose, database) {
       appsService.checkAndRequestMultipleApps(appsTransactions);
     }
   }
+  appsTransactions = [];
 }
-
 /**
  * To process verbose block data for entry to database.
  * @param {object} blockDataVerbose Verbose block data.
@@ -370,7 +378,6 @@ async function processInsight(blockDataVerbose, database) {
 async function processStandard(blockDataVerbose, database) {
   // get Block transactions information
   const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
-  const appsTransactions = [];
   // now we have verbose transactions of the block extended for senders - object of
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
@@ -463,20 +470,6 @@ async function processStandard(blockDataVerbose, database) {
       }
     }
   }));
-  if (appsTransactions.length > 0) {
-    const options = {
-      ordered: false, // If false, continue with remaining inserts when one fails.
-    };
-    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    while (appsTransactions.length > 500) {
-      appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
-    }
-    if (appsTransactions.length > 0) {
-      appsService.checkAndRequestMultipleApps(appsTransactions);
-    }
-  }
 }
 
 /**
@@ -519,6 +512,14 @@ async function processBlock(blockHeight, isInsightExplorer) {
         log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
       }
     }
+
+    const scannedHeight = blockDataVerbose.height;
+    // update scanned Height in scannedBlockHeightCollection
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const update = { $set: { generalScannedHeight: scannedHeight } };
+    const options = {
+      upsert: true,
+    };
     // this should run only when node is synced
     const isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
@@ -552,15 +553,13 @@ async function processBlock(blockHeight, isInsightExplorer) {
           log.error(error);
         }
       }
+      await processTransactions(database);
+      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    } else if (blockDataVerbose.height % 50 === 0) {
+      // if explorer is syncing, we only insert data every 50 blocks
+      await processTransactions(database);
+      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
-    const scannedHeight = blockDataVerbose.height;
-    // update scanned Height in scannedBlockHeightCollection
-    const query = { generalScannedHeight: { $gte: 0 } };
-    const update = { $set: { generalScannedHeight: scannedHeight } };
-    const options = {
-      upsert: true,
-    };
-    await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
       if (blockDataVerbose.confirmations > 1) {
