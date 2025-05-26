@@ -351,20 +351,13 @@ async function processInsight(blockDataVerbose, database) {
       ordered: false, // If false, continue with remaining inserts when one fails.
     };
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
-      while (appsTransactions.length > 500) {
-        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
-      }
-      if (appsTransactions.length > 0) {
-        appsService.checkAndRequestMultipleApps(appsTransactions);
-      }
-    } else {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const tx of appsTransactions) {
-        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
-      }
+    while (appsTransactions.length > 500) {
+      appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
+    }
+    if (appsTransactions.length > 0) {
+      appsService.checkAndRequestMultipleApps(appsTransactions);
     }
   }
 }
@@ -475,20 +468,13 @@ async function processStandard(blockDataVerbose, database) {
       ordered: false, // If false, continue with remaining inserts when one fails.
     };
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
-      while (appsTransactions.length > 500) {
-        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
-      }
-      if (appsTransactions.length > 0) {
-        appsService.checkAndRequestMultipleApps(appsTransactions);
-      }
-    } else {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const tx of appsTransactions) {
-        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
-      }
+    while (appsTransactions.length > 500) {
+      appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
+    }
+    if (appsTransactions.length > 0) {
+      appsService.checkAndRequestMultipleApps(appsTransactions);
     }
   }
 }
