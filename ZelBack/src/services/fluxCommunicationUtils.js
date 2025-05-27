@@ -11,14 +11,7 @@ const LRUoptions = {
   maxAge: 1000 * 240, // 240 seconds, allow up to 2 blocks
 };
 
-const ArcaneNodesoptions = {
-  max: 20000, // currently 20000 nodes
-  ttl: 1000 * 60 * 60 * 24, // 24 hours
-  maxAge: 1000 * 60 * 60 * 24, // 24 hours
-};
-
 const myCache = new LRUCache(LRUoptions);
-const arcaneNodesIPsCache = new LRUCache(ArcaneNodesoptions);
 
 let addingNodesToCache = false;
 
