@@ -292,13 +292,13 @@ async function sendMessageToWS(message, ws) {
   try {
     const messageSigned = await serialiseAndSignFluxBroadcast(message);
     try {
-      log.info(JSON.stringify(messageSigned));
       ws.send(messageSigned);
+      log.info(`sendMessageToWS - ${JSON.stringify(messageSigned)}`);
     } catch (e) {
-      log.error(e);
+      log.error(`sendMessageToWS - ${e}`);
     }
   } catch (error) {
-    log.error(error);
+    log.error(`sendMessageToWS - messageSigned- ${error}`);
   }
 }
 
