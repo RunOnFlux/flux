@@ -513,6 +513,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     if (isInsightExplorer && blockDataVerbose.height > 699420 && blockDataVerbose.height < 862002) {
       // speed up sync as there were no app messages between these two blocks
       processBlock(862002, isInsightExplorer);
+      return;
     }
     if (isInsightExplorer) {
       // only process Flux transactions
