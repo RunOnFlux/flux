@@ -127,6 +127,9 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
   if (currentTimeStamp < (timestamp - 120000)) { // message was broadcasted in the future. Allow 120 sec clock sync
     log.error('Message from future');
+    if (appregisterOrUpdate) {
+      log.info('verifyFluxBroadcast - Message from future');
+    }
     return false;
   }
 
@@ -134,6 +137,9 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   if (obtainedFluxNodesList) { // for test purposes.
     node = obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
     if (!node) {
+      if (appregisterOrUpdate) {
+        log.info('verifyFluxBroadcast - no Node test');
+      }
       return false;
     }
   }
@@ -177,12 +183,18 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
   }
   if (!node) {
     log.warn(`No node belonging to ${pubKey} found`);
+    if (appregisterOrUpdate) {
+      log.info('verifyFluxBroadcast - warning no node');
+    }
     return false;
   }
   const messageToVerify = version + message + timestamp;
   const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
   if (verified === true) {
     return true;
+  }
+  if (appregisterOrUpdate) {
+    log.info('verifyFluxBroadcast - Message not verified');
   }
   return false;
 }
