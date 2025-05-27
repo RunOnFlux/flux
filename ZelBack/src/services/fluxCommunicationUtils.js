@@ -175,29 +175,6 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
       }
     } else {
       node = zl.find((key) => key.pubkey === pubKey);
-      if (dataObj.data && (dataObj.data.type === 'fluxappregister' || dataObj.data.type === 'fluxappupdate') && dataObj.data.appSpecifications.version >= 8 && dataObj.data.appSpecifications.enterprise) {
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          zl = await deterministicFluxList();
-          node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-          if (!node) {
-            log.warn(`Received message for enteprise app from original node not connected to the network, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
-            return false;
-          }
-          if (!arcaneNodesIPsCache.has(dataObj.data.ip)) {
-            const axiosConfig = {
-              timeout: 5000,
-            };
-            const port = dataObj.data.ip.split(':')[1] || '16127';
-            const response = await serviceHelper.axiosGet(`http://${dataObj.data.ip}:${port}/flux/isarcaneos`, axiosConfig).catch((error) => log.error(error));
-            if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
-              log.warn(`Failed to validate if node who sent enteprise app is running ArcaneOS, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
-              return false;
-            }
-            arcaneNodesIPsCache.set(dataObj.data.ip);
-          }
-        }
-      }
     }
   }
   if (!node) {
