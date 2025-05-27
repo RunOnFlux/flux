@@ -350,7 +350,7 @@ async function respondWithAppMessage(msgObj, ws) {
         const tempMesResponse = myMessageCache.get(hash);
         if (tempMesResponse) {
           sendMessageToWS(tempMesResponse, ws);
-          log.info('respondWithAppMessage - Flux App Request found on database');
+          log.info('respondWithAppMessage - Flux App Request found on cache');
           log.info(`respondWithAppMessage - temporaryAppMessage -  ${JSON.stringify(tempMesResponse)}`);
           // eslint-disable-next-line no-continue
           continue;
