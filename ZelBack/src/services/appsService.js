@@ -10208,6 +10208,7 @@ async function trySpawningGlobalApplication() {
         const appRemovedMessage = {
           type: 'fluxappremoved',
           version: 1,
+          cancel: 1,
           appName: appSpecifications.name,
           ip: myIP,
           broadcastedAt,
