@@ -173,9 +173,9 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
           return false;
         }
       }
-    } else if (dataObj.data && (dataObj.data.type === 'fluxappregister' || dataObj.data.type === 'fluxappupdate')) {
-      const specifications = dataObj.data.appSpecifications || dataObj.data.zelAppSpecifications;
-      if (specifications.version >= 8 && specifications.enterprise) {
+    } else {
+      node = zl.find((key) => key.pubkey === pubKey);
+      if (dataObj.data && (dataObj.data.type === 'fluxappregister' || dataObj.data.type === 'fluxappupdate') && dataObj.data.appSpecifications.version >= 8 && dataObj.data.appSpecifications.enterprise) {
         node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
         if (!node) {
           zl = await deterministicFluxList();
@@ -198,8 +198,6 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
           }
         }
       }
-    } else {
-      node = zl.find((key) => key.pubkey === pubKey);
     }
   }
   if (!node) {
