@@ -14495,9 +14495,11 @@ async function syncAppsMessages() {
     log.info(`syncAppsMessages - Inserting ${response.data.data.length} permanentappmessages on db.`);
     await dbHelper.insertManyToDatabase(database, globalAppsMessages, response.data.data, options);
     log.info('syncAppsMessages - Finished.');
-    return true
+    // eslint-disable-next-line consistent-return
+    return true;
   } catch (error) {
     log.error(error);
+    // eslint-disable-next-line consistent-return
     return false;
   }
 }
