@@ -14473,6 +14473,7 @@ async function getPublicKey(req, res) {
 
 /**
  * Method responsable to sync permenant app messages from node running arcane OS (api.runonflux.io only have ArcaneOS nodes)
+ * @returns {boolean} If sync was finished ok.
  */
 async function syncAppsMessages() {
   try {
@@ -14494,8 +14495,10 @@ async function syncAppsMessages() {
     log.info(`syncAppsMessages - Inserting ${response.data.data.length} permanentappmessages on db.`);
     await dbHelper.insertManyToDatabase(database, globalAppsMessages, response.data.data, options);
     log.info('syncAppsMessages - Finished.');
+    return true
   } catch (error) {
     log.error(error);
+    return false;
   }
 }
 
