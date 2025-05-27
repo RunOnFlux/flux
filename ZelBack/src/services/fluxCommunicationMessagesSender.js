@@ -104,6 +104,7 @@ async function sendToRandomPeer(data) {
             foundPeer.lastPingTime = pingTime;
           }
         } else {
+          log.info(JSON.stringify(data));
           client.send(data);
         }
       } else {
@@ -210,6 +211,7 @@ async function sendToRandomIncomingConnections(data) {
         if (!data) {
           client.ping(); // do ping instead
         } else {
+          log.info(JSON.stringify(data));
           client.send(data);
         }
       } else {
