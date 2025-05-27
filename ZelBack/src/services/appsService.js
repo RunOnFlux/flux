@@ -7026,6 +7026,7 @@ async function requestAppsMessage(apps, incoming) {
     version: 2,
     hashes: apps.map((a) => a.hash),
   };
+  log.info(JSON.stringify(message));
   if (incoming) {
     await fluxCommunicationMessagesSender.broadcastMessageToRandomIncoming(message);
   } else {
@@ -8509,7 +8510,7 @@ async function checkAndRequestMultipleApps(apps, incoming = true, i = 1) {
     }
     apps.filter((item) => !appsToRemove.includes(item));
     if (apps.length > 0 && i < 5) {
-      await checkAndRequestMultipleApps(apps, i % 2 === 0, i + 1);
+      await checkAndRequestMultipleApps(apps, true, i + 1);
     }
   } catch (error) {
     log.error(error);
