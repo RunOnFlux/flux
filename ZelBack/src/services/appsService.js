@@ -14471,39 +14471,6 @@ async function getPublicKey(req, res) {
   });
 }
 
-/**
- * Method responsable to sync permenant app messages from node running arcane OS (api.runonflux.io only have ArcaneOS nodes)
- * @returns {boolean} If sync was finished ok.
- */
-async function syncAppsMessages() {
-  try {
-    const axiosConfig = {
-      timeout: 120000,
-    };
-    log.info('syncAppsMessages - Getting permanentmessages from api.runonflux.io');
-    const response = await serviceHelper.axiosGet('https://api.runonflux.io/apps/permanentmessages', axiosConfig).catch((error) => log.error(error));
-    if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
-      log.info('Failed to get permanentappmessages from api.runonflux.io');
-      return;
-    }
-    log.info('syncAppsMessages - api response received');
-    const options = {
-      ordered: false, // If false, continue with remaining inserts when one fails.
-    };
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    log.info(`syncAppsMessages - Inserting ${response.data.data.length} permanentappmessages on db.`);
-    await dbHelper.insertManyToDatabase(database, globalAppsMessages, response.data.data, options);
-    log.info('syncAppsMessages - Finished.');
-    // eslint-disable-next-line consistent-return
-    return true;
-  } catch (error) {
-    log.error(error);
-    // eslint-disable-next-line consistent-return
-    return false;
-  }
-}
-
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -14646,5 +14613,4 @@ module.exports = {
   callOtherNodeToKeepUpnpPortsOpen,
   getPublicKey,
   getApplicationOriginalOwner,
-  syncAppsMessages,
 };

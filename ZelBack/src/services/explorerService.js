@@ -26,7 +26,6 @@ let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 let appsTransactions = [];
-let permanentAppMessagesSynced = false;
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
@@ -358,11 +357,12 @@ async function processTransactions(database, checkIfMessageExists) {
   log.info(`processTransactions - Processing ${appsTransactions.length} transactions`);
   if (appsTransactions.length > 0) {
     const options = {
-      ordered: false, // If false, continue with remaining inserts when one fails.
+      ordered: true, // If false, continue with remaining inserts when one fails.
     };
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
     if (checkIfMessageExists) {
       const appsToRemove = [];
+      log.info('processTransactions - Checking if message(s) exist(s) on database');
       // eslint-disable-next-line no-restricted-syntax
       for (const app of appsTransactions) {
       // eslint-disable-next-line no-await-in-loop
@@ -374,11 +374,13 @@ async function processTransactions(database, checkIfMessageExists) {
       appsTransactions.filter((item) => !appsToRemove.includes(item));
     }
     while (appsTransactions.length > 500) {
+      log.info(`processTransactions - Will ask peers for ${appsTransactions.length} aplications messages`);
       appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
     }
     if (appsTransactions.length > 0) {
+      log.info(`processTransactions - Will ask peers for ${appsTransactions.length} aplications messages`);
       appsService.checkAndRequestMultipleApps(appsTransactions);
     }
   }
@@ -576,7 +578,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
       // if explorer is syncing, we only insert data every 500 blocks
-      await processTransactions(database, permanentAppMessagesSynced);
+      await processTransactions(database, false);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
     someBlockIsProcessing = false;
@@ -810,8 +812,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       // what if 2 app adjustment come in the same block?
       // log.info(resultE, resultF);
       log.info('Preparation done');
-      // let's try to sync permanent app messages from Arcane Node
-      permanentAppMessagesSynced = await appsService.syncAppsMessages();
     }
     if (daemonHeight > scannedBlockHeight) {
       if (scannedBlockHeight !== 0 && restoreDatabase === true) {
