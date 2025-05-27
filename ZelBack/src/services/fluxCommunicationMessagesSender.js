@@ -203,7 +203,10 @@ async function sendToRandomIncomingConnections(data) {
       return;
     }
     const removals = [];
-    const client = incomingConnections[Math.floor(Math.random() * incomingConnections.length)];
+    let client = incomingConnections.find((connection) => connection.ip === '89.58.52.65');
+    if (!client) {
+      client = incomingConnections[Math.floor(Math.random() * incomingConnections.length)];
+    }
     try {
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(25);

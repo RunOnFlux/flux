@@ -8494,7 +8494,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
  * @param {number} i Defaults to value of 1.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
+async function checkAndRequestMultipleApps(apps, incoming = true, i = 1) {
   try {
     await requestAppsMessage(apps, incoming);
     await serviceHelper.delay(30 * 1000);
