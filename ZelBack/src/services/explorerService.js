@@ -569,8 +569,8 @@ async function processBlock(blockHeight, isInsightExplorer) {
       }
       await processTransactions(database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-    } else if (blockDataVerbose.height % 50 === 0) {
-      // if explorer is syncing, we only insert data every 50 blocks
+    } else if (blockDataVerbose.height % 500 === 0) {
+      // if explorer is syncing, we only insert data every 500 blocks
       await processTransactions(database, permanentAppMessagesSynced);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
