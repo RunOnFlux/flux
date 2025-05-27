@@ -7538,6 +7538,9 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
   const appSpecs = appSpec;
   let block = daemonHeight;
   let appOwner = owner;
+
+  if (!appSpecs) return appSpecs;
+
   if (appSpec.version >= 8 && appSpec.enterprise) {
     if (!isArcane) {
       throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
@@ -9212,6 +9215,7 @@ async function getApplicationSpecifications(appName) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
+
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
