@@ -174,7 +174,7 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
         }
       }
     } else if (dataObj.data && (dataObj.data.type === 'fluxappregister' || dataObj.data.type === 'fluxappupdate')) {
-      const specifications = message.appSpecifications || message.zelAppSpecifications;
+      const specifications = dataObj.data.appSpecifications || dataObj.data.zelAppSpecifications;
       if (specifications.version >= 8 && specifications.enterprise) {
         node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
         if (!node) {
