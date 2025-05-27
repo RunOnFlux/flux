@@ -382,7 +382,7 @@ async function processTransactions(apps, database, checkIfMessageExists) {
     }
     if (apps.length > 0) {
       log.info(`processTransactions - Will ask peers for ${apps.length} aplications messages`);
-      appsService.checkAndRequestMultipleApps(appsTransactions);
+      appsService.checkAndRequestMultipleApps(apps);
     }
   }
 }
@@ -577,9 +577,10 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await processTransactions(appsTransactions, database, true);
       appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-    } else if (appsTransactions.length >= 100) {
+    } else if (appsTransactions.length >= 20) {
       // if explorer is syncing, we only insert data every 500 blocks
-      await processTransactions(appsTransactions.splice(0, 100), database, false);
+      await processTransactions(appsTransactions, database, false);
+      appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
     someBlockIsProcessing = false;
