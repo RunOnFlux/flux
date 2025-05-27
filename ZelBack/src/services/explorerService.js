@@ -352,16 +352,16 @@ async function processInsight(blockDataVerbose, database) {
 /**
  * To process transactions inserts on database and calling app messages.
  * @param {string} database Database.
- * @param {boolean} synced says if explorer is synced or if permanent app messages were synced.
+ * @param {boolean} checkIfMessageExists says if we should check if message exist before asking it to peers.
  */
-async function processTransactions(database, synced) {
+async function processTransactions(database, checkIfMessageExists) {
   log.info(`processTransactions - Processing ${appsTransactions.length} transactions`);
   if (appsTransactions.length > 0) {
     const options = {
       ordered: false, // If false, continue with remaining inserts when one fails.
     };
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    if (!synced) {
+    if (checkIfMessageExists) {
       const appsToRemove = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const app of appsTransactions) {
@@ -571,7 +571,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 50 === 0) {
       // if explorer is syncing, we only insert data every 50 blocks
-      await processTransactions(database, !permanentAppMessagesSynced);
+      await processTransactions(database, permanentAppMessagesSynced);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
     someBlockIsProcessing = false;
