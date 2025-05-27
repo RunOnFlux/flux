@@ -10202,7 +10202,7 @@ async function trySpawningGlobalApplication() {
         }
         return 0;
       });
-      const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
+      const index = runningAppList.findIndex((x) => x.ip === myIP);
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length} instances, my instance is number ${index + 1}`);
       if (index + 1 > minInstances) {
         const appRemovedMessage = {
@@ -10270,7 +10270,7 @@ async function trySpawningGlobalApplication() {
         }
         return 0;
       });
-      const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
+      const index = runningAppList.findIndex((x) => x.ip === myIP);
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
       if (index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is going to be removed as already passed the instances required.`);
