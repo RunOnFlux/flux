@@ -292,6 +292,7 @@ async function sendMessageToWS(message, ws) {
   try {
     const messageSigned = await serialiseAndSignFluxBroadcast(message);
     try {
+      log.info(JSON.stringify(messageSigned));
       ws.send(messageSigned);
     } catch (e) {
       log.error(e);
@@ -318,6 +319,7 @@ async function respondWithAppMessage(msgObj, ws) {
     }
 
     const message = msgObj.data;
+    log.info(JSON.stringify(message));
 
     if (message.version !== 1 && message.version !== 2) {
       throw new Error(`Invalid Flux App Request message, version ${message.version} not supported`);
@@ -349,7 +351,8 @@ async function respondWithAppMessage(msgObj, ws) {
         if (tempMesResponse) {
           sendMessageToWS(tempMesResponse, ws);
         }
-        return;
+        // eslint-disable-next-line no-continue
+        continue;
       }
       let temporaryAppMessage = null;
       // eslint-disable-next-line no-await-in-loop
