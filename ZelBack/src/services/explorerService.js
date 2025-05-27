@@ -510,6 +510,10 @@ async function processBlock(blockHeight, isInsightExplorer) {
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
+    if (isInsightExplorer && blockDataVerbose.height > 699420 && blockDataVerbose.height < 862002) {
+      // speed up sync as there were no app messages between these two blocks
+      processBlock(862002, isInsightExplorer);
+    }
     if (isInsightExplorer) {
       // only process Flux transactions
       await processInsight(blockDataVerbose, database);
