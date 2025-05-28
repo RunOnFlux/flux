@@ -6776,6 +6776,18 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const database = db.db(config.database.appsglobal.database);
   await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
+  const query = { hash: message.hash};
+  const projection = {
+    projection: {
+      _id: 0,
+      message: 1,
+    },
+  };
+  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
+  if (result && !result.message) {
+    // node received the message after was inserted by the explorer, so it is coming from a requestappmessage we should not rebroadcast to all peers
+    return false;
+  }
   return true;
 }
 
@@ -8374,7 +8386,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // eslint-disable-next-line no-use-before-define
             await expireGlobalApplications();
           } else {
-            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
+            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
           }
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // appSpecifications.name as identifier
@@ -8460,7 +8472,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // do not await this
             updateAppSpecifications(updateForSpecifications);
           } else {
-            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid`);
+            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
           }
         }
         return true;
