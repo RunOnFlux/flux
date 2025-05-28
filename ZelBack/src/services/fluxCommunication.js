@@ -396,7 +396,7 @@ function handleIncomingConnection(websocket, optionalPort) {
         messageNumber = 0;
       } */
       // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 300);
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ipv4Peer}:${port}`, 90);
       if (!rateOK) {
         return; // do not react to the message
       }
@@ -757,7 +757,7 @@ async function initiateAndHandleConnection(connection) {
         messageNumber = 0;
       } */
       // check rate limit
-      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 300);
+      const rateOK = fluxNetworkHelper.lruRateLimit(`${ip}:${port}`, 90);
       if (!rateOK) {
         return; // do not react to the message
       }
