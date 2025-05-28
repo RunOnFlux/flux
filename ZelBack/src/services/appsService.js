@@ -6615,7 +6615,6 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
       _id: 0,
     },
   };
-  log.info(`Searching permanent messages for ${specifications.name}`);
   const appsQuery = {
     'appSpecifications.name': specifications.name,
   };
