@@ -8986,13 +8986,24 @@ async function getAppHashes(req, res) {
 /**
  * To get app locations or a location of an app
  * @param {string} appname Application Name.
+ * @param {boolean} showInstalling Show instances installing.
  */
-async function appLocation(appname) {
+async function appLocation(appname, showInstalling = false) {
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
     query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+    if (!showInstalling) {
+      query = {
+        $and: [
+          { name: new RegExp(`^${appname}$`, 'i') },
+          { installingAt: null },
+        ],
+      };
+    }
+  } else if (!showInstalling) {
+    query = { installingAt: null }; // case insensitive
   }
   const projection = {
     projection: {
@@ -9005,6 +9016,7 @@ async function appLocation(appname) {
       runningSince: 1,
       osUptime: 1,
       staticIp: 1,
+      installingAt: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -9018,7 +9030,9 @@ async function appLocation(appname) {
  */
 async function getAppsLocations(req, res) {
   try {
-    const results = await appLocation();
+    let { installing } = req.params;
+    installing = installing || req.query.installing || false;
+    const results = await appLocation(null, installing);
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -9044,7 +9058,9 @@ async function getAppsLocation(req, res) {
     if (!appname) {
       throw new Error('No Flux App name specified');
     }
-    const results = await appLocation(appname);
+    let { installing } = req.params;
+    installing = installing || req.query.installing || false;
+    const results = await appLocation(appname, installing);
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -9103,32 +9119,7 @@ async function getRunningAppIpList(ip) { // returns all apps running on this ip
       runningSince: 1,
       osUptime: 1,
       staticIp: 1,
-    },
-  };
-  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-  return results;
-}
-
-/**
- * To get a list of running instances of a specific app.
- * @param {string} appName App name.
- * @returns {object[]} Array of running apps.
- */
-async function getRunningAppList(appName) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.appsglobal.database);
-  const query = { name: appName };
-  const projection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      hash: 1,
-      ip: 1,
-      broadcastedAt: 1,
-      expireAt: 1,
-      runningSince: 1,
-      osUptime: 1,
-      staticIp: 1,
+      installingAt: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -9908,7 +9899,7 @@ async function trySpawningGlobalApplication() {
     trySpawningGlobalAppCache.set(appHash, appHash);
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
-    let runningAppList = await getRunningAppList(appToRun);
+    let runningAppList = await appLocation(appToRun, true);
 
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
@@ -9998,7 +9989,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // double check if app is installed on the number of instances requested
-    runningAppList = await getRunningAppList(appToRun);
+    runningAppList = await appLocation(appToRun, true);
     if (runningAppList.length >= minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
       trySpawningGlobalAppCache.delete(appHash);
@@ -10150,7 +10141,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // triple check if app is installed on the number of instances requested
-    runningAppList = await getRunningAppList(appToRun);
+    runningAppList = await appLocation(appToRun, true);
     if (runningAppList.length >= minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
       trySpawningGlobalAppCache.delete(appHash);
@@ -10187,7 +10178,7 @@ async function trySpawningGlobalApplication() {
     await serviceHelper.delay(30 * 1000); // give it time so messages are propagated on the network
 
     // double check if app is installed in more of the instances requested
-    runningAppList = await getRunningAppList(appToRun);
+    runningAppList = await appLocation(appToRun, true);
     if (runningAppList.length > minInstances) {
       runningAppList.sort((a, b) => {
         if (!a.runningSince && b.runningSince) {
@@ -10256,7 +10247,7 @@ async function trySpawningGlobalApplication() {
 
     await serviceHelper.delay(1 * 60 * 1000); // await 1 minute to give time for messages to be propagated on the network
     // double check if app is installed in more of the instances requested
-    runningAppList = await getRunningAppList(appToRun);
+    runningAppList = await appLocation(appToRun, true);
     if (runningAppList.length > minInstances) {
       runningAppList.sort((a, b) => {
         if (!a.runningSince && b.runningSince) {
@@ -10821,7 +10812,7 @@ async function checkAndRemoveApplicationInstance() {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
-      const runningAppList = await getRunningAppList(installedApp.name);
+      const runningAppList = await appLocation(installedApp.name);
       const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
       if (runningAppList.length > minInstances) {
         // eslint-disable-next-line no-await-in-loop
@@ -12249,7 +12240,7 @@ async function syncthingApps() {
                 const cache = receiveOnlySyncthingAppsCache.get(appId);
 
                 // eslint-disable-next-line no-await-in-loop
-                const runningAppList = await getRunningAppList(installedApp.name);
+                const runningAppList = await appLocation(installedApp.name);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
                     return -1;
@@ -12445,7 +12436,7 @@ async function syncthingApps() {
                 } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
                   const cache = receiveOnlySyncthingAppsCache.get(appId);
                   // eslint-disable-next-line no-await-in-loop
-                  const runningAppList = await getRunningAppList(installedApp.name);
+                  const runningAppList = await appLocation(installedApp.name);
                   log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                   runningAppList.sort((a, b) => {
                     if (!a.runningSince && b.runningSince) {
@@ -12750,7 +12741,7 @@ async function masterSlaveApps() {
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
               if (!runningAppsNames.includes(identifier)) {
                 // eslint-disable-next-line no-await-in-loop
-                const runningAppList = await getRunningAppList(installedApp.name);
+                const runningAppList = await appLocation(installedApp.name);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
                     return -1;
@@ -14611,7 +14602,6 @@ module.exports = {
   storeAppRemovedMessage,
   reindexGlobalAppsLocation,
   getRunningAppIpList,
-  getRunningAppList,
   trySpawningGlobalApplication,
   getApplicationSpecifications,
   getStrictApplicationSpecifications,
