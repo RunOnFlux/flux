@@ -6732,9 +6732,9 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   };
   const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
   let doValidations = furtherVerification;
-  if (result && !result.message) {
-    // node received the message after was inserted by the explorer, so it is coming from a requestappmessage we should not rebroadcast to all peers
-    doValidations = false;
+  if (result) {
+    JSON.stringify(result);
+    doValidations = result.message;
   }
 
   // data shall already be verified by the broadcasting node. But verify all again.
