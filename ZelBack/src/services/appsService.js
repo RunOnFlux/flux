@@ -4725,9 +4725,35 @@ async function verifyAppHash(message) {
   * @param timestamp number
   * @param signature string
   */
-  const messToHash = message.type + message.version + JSON.stringify(message.appSpecifications || message.zelAppSpecifications) + message.timestamp + message.signature;
-  const messageHASH = await generalService.messageHash(messToHash);
+  const specifications = message.appSpecifications || message.zelAppSpecifications;
+  let messToHash = message.type + message.version + JSON.stringify(specifications) + message.timestamp + message.signature;
+  let messageHASH = await generalService.messageHash(messToHash);
   if (messageHASH !== message.hash) {
+    if (specifications.version <= 3) {
+      // as of specification changes, adjust our appSpecs order of owner and repotag
+      // in new scheme it is always version, name, description, owner, repotag... Old format was version, name, description, repotag, owner
+      const appSpecsCopy = JSON.parse(JSON.stringify(specifications));
+      delete appSpecsCopy.version;
+      delete appSpecsCopy.name;
+      delete appSpecsCopy.description;
+      delete appSpecsCopy.repotag;
+      delete appSpecsCopy.owner;
+      const appSpecOld = {
+        version: specifications.version,
+        name: specifications.name,
+        description: specifications.description,
+        repotag: specifications.repotag,
+        owner: specifications.owner,
+        ...appSpecsCopy,
+      };
+      messToHash = message.type + message.version + JSON.stringify(appSpecOld) + message.timestamp + message.signature;
+      messageHASH = await generalService.messageHash(messToHash);
+      if (messageHASH !== message.hash) {
+        log.error(`Hashes dont match - expected - ${message.hash} - calculated - ${messageHASH} for the message ${JSON.stringify(message)}`);
+        throw new Error('Invalid Flux App hash received');
+      }
+      return true;
+    }
     log.error(`Hashes dont match - expected - ${message.hash} - calculated - ${messageHASH} for the message ${JSON.stringify(message)}`);
     throw new Error('Invalid Flux App hash received');
   }
@@ -6721,25 +6747,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     // do not rebroadcast further
     return false;
   }
-  const db = dbHelper.databaseConnection();
-  let database = db.db(config.database.daemon.database);
-  const query = { hash: message.hash };
-  const projection = {
-    projection: {
-      _id: 0,
-      message: 1,
-    },
-  };
-  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
-  let doValidations = furtherVerification;
-  if (result) {
-    JSON.stringify(result);
-    doValidations = result.message;
-  }
 
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
-  if (doValidations) {
+  if (furtherVerification) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
@@ -6787,6 +6798,16 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     expireAt: new Date(validTill),
   };
   const value = newMessage;
+  const db = dbHelper.databaseConnection();
+  let database = db.db(config.database.daemon.database);
+  const query = { hash: message.hash };
+  const projection = {
+    projection: {
+      _id: 0,
+      message: 1,
+    },
+  };
+  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
   database = db.db(config.database.appsglobal.database);
   // message does not exist anywhere and is ok, store it
   await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
