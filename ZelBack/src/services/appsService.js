@@ -6776,7 +6776,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const database = db.db(config.database.appsglobal.database);
   await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
-  const query = { hash: message.hash};
+  const query = { hash: message.hash };
   const projection = {
     projection: {
       _id: 0,
