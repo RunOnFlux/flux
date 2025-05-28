@@ -3512,7 +3512,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {boolean} sendAppRunningMessage indicates if it should send the appRunningMessage after complete the install.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendAppRunningMessage = true) {
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -3806,7 +3806,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     } else {
       await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
     }
-    if (!test && sendAppRunningMessage) {
+    if (!test) {
       const broadcastedAt = Date.now();
       const newAppRunningMessage = {
         type: 'fluxapprunning',
@@ -6847,6 +6847,7 @@ async function storeAppRunningMessage(message) {
       ip: message.ip,
       broadcastedAt: new Date(message.broadcastedAt),
       expireAt: new Date(validTill),
+      installingAt: message.installing ? new Date(message.broadcastedAt) : null,
       osUptime: message.osUptime,
       staticIp: message.staticIp,
     };
@@ -10168,6 +10169,7 @@ async function trySpawningGlobalApplication() {
       hash: appSpecifications.hash, // hash of application specifics that are running
       ip: myIP,
       broadcastedAt,
+      installing: 1,
       runningSince: broadcastedAt,
       osUptime: os.uptime(),
       staticIp: geolocationService.isStaticIP(),
@@ -10227,7 +10229,7 @@ async function trySpawningGlobalApplication() {
     // install the app
     let registerOk = false;
     try {
-      registerOk = await registerAppLocally(appSpecifications, null, null, false, false); // can throw
+      registerOk = await registerAppLocally(appSpecifications, null, null, false); // can throw
     } catch (error) {
       log.error(error);
       registerOk = false;

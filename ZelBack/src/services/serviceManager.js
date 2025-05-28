@@ -93,6 +93,8 @@ async function startFluxFunctions() {
     // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
+    // we just keep installing messages for 5 minutes
+    await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ installingAt: 1 }, { expireAfterSeconds: 300 });
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
