@@ -6722,7 +6722,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     return false;
   }
   const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
+  let database = db.db(config.database.daemon.database);
   const query = { hash: message.hash };
   const projection = {
     projection: {
@@ -6787,6 +6787,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     expireAt: new Date(validTill),
   };
   const value = newMessage;
+  database = db.db(config.database.appsglobal.database);
   // message does not exist anywhere and is ok, store it
   await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
