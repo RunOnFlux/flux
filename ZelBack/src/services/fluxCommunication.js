@@ -71,7 +71,6 @@ async function handleAppMessages(message, fromIP, port) {
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
-    log.info(`handleAppMessages - rebroadcastToPeers: ${rebroadcastToPeers}`);
     if (rebroadcastToPeers === true) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
