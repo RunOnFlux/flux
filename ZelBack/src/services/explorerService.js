@@ -348,31 +348,33 @@ async function processInsight(blockDataVerbose, database) {
   }
 }
 
+async function insertTransactions(transactions, database) {
+  log.info(`Explorer - Inserting ${transactions.length} transactions to apps ashes collection`);
+  const options = {
+    ordered: true, // If false, continue with remaining inserts when one fails.
+  };
+  await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions, options);
+}
+
 /**
  * To process transactions inserts on database and calling app messages.
  * @param {array} apps array with appstransactions to be processed.
  * @param {string} database Database.
- * @param {boolean} checkIfMessageExists says if we should check if message exist before asking it to peers.
  */
-async function insertAndRequestAppHashes(apps, database, checkIfMessageExists) {
-  log.info(`insertAndRequestAppHashes - Processing ${apps.length} transactions`);
+async function insertAndRequestAppHashes(apps, database) {
   if (apps.length > 0) {
-    const options = {
-      ordered: true, // If false, continue with remaining inserts when one fails.
-    };
-    await dbHelper.insertManyToDatabase(database, appsHashesCollection, apps, options);
-    if (checkIfMessageExists) {
-      const appsToRemove = [];
-      // eslint-disable-next-line no-restricted-syntax
-      for (const app of apps) {
-      // eslint-disable-next-line no-await-in-loop
-        const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
-        if (messageReceived) {
-          appsToRemove.push(app);
-        }
+    await insertTransactions(apps, database);
+    const appsToRemove = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+    // eslint-disable-next-line no-await-in-loop
+      const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+      if (messageReceived) {
+        appsToRemove.push(app);
       }
-      apps.filter((item) => !appsToRemove.includes(item));
     }
+    apps.filter((item) => !appsToRemove.includes(item));
+
     // eslint-disable-next-line no-restricted-syntax
     for (const app of apps) {
       appsService.insertOnAppsHashesRequestedCache(app.hash, app.height);
@@ -545,11 +547,6 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // this should run only when node is synced
     const isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
-      if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
-        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-          appsService.expireGlobalApplications();
-        }
-      }
       if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           appsService.checkAndRemoveApplicationInstance();
@@ -578,8 +575,8 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await insertAndRequestAppHashes(appsTransactions, database, true);
       appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-    } else if (appsTransactions.length >= 400) {
-      await insertAndRequestAppHashes(appsTransactions, database, false);
+    } else if (blockDataVerbose.height % 500 === 0) {
+      await insertTransactions(appsTransactions, database);
       appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
