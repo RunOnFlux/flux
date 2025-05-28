@@ -4317,13 +4317,17 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
         });
         totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
       }
-      if (height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+      if (priceSpecifications.minUSDPrice && height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
         totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
       }
       let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
-      if (instancesAdditional > 0) {
-        const additionalPrice = (appPrice * instancesAdditional) / 3;
-        appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+      if (instancesAdditional > 0 && height >= 1597156) {
+        if (appPrice < 1.50) {
+          appPrice += (instancesAdditional * 0.50);
+        } else {
+          const additionalPrice = (appPrice * instancesAdditional) / 3;
+          appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+        }
       }
       if (appPrice < priceSpecifications.minPrice) {
         appPrice = priceSpecifications.minPrice;
@@ -4348,7 +4352,7 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
       totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
     }
     let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
-    if (instancesAdditional > 0) {
+    if (instancesAdditional > 0 && height >= 1597156) {
       if (appPrice < 1.50) {
         appPrice += (instancesAdditional * 0.50);
       } else {
@@ -4393,11 +4397,11 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     totalPrice += priceSpecifications.staticip;
   }
   totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
-  if (height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+  if (hpriceSpecifications.minUSDPrice && eight >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
     totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
   }
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
-  if (instancesAdditional > 0) {
+  if (instancesAdditional > 0 && height >= 1597156) {
     if (appPrice < 1.50) {
       appPrice += (instancesAdditional * 0.50);
     } else {
@@ -8475,7 +8479,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           // here comparison of height differences and specifications
           // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
           let appPrice = await appPricePerMonth(specifications, height, appPrices);
-          let previousSpecsPrice = await appPricePerMonth(previousSpecs, height, appPrices);
+          let previousSpecsPrice = await appPricePerMonth(previousSpecs, messageInfo.height || height, appPrices);
           const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
           const currentExpireIn = specifications.expire || defaultExpire;
           const previousExpireIn = previousSpecs.expire || defaultExpire;
