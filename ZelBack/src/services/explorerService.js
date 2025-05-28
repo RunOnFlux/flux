@@ -578,8 +578,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await insertAndRequestAppHashes(appsTransactions, database, true);
       appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
-    } else if (appsTransactions.length >= 5) {
-      // if explorer is syncing, we only insert data every 500 blocks
+    } else if (appsTransactions.length >= 400) {
       await insertAndRequestAppHashes(appsTransactions, database, false);
       appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
