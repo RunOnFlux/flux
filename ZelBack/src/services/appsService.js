@@ -8513,7 +8513,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
  * @param {number} i Defaults to value of 1.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-async function checkAndRequestMultipleApps(apps, incoming = true, i = 1) {
+async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   try {
     await requestAppsMessage(apps, incoming);
     await serviceHelper.delay(30 * 1000);
@@ -8523,12 +8523,13 @@ async function checkAndRequestMultipleApps(apps, incoming = true, i = 1) {
       // eslint-disable-next-line no-await-in-loop
       const messageReceived = await checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
       if (messageReceived) {
+        log.info(`Message requested received with hash: ${app.hash}`);
         appsToRemove.push(app);
       }
     }
     apps.filter((item) => !appsToRemove.includes(item));
     if (apps.length > 0 && i < 5) {
-      await checkAndRequestMultipleApps(apps, true, i + 1);
+      await checkAndRequestMultipleApps(apps, i % 2 === 0, i + 1);
     }
   } catch (error) {
     log.error(error);
