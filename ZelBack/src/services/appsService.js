@@ -115,6 +115,13 @@ const spawnErrorsLongerLRUoptions = {
   ttl: 1000 * 60 * 60 * 24 * 7, // 7 days
   maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
 };
+
+const appsHashesRequestedLRU = {
+  max: 5000,
+  ttl: 1000 * 60 * 60 * 2, // 2h
+  maxAge: 1000 * 60 * 60 * 2, // 2h
+};
+
 const spawnErrorsLongerAppCache = new LRUCache(spawnErrorsLongerLRUoptions);
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myShortCache = new LRUCache(shortCache);
@@ -123,6 +130,7 @@ const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
 const appsStopedCache = new LRUCache(stopedAppsCache);
 const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
+const appsHashesRequestedCache = new LRUCache(appsHashesRequestedLRU);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -6748,6 +6756,13 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     return false;
   }
 
+  let isAppRequested = false;
+  let block = null;
+  if (appsHashesRequestedCache.has(message.hash)) {
+    isAppRequested = true;
+    block = appsHashesRequestedCache.get(message.hash);
+  }
+
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
   if (furtherVerification) {
@@ -6757,7 +6772,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
         log.info(`App ${appSpecFormatted.name} specs are not going to be validated as it is a enterprise encrypted app`);
       } else {
-        await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+        await verifyAppSpecifications(appSpecFormatted, block || daemonHeight);
         await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       }
       await verifyAppHash(message);
@@ -6769,7 +6784,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
         log.info(`App ${appSpecFormatted.name} specs are not going to be validated as it is a enterprise encrypted app`);
       } else {
-        await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+        await verifyAppSpecifications(appSpecFormatted, block || daemonHeight);
         // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
         await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       }
@@ -6799,21 +6814,12 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   };
   const value = newMessage;
   const db = dbHelper.databaseConnection();
-  let database = db.db(config.database.daemon.database);
-  const query = { hash: message.hash };
-  const projection = {
-    projection: {
-      _id: 0,
-      message: 1,
-    },
-  };
-  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
-  database = db.db(config.database.appsglobal.database);
+  const database = db.db(config.database.appsglobal.database);
   // message does not exist anywhere and is ok, store it
   await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
-  if (result && !result.message) {
-    // node received the message after was inserted by the explorer, so it is coming from a requestappmessage we should not rebroadcast to all peers
+  if (isAppRequested) {
+    // node received the message but it is coming from a requestappmessage we should not rebroadcast to all peers
     return false;
   }
   return true;
@@ -8414,7 +8420,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // eslint-disable-next-line no-use-before-define
             await expireGlobalApplications();
           } else {
-            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${priceSpecifications}`);
+            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${JSON.stringify(priceSpecifications)} - specs ${JSON.stringify(specifications)}`);
           }
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // appSpecifications.name as identifier
@@ -8545,7 +8551,6 @@ async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
       // eslint-disable-next-line no-await-in-loop
       const messageReceived = await checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
       if (messageReceived) {
-        log.info(`Message requested received with hash: ${app.hash}`);
         appsToRemove.push(app);
       }
     }
@@ -8930,6 +8935,8 @@ async function continuousFluxAppHashesCheck(force = false) {
             value: result.value,
           };
           appsMessagesMissing.push(appMessageInformation);
+          // eslint-disable-next-line no-use-before-define
+          insertOnAppsHashesRequestedCache(result.hash, result.height);
           if (appsMessagesMissing.length === 500) {
             checkAndRequestMultipleApps(appsMessagesMissing);
             // eslint-disable-next-line no-await-in-loop
@@ -14513,6 +14520,15 @@ async function getPublicKey(req, res) {
   });
 }
 
+/**
+ * To insert on cache what app messages were requested to peer nodes.
+ * @param {string} hash Hash of the message.
+ * @param {integer} block block where the transaction was found.
+ */
+function insertOnAppsHashesRequestedCache(hash, block) {
+  appsHashesRequestedCache.set(hash, block);
+}
+
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -14655,4 +14671,5 @@ module.exports = {
   callOtherNodeToKeepUpnpPortsOpen,
   getPublicKey,
   getApplicationOriginalOwner,
+  insertOnAppsHashesRequestedCache,
 };

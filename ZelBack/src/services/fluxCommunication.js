@@ -70,8 +70,6 @@ async function handleAppMessages(message, fromIP, port) {
     // do furtherVerification of message
     // eslint-disable-next-line global-require
     const appsService = require('./appsService');
-    log.info('handleAppMessages - New Flux App Register/Update message received.');
-    log.info(`handleAppMessages - ${JSON.stringify(message.data)}`);
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     log.info(`handleAppMessages - rebroadcastToPeers: ${rebroadcastToPeers}`);
     if (rebroadcastToPeers === true) {

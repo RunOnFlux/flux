@@ -354,8 +354,8 @@ async function processInsight(blockDataVerbose, database) {
  * @param {string} database Database.
  * @param {boolean} checkIfMessageExists says if we should check if message exist before asking it to peers.
  */
-async function processTransactions(apps, database, checkIfMessageExists) {
-  log.info(`processTransactions - Processing ${apps.length} transactions`);
+async function insertAndRequestAppHashes(apps, database, checkIfMessageExists) {
+  log.info(`insertAndRequestAppHashes - Processing ${apps.length} transactions`);
   if (apps.length > 0) {
     const options = {
       ordered: true, // If false, continue with remaining inserts when one fails.
@@ -363,7 +363,6 @@ async function processTransactions(apps, database, checkIfMessageExists) {
     await dbHelper.insertManyToDatabase(database, appsHashesCollection, apps, options);
     if (checkIfMessageExists) {
       const appsToRemove = [];
-      log.info('processTransactions - Checking if message(s) exist(s) on database');
       // eslint-disable-next-line no-restricted-syntax
       for (const app of apps) {
       // eslint-disable-next-line no-await-in-loop
@@ -374,14 +373,16 @@ async function processTransactions(apps, database, checkIfMessageExists) {
       }
       apps.filter((item) => !appsToRemove.includes(item));
     }
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      appsService.insertOnAppsHashesRequestedCache(app.hash, app.height);
+    }
     while (apps.length > 500) {
-      log.info(`processTransactions - Will ask peers for ${apps.length} aplications messages`);
       appsService.checkAndRequestMultipleApps(apps.splice(0, 500));
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
     }
     if (apps.length > 0) {
-      log.info(`processTransactions - Will ask peers for ${apps.length} aplications messages`);
       appsService.checkAndRequestMultipleApps(apps);
     }
   }
@@ -574,12 +575,12 @@ async function processBlock(blockHeight, isInsightExplorer) {
           log.error(error);
         }
       }
-      await processTransactions(appsTransactions, database, true);
+      await insertAndRequestAppHashes(appsTransactions, database, true);
       appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (appsTransactions.length >= 5) {
       // if explorer is syncing, we only insert data every 500 blocks
-      await processTransactions(appsTransactions, database, false);
+      await insertAndRequestAppHashes(appsTransactions, database, false);
       appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
