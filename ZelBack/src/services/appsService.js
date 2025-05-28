@@ -8414,7 +8414,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // eslint-disable-next-line no-use-before-define
             await expireGlobalApplications();
           } else {
-            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
+            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${priceSpecifications}`);
           }
         } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // appSpecifications.name as identifier
