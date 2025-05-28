@@ -6721,10 +6721,25 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     // do not rebroadcast further
     return false;
   }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { hash: message.hash };
+  const projection = {
+    projection: {
+      _id: 0,
+      message: 1,
+    },
+  };
+  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
+  let doValidations = furtherVerification;
+  if (result && !result.message) {
+    // node received the message after was inserted by the explorer, so it is coming from a requestappmessage we should not rebroadcast to all peers
+    doValidations = false;
+  }
 
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
-  if (furtherVerification) {
+  if (doValidations) {
     if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height;
@@ -6773,18 +6788,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   };
   const value = newMessage;
   // message does not exist anywhere and is ok, store it
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
   await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
-  const query = { hash: message.hash };
-  const projection = {
-    projection: {
-      _id: 0,
-      message: 1,
-    },
-  };
-  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
   if (result && !result.message) {
     // node received the message after was inserted by the explorer, so it is coming from a requestappmessage we should not rebroadcast to all peers
     return false;
