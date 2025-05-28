@@ -4728,7 +4728,8 @@ async function verifyAppHash(message) {
   const messToHash = message.type + message.version + JSON.stringify(message.appSpecifications || message.zelAppSpecifications) + message.timestamp + message.signature;
   const messageHASH = await generalService.messageHash(messToHash);
   if (messageHASH !== message.hash) {
-    throw new Error(`Invalid Flux App hash received for the message: ${JSON.stringify(message)}`);
+    log.error(`Hashes dont match - expected - ${message.hash} - calculated - ${messageHASH} for the message ${JSON.stringify(message)}`);
+    throw new Error('Invalid Flux App hash received');
   }
   return true;
 }
