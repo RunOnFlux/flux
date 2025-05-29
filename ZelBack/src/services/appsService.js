@@ -6763,7 +6763,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       height: 1,
     },
   };
-  const database = db.db(config.database.daemon.database);
+  let database = db.db(config.database.daemon.database);
   const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
   if (result && !result.message) {
     isAppRequested = true;
