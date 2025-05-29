@@ -116,12 +116,6 @@ const spawnErrorsLongerLRUoptions = {
   maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
 };
 
-const appsHashesRequestedLRU = {
-  max: 5000,
-  ttl: 1000 * 60 * 60 * 2, // 2h
-  maxAge: 1000 * 60 * 60 * 2, // 2h
-};
-
 const spawnErrorsLongerAppCache = new LRUCache(spawnErrorsLongerLRUoptions);
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myShortCache = new LRUCache(shortCache);
@@ -130,7 +124,6 @@ const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
 const appsStopedCache = new LRUCache(stopedAppsCache);
 const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
-const appsHashesRequestedCache = new LRUCache(appsHashesRequestedLRU);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -6761,9 +6754,20 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 
   let isAppRequested = false;
   let block = null;
-  if (appsHashesRequestedCache.has(message.hash)) {
+  const db = dbHelper.databaseConnection();
+  const query = { hash: message.hash };
+  const projection = {
+    projection: {
+      _id: 0,
+      message: 1,
+      height: 1,
+    },
+  };
+  const database = db.db(config.database.daemon.database);
+  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
+  if (result && !result.message) {
     isAppRequested = true;
-    block = appsHashesRequestedCache.get(message.hash);
+    block = result.height;
   }
 
   // data shall already be verified by the broadcasting node. But verify all again.
@@ -6816,8 +6820,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     expireAt: new Date(validTill),
   };
   const value = newMessage;
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
+
+  database = db.db(config.database.appsglobal.database);
   // message does not exist anywhere and is ok, store it
   await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
   // it is stored and rebroadcasted
@@ -8942,8 +8946,6 @@ async function continuousFluxAppHashesCheck(force = false) {
             value: result.value,
           };
           appsMessagesMissing.push(appMessageInformation);
-          // eslint-disable-next-line no-use-before-define
-          insertOnAppsHashesRequestedCache(result.hash, result.height);
           if (appsMessagesMissing.length === 500) {
             log.info('Requesting 500 app messages');
             checkAndRequestMultipleApps(appsMessagesMissing);
@@ -14529,15 +14531,6 @@ async function getPublicKey(req, res) {
   });
 }
 
-/**
- * To insert on cache what app messages were requested to peer nodes.
- * @param {string} hash Hash of the message.
- * @param {integer} block block where the transaction was found.
- */
-function insertOnAppsHashesRequestedCache(hash, block) {
-  appsHashesRequestedCache.set(hash, block);
-}
-
 module.exports = {
   listRunningApps,
   listAllApps,
@@ -14680,5 +14673,4 @@ module.exports = {
   callOtherNodeToKeepUpnpPortsOpen,
   getPublicKey,
   getApplicationOriginalOwner,
-  insertOnAppsHashesRequestedCache,
 };

@@ -381,11 +381,6 @@ async function insertAndRequestAppHashes(apps, database) {
       }
     }
     apps.filter((item) => !appsToRemove.includes(item));
-
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-      appsService.insertOnAppsHashesRequestedCache(app.hash, app.height);
-    }
     while (apps.length > 500) {
       appsService.checkAndRequestMultipleApps(apps.splice(0, 500));
       // eslint-disable-next-line no-await-in-loop
