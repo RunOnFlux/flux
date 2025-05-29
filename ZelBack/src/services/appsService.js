@@ -6915,7 +6915,7 @@ async function storeAppInstallingMessage(message) {
   * @param ip string
   */
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.hash !== 'string' || typeof message.name !== 'string') {
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
     return new Error('Invalid Flux App Installing message for storing');
   }
 
@@ -6935,7 +6935,6 @@ async function storeAppInstallingMessage(message) {
 
   const newAppInstallingMessage = {
     name: message.name,
-    hash: message.hash, // hash of application specifics that are running
     ip: message.ip,
     broadcastedAt: new Date(message.broadcastedAt),
     expireAt: new Date(validTill),
