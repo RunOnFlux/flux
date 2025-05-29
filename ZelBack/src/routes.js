@@ -349,11 +349,17 @@ module.exports = (app) => {
   app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
     appsService.getAppHashes(req, res);
   });
-  app.get('/apps/location/:appname?/:installing?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/location/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocation(req, res);
   });
-  app.get('/apps/locations/:installing?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/locations', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocations(req, res);
+  });
+  app.get('/apps/installinglocation/:appname?', cache('30 seconds'), (req, res) => {
+    appsService.getAppInstallingLocation(req, res);
+  });
+  app.get('/apps/installlingocations', cache('30 seconds'), (req, res) => {
+    appsService.getAppsInstallingLocations(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
     appsService.getAppPrice(req, res);
