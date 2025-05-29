@@ -4321,7 +4321,7 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
         totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
       }
       let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
-      if (instancesAdditional > 0 && height >= 1597156) {
+      if (instancesAdditional > 0 && height >= config.fluxapps.applyMinimumForExtraInstances) {
         if (appPrice < 1.50) {
           appPrice += (instancesAdditional * 0.50);
         } else {
@@ -4401,7 +4401,7 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
     totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
   }
   let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
-  if (instancesAdditional > 0 && height >= 1597156) {
+  if (instancesAdditional > 0 && height >= config.fluxapps.applyMinimumForExtraInstances) {
     if (appPrice < 1.50) {
       appPrice += (instancesAdditional * 0.50);
     } else {
