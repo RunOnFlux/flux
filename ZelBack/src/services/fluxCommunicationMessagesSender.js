@@ -211,7 +211,6 @@ async function sendToRandomIncomingConnections(data) {
           client.ping(); // do ping instead
         } else {
           client.send(data);
-          log.info(`Message Sent to ${client.ip}:${client.port}`);
         }
       } else {
         throw new Error(`Connection to ${client.ip} is not open`);
