@@ -349,11 +349,18 @@ async function processInsight(blockDataVerbose, database) {
 }
 
 async function insertTransactions(transactions, database) {
-  log.info(`Explorer - Inserting ${transactions.length} transactions to apps ashes collection`);
-  const options = {
-    ordered: true, // If false, continue with remaining inserts when one fails.
-  };
-  await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions, options);
+  if (transactions.length > 0) {
+    log.info(`Explorer - Inserting ${transactions.length} transactions to apps ashes collection`);
+    try {
+      await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions);
+    } catch (error) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const transaction of transactions) {
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.insertOneToDatabase(database, appsHashesCollection, transaction).catch();
+      }
+    }
+  }
 }
 
 /**
