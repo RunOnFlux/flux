@@ -3510,7 +3510,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
- * @param {boolean} sendAppRunningMessage indicates if it should send the appRunningMessage after complete the install.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
