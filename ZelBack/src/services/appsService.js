@@ -4390,7 +4390,7 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
   const hddPrice = hddTotalCount * priceSpecifications.hdd;
   let totalPrice = cpuPrice + ramPrice + hddPrice;
-  if (dataForAppRegistration.nodes && dataForAppRegistration.nodes.length) { // v7+ enterprise app scoped to nodes
+  if ((dataForAppRegistration.nodes && dataForAppRegistration.nodes.length) || dataForAppRegistration.enterprise) { // v7+ enterprise apps
     totalPrice += priceSpecifications.scope;
   }
   if (dataForAppRegistration.staticip) { // v7+ staticip option
@@ -7587,6 +7587,9 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
   const appSpecs = appSpec;
   let block = daemonHeight;
   let appOwner = owner;
+
+  if (!appSpecs) return appSpecs;
+
   if (appSpec.version >= 8 && appSpec.enterprise) {
     if (!isArcane) {
       throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
@@ -9258,6 +9261,7 @@ async function getApplicationSpecifications(appName) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
+
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
