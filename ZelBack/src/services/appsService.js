@@ -7075,7 +7075,6 @@ async function requestAppsMessage(apps, incoming) {
     version: 2,
     hashes: apps.map((a) => a.hash),
   };
-  log.info(JSON.stringify(message));
   if (incoming) {
     await fluxCommunicationMessagesSender.broadcastMessageToRandomIncoming(message);
   } else {
@@ -8931,8 +8930,7 @@ async function continuousFluxAppHashesCheck(force = false) {
           numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 10 tries
         }
         hashesNumberOfSearchs.set(result.hash, numberOfSearches);
-        log.info('Requesting missing Flux App message:');
-        log.info(`${result.hash}, ${result.txid}, ${result.height}`);
+        log.info(`Requesting missing Flux App message: ${result.hash}, ${result.txid}, ${result.height}`);
         if (numberOfSearches <= 20) { // up to 10 searches
           const appMessageInformation = {
             hash: result.hash,
@@ -8944,9 +8942,10 @@ async function continuousFluxAppHashesCheck(force = false) {
           // eslint-disable-next-line no-use-before-define
           insertOnAppsHashesRequestedCache(result.hash, result.height);
           if (appsMessagesMissing.length === 500) {
+            log.info('Requesting 500 app messages');
             checkAndRequestMultipleApps(appsMessagesMissing);
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay((60 + (Math.random() * 15)) * 1000); // delay 60 and 75 seconds
+            await serviceHelper.delay(2.5 * 60 * 1000); // delay 2.5 minutes to give enough time to process all messages received
             appsMessagesMissing = [];
           }
         } else {
