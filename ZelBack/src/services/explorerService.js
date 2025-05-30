@@ -352,7 +352,10 @@ async function insertTransactions(transactions, database) {
   if (transactions.length > 0) {
     log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps ashes collection`);
     try {
-      await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions);
+      const options = {
+        ordered: false,
+      };
+      await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions, options);
     } catch (error) {
       log.error(`Explorer- insertTransactions - Inserting ${transactions.length} - transactions error - ${error}`);
       // eslint-disable-next-line no-restricted-syntax
