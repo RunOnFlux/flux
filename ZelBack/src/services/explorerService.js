@@ -350,21 +350,27 @@ async function processInsight(blockDataVerbose, database) {
 
 async function insertTransactions(transactions, database) {
   if (transactions.length > 0) {
-    log.info(`Explorer - Inserting ${transactions.length} transactions to apps ashes collection`);
+    log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps ashes collection`);
     try {
       await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions);
     } catch (error) {
-      log.error(`Explorer - Inserting ${transactions.length} transactions - error - ${error}`);
+      log.error(`Explorer- insertTransactions - Inserting ${transactions.length} - transactions error - ${error}`);
       // eslint-disable-next-line no-restricted-syntax
       for (const transaction of transactions) {
         try {
+          const query = { hash: transaction.hash, height: transaction.height };
+          const update = { $set: transaction };
+          const options = {
+            upsert: true,
+          };
           // eslint-disable-next-line no-await-in-loop
-          await dbHelper.insertOneToDatabase(database, appsHashesCollection, transaction);
+          await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
         } catch (errorTx) {
-          log.error(`Explorer - Inserting transaction ${transaction.hash} - error - ${errorTx}`);
+          log.error(`Explorer - insertTransactions - Inserting ${transaction.hash} - transaction error - ${errorTx}`);
         }
       }
     }
+    appsTransactions = [];
   }
 }
 
@@ -582,7 +588,6 @@ async function processBlock(blockHeight, isInsightExplorer) {
         }
       }
       await insertAndRequestAppHashes(appsTransactions, database, true);
-      appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
       await insertAndRequestAppHashes(appsTransactions, database, true);
