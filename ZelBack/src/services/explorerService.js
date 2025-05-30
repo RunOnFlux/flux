@@ -378,30 +378,33 @@ async function insertTransactions(transactions, database) {
  * To process transactions inserts on database and calling app messages.
  * @param {array} apps array with appstransactions to be processed.
  * @param {string} database Database.
+ * @param {boolean} checkIfExists check if message exists before asking to peers.
  */
-async function insertAndRequestAppHashes(apps, database) {
+async function insertAndRequestAppHashes(apps, database, checkIfExists) {
   if (apps.length > 0) {
     await insertTransactions(apps, database);
     setTimeout(async () => {
       const appsToRemove = [];
-      // eslint-disable-next-line no-restricted-syntax
-      for (const app of apps) {
-      // eslint-disable-next-line no-await-in-loop
-        const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
-        if (messageReceived) {
-          appsToRemove.push(app);
+      if (checkIfExists) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const app of apps) {
+        // eslint-disable-next-line no-await-in-loop
+          const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+          if (messageReceived) {
+            appsToRemove.push(app);
+          }
         }
+        apps.filter((item) => !appsToRemove.includes(item));
       }
-      apps.filter((item) => !appsToRemove.includes(item));
       while (apps.length > 500) {
         appsService.checkAndRequestMultipleApps(apps.splice(0, 500));
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(60 * 1000); // delay 60 seconds to give time to receive all messages
+        await serviceHelper.delay(30 * 1000); // delay 30 seconds
       }
       if (apps.length > 0) {
         appsService.checkAndRequestMultipleApps(apps);
       }
-    }, 50);
+    }, 1);
   }
 }
 /**
