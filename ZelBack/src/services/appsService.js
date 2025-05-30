@@ -8555,6 +8555,11 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
  */
 async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   try {
+    const numberOfPeers = fluxCommunication.getNumberOfPeers();
+    if (numberOfPeers < 12) {
+      log.info('checkAndRequestMultipleApps - Not enough connected peers to request missing Flux App messages');
+      return;
+    }
     await requestAppsMessage(apps, incoming);
     await serviceHelper.delay(30 * 1000);
     const appsToRemove = [];

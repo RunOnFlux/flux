@@ -376,24 +376,26 @@ async function insertTransactions(transactions, database) {
 async function insertAndRequestAppHashes(apps, database) {
   if (apps.length > 0) {
     await insertTransactions(apps, database);
-    const appsToRemove = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-    // eslint-disable-next-line no-await-in-loop
-      const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
-      if (messageReceived) {
-        appsToRemove.push(app);
-      }
-    }
-    apps.filter((item) => !appsToRemove.includes(item));
-    while (apps.length > 500) {
-      appsService.checkAndRequestMultipleApps(apps.splice(0, 500));
+    setTimeout(async () => {
+      const appsToRemove = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of apps) {
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
-    }
-    if (apps.length > 0) {
-      appsService.checkAndRequestMultipleApps(apps);
-    }
+        const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+        if (messageReceived) {
+          appsToRemove.push(app);
+        }
+      }
+      apps.filter((item) => !appsToRemove.includes(item));
+      while (apps.length > 500) {
+        appsService.checkAndRequestMultipleApps(apps.splice(0, 500));
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(60 * 1000); // delay 60 seconds to give time to receive all messages
+      }
+      if (apps.length > 0) {
+        appsService.checkAndRequestMultipleApps(apps);
+      }
+    }, 50);
   }
 }
 /**
@@ -583,8 +585,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       appsTransactions = [];
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
-      await insertTransactions(appsTransactions, database);
-      appsTransactions = [];
+      await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
     someBlockIsProcessing = false;
