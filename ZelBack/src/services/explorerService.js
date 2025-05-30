@@ -593,7 +593,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
-      await insertAndRequestAppHashes(appsTransactions, database, true);
+      await insertAndRequestAppHashes(appsTransactions, database, false);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
     someBlockIsProcessing = false;
