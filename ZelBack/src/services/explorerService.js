@@ -381,24 +381,21 @@ async function insertTransactions(transactions, database) {
  * To process transactions inserts on database and calling app messages.
  * @param {array} apps array with appstransactions to be processed.
  * @param {string} database Database.
- * @param {boolean} checkIfExists check if message exists before asking to peers.
  */
-async function insertAndRequestAppHashes(apps, database, checkIfExists) {
+async function insertAndRequestAppHashes(apps, database) {
   if (apps.length > 0) {
     await insertTransactions(apps, database);
     setTimeout(async () => {
       const appsToRemove = [];
-      if (checkIfExists) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const app of apps) {
-        // eslint-disable-next-line no-await-in-loop
-          const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
-          if (messageReceived) {
-            appsToRemove.push(app);
-          }
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of apps) {
+      // eslint-disable-next-line no-await-in-loop
+        const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+        if (messageReceived) {
+          appsToRemove.push(app);
         }
-        apps.filter((item) => !appsToRemove.includes(item));
       }
+      apps.filter((item) => !appsToRemove.includes(item));
       while (apps.length > 500) {
         appsService.checkAndRequestMultipleApps(apps.splice(0, 500));
         // eslint-disable-next-line no-await-in-loop
@@ -596,7 +593,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
-      await insertAndRequestAppHashes(appsTransactions, database, false);
+      await insertTransactions(appsTransactions, database);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
     someBlockIsProcessing = false;

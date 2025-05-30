@@ -8903,6 +8903,17 @@ async function continuousFluxAppHashesCheck(force = false) {
       throw new Error('Scanning not initiated');
     }
     const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
+
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+    const daemonHeight = syncStatus.data.height;
+    if (daemonHeight > explorerHeight + 2) {
+      log.info('continuousFluxAppHashesCheck - Explorer not yet synced');
+      continuousFluxAppHashesCheckRunning = false;
+      return;
+    }
     // get flux app hashes that do not have a message;
     const query = { message: false };
     const projection = {
@@ -8955,7 +8966,7 @@ async function continuousFluxAppHashesCheck(force = false) {
             log.info('Requesting 500 app messages');
             checkAndRequestMultipleApps(appsMessagesMissing);
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(2.5 * 60 * 1000); // delay 2.5 minutes to give enough time to process all messages received
+            await serviceHelper.delay(2 * 60 * 1000); // delay 2 minutes to give enough time to process all messages received
             appsMessagesMissing = [];
           }
         } else {
