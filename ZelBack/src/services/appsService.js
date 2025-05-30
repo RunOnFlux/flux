@@ -6724,36 +6724,42 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
   if (furtherVerification) {
-    if (message.type === 'zelappregister' || message.type === 'fluxappregister') {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height;
-      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        log.info(`App ${appSpecFormatted.name} specs are not going to be validated as it is a enterprise encrypted app`);
-      } else {
-        await verifyAppSpecifications(appSpecFormatted, daemonHeight);
-        await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
+    const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
+    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+      if (!message.arcaneSender) {
+        return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
       }
-      await verifyAppHash(message);
-      await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
-    } else if (message.type === 'zelappupdate' || message.type === 'fluxappupdate') {
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height;
-      // stadard verifications
-      if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-        log.info(`App ${appSpecFormatted.name} specs are not going to be validated as it is a enterprise encrypted app`);
+      // eslint-disable-next-line global-require
+      const fluxService = require('./fluxService');
+      if (await fluxService.isSystemSecure()) {
+        // eslint-disable-next-line no-use-before-define
+        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
+        await verifyAppSpecifications(appSpecFormattedDecrypted, daemonHeight);
+        if (appRegistraiton) {
+          await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
+        } else {
+          await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
+        }
+      }
+    } else {
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      if (appRegistraiton) {
+        await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
-        await verifyAppSpecifications(appSpecFormatted, daemonHeight);
-        // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
         await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       }
-      await verifyAppHash(message);
+    }
+    await verifyAppHash(message);
+    if (appRegistraiton) {
+      await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
+    } else {
       // get previousAppSpecifications as we need previous owner
       const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
       const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, daemonHeight);
-    } else {
-      throw new Error('Invalid Flux App message received');
     }
   }
 
@@ -6769,6 +6775,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     signature: message.signature,
     receivedAt: new Date(receivedAt),
     expireAt: new Date(validTill),
+    arcaneSender: message.arcaneSender,
   };
   const value = newMessage;
   // message does not exist anywhere and is ok, store it
@@ -7682,6 +7689,8 @@ async function registerAppGlobalyApi(req, res) {
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
 
+      const isEnterpriseApp = !!(appSpecFormattedDecrypted.version >= 8 && appSpecFormattedDecrypted.enterprise);
+
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
@@ -7690,7 +7699,9 @@ async function registerAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
+        arcaneSender: isEnterpriseApp,
       };
+
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
@@ -7825,11 +7836,17 @@ async function updateAppGlobalyApi(req, res) {
       // here signature is checked against PREVIOUS app owner
       await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner, daemonHeight);
 
+      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, timestamp);
+
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
       // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
+
+      const isEnterpriseApp = !!(appSpecFormattedDecrypted.version >= 8 && appSpecFormattedDecrypted.enterprise);
+
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
@@ -7838,9 +7855,8 @@ async function updateAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
+        arcaneSender: isEnterpriseApp,
       };
-      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, temporaryAppMessage.timestamp);
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
@@ -10061,7 +10077,7 @@ async function trySpawningGlobalApplication() {
       let delay = false;
       if (!appToRunAux.enterprise && isArcane) {
         const appToCheck = {
-          timeToCheck: appToRunAux.enterprise ? Date.now() + 1 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
@@ -14425,6 +14441,31 @@ async function monitorNodeStatus() {
 }
 
 /**
+ * To get Public Key from fluxbench.
+ * @param {fluxID} string app owner.
+ * @param {appName} string app name.
+ * @param {blockHeight} number block when it is registered.
+ * @returns {string} Key.
+ */
+async function getAppPublicKey(fluxID, appName, blockHeight) {
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  const inputData = {
+    fluxID,
+    appName,
+    blockHeight,
+  };
+  const dataReturned = await benchmarkService.getPublicKey(inputData);
+  const { status, data } = dataReturned;
+  const publicKey = status === 'success' && data.status === 'ok' ? data.message : null;
+  if (!publicKey) {
+    throw new Error('Error getting public key to encrypt app enterprise content.');
+  }
+  return publicKey;
+}
+
+/**
  * To get Public Key to Encrypt Enterprise Content.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -14455,20 +14496,7 @@ async function getPublicKey(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      if (!isArcane) {
-        throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-      }
-      const inputData = {
-        fluxID: appSpecification.owner,
-        appName: appSpecification.name,
-        blockHeight: daemonHeight,
-      };
-      const dataReturned = await benchmarkService.getPublicKey(inputData);
-      const { status, data } = dataReturned;
-      const publicKey = status === 'success' && data.status === 'ok' ? data.message : null;
-      if (!publicKey) {
-        throw new Error('Error getting public key to encrypt app enterprise content.');
-      }
+      const publicKey = await getAppPublicKey(appSpecification.owner, appSpecification.name, daemonHeight);
       // respond with formatted specifications
       const response = messageHelper.createDataMessage(publicKey);
       return res.json(response);
