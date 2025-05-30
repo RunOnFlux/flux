@@ -354,10 +354,15 @@ async function insertTransactions(transactions, database) {
     try {
       await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions);
     } catch (error) {
+      log.error(`Explorer - Inserting ${transactions.length} transactions - error - ${error}`);
       // eslint-disable-next-line no-restricted-syntax
       for (const transaction of transactions) {
-        // eslint-disable-next-line no-await-in-loop
-        await dbHelper.insertOneToDatabase(database, appsHashesCollection, transaction).catch();
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await dbHelper.insertOneToDatabase(database, appsHashesCollection, transaction);
+        } catch (errorTx) {
+          log.error(`Explorer - Inserting transaction ${transaction.hash} - error - ${errorTx}`);
+        }
       }
     }
   }
