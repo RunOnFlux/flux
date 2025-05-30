@@ -8977,6 +8977,7 @@ async function continuousFluxAppHashesCheck(force = false) {
       }
     }
     if (appsMessagesMissing.length > 0) {
+      log.info(`Requesting ${appsMessagesMissing.length} app messages`);
       checkAndRequestMultipleApps(appsMessagesMissing);
     }
     continuousFluxAppHashesCheckRunning = false;
