@@ -7646,7 +7646,7 @@ async function registerAppGlobalyApi(req, res) {
         throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
       }
 
-      let appSpecFormatted = specificationFormatter(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -7654,23 +7654,23 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
+      const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+      await verifyAppSpecifications(appSpecFormattedDecrypted, daemonHeight, true);
 
-      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormattedDecrypted.version === 7 && appSpecFormattedDecrypted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecFormatted.compose) {
+        for (const appComponent of appSpecFormattedDecrypted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await checkAppSecrets(appSpecFormattedDecrypted.name, appComponent, appSpecFormattedDecrypted.owner);
           }
         }
       }
 
       // check if name is not yet registered
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+      await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted);
 
       // check if zelid owner is correct ( done in message verification )
       // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
@@ -7681,6 +7681,7 @@ async function registerAppGlobalyApi(req, res) {
       // We respond with a hash that is supposed to go to transaction.
       const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
       const messageHASH = await generalService.messageHash(message);
+
       // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
       const temporaryAppMessage = { // specification of temp message
         type: messageType,
@@ -7780,7 +7781,7 @@ async function updateAppGlobalyApi(req, res) {
         throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
       }
 
-      let appSpecFormatted = specificationFormatter(appSpecification);
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -7788,17 +7789,17 @@ async function updateAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight);
+      const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+      await verifyAppSpecifications(appSpecFormattedDecrypted, daemonHeight, true);
 
-      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+      if (appSpecFormattedDecrypted.version === 7 && appSpecFormattedDecrypted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecFormatted.compose) {
+        for (const appComponent of appSpecFormattedDecrypted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await checkAppSecrets(appSpecFormattedDecrypted.name, appComponent, appSpecFormattedDecrypted.owner);
           }
         }
       }
@@ -7839,7 +7840,7 @@ async function updateAppGlobalyApi(req, res) {
         signature,
       };
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, temporaryAppMessage.timestamp);
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, temporaryAppMessage.timestamp);
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
