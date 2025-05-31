@@ -8902,16 +8902,16 @@ async function checkAndSyncAppHashes() {
         // eslint-disable-next-line no-await-in-loop
         const response = await serviceHelper.axiosGet(`http://${client.ip}:${client.port}/explorer/sync`, axiosConfig).catch((error) => log.error(error));
         if (!response || !response.data || response.data.status !== 'success') {
-          log.info(`Failed to get explorer sync status from ${client.ip}:${client.port}`);
+          log.info(`checkAndSyncAppHashes - Failed to get explorer sync status from ${client.ip}:${client.port}`);
           // eslint-disable-next-line no-continue
           continue;
         }
         if (!response.data.data) {
-          log.info(`Explorer is not synced on ${client.ip}:${client.port}`);
+          log.info(`checkAndSyncAppHashes - Explorer is not synced on ${client.ip}:${client.port}`);
           // eslint-disable-next-line no-continue
           continue;
         }
-        log.info(`Explorer is not synced on ${client.ip}:${client.port}`);
+        log.info(`checkAndSyncAppHashes - Explorer is not synced on ${client.ip}:${client.port}`);
         axiosConfig = {
           timeout: 120000,
         };
@@ -8919,7 +8919,7 @@ async function checkAndSyncAppHashes() {
         // eslint-disable-next-line no-await-in-loop
         const appsResponse = await serviceHelper.axiosGet(`http://${client.ip}:${client.port}/apps/permanentmessages`, axiosConfig).catch((error) => log.error(error));
         if (!appsResponse || !appsResponse.data || appsResponse.data.status !== 'success' || !appsResponse.data.data) {
-          log.info(`Failed to get permanent app messages from ${client.ip}:${client.port}`);
+          log.info(`checkAndSyncAppHashes - Failed to get permanent app messages from ${client.ip}:${client.port}`);
           // eslint-disable-next-line no-continue
           continue;
         }
@@ -8936,6 +8936,8 @@ async function checkAndSyncAppHashes() {
             await storeAppTemporaryMessage(appMessage, true);
             // eslint-disable-next-line no-await-in-loop
             await checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.value, 2);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(50);
           } catch (error) {
             log.error(error);
           }
