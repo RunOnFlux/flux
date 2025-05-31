@@ -9897,7 +9897,7 @@ async function trySpawningGlobalApplication() {
 
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
       if (appToRunAux.enterprise && !isArcane) {
-        log.info('trySpawningGlobalApplication - app missing one instance failed the 15% probability check to install');
+        log.info('trySpawningGlobalApplication - app can only install on ArcaneOS');
         spawnErrorsLongerAppCache.set(appHash, appHash);
         await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
@@ -9950,10 +9950,11 @@ async function trySpawningGlobalApplication() {
     }
 
     // get app specifications
-    const appSpecifications = await getApplicationGlobalSpecifications(appToRun);
+    let appSpecifications = await getApplicationGlobalSpecifications(appToRun);
     if (!appSpecifications) {
       throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
     }
+    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
 
     // eslint-disable-next-line no-restricted-syntax
     const dbopen = dbHelper.databaseConnection();
