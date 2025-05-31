@@ -10614,7 +10614,7 @@ async function expireGlobalApplications() {
       // eslint-disable-next-line no-await-in-loop
       await removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
+      await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
     }
   } catch (error) {
     log.error(error);

@@ -565,6 +565,11 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // this should run only when node is synced
     const isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
+      if (blockHeight % 2 === 0) {
+        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+          await appsService.expireGlobalApplications();
+        }
+      }
       if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           appsService.checkAndRemoveApplicationInstance();
@@ -593,6 +598,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
+      await appsService.expireGlobalApplications(); // in case node was shutdown for a while and it is started
       await insertTransactions(appsTransactions, database);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
