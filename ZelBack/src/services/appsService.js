@@ -8911,7 +8911,7 @@ async function checkAndSyncAppHashes() {
           // eslint-disable-next-line no-continue
           continue;
         } */
-        log.info(`checkAndSyncAppHashes - Explorer is not synced on ${client.ip}:${client.port}`);
+        log.info(`checkAndSyncAppHashes - Explorer is synced on ${client.ip}:${client.port}`);
         axiosConfig = {
           timeout: 120000,
         };
@@ -8946,6 +8946,7 @@ async function checkAndSyncAppHashes() {
           }
         }
         finished = true;
+        log.info('checkAndSyncAppHashes - Process finished');
       }
     }
     checkAndSyncAppHashesWasEverExecuted = true;
