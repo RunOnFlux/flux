@@ -351,7 +351,7 @@ async function processInsight(blockDataVerbose, database) {
 
 async function insertTransactions(transactions, database) {
   if (transactions.length > 0) {
-    log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps ashes collection`);
+    log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps hashes collection`);
     try {
       const options = {
         ordered: false,
