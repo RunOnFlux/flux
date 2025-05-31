@@ -8872,6 +8872,87 @@ async function rescanGlobalAppsInformationAPI(req, res) {
 }
 
 /**
+ * Check if we are misssing over 95% of the app hashes and in that case, get from one of the peers the permanentappmessages and process them if it was messages received
+ */
+let checkAndSyncAppHashesWasEverExecuted = false;
+async function checkAndSyncAppHashes() {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.daemon.database);
+    // get flux app hashes that do not have a message;
+    const query = { };
+    const projection = {
+      projection: {
+        _id: 0,
+        message: 1,
+      },
+    };
+    const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
+    const numberOfMissingApps = results.filter((app) => app.message === false).length;
+    if (numberOfMissingApps > results.length * 0.95) {
+      let finished = false;
+      let i = 0;
+      while (!finished || i <= 5) {
+        i += 1;
+        const client = outgoingPeers[Math.floor(Math.random() * outgoingPeers.length)];
+        let axiosConfig = {
+          timeout: 5000,
+        };
+        log.info(`checkAndSyncAppHashes - Getting explorer sync status from ${client.ip}:${client.port}`);
+        // eslint-disable-next-line no-await-in-loop
+        const response = await serviceHelper.axiosGet(`http://${client.ip}:${client.port}/explorer/sync`, axiosConfig).catch((error) => log.error(error));
+        if (!response || !response.data || response.data.status !== 'success') {
+          log.info(`Failed to get explorer sync status from ${client.ip}:${client.port}`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        if (!response.data.data) {
+          log.info(`Explorer is not synced on ${client.ip}:${client.port}`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        log.info(`Explorer is not synced on ${client.ip}:${client.port}`);
+        axiosConfig = {
+          timeout: 120000,
+        };
+        log.info(`checkAndSyncAppHashes - Getting permanent app messages from ${client.ip}:${client.port}`);
+        // eslint-disable-next-line no-await-in-loop
+        const appsResponse = await serviceHelper.axiosGet(`http://${client.ip}:${client.port}/apps/permanentmessages`, axiosConfig).catch((error) => log.error(error));
+        if (!appsResponse || !appsResponse.data || appsResponse.data.status !== 'success' || !appsResponse.data.data) {
+          log.info(`Failed to get permanent app messages from ${client.ip}:${client.port}`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        const apps = appsResponse.data.data;
+        log.info(`checkAndSyncAppHashes - Will process ${apps.length} apps messages`);
+        // sort it by height, so we process oldest messages first
+        apps.sort((a, b) => a.height - b.height);
+        let y = 0;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appMessage of apps) {
+          y += 1;
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await storeAppTemporaryMessage(appMessage, true);
+            // eslint-disable-next-line no-await-in-loop
+            await checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.value, 2);
+          } catch (error) {
+            log.error(error);
+          }
+          if (y % 500 === 0) {
+            log.info(`checkAndSyncAppHashes - ${y} were already processed`);
+          }
+        }
+        finished = true;
+      }
+    }
+    checkAndSyncAppHashesWasEverExecuted = true;
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To perform continuous checks for Flux app hashes that don't have a message.
  */
 let continuousFluxAppHashesCheckRunning = false;
@@ -8895,6 +8976,10 @@ async function continuousFluxAppHashesCheck(force = false) {
       log.info('Flux not yet synced');
       continuousFluxAppHashesCheckRunning = false;
       return;
+    }
+
+    if (firstContinuousFluxAppHashesCheckRun && !checkAndSyncAppHashesWasEverExecuted) {
+      await checkAndSyncAppHashes();
     }
 
     const dbopen = dbHelper.databaseConnection();
