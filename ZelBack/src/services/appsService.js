@@ -8898,7 +8898,7 @@ async function checkAndSyncAppHashes() {
         let axiosConfig = {
           timeout: 5000,
         };
-        log.info(`checkAndSyncAppHashes - Getting explorer sync status from ${client.ip}:${client.port}`);
+        /* log.info(`checkAndSyncAppHashes - Getting explorer sync status from ${client.ip}:${client.port}`);
         // eslint-disable-next-line no-await-in-loop
         const response = await serviceHelper.axiosGet(`http://${client.ip}:${client.port}/explorer/sync`, axiosConfig).catch((error) => log.error(error));
         if (!response || !response.data || response.data.status !== 'success') {
@@ -8910,7 +8910,7 @@ async function checkAndSyncAppHashes() {
           log.info(`checkAndSyncAppHashes - Explorer is not synced on ${client.ip}:${client.port}`);
           // eslint-disable-next-line no-continue
           continue;
-        }
+        } */
         log.info(`checkAndSyncAppHashes - Explorer is not synced on ${client.ip}:${client.port}`);
         axiosConfig = {
           timeout: 120000,
