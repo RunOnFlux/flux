@@ -8889,6 +8889,14 @@ async function continuousFluxAppHashesCheck(force = false) {
       continuousFluxAppHashesCheckRunning = false;
       return;
     }
+
+    const synced = await generalService.checkSynced();
+    if (synced !== true) {
+      log.info('Flux not yet synced');
+      continuousFluxAppHashesCheckRunning = false;
+      return;
+    }
+
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     const queryHeight = { generalScannedHeight: { $gte: 0 } };
@@ -8904,16 +8912,6 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
     const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
 
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
-    }
-    const daemonHeight = syncStatus.data.height;
-    if (daemonHeight > explorerHeight + 2) {
-      log.info('continuousFluxAppHashesCheck - Explorer not yet synced');
-      continuousFluxAppHashesCheckRunning = false;
-      return;
-    }
     // get flux app hashes that do not have a message;
     const query = { message: false };
     const projection = {
