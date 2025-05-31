@@ -8946,6 +8946,8 @@ async function checkAndSyncAppHashes() {
           }
         }
         finished = true;
+        // eslint-disable-next-line no-await-in-loop, no-use-before-define
+        await expireGlobalApplications();
         log.info('checkAndSyncAppHashes - Process finished');
       }
     }
@@ -9874,6 +9876,13 @@ async function trySpawningGlobalApplication() {
     // check if we are synced
     const synced = await generalService.checkSynced();
     if (synced !== true) {
+      log.info('Flux not yet synced');
+      await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
+
+    if (!checkAndSyncAppHashesWasEverExecuted) {
       log.info('Flux not yet synced');
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
