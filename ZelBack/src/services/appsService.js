@@ -8892,7 +8892,7 @@ async function checkAndSyncAppHashes() {
     if (numberOfMissingApps > results.length * 0.95) {
       let finished = false;
       let i = 0;
-      while (!finished || i <= 5) {
+      while (!finished && i <= 5) {
         i += 1;
         const client = outgoingPeers[Math.floor(Math.random() * outgoingPeers.length)];
         let axiosConfig = {
