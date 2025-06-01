@@ -8954,6 +8954,7 @@ async function checkAndSyncAppHashes() {
     checkAndSyncAppHashesWasEverExecuted = true;
   } catch (error) {
     log.error(error);
+    checkAndSyncAppHashesWasEverExecuted = true;
   }
 }
 
