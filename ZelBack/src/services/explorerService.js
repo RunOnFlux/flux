@@ -25,6 +25,8 @@ let isInInitiationOfBP = false;
 let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
+let appsTransactions = [];
+let isSynced = false;
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
@@ -266,7 +268,6 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
-  const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
@@ -346,29 +347,67 @@ async function processInsight(blockDataVerbose, database) {
       }
     }
   }
-  if (appsTransactions.length > 0) {
-    const options = {
-      ordered: false, // If false, continue with remaining inserts when one fails.
-    };
-    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
-      while (appsTransactions.length > 500) {
-        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
-      }
-      if (appsTransactions.length > 0) {
-        appsService.checkAndRequestMultipleApps(appsTransactions);
-      }
-    } else {
+}
+
+async function insertTransactions(transactions, database) {
+  if (transactions.length > 0) {
+    log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps hashes collection`);
+    try {
+      const options = {
+        ordered: false,
+      };
+      await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions, options);
+    } catch (error) {
+      log.error(`Explorer- insertTransactions - Inserting ${transactions.length} - transactions error - ${error}`);
       // eslint-disable-next-line no-restricted-syntax
-      for (const tx of appsTransactions) {
-        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
+      for (const transaction of transactions) {
+        try {
+          const query = { hash: transaction.hash, height: transaction.height };
+          const update = { $set: transaction };
+          const options = {
+            upsert: true,
+          };
+          // eslint-disable-next-line no-await-in-loop
+          await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
+        } catch (errorTx) {
+          log.error(`Explorer - insertTransactions - Inserting ${transaction.hash} - transaction error - ${errorTx}`);
+        }
       }
     }
+    appsTransactions = [];
   }
 }
 
+/**
+ * To process transactions inserts on database and calling app messages.
+ * @param {array} apps array with appstransactions to be processed.
+ * @param {string} database Database.
+ */
+async function insertAndRequestAppHashes(apps, database) {
+  if (apps.length > 0) {
+    await insertTransactions(apps, database);
+    setTimeout(async () => {
+      const appsToRemove = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of apps) {
+      // eslint-disable-next-line no-await-in-loop
+        const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+        if (messageReceived) {
+          appsToRemove.push(app);
+        }
+      }
+      apps.filter((item) => !appsToRemove.includes(item));
+      while (apps.length > 500) {
+        appsService.checkAndRequestMultipleApps(apps.splice(0, 500));
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(30 * 1000); // delay 30 seconds
+      }
+      if (apps.length > 0) {
+        appsService.checkAndRequestMultipleApps(apps);
+      }
+    }, 1);
+  }
+}
 /**
  * To process verbose block data for entry to database.
  * @param {object} blockDataVerbose Verbose block data.
@@ -377,7 +416,6 @@ async function processInsight(blockDataVerbose, database) {
 async function processStandard(blockDataVerbose, database) {
   // get Block transactions information
   const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
-  const appsTransactions = [];
   // now we have verbose transactions of the block extended for senders - object of
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
@@ -470,27 +508,6 @@ async function processStandard(blockDataVerbose, database) {
       }
     }
   }));
-  if (appsTransactions.length > 0) {
-    const options = {
-      ordered: false, // If false, continue with remaining inserts when one fails.
-    };
-    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
-      while (appsTransactions.length > 500) {
-        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
-      }
-      if (appsTransactions.length > 0) {
-        appsService.checkAndRequestMultipleApps(appsTransactions);
-      }
-    } else {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const tx of appsTransactions) {
-        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
-      }
-    }
-  }
 }
 
 /**
@@ -517,6 +534,11 @@ async function processBlock(blockHeight, isInsightExplorer) {
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
+    if (isInsightExplorer && blockDataVerbose.height > 699420 && blockDataVerbose.height < 862002) {
+      // speed up sync as there were no app messages between these two blocks
+      processBlock(862002, isInsightExplorer);
+      return;
+    }
     if (isInsightExplorer) {
       // only process Flux transactions
       await processInsight(blockDataVerbose, database);
@@ -533,12 +555,20 @@ async function processBlock(blockHeight, isInsightExplorer) {
         log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
       }
     }
+
+    const scannedHeight = blockDataVerbose.height;
+    // update scanned Height in scannedBlockHeightCollection
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const update = { $set: { generalScannedHeight: scannedHeight } };
+    const options = {
+      upsert: true,
+    };
     // this should run only when node is synced
-    const isSynced = !(blockDataVerbose.confirmations >= 2);
+    isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
-      if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
+      if (blockHeight % 2 === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-          appsService.expireGlobalApplications();
+          await appsService.expireGlobalApplications();
         }
       }
       if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
@@ -566,15 +596,13 @@ async function processBlock(blockHeight, isInsightExplorer) {
           log.error(error);
         }
       }
+      await insertAndRequestAppHashes(appsTransactions, database, true);
+      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    } else if (blockDataVerbose.height % 500 === 0) {
+      await appsService.expireGlobalApplications(); // in case node was shutdown for a while and it is started
+      await insertTransactions(appsTransactions, database);
+      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
-    const scannedHeight = blockDataVerbose.height;
-    // update scanned Height in scannedBlockHeightCollection
-    const query = { generalScannedHeight: { $gte: 0 } };
-    const update = { $set: { generalScannedHeight: scannedHeight } };
-    const options = {
-      upsert: true,
-    };
-    await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
       if (blockDataVerbose.confirmations > 1) {
@@ -1509,6 +1537,16 @@ async function getAddressBalance(req, res) {
   }
 }
 
+/**
+ * To get if explorer is synced.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function isExplorerSynced(req, res) {
+  const resMessage = messageHelper.createDataMessage(isSynced);
+  res.json(resMessage);
+}
+
 // testing purposes
 function setBlockProccessingCanContinue(value) {
   blockProccessingCanContinue = value;
@@ -1551,4 +1589,5 @@ module.exports = {
 
   // temporary function
   fixExplorer,
+  isExplorerSynced,
 };
