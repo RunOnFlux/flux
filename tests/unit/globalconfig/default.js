@@ -171,7 +171,7 @@ module.exports = {
       5: 1142000, // v5 available adding contacts, geolocation
       6: 1300000, // v6, expiration, app price, t3
       7: 1420000, // v7, nodes selection, secrets, private images (nodes selection allows secrets, private image - scope), staticip
-      8: 1924000, // v8, brings enterprise apps using arcaneOS features to run these apps. // Around June 12th
+      8: 1929500, // v8, brings enterprise apps using arcaneOS features to run these apps. // Around June 12th
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
