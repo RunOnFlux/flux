@@ -6908,7 +6908,6 @@ async function storeAppInstallingMessage(message) {
   /* message object
   * @param type string
   * @param version number
-  * @param hash string
   * @param broadcastedAt number
   * @param name string
   * @param ip string
