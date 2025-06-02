@@ -93,6 +93,9 @@ async function startFluxFunctions() {
     // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
+    // we just keep installing messages for 5 minutes
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 300 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install location based on specs name' });
     log.info('Flux Apps locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
@@ -168,13 +171,7 @@ async function startFluxFunctions() {
           const queryHash = { hash: resultAppsA[i].hash };
           // eslint-disable-next-line no-await-in-loop
           const resultHash = await dbHelper.findOneInDatabase(databaseDaemon, config.database.daemon.collections.appsHashes, queryHash, projection);
-          if (!resultHash) {
-            log.info(`Hash not found in hashes: ${resultAppsA[i].hash}`);
-            // remove from app messages
-            // eslint-disable-next-line no-await-in-loop
-            // await dbHelper.findOneAndDeleteInDatabase(databaseApps, config.database.appsglobal.collections.appsMessages, queryHash, projection);
-          }
-          if (processedHashes.includes(resultAppsA[i].hash)) {
+          if (resultHash && processedHashes.includes(resultAppsA[i].hash)) {
             log.info(`Duplicate hash in apps: ${resultAppsA[i].hash}`);
             // remove from app messages
             // eslint-disable-next-line no-await-in-loop

@@ -331,7 +331,7 @@ module.exports = (app) => {
   app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
     appsService.getAppsTemporaryMessages(req, res);
   });
-  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), (req, res) => {
     appsService.getAppsPermanentMessages(req, res);
   });
   app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
@@ -354,6 +354,12 @@ module.exports = (app) => {
   });
   app.get('/apps/locations', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocations(req, res);
+  });
+  app.get('/apps/installinglocation/:appname?', cache('30 seconds'), (req, res) => {
+    appsService.getAppInstallingLocation(req, res);
+  });
+  app.get('/apps/installlinglocations', cache('30 seconds'), (req, res) => {
+    appsService.getAppsInstallingLocations(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
     appsService.getAppPrice(req, res);
@@ -1428,5 +1434,8 @@ module.exports = (app) => {
   });
   app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
     appsService.downloadAppsFolder(req, res);
+  });
+  app.get('/explorer/issynced', cache('30 seconds'), (req, res) => {
+    explorerService.isExplorerSynced(req, res);
   });
 };

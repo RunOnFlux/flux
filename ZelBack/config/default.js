@@ -47,6 +47,7 @@ module.exports = {
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
+        appsInstallingLocations: 'appsinstallinglocations', // stores install location of flux apps as documents containing name, ip, obtainedAt
       },
     },
     chainparams: {
@@ -184,7 +185,6 @@ module.exports = {
     addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
     addressDevelopment: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
     multisigAddressChange: 1670000,
-    fluxAppRequestV2: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
     portMin: 31000, // ports 30000 - 30999 are reserved for local applications
@@ -233,6 +233,7 @@ module.exports = {
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
+    applyMinimumForExtraInstances: 1890000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core
