@@ -10327,7 +10327,6 @@ async function trySpawningGlobalApplication() {
         version: 1,
         appName: appSpecifications.name,
         ip: myIP,
-        cancel: 1,
         broadcastedAt,
       };
       log.info('trySpawningGlobalApplication - Broadcasting appremoved message to the network');
