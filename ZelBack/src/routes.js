@@ -358,7 +358,7 @@ module.exports = (app) => {
   app.get('/apps/installinglocation/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppInstallingLocation(req, res);
   });
-  app.get('/apps/installlingocations', cache('30 seconds'), (req, res) => {
+  app.get('/apps/installlinglocations', cache('30 seconds'), (req, res) => {
     appsService.getAppsInstallingLocations(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
