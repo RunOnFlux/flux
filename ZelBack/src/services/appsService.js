@@ -6754,7 +6754,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   }
 
   let isAppRequested = false;
-  let block = null;
   const db = dbHelper.databaseConnection();
   const query = { hash: message.hash };
   const projection = {
@@ -6766,6 +6765,9 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   };
   let database = db.db(config.database.daemon.database);
   const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  const daemonHeight = syncStatus.data.height;
+  let block = daemonHeight;
   if (result && !result.message) {
     isAppRequested = true;
     block = result.height;
@@ -6774,8 +6776,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
   if (furtherVerification) {
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height;
     const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
       if (!message.arcaneSender) {
@@ -6785,8 +6785,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const fluxService = require('./fluxService');
       if (await fluxService.isSystemSecure()) {
         // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
-        await verifyAppSpecifications(appSpecFormattedDecrypted, daemonHeight);
+        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(appSpecFormatted, block, appSpecFormatted.owner);
+        await verifyAppSpecifications(appSpecFormattedDecrypted, block);
         if (appRegistraiton) {
           await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
         } else {
@@ -6794,14 +6794,14 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         }
       }
     } else {
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight);
+      await verifyAppSpecifications(appSpecFormatted, block);
       if (appRegistraiton) {
         await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
         await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       }
     }
-    
+
     await verifyAppHash(message);
     if (appRegistraiton) {
       await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
@@ -6810,7 +6810,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
       const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, daemonHeight);
+      await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block);
     }
   }
 
