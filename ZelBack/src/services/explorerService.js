@@ -26,6 +26,7 @@ let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 let appsTransactions = [];
+let isSynced = false;
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
@@ -350,7 +351,7 @@ async function processInsight(blockDataVerbose, database) {
 
 async function insertTransactions(transactions, database) {
   if (transactions.length > 0) {
-    log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps ashes collection`);
+    log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps hashes collection`);
     try {
       const options = {
         ordered: false,
@@ -563,7 +564,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       upsert: true,
     };
     // this should run only when node is synced
-    const isSynced = !(blockDataVerbose.confirmations >= 2);
+    isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
       if (blockHeight % 2 === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
@@ -1529,6 +1530,16 @@ async function getAddressBalance(req, res) {
   }
 }
 
+/**
+ * To get if explorer is synced.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function isExplorerSynced(req, res) {
+  const resMessage = messageHelper.createDataMessage(isSynced);
+  res.json(resMessage);
+}
+
 // testing purposes
 function setBlockProccessingCanContinue(value) {
   blockProccessingCanContinue = value;
@@ -1571,4 +1582,5 @@ module.exports = {
 
   // temporary function
   fixExplorer,
+  isExplorerSynced,
 };

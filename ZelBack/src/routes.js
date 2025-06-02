@@ -1429,4 +1429,7 @@ module.exports = (app) => {
   app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
     appsService.downloadAppsFolder(req, res);
   });
+  app.get('/explorer/issynced', cache('30 seconds'), (req, res) => {
+    explorerService.isExplorerSynced(req, res);
+  });
 };
