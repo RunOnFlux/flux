@@ -9942,6 +9942,8 @@ async function trySpawningGlobalApplication() {
     let appFromAppsSyncthingToBeCheckedLater = false;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
     const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
+    let runningAppList = null;
+    let installingAppList = null;
     if (appIndex >= 0) {
       appToRun = appsToBeCheckedLater[appIndex].appName;
       appHash = appsToBeCheckedLater[appIndex].hash;
@@ -9984,6 +9986,14 @@ async function trySpawningGlobalApplication() {
       minInstances = appToRunAux.required;
 
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
+      runningAppList = await appLocation(appToRun);
+      installingAppList = await appInstallingLocation(appToRun);
+      if (runningAppList.length + installingAppList.length > minInstances) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
+        await serviceHelper.delay(5 * 60 * 1000);
+        trySpawningGlobalApplication();
+        return;
+      }
       if (appToRunAux.enterprise && !isArcane) {
         log.info('trySpawningGlobalApplication - app missing one instance failed the 15% probability check to install');
         spawnErrorsLongerAppCache.set(appHash, appHash);
@@ -10015,12 +10025,18 @@ async function trySpawningGlobalApplication() {
     trySpawningGlobalAppCache.set(appHash, appHash);
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
-    let runningAppList = await appLocation(appToRun);
+    runningAppList = await appLocation(appToRun);
 
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
     if (runningAppList.find((document) => document.ip.includes(adjustedIP))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already running on this Flux IP`);
+      await serviceHelper.delay(30 * 60 * 1000);
+      trySpawningGlobalApplication();
+      return;
+    }
+    if (installingAppList.find((document) => document.ip.includes(adjustedIP))) {
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already being installed on this Flux IP`);
       await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
@@ -10106,10 +10122,10 @@ async function trySpawningGlobalApplication() {
 
     // double check if app is installed on the number of instances requested
     runningAppList = await appLocation(appToRun);
-    if (runningAppList.length >= minInstances) {
-      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
-      trySpawningGlobalAppCache.delete(appHash);
-      await serviceHelper.delay(30 * 60 * 1000);
+    installingAppList = await appInstallingLocation(appToRun);
+    if (runningAppList.length + installingAppList.length > minInstances) {
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
+      await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -10258,10 +10274,10 @@ async function trySpawningGlobalApplication() {
 
     // triple check if app is installed on the number of instances requested
     runningAppList = await appLocation(appToRun);
-    if (runningAppList.length >= minInstances) {
-      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances`);
-      trySpawningGlobalAppCache.delete(appHash);
-      await serviceHelper.delay(30 * 60 * 1000);
+    installingAppList = await appInstallingLocation(appToRun);
+    if (runningAppList.length + installingAppList.length > minInstances) {
+      log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
+      await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -10290,7 +10306,7 @@ async function trySpawningGlobalApplication() {
 
     // double check if app is installed in more of the instances requested
     runningAppList = await appLocation(appToRun);
-    const installingAppList = await appInstallingLocation(appToRun);
+    installingAppList = await appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
       installingAppList.sort((a, b) => {
         if (a.broadcastedAt < b.broadcastedAt) {
