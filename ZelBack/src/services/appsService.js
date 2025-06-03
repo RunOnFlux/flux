@@ -7704,7 +7704,7 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
       fluxID: appOwner,
       appName: appSpec.name,
       message: appSpec.enterprise,
-      blockHeight: block,
+      blockHeight: block.toString(),
     });
     const dataReturned = await benchmarkService.decryptMessage(inputData);
     const { status, data } = dataReturned;
@@ -14795,11 +14795,11 @@ async function getAppPublicKey(fluxID, appName, blockHeight) {
   const inputData = JSON.stringify({
     fluxID,
     appName,
-    blockHeight,
+    blockHeight: blockHeight.toString(),
   });
   const dataReturned = await benchmarkService.getPublicKey(inputData);
   const { status, data } = dataReturned;
-  const publicKey = status === 'success' && data.status === 'ok' ? data.message : null;
+  const publicKey = status === 'success' && data.status === 'ok' ? data.publicKey : null;
   if (!publicKey) {
     throw new Error('Error getting public key to encrypt app enterprise content.');
   }
