@@ -7700,12 +7700,12 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
       const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
       block = lastUpdate.height;
     }
-    const inputData = {
+    const inputData = JSON.stringify({
       fluxID: appOwner,
       appName: appSpec.name,
       message: appSpec.enterprise,
       blockHeight: block,
-    };
+    });
     const dataReturned = await benchmarkService.decryptMessage(inputData);
     const { status, data } = dataReturned;
     const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
