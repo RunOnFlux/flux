@@ -6943,13 +6943,17 @@ async function storeAppRunningMessage(message) {
     const queryFind = { ip: message.ip };
     const projection = { _id: 0, runningSince: 1 };
     // we already have the exact same data
-    // eslint-disable-next-line no-await-in-loop
     const result = await dbHelper.findInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result.length > 0) {
       await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, queryFind);
     } else {
       return false;
     }
+  }
+
+  if (message.version === 1) {
+    const queryFind = { name: appsMessages[0].name, ip: message.ip };
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
   }
 
   if (messageNotOk) {
