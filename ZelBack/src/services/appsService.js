@@ -7708,12 +7708,17 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
     });
     const dataReturned = await benchmarkService.decryptMessage(inputData);
     const { status, data } = dataReturned;
-    const enterprise = status === 'success' && data.status === 'ok' ? JSON.parse(data.message) : null;
-    if (enterprise) {
-      appSpecs.compose = enterprise.compose;
-      appSpecs.contacts = enterprise.contacts;
+    if (status === 'success') {
+      const dataParsed = JSON.parse(data);
+      const enterprise = status === 'success' && dataParsed.status === 'ok' ? JSON.parse(dataParsed.message) : null;
+      if (enterprise) {
+        appSpecs.compose = enterprise.compose;
+        appSpecs.contacts = enterprise.contacts;
+      } else {
+        throw new Error('Error decrypting applications specifications.');
+      }
     } else {
-      throw new Error('Error decrypting applications specifications.');
+      throw new Error('Error getting public key to encrypt app enterprise content.');
     }
   }
   return appSpecs;
@@ -14799,10 +14804,17 @@ async function getAppPublicKey(fluxID, appName, blockHeight) {
   });
   const dataReturned = await benchmarkService.getPublicKey(inputData);
   const { status, data } = dataReturned;
-  const publicKey = status === 'success' && data.status === 'ok' ? data.publicKey : null;
-  if (!publicKey) {
+  let publicKey = null;
+  if (status === 'success') {
+    const dataParsed = JSON.parse(data);
+    publicKey = dataParsed.status === 'ok' ? dataParsed.publicKey : null;
+    if (!publicKey) {
+      throw new Error('Error getting public key to encrypt app enterprise content from SAS.');
+    }
+  } else {
     throw new Error('Error getting public key to encrypt app enterprise content.');
   }
+
   return publicKey;
 }
 
