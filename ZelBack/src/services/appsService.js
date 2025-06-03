@@ -14792,11 +14792,11 @@ async function getAppPublicKey(fluxID, appName, blockHeight) {
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
   }
-  const inputData = {
+  const inputData = JSON.stringify({
     fluxID,
     appName,
     blockHeight,
-  };
+  });
   const dataReturned = await benchmarkService.getPublicKey(inputData);
   const { status, data } = dataReturned;
   const publicKey = status === 'success' && data.status === 'ok' ? data.message : null;
