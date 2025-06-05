@@ -904,8 +904,8 @@ describe('explorerService tests', () => {
       );
     });
 
-    it('should update db if all parameters are passed correctly, height == 900024', async () => {
-      const blockHeight = 900024;
+    it('should update db if all parameters are passed correctly, height == 900025', async () => {
+      const blockHeight = 900025;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
@@ -947,7 +947,7 @@ describe('explorerService tests', () => {
               }],
             },
           ],
-          height: 900024,
+          height: 900025,
           confirmations: 1,
         },
       });
@@ -961,7 +961,7 @@ describe('explorerService tests', () => {
         sinon.match.object,
         'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
-        { $set: { generalScannedHeight: 900024 } },
+        { $set: { generalScannedHeight: 900025 } },
         { upsert: true },
       );
     });
