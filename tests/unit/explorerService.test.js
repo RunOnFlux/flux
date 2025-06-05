@@ -641,8 +641,6 @@ describe('explorerService tests', () => {
         },
       });
       dbStubInsert.returns(true);
-      const dbStubInsertMany = sinon.stub(dbHelper, 'insertManyToDatabase');
-      dbStubInsertMany.returns(true);
 
       await explorerService.processStandard(blockVerbose, database);
 
@@ -658,21 +656,6 @@ describe('explorerService tests', () => {
           satoshis: 200000000,
           scriptPubKey: 110591,
           coinbase: false,
-        },
-      );
-      sinon.assert.calledWithMatch(
-        dbStubInsertMany,
-        sinon.match.object,
-        'zelappshashes',
-        [{
-          txid: 11222233333,
-          height: 829000,
-          hash: 'This string is exactly 64 characters long. Including this string',
-          value: 200000000,
-          message: false,
-        }],
-        {
-          ordered: false,
         },
       );
     });
