@@ -15215,5 +15215,4 @@ module.exports = {
   storeAppInstallingMessage,
   getAppInstallingLocation,
   getAppsInstallingLocations,
-  decryptEnterpriseWithRSAKey,
 };
