@@ -7704,7 +7704,7 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
       fluxID: appOwner,
       appName: appSpec.name,
       message: appSpec.enterprise,
-      blockHeight: block.toString(),
+      blockHeight: block,
     });
     const dataReturned = await benchmarkService.decryptMessage(inputData);
     const { status, data } = dataReturned;
@@ -14800,7 +14800,7 @@ async function getAppPublicKey(fluxID, appName, blockHeight) {
   const inputData = JSON.stringify({
     fluxID,
     appName,
-    blockHeight: blockHeight.toString(),
+    blockHeight,
   });
   const dataReturned = await benchmarkService.getPublicKey(inputData);
   const { status, data } = dataReturned;
