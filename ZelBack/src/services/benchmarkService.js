@@ -16,8 +16,6 @@ let response = messageHelper.createErrorMessage();
 
 let benchdClient = null;
 
-const isArcane = Boolean(process.env.FLUXOS_PATH);
-
 async function buildBenchdClient() {
   // just use process.cwd() or os.homedir() or something
   const homeDirPath = path.join(__dirname, '../../../../');
@@ -155,6 +153,26 @@ async function signFluxTransactionPost(req, res) {
   });
 }
 
+/**
+ * Ask FLuxBench to decrypt message
+ * @param {object} message message object with information to be decrypted.
+ */
+async function decryptMessage(message) {
+  const rpccall = 'decryptmessage';
+  const rpcparameters = [message];
+  return executeCall(rpccall, rpcparameters);
+}
+
+/**
+ * Ask FLuxBench to get public key to encrypt enterprise content
+ * @param {object} message message object with the key.
+ */
+async function getPublicKey(message) {
+  const rpccall = 'getpublickey';
+  const rpcparameters = [message];
+  return executeCall(rpccall, rpcparameters);
+}
+
 // == Control ==
 /**
  * To request help message.
@@ -262,10 +280,8 @@ async function executeUpnpBench() {
   }
   const isUPNP = upnpService.isUPNP();
   if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
-    if (!isArcane) {
-      log.info('Calling FluxBench startMultiPortBench');
-      log.info(await startMultiPortBench());
-    }
+    log.info('Calling FluxBench startMultiPortBench');
+    log.info(await startMultiPortBench());
   }
 }
 
@@ -294,4 +310,7 @@ module.exports = {
 
   // == UPNP FluxBecnh ==
   executeUpnpBench,
+  //
+  decryptMessage,
+  getPublicKey,
 };

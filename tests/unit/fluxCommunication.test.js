@@ -1070,7 +1070,7 @@ describe('fluxCommunication tests', () => {
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
-        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
+        const verifyFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(true);
         const respondWithAppMessageStub = sinon.stub(fluxCommunicationMessagesSender, 'respondWithAppMessage').returns(true);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -1085,7 +1085,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledWith(respondWithAppMessageStub, JSON.parse(message));
       });
     }
@@ -1118,7 +1118,7 @@ describe('fluxCommunication tests', () => {
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
-        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
+        const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(true);
         const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -1133,7 +1133,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledOnceWithExactly(storeAppTemporaryMessageStub, JSON.parse(message).data, true);
       });
     }
@@ -1166,7 +1166,7 @@ describe('fluxCommunication tests', () => {
         wsserver = new WebSocket.Server({ host: '127.0.0.2', port: 16127 });
         lruRateLimitStub.returns(true);
         sinon.stub(LRUCache.prototype, 'has').returns(false);
-        const verifyOriginalFluxBroadcastStub = sinon.stub(fluxCommunicationUtils, 'verifyOriginalFluxBroadcast').returns(true);
+        const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(true);
         const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
@@ -1181,7 +1181,7 @@ describe('fluxCommunication tests', () => {
         // slight delay to let onopen to be triggered
         await serviceHelper.delay(100);
 
-        sinon.assert.calledOnceWithExactly(verifyOriginalFluxBroadcastStub, JSON.parse(message), undefined, sinon.match.number);
+        sinon.assert.calledOnceWithExactly(verifyFluxBroadcast, JSON.parse(message), undefined, sinon.match.number);
         sinon.assert.calledOnceWithExactly(storeAppRunningMessageStub, JSON.parse(message).data);
       });
     }

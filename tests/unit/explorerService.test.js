@@ -1,5 +1,4 @@
 const sinon = require('sinon');
-const { expect } = require('chai');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const appsService = require('../../ZelBack/src/services/appsService');
@@ -10,6 +9,12 @@ const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
+
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 
 describe('explorerService tests', () => {
   describe('getSenderTransactionFromDaemon tests', () => {
@@ -636,8 +641,6 @@ describe('explorerService tests', () => {
         },
       });
       dbStubInsert.returns(true);
-      const dbStubInsertMany = sinon.stub(dbHelper, 'insertManyToDatabase');
-      dbStubInsertMany.returns(true);
 
       await explorerService.processStandard(blockVerbose, database);
 
@@ -653,21 +656,6 @@ describe('explorerService tests', () => {
           satoshis: 200000000,
           scriptPubKey: 110591,
           coinbase: false,
-        },
-      );
-      sinon.assert.calledWithMatch(
-        dbStubInsertMany,
-        sinon.match.object,
-        'zelappshashes',
-        [{
-          txid: 11222233333,
-          height: 829000,
-          hash: 'This string is exactly 64 characters long. Including this string',
-          value: 200000000,
-          message: false,
-        }],
-        {
-          ordered: false,
         },
       );
     });
@@ -916,8 +904,8 @@ describe('explorerService tests', () => {
       );
     });
 
-    it('should update db if all parameters are passed correctly, height == 900024', async () => {
-      const blockHeight = 900024;
+    it('should update db if all parameters are passed correctly, height == 900025', async () => {
+      const blockHeight = 900025;
       const isInsightExplorer = true;
       dbStubUpdate.returns(true);
       checkAndRemoveApplicationInstanceStub.returns(true);
@@ -959,7 +947,7 @@ describe('explorerService tests', () => {
               }],
             },
           ],
-          height: 900024,
+          height: 900025,
           confirmations: 1,
         },
       });
@@ -973,7 +961,7 @@ describe('explorerService tests', () => {
         sinon.match.object,
         'scannedheight',
         { generalScannedHeight: { $gte: 0 } },
-        { $set: { generalScannedHeight: 900024 } },
+        { $set: { generalScannedHeight: 900025 } },
         { upsert: true },
       );
     });

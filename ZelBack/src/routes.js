@@ -331,17 +331,20 @@ module.exports = (app) => {
   app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
     appsService.getAppsTemporaryMessages(req, res);
   });
-  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), (req, res) => {
     appsService.getAppsPermanentMessages(req, res);
   });
   app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getGlobalAppsSpecifications(req, res);
   });
-  app.get('/apps/appspecifications/:appname?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/appspecifications/:appname?/:update?/:decrypt?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appowner/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationOwnerAPI(req, res);
+  });
+  app.get('/apps/apporiginalowner/:appname?', cache('30 seconds'), (req, res) => {
+    appsService.getApplicationOriginalOwner(req, res);
   });
   app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
     appsService.getAppHashes(req, res);
@@ -351,6 +354,12 @@ module.exports = (app) => {
   });
   app.get('/apps/locations', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocations(req, res);
+  });
+  app.get('/apps/installinglocation/:appname?', cache('30 seconds'), (req, res) => {
+    appsService.getAppInstallingLocation(req, res);
+  });
+  app.get('/apps/installlinglocations', cache('30 seconds'), (req, res) => {
+    appsService.getAppsInstallingLocations(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
     appsService.getAppPrice(req, res);
@@ -1059,6 +1068,9 @@ module.exports = (app) => {
   app.get('/flux/getgateway', (req, res) => {
     upnpService.getGatewayApi(req, res);
   });
+  app.get('/flux/isarcaneos', cache('1 day'), (req, res) => {
+    fluxService.isArcaneOs(req, res);
+  });
 
   app.get('/benchmark/start', (req, res) => {
     fluxService.startBenchmark(req, res);
@@ -1255,6 +1267,9 @@ module.exports = (app) => {
   app.post('/apps/appupdate', (req, res) => {
     appsService.updateAppGlobalyApi(req, res);
   });
+  app.post('/apps/getpublickey', (req, res) => {
+    appsService.getPublicKey(req, res);
+  });
 
   // POST PROTECTED API - FluxNode owner level
   app.post('/daemon/signrawtransaction', (req, res) => {
@@ -1419,5 +1434,8 @@ module.exports = (app) => {
   });
   app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
     appsService.downloadAppsFolder(req, res);
+  });
+  app.get('/explorer/issynced', cache('30 seconds'), (req, res) => {
+    explorerService.isExplorerSynced(req, res);
   });
 };

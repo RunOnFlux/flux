@@ -872,7 +872,7 @@ async function adjustExternalIP(ip) {
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
           // eslint-disable-next-line no-await-in-loop
-          const runningAppList = await appsService.getRunningAppList(app.name);
+          const runningAppList = await appsService.appLocation(app.name);
           const findMyIP = runningAppList.find((instance) => instance.ip.split(':')[0] === ip);
           if (findMyIP) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
