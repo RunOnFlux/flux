@@ -1,5 +1,4 @@
 const sinon = require('sinon');
-const { expect } = require('chai');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const appsService = require('../../ZelBack/src/services/appsService');
@@ -10,6 +9,12 @@ const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonServi
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
+
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
+
+chai.use(chaiAsPromised);
+const { expect } = chai;
 
 describe('explorerService tests', () => {
   describe('getSenderTransactionFromDaemon tests', () => {
