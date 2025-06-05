@@ -7223,6 +7223,7 @@ function specificationFormatter(appSpecification) {
     expire,
     nodes,
     staticip,
+    enterprise,
   } = appSpecification;
 
   if (!version) {
@@ -7652,20 +7653,65 @@ function specificationFormatter(appSpecification) {
     appSpecFormatted.staticip = staticip;
   }
 
+  if (version >= 8 && enterprise) {
+    enterprise = serviceHelper.ensureString(enterprise);
+    appSpecFormatted.enterprise = enterprise;
+  }
+
   return appSpecFormatted;
+}
+
+/**
+ * Decrypts content with aes key
+ * @param {string} appName application name.
+ * @param {object} encryptedData data encrypted
+ * @param {string} key private key.
+ * @param {string} iv iv of key.
+ * @param {string} name aes encryption type.
+ * @returns {object} Return enterprise object decrypted.
+ */
+async function decryptWithAESSession(appName, encryptedData, key, iv, name) {
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+
+  try {
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      key,
+      { name },
+      false,
+      ['decrypt'],
+    );
+
+    const decryptedBuffer = await crypto.subtle.decrypt(
+      {
+        name,
+        iv,
+      },
+      cryptoKey,
+      encryptedData,
+    );
+
+    const decoder = new TextDecoder();
+    return decoder.decode(decryptedBuffer);
+  } catch (error) {
+    log.error(`Error decrypting ${appName}`);
+    throw error;
+  }
 }
 
 /**
  * Decrypts app specs if they are encrypted
  * @param {object} appSpec application specifications.
  * @param {integer} daemonHeight daemon block height.
- * @param {string} owner original owner of the application.
+ * @param {string} owner owner of the app.
  * @returns {object} Return appSpecs decrypted if it is enterprise.
  */
 async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = null) {
   const appSpecs = appSpec;
   let block = daemonHeight;
-  let appOwner = owner;
+  let appOwner = null;
 
   if (!appSpecs) return appSpecs;
 
@@ -7681,15 +7727,21 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
       },
     };
     let appsQuery = null;
-    if (!appOwner) {
+    if (!owner) {
       log.info(`Searching register permanent messages for ${appSpecs.name} to get registration message`);
       appsQuery = {
         'appSpecifications.name': appSpecs.name,
         type: 'fluxappregister',
       };
       const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-      const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-      appOwner = lastAppRegistration.owner;
+      if (permanentAppMessage.length > 0) {
+        const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+        appOwner = lastAppRegistration.owner;
+      } else {
+        appOwner = appSpec.owner;
+      }
+    } else {
+      appOwner = owner;
     }
     if (!block) {
       log.info(`Searching register permanent messages for ${appSpecs.name} to get latest update`);
@@ -7722,6 +7774,126 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
     }
   }
   return appSpecs;
+}
+
+/**
+ * Decrypts app specs if they are encrypted
+ * @param {object} enterprise content to be encrypted.
+ * @param {string} appName name of the app.
+ * @param {integer} daemonHeight daemon block height.
+ * @param {string} owner original owner of the application.
+ * @returns {string} Return enteprise content encrypted.
+ */
+async function encryptEnterpriseWithAES(enterprise, appName, daemonHeight = null, owner = null) {
+  let block = daemonHeight;
+  let appOwner = owner;
+
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  let appsQuery = null;
+  if (!appOwner) {
+    log.info(`Searching register permanent messages for ${appName} to get registration message`);
+    appsQuery = {
+      'appSpecifications.name': appName,
+      type: 'fluxappregister',
+    };
+    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+    appOwner = lastAppRegistration.owner;
+  }
+  if (!block) {
+    log.info(`Searching register permanent messages for ${appName} to get latest update`);
+    appsQuery = {
+      'appSpecifications.name': appName,
+    };
+    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
+    block = lastUpdate.height;
+  }
+  const inputData = JSON.stringify({
+    fluxID: appOwner,
+    appName,
+    message: JSON.stringify(enterprise),
+    blockHeight: block,
+  });
+  const dataReturned = await benchmarkService.encryptMessage(inputData);
+  const { status, data } = dataReturned;
+  if (status === 'success') {
+    const dataParsed = JSON.parse(data);
+    const newEnterprise = status === 'success' && dataParsed.status === 'ok' ? JSON.parse(dataParsed.message) : null;
+    if (newEnterprise) {
+      return newEnterprise;
+    }
+    throw new Error('Error decrypting applications specifications.');
+  } else {
+    throw new Error('Error getting public key to encrypt app enterprise content.');
+  }
+}
+
+/**
+ * Decrypts app specs if they are encrypted
+ * @param {object} enterprise enterprise encrypted content.
+ * @param {string} appName application name.
+ * @param {integer} daemonHeight daemon block height.
+ * @param {string} owner original owner of the application
+ * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
+ * @returns {object} Return enterprise object decrypted.
+ */
+async function decryptEnterpriseWithRSAKey(enterprise, appName, daemonHeight, enterpriseKey, owner = null) {
+  const block = daemonHeight;
+  let appOwner = owner;
+
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  if (!enterpriseKey) {
+    throw new Error('enterpriseKey is mandatory for enterprise Apps.');
+  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  let appsQuery = null;
+  if (!appOwner) {
+    log.info(`Searching register permanent messages for ${appName} to get registration message`);
+    appsQuery = {
+      'appSpecifications.name': appName,
+      type: 'fluxappregister',
+    };
+    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+    appOwner = lastAppRegistration.owner;
+  }
+  const inputData = JSON.stringify({
+    fluxID: appOwner,
+    appName,
+    message: enterpriseKey,
+    blockHeight: block,
+  });
+  const dataReturned = await benchmarkService.decryptRSAMessage(inputData);
+  const { status, data } = dataReturned;
+  if (status === 'success') {
+    const dataParsed = JSON.parse(data);
+    const aesKey = status === 'success' && dataParsed.status === 'ok' ? JSON.parse(dataParsed.message) : null;
+    const decryptedEnterprise = JSON.parse(await decryptWithAESSession(appName, enterprise, aesKey.key, aesKey.iv, aesKey.name));
+    if (decryptedEnterprise) {
+      return decryptedEnterprise;
+    }
+    throw new Error('Error decrypting enterprise object.');
+  } else {
+    throw new Error('Error getting decrypted AES key.');
+  }
 }
 
 /**
@@ -11643,6 +11815,12 @@ async function getAppFiatAndFluxPrice(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+      appSpecification = checkAndDecryptAppSpecs(appSpecification, daemonHeight);
       const appSpecFormatted = specificationFormatter(appSpecification);
 
       // verifications skipped. This endpoint is only for price evaluation
@@ -11657,11 +11835,6 @@ async function getAppFiatAndFluxPrice(req, res) {
           _id: 0,
         },
       };
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
 
       if (await checkFreeAppUpdate(appSpecFormatted, daemonHeight)) {
         const price = {
@@ -11901,9 +12074,7 @@ async function verifyAppRegistrationParameters(req, res) {
     try {
       const processedBody = serviceHelper.ensureObject(body);
       let appSpecification = processedBody;
-
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -11911,7 +12082,20 @@ async function verifyAppRegistrationParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      appSpecFormatted = checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
+      const encryptedEnterpriseKey = req.headers.enterpriseKey;
+      let enterprise = null;
+      let newEnterpriseEncrypted = null;
+      if (appSpecification.version >= 8 && appSpecification.enterprise) {
+        if (!encryptedEnterpriseKey) {
+          throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+        }
+        enterprise = await decryptEnterpriseWithRSAKey(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey, appSpecification.owner);
+        appSpecification.contacts = enterprise.contacts;
+        appSpecification.compose = enterprise.compose;
+        newEnterpriseEncrypted = await encryptEnterpriseWithAES(enterprise, appSpecification.name, daemonHeight, appSpecification.owner);
+      }
+
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -11928,6 +12112,12 @@ async function verifyAppRegistrationParameters(req, res) {
 
       // check if name is not yet registered
       await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+      if (newEnterpriseEncrypted) {
+        appSpecFormatted.enterprise = newEnterpriseEncrypted;
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
+      }
 
       // app is valid and can be registered
       // respond with formatted specifications
@@ -11960,9 +12150,7 @@ async function verifyAppUpdateParameters(req, res) {
     try {
       const processedBody = serviceHelper.ensureObject(body);
       let appSpecification = processedBody;
-
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      let appSpecFormatted = specificationFormatter(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -11970,7 +12158,19 @@ async function verifyAppUpdateParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight);
+      const encryptedEnterpriseKey = req.headers.enterpriseKey;
+      let enterprise = null;
+      let newEnterpriseEncrypted = null;
+      if (appSpecification.version >= 8 && appSpecification.enterprise) {
+        if (!encryptedEnterpriseKey) {
+          throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+        }
+        enterprise = await decryptEnterpriseWithRSAKey(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey);
+        appSpecification.contacts = enterprise.contacts;
+        appSpecification.compose = enterprise.compose;
+        newEnterpriseEncrypted = await encryptEnterpriseWithAES(enterprise, appSpecification.name, daemonHeight);
+      }
+      const appSpecFormatted = specificationFormatter(appSpecification);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -11988,6 +12188,12 @@ async function verifyAppUpdateParameters(req, res) {
       // check if name is not yet registered
       const timestamp = Date.now();
       await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+      if (newEnterpriseEncrypted) {
+        appSpecFormatted.enterprise = newEnterpriseEncrypted;
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
+      }
 
       // app is valid and can be registered
       // respond with formatted specifications
@@ -15009,4 +15215,5 @@ module.exports = {
   storeAppInstallingMessage,
   getAppInstallingLocation,
   getAppsInstallingLocations,
+  decryptEnterpriseWithRSAKey,
 };
