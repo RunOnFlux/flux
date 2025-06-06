@@ -7665,12 +7665,11 @@ function specificationFormatter(appSpecification) {
  * Decrypts content with aes key
  * @param {string} appName application name.
  * @param {object} encryptedData data encrypted
- * @param {string} key private key.
+ * @param {string} password password for the key.
  * @param {string} iv iv of key.
- * @param {string} name aes encryption type.
  * @returns {object} Return enterprise object decrypted.
  */
-async function decryptWithAESSession(appName, encryptedData, key, iv, name) {
+async function decryptWithAESSession(appName, encryptedData, key, iv) {
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
   }
@@ -7679,14 +7678,14 @@ async function decryptWithAESSession(appName, encryptedData, key, iv, name) {
     const cryptoKey = await crypto.subtle.importKey(
       'raw',
       key,
-      { name },
+      { name: 'AES-GCM' },
       false,
       ['decrypt'],
     );
 
     const decryptedBuffer = await crypto.subtle.decrypt(
       {
-        name,
+        name: 'AES-GCM',
         iv,
       },
       cryptoKey,
@@ -7697,6 +7696,49 @@ async function decryptWithAESSession(appName, encryptedData, key, iv, name) {
     return decoder.decode(decryptedBuffer);
   } catch (error) {
     log.error(`Error decrypting ${appName}`);
+    throw error;
+  }
+}
+/**
+ * Encrypts content with aes key
+ * @param {string} appName application name.
+ * @param {object} encryptedData data encrypted
+ * @param {string} key private key.
+ * @param {string} iv iv of key.
+ * @returns {object} Return enterprise object decrypted.
+ */
+async function encryptWithAESSession(appName, decryptedData, key, iv) {
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  try {
+    // Convert message to bytes
+    const encoder = new TextEncoder();
+    const messageBytes = encoder.encode(decryptedData);
+
+    // Import the key
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      key,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt'],
+    );
+
+    // Encrypt the data
+    const encryptedBuffer = await crypto.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv,
+      },
+      cryptoKey,
+      messageBytes,
+    );
+
+    const decoder = new TextDecoder();
+    return decoder.decode(encryptedBuffer);
+  } catch (error) {
+    log.error(`Error encrypting ${appName}`);
     throw error;
   }
 }
@@ -7839,15 +7881,14 @@ async function encryptEnterpriseWithAES(enterprise, appName, daemonHeight = null
 }
 
 /**
- * Decrypts app specs if they are encrypted
- * @param {object} enterprise enterprise encrypted content.
+ * Decrypts aes key
  * @param {string} appName application name.
  * @param {integer} daemonHeight daemon block height.
  * @param {string} owner original owner of the application
  * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
  * @returns {object} Return enterprise object decrypted.
  */
-async function decryptEnterpriseWithRSAKey(enterprise, appName, daemonHeight, enterpriseKey, owner = null) {
+async function decryptAESKeyWithRSAKey(appName, daemonHeight, enterpriseKey, owner = null) {
   const block = daemonHeight;
   let appOwner = owner;
 
@@ -7886,14 +7927,63 @@ async function decryptEnterpriseWithRSAKey(enterprise, appName, daemonHeight, en
   if (status === 'success') {
     const dataParsed = JSON.parse(data);
     const aesKey = status === 'success' && dataParsed.status === 'ok' ? JSON.parse(dataParsed.message) : null;
-    const decryptedEnterprise = JSON.parse(await decryptWithAESSession(appName, enterprise, aesKey.key, aesKey.iv, aesKey.name));
-    if (decryptedEnterprise) {
-      return decryptedEnterprise;
+    if (aesKey) {
+      if (!aesKey.key || !aesKey.iv) {
+        throw new Error('AES key not valid.');
+      }
+      return aesKey;
     }
-    throw new Error('Error decrypting enterprise object.');
+    throw new Error('Error decrypting AES key.');
   } else {
     throw new Error('Error getting decrypted AES key.');
   }
+}
+
+/**
+ * Decrypts app specs from api request
+ * @param {object} enterprise enterprise encrypted content.
+ * @param {string} appName application name.
+ * @param {integer} daemonHeight daemon block height.
+ * @param {string} owner original owner of the application
+ * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
+ * @returns {object} Return enterprise object decrypted.
+ */
+async function decryptEnterpriseFromSession(enterprise, appName, daemonHeight, enterpriseKey, owner = null) {
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  if (!enterpriseKey) {
+    throw new Error('enterpriseKey is mandatory for enterprise Apps.');
+  }
+  const aesKey = await decryptAESKeyWithRSAKey(appName, daemonHeight, enterpriseKey, owner);
+  const decryptedEnterprise = JSON.parse(await decryptWithAESSession(appName, enterprise, aesKey.key, aesKey.iv));
+  if (decryptedEnterprise) {
+    return decryptedEnterprise;
+  }
+  throw new Error('Error decrypting enterprise object.');
+}
+
+/**
+ * Encrypts app specs for api request
+ * @param {object} enterprise enterprise encrypted content.
+ * @param {string} appName application name.
+* @param {integer} daemonHeight daemon block height.
+ * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
+ * @returns {object} Return enterprise object decrypted.
+ */
+async function encryptEnterpriseFromSession(enterprise, appName, daemonHeight, enterpriseKey) {
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  if (!enterpriseKey) {
+    throw new Error('enterpriseKey is mandatory for enterprise Apps.');
+  }
+  const aesKey = await decryptAESKeyWithRSAKey(appName, daemonHeight, enterpriseKey);
+  const encryptedEnterprise = await encryptWithAESSession(appName, enterprise, aesKey.key, aesKey.iv);
+  if (encryptedEnterprise) {
+    return encryptedEnterprise;
+  }
+  throw new Error('Error encrypting enterprise object.');
 }
 
 /**
@@ -10029,22 +10119,48 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Application not found');
     }
 
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+    const daemonHeight = syncStatus.data.height;
+
     if (specifications.version >= 8 && specifications.enterprise) {
+      const encryptedEnterpriseKey = req.headers.enterpriseKey;
       if (decrypt) {
         authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
         if (!authorized) {
           const errMessage = messageHelper.errUnauthorizedMessage();
           return res.json(errMessage);
         }
-        specifications.enterprise = true;
+        if (!encryptedEnterpriseKey) {
+          throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+        }
+        specifications.enterprise = {
+          contacts: specifications.contacts,
+          compose: specifications.compose,
+        };
+        specifications.contacts = [];
+        specifications.compose = [];
+        specifications.enterprise = await encryptEnterpriseFromSession(specifications.enterprise, specifications.name, daemonHeight, encryptedEnterpriseKey);
       }
       authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
       if (authorized) {
+        if (!encryptedEnterpriseKey) {
+          throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+        }
         // eslint-disable-next-line no-restricted-syntax
         for (const component of specifications.compose) {
           component.environmentParameters = [];
           component.repoauth = '';
         }
+        specifications.enterprise = {
+          contacts: specifications.contacts,
+          compose: specifications.compose,
+        };
+        specifications.enterprise = await encryptEnterpriseFromSession(specifications.enterprise, specifications.name, daemonHeight, encryptedEnterpriseKey);
+        specifications.contacts = [];
+        specifications.compose = [];
       } else {
         specifications.compose = [];
         specifications.contacts = [];
@@ -12089,7 +12205,7 @@ async function verifyAppRegistrationParameters(req, res) {
         if (!encryptedEnterpriseKey) {
           throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
         }
-        enterprise = await decryptEnterpriseWithRSAKey(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey, appSpecification.owner);
+        enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey, appSpecification.owner);
         appSpecification.contacts = enterprise.contacts;
         appSpecification.compose = enterprise.compose;
         newEnterpriseEncrypted = await encryptEnterpriseWithAES(enterprise, appSpecification.name, daemonHeight, appSpecification.owner);
@@ -12165,7 +12281,7 @@ async function verifyAppUpdateParameters(req, res) {
         if (!encryptedEnterpriseKey) {
           throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
         }
-        enterprise = await decryptEnterpriseWithRSAKey(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey);
+        enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey);
         appSpecification.contacts = enterprise.contacts;
         appSpecification.compose = enterprise.compose;
         newEnterpriseEncrypted = await encryptEnterpriseWithAES(enterprise, appSpecification.name, daemonHeight);
