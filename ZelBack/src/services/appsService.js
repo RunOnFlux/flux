@@ -7666,7 +7666,6 @@ function specificationFormatter(appSpecification) {
  * @param {string} appName application name.
  * @param {String} base64NonceCiphertextTag base64 encoded encrypted data
  * @param {String} base64AesKey base64 encoded AesKey
- * @param {string} iv iv of key.
  * @returns {any} decrypted data
  */
 function decryptWithAesSession(appName, base64NonceCiphertextTag, base64AesKey) {
