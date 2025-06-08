@@ -7810,7 +7810,7 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
  * @param {string} owner original owner of the application.
  * @returns {string} Return enteprise content encrypted.
  */
-async function encryptEnterpriseWithAES(enterprise, appName, daemonHeight = null, owner = null) {
+async function encryptEnterpriseWithAes(enterprise, appName, daemonHeight = null, owner = null) {
   let block = daemonHeight;
   let appOwner = owner;
 
@@ -12201,7 +12201,7 @@ async function verifyAppRegistrationParameters(req, res) {
       enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey, appSpecification.owner);
       appSpecification.contacts = enterprise.contacts;
       appSpecification.compose = enterprise.compose;
-      newEnterpriseEncrypted = await encryptEnterpriseWithAES(enterprise, appSpecification.name, daemonHeight, appSpecification.owner);
+      newEnterpriseEncrypted = await encryptEnterpriseWithAes(enterprise, appSpecification.name, daemonHeight, appSpecification.owner);
     }
 
     const appSpecFormatted = specificationFormatter(appSpecification);
@@ -12276,7 +12276,7 @@ async function verifyAppUpdateParameters(req, res) {
         enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey);
         appSpecification.contacts = enterprise.contacts;
         appSpecification.compose = enterprise.compose;
-        newEnterpriseEncrypted = await encryptEnterpriseWithAES(enterprise, appSpecification.name, daemonHeight);
+        newEnterpriseEncrypted = await encryptEnterpriseWithAes(enterprise, appSpecification.name, daemonHeight);
       }
       const appSpecFormatted = specificationFormatter(appSpecification);
 
