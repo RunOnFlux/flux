@@ -7664,36 +7664,30 @@ function specificationFormatter(appSpecification) {
 /**
  * Decrypts content with aes key
  * @param {string} appName application name.
- * @param {object} encryptedData data encrypted
- * @param {string} password password for the key.
+ * @param {String} base64NonceCiphertextTag base64 encoded encrypted data
+ * @param {String} base64AesKey base64 encoded AesKey
  * @param {string} iv iv of key.
- * @returns {object} Return enterprise object decrypted.
+ * @returns {any} decrypted data
  */
-async function decryptWithAESSession(appName, encryptedData, key, iv) {
+function decryptWithAesSession(appName, base64NonceCiphertextTag, base64AesKey) {
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
   }
 
   try {
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw',
-      key,
-      { name: 'AES-GCM' },
-      false,
-      ['decrypt'],
-    );
+    const key = Buffer.from(base64AesKey, 'base64');
+    const nonceCiphertextTag = Buffer.from(base64NonceCiphertextTag, 'base64');
 
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv,
-      },
-      cryptoKey,
-      encryptedData,
-    );
+    const nonce = nonceCiphertextTag.subarray(0, 12);
+    const ciphertext = nonceCiphertextTag.subarray(12, -16);
+    const tag = nonceCiphertextTag.subarray(-16);
 
-    const decoder = new TextDecoder();
-    return decoder.decode(decryptedBuffer);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+    decipher.setAuthTag(tag);
+
+    const decrypted = decipher.update(ciphertext, '', 'utf8') + decipher.final('utf8');
+
+    return decrypted;
   } catch (error) {
     log.error(`Error decrypting ${appName}`);
     throw error;
@@ -7701,42 +7695,32 @@ async function decryptWithAESSession(appName, encryptedData, key, iv) {
 }
 /**
  * Encrypts content with aes key
- * @param {string} appName application name.
- * @param {object} encryptedData data encrypted
- * @param {string} key private key.
- * @param {string} iv iv of key.
- * @returns {object} Return enterprise object decrypted.
+ * @param {String} appName application name
+ * @param {any} dataToEncrypt data to encrypt
+ * @param {String} base64AesKey encoded AES key
+ * @returns {String} Return base64 encrypted nonce + cyphertext + tag
  */
-async function encryptWithAESSession(appName, decryptedData, key, iv) {
+function encryptWithAesSession(appName, dataToEncrypt, base64AesKey) {
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
   }
   try {
-    // Convert message to bytes
-    const encoder = new TextEncoder();
-    const messageBytes = encoder.encode(decryptedData);
+    const key = Buffer.from(base64AesKey, 'base64');
+    const nonce = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
 
-    // Import the key
-    const cryptoKey = await crypto.subtle.importKey(
-      'raw',
-      key,
-      { name: 'AES-GCM' },
-      false,
-      ['encrypt'],
-    );
+    const encryptedStart = cipher.update(dataToEncrypt, 'utf8');
+    const encryptedEnd = cipher.final();
 
-    // Encrypt the data
-    const encryptedBuffer = await crypto.subtle.encrypt(
-      {
-        name: 'AES-GCM',
-        iv,
-      },
-      cryptoKey,
-      messageBytes,
-    );
+    const nonceCyphertextTag = Buffer.concat([
+      nonce,
+      encryptedStart,
+      encryptedEnd,
+      cipher.getAuthTag(),
+    ]);
 
-    const decoder = new TextDecoder();
-    return decoder.decode(encryptedBuffer);
+    const base64NonceCyphertextTag = nonceCyphertextTag.toString('base64');
+    return base64NonceCyphertextTag;
   } catch (error) {
     log.error(`Error encrypting ${appName}`);
     throw error;
@@ -7888,7 +7872,7 @@ async function encryptEnterpriseWithAES(enterprise, appName, daemonHeight = null
  * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
  * @returns {object} Return enterprise object decrypted.
  */
-async function decryptAESKeyWithRSAKey(appName, daemonHeight, enterpriseKey, owner = null) {
+async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, owner = null) {
   const block = daemonHeight;
   let appOwner = owner;
 
@@ -7926,12 +7910,9 @@ async function decryptAESKeyWithRSAKey(appName, daemonHeight, enterpriseKey, own
   const { status, data } = dataReturned;
   if (status === 'success') {
     const dataParsed = JSON.parse(data);
-    const aesKey = status === 'success' && dataParsed.status === 'ok' ? JSON.parse(dataParsed.message) : null;
-    if (aesKey) {
-      if (!aesKey.key || !aesKey.iv) {
-        throw new Error('AES key not valid.');
-      }
-      return aesKey;
+    const base64AesKey = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
+    if (base64AesKey) {
+      return base64AesKey;
     }
     throw new Error('Error decrypting AES key.');
   } else {
@@ -7940,23 +7921,40 @@ async function decryptAESKeyWithRSAKey(appName, daemonHeight, enterpriseKey, own
 }
 
 /**
- * Decrypts app specs from api request
- * @param {object} enterprise enterprise encrypted content.
- * @param {string} appName application name.
- * @param {integer} daemonHeight daemon block height.
+ * Decrypts app specs from api request. It is expected that the caller of this
+ * endpoint has aes-256-gcm encrypted the app specs with a random aes key,
+ * encrypted with the RSA public key received via prior api call.
+ *
+ * The enterpise field is in this format:
+ * base64(nonce + aes-256-gcm(base64(json(enterprise specs))) + authTag)
+ *
+ * We do this so that we don't have to double JSON encode, and we have the
+ * nonce + cyphertext + tag all in one entry
+ *
+ * The enterpriseKey is in this format:
+ * base64(rsa(base64(aes key bytes))))
+ *
+ * We base64 encode the key so that were not passing around raw bytes
+ *
+ * @param {object} encrypted enterprise encrypted content
+ * @param {string} appName application name
+ * @param {integer} daemonHeight daemon block height
  * @param {string} owner original owner of the application
- * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
+ * @param {string} enterpriseKey RSA encrypted AES key use to encrypt the enterprise field
  * @returns {object} Return enterprise object decrypted.
  */
-async function decryptEnterpriseFromSession(enterprise, appName, daemonHeight, enterpriseKey, owner = null) {
+async function decryptEnterpriseFromSession(encrypted, appName, daemonHeight, enterpriseKey, owner = null) {
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
   }
   if (!enterpriseKey) {
     throw new Error('enterpriseKey is mandatory for enterprise Apps.');
   }
-  const aesKey = await decryptAESKeyWithRSAKey(appName, daemonHeight, enterpriseKey, owner);
-  const decryptedEnterprise = JSON.parse(await decryptWithAESSession(appName, enterprise, aesKey.key, aesKey.iv));
+  const base64AesKey = await decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, owner);
+  const base64JsonEnterprise = decryptWithAesSession(appName, encrypted, base64AesKey);
+  const jsonEnterprise = Buffer.fromString(base64JsonEnterprise, 'base64').toString('utf-8');
+  const decryptedEnterprise = JSON.parse(jsonEnterprise);
+
   if (decryptedEnterprise) {
     return decryptedEnterprise;
   }
@@ -7978,8 +7976,8 @@ async function encryptEnterpriseFromSession(enterprise, appName, daemonHeight, e
   if (!enterpriseKey) {
     throw new Error('enterpriseKey is mandatory for enterprise Apps.');
   }
-  const aesKey = await decryptAESKeyWithRSAKey(appName, daemonHeight, enterpriseKey);
-  const encryptedEnterprise = await encryptWithAESSession(appName, enterprise, aesKey.key, aesKey.iv);
+  const base64AesKey = await decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey);
+  const encryptedEnterprise = encryptWithAesSession(appName, enterprise, base64AesKey);
   if (encryptedEnterprise) {
     return encryptedEnterprise;
   }
@@ -8764,7 +8762,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const intervals = appPrices.filter((interval) => interval.height < height);
           const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
           if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
-          // check if value is optimal or higher
+            // check if value is optimal or higher
             let appPrice = await appPricePerMonth(specifications, height, appPrices);
             const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
             const expireIn = specifications.expire || defaultExpire;
@@ -8786,7 +8784,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${JSON.stringify(priceSpecifications)} - specs ${JSON.stringify(specifications)}`);
             }
           } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
-          // appSpecifications.name as identifier
+            // appSpecifications.name as identifier
             const db = dbHelper.databaseConnection();
             const database = db.db(config.database.appsglobal.database);
             const projection = {
@@ -8801,7 +8799,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             const findPermAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
             let latestPermanentRegistrationMessage;
             findPermAppMessage.forEach((foundMessage) => {
-            // has to be registration message
+              // has to be registration message
               if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
                 if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
                   latestPermanentRegistrationMessage = foundMessage;
@@ -8818,7 +8816,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             };
             const findPermAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
             findPermAppMessageB.forEach((foundMessage) => {
-            // has to be registration message
+              // has to be registration message
               if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
                 if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
                   latestPermanentRegistrationMessage = foundMessage;
@@ -9232,7 +9230,7 @@ async function checkAndSyncAppHashes() {
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     // get flux app hashes that do not have a message;
-    const query = { };
+    const query = {};
     const projection = {
       projection: {
         _id: 0,
@@ -12177,78 +12175,72 @@ async function redeployAPI(req, res) {
 
 /**
  * To verify app registration parameters. Checks for correct format, specs and non-duplication of values/resources.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
+ * @param {express.Request} req Request
+ * @param {express.Response} res Response
+ * @returns {Promise<void>}
  */
 async function verifyAppRegistrationParameters(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
-      appSpecification = serviceHelper.ensureObject(appSpecification);
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    let appSpecification = processedBody;
+    appSpecification = serviceHelper.ensureObject(appSpecification);
 
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      const encryptedEnterpriseKey = req.headers.enterpriseKey;
-      let enterprise = null;
-      let newEnterpriseEncrypted = null;
-      if (appSpecification.version >= 8 && appSpecification.enterprise) {
-        if (!encryptedEnterpriseKey) {
-          throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-        }
-        enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey, appSpecification.owner);
-        appSpecification.contacts = enterprise.contacts;
-        appSpecification.compose = enterprise.compose;
-        newEnterpriseEncrypted = await encryptEnterpriseWithAES(enterprise, appSpecification.name, daemonHeight, appSpecification.owner);
-      }
-
-      const appSpecFormatted = specificationFormatter(appSpecification);
-
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets) {
-            // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
-          }
-        }
-      }
-
-      // check if name is not yet registered
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
-
-      if (newEnterpriseEncrypted) {
-        appSpecFormatted.enterprise = newEnterpriseEncrypted;
-        appSpecFormatted.contacts = [];
-        appSpecFormatted.compose = [];
-      }
-
-      // app is valid and can be registered
-      // respond with formatted specifications
-      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
-      return res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
     }
-  });
+    const daemonHeight = syncStatus.data.height;
+
+    const encryptedEnterpriseKey = req.headers.enterpriseKey;
+    let enterprise = null;
+    let newEnterpriseEncrypted = null;
+    if (appSpecification.version >= 8 && appSpecification.enterprise) {
+      if (!encryptedEnterpriseKey) {
+        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+      }
+      enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey, appSpecification.owner);
+      appSpecification.contacts = enterprise.contacts;
+      appSpecification.compose = enterprise.compose;
+      newEnterpriseEncrypted = await encryptEnterpriseWithAES(enterprise, appSpecification.name, daemonHeight, appSpecification.owner);
+    }
+
+    const appSpecFormatted = specificationFormatter(appSpecification);
+
+    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+    if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponent of appSpecFormatted.compose) {
+        if (appComponent.secrets) {
+          // eslint-disable-next-line no-await-in-loop
+          await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+        }
+      }
+    }
+
+    // check if name is not yet registered
+    await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+    if (newEnterpriseEncrypted) {
+      appSpecFormatted.enterprise = newEnterpriseEncrypted;
+      appSpecFormatted.contacts = [];
+      appSpecFormatted.compose = [];
+    }
+
+    // app is valid and can be registered
+    // respond with formatted specifications
+    const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+    res.json(respondPrice);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 /**
