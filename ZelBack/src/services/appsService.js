@@ -7808,7 +7808,7 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
  * @param {string} appName name of the app.
  * @param {integer} daemonHeight daemon block height.
  * @param {string} owner original owner of the application.
- * @returns {string} Return enteprise content encrypted.
+ * @returns {Promise<string>} Return enteprise content encrypted.
  */
 async function encryptEnterpriseWithAes(enterprise, appName, daemonHeight = null, owner = null) {
   let block = daemonHeight;
@@ -7941,7 +7941,7 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
  * @param {integer} daemonHeight daemon block height
  * @param {string} owner original owner of the application
  * @param {string} enterpriseKey RSA encrypted AES key use to encrypt the enterprise field
- * @returns {object} Return enterprise object decrypted.
+ * @returns {<Promise<object>} Return enterprise object decrypted.
  */
 async function decryptEnterpriseFromSession(encrypted, appName, daemonHeight, enterpriseKey, owner = null) {
   if (!isArcane) {
