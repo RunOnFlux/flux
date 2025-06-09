@@ -5512,7 +5512,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
         }
       }
 
-      if (version >= 7) {
+      if (version === 7) {
         if (typeof appComponent.secrets !== 'string') {
           throw new Error(`Secrets for Flux App component ${appComponent.name} are invalid`);
         }
