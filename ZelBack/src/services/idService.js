@@ -88,98 +88,101 @@ async function confirmNodeTierHardware() {
 }
 
 /**
+ * To return the message that should be signed if all is ok.
+ * @param {object} res Response.
+ * @returns {string} message that should be signed to login.
+ */
+let firstLoginPhraseExecution = true;
+async function getMessageToLogin(res, message = null) {
+  // check db
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.local.database);
+  const collection = config.database.local.collections.activeLoginPhrases;
+  const query = { loginPhrase: 'TestLoginPhraseForDBTest' };
+  const projection = {};
+  await dbHelper.findOneInDatabase(database, collection, query, projection); // fast find call for db test
+
+  // check synthing availability
+  if (!syncthingService.isRunning() && !firstLoginPhraseExecution) {
+    if (syncthingWorking) {
+      syncthingWorking = false;
+    } else {
+      throw new Error('Syncthing is not running properly');
+    }
+  } else {
+    syncthingWorking = true;
+  }
+  firstLoginPhraseExecution = false;
+  // check docker availablility
+  await dockerService.dockerListImages();
+  // check Node Hardware Requirements are ok.
+  const hwPassed = await confirmNodeTierHardware();
+  if (hwPassed === false) {
+    throw new Error('Node hardware requirements not met');
+  }
+  // check DOS state (contains daemon checks)
+  const dosState = fluxNetworkHelper.getDOSState();
+  if (dosState.status === 'error') {
+    const errorMessage = 'Unable to check DOS state';
+    const errMessage = messageHelper.createErrorMessage(errorMessage);
+    res.json(errMessage);
+    return;
+  }
+  if (dosState.status === 'success') {
+    // nodeHardwareSpecsGood is not part of response yet
+    if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
+      let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
+      if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
+        errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
+      }
+      if (dosState.data.nodeHardwareSpecsGood === false) {
+        errMessage = messageHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
+      }
+      res.json(errMessage);
+      return;
+    }
+  }
+
+  // check Apps DOS state
+  const dosAppsState = appsService.getAppsDOSState();
+  if (dosAppsState.status === 'success') {
+    // nodeHardwareSpecsGood is not part of response yet
+    if (dosAppsState.data.dosState > 10) {
+      const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
+      log.error(errMessage);
+      res.json(errMessage);
+      return;
+    }
+  }
+
+  const timestamp = message ? +message.substring(0, 13) : Date.now();
+  const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
+  const phrase = message || timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  // insert to db
+  const newLoginPhrase = {
+    loginPhrase: phrase,
+    createdAt: new Date(timestamp),
+    expireAt: new Date(validTill),
+  };
+  const value = newLoginPhrase;
+  await dbHelper.insertOneToDatabase(database, collection, value);
+  // eslint-disable-next-line consistent-return
+  return phrase;
+}
+
+/**
  * To return a JSON response with the user's login phrase.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
-let firstLoginPhraseExecution = true;
 async function loginPhrase(req, res) {
   try {
-    // check db
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.local.database);
-    const collection = config.database.local.collections.activeLoginPhrases;
-    const query = { loginPhrase: 'TestLoginPhraseForDBTest' };
-    const projection = {};
-    await dbHelper.findOneInDatabase(database, collection, query, projection); // fast find call for db test
-
-    // check synthing availability
-    if (!syncthingService.isRunning() && !firstLoginPhraseExecution) {
-      if (syncthingWorking) {
-        syncthingWorking = false;
-      } else {
-        throw new Error('Syncthing is not running properly');
-      }
-    } else {
-      syncthingWorking = true;
+    const messageToSign = await getMessageToLogin(res);
+    if (messageToSign) {
+      const phraseResponse = messageHelper.createDataMessage(loginPhrase);
+      res.json(phraseResponse);
     }
-    firstLoginPhraseExecution = false;
-    // check docker availablility
-    await dockerService.dockerListImages();
-    // check Node Hardware Requirements are ok.
-    const hwPassed = await confirmNodeTierHardware();
-    if (hwPassed === false) {
-      throw new Error('Node hardware requirements not met');
-    }
-    // check DOS state (contains daemon checks)
-    const dosState = fluxNetworkHelper.getDOSState();
-    if (dosState.status === 'error') {
-      const errorMessage = 'Unable to check DOS state';
-      const errMessage = messageHelper.createErrorMessage(errorMessage);
-      res.json(errMessage);
-      return;
-    }
-    if (dosState.status === 'success') {
-      // nodeHardwareSpecsGood is not part of response yet
-      if (dosState.data.dosState > 10 || dosState.data.dosMessage !== null || dosState.data.nodeHardwareSpecsGood === false) {
-        let errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'DOS', dosState.data.dosState);
-        if (dosState.data.dosMessage !== 'Flux IP detection failed' && dosState.data.dosMessage !== 'Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.') {
-          errMessage = messageHelper.createErrorMessage(dosState.data.dosMessage, 'CONNERROR', dosState.data.dosState);
-        }
-        if (dosState.data.nodeHardwareSpecsGood === false) {
-          errMessage = messageHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
-        }
-        res.json(errMessage);
-        return;
-      }
-    }
-
-    // check Apps DOS state
-    const dosAppsState = appsService.getAppsDOSState();
-    if (dosAppsState.status === 'success') {
-      // nodeHardwareSpecsGood is not part of response yet
-      if (dosAppsState.data.dosState > 10) {
-        const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
-        log.error(errMessage);
-        res.json(errMessage);
-        return;
-      }
-    }
-
-    const timestamp = Date.now();
-    const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
-    const phrase = timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-
-    /* const activeLoginPhrases = [
-       {
-         loginPhrase: 1565356121335e9obp7h17bykbbvub0ts488wnnmd12fe1pq88mq0v,
-         createdAt: 2019-08-09T13:08:41.335Z,
-         expireAt: 2019-08-09T13:23:41.335Z
-       }
-    ] */
-    // insert to db
-    const newLoginPhrase = {
-      loginPhrase: phrase,
-      createdAt: new Date(timestamp),
-      expireAt: new Date(validTill),
-    };
-    const value = newLoginPhrase;
-    await dbHelper.insertOneToDatabase(database, collection, value);
-
-    // all is ok
-    const phraseResponse = messageHelper.createDataMessage(phrase);
-    res.json(phraseResponse);
   } catch (error) {
     log.error(error);
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
@@ -279,7 +282,14 @@ async function verifyLogin(req, res) {
       const collection = config.database.local.collections.activeLoginPhrases;
       const query = { loginPhrase: message };
       const projection = {};
-      const result = await dbHelper.findOneInDatabase(database, collection, query, projection);
+      let result = await dbHelper.findOneInDatabase(database, collection, query, projection);
+      if (!result) {
+        const messageToSign = await getMessageToLogin(res, message);
+        if (!messageToSign) {
+          return;
+        }
+        result = await dbHelper.findOneInDatabase(database, collection, query, projection);
+      }
 
       if (result) {
         // It is present in our database
