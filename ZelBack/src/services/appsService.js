@@ -7840,7 +7840,10 @@ async function decryptEnterpriseFromSession(encrypted, appName, daemonHeight, en
  * @returns {Promise<object>} Return appSpecs decrypted if it is enterprise.
  */
 async function checkAndDecryptAppSpecs(appSpec, options = {}) {
-  const appSpecs = appSpec;
+  // move to structuredClone when we are at > nodeJS 17.0.0
+  // we do this so we can have a copy of both formatted and decrypted
+  const appSpecs = JSON.parse(JSON.stringify(appSpec));
+
   let block = options.daemonHeight || null;
   let appOwner = options.owner || null;
 
