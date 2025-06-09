@@ -8062,11 +8062,6 @@ async function registerAppGlobalyApi(req, res) {
     }
     const daemonHeight = syncStatus.data.height;
 
-    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-      // we need to verify the specs before they are decrypted
-      await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
-    }
-
     const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
       appSpecFormatted,
       {
@@ -8091,11 +8086,9 @@ async function registerAppGlobalyApi(req, res) {
     // check if name is not yet registered
     await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted);
 
-    if (appSpecFormattedDecrypted.version < 8) {
-      // check if zelid owner is correct ( done in message verification )
-      // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
-      await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
-    }
+    // check if zelid owner is correct ( done in message verification )
+    // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
+    await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
 
     // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
     // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
