@@ -7790,8 +7790,11 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
     const { status, data } = dataReturned;
     if (status === 'success') {
       const dataParsed = JSON.parse(data);
-      const enterprise = status === 'success' && dataParsed.status === 'ok' ? JSON.parse(dataParsed.message) : null;
-      if (enterprise) {
+      const base64JsonEnterprise = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
+
+      if (base64JsonEnterprise) {
+        const jsonEnterprise = Buffer.from(base64JsonEnterprise, 'base64').toString('utf-8');
+        const enterprise = JSON.parse(jsonEnterprise);
         appSpecs.compose = enterprise.compose;
         appSpecs.contacts = enterprise.contacts;
       } else {
@@ -7846,10 +7849,14 @@ async function encryptEnterpriseWithAes(enterprise, appName, daemonHeight = null
     const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
     block = lastUpdate.height;
   }
+
+  const jsonEnterprise = JSON.stringify(enterprise);
+  const base64JsonEnterprise = Buffer.from(jsonEnterprise).toString('base64');
+
   const inputData = JSON.stringify({
     fluxID: appOwner,
     appName,
-    message: JSON.stringify(enterprise),
+    message: base64JsonEnterprise,
     blockHeight: block,
   });
   const dataReturned = await benchmarkService.encryptMessage(inputData);
