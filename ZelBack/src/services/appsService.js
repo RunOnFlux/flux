@@ -8072,15 +8072,6 @@ async function registerAppGlobalyApi(req, res) {
       throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
     }
 
-    let encryptedEnterpriseKey = null;
-
-    if (typeVersion >= 8 && appSpecification.enterprise) {
-      encryptedEnterpriseKey = req.headers['enterprise-key'];
-      if (!encryptedEnterpriseKey) {
-        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-      }
-    }
-
     const appSpecFormatted = specificationFormatter(appSpecification);
 
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -8088,6 +8079,15 @@ async function registerAppGlobalyApi(req, res) {
       throw new Error('Daemon not yet synced.');
     }
     const daemonHeight = syncStatus.data.height;
+
+    let encryptedEnterpriseKey = null;
+
+    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+      encryptedEnterpriseKey = req.headers['enterprise-key'];
+      if (!encryptedEnterpriseKey) {
+        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+      }
+    }
 
     const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
       appSpecFormatted,
@@ -8221,15 +8221,6 @@ async function updateAppGlobalyApi(req, res) {
       throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
     }
 
-    let encryptedEnterpriseKey = null;
-
-    if (typeVersion >= 8 && appSpecification.enterprise) {
-      encryptedEnterpriseKey = req.headers['enterprise-key'];
-      if (!encryptedEnterpriseKey) {
-        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-      }
-    }
-
     const appSpecFormatted = specificationFormatter(appSpecification);
 
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -8237,6 +8228,15 @@ async function updateAppGlobalyApi(req, res) {
       throw new Error('Daemon not yet synced.');
     }
     const daemonHeight = syncStatus.data.height;
+
+    let encryptedEnterpriseKey = null;
+
+    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+      encryptedEnterpriseKey = req.headers['enterprise-key'];
+      if (!encryptedEnterpriseKey) {
+        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+      }
+    }
 
     const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
       appSpecFormatted,
