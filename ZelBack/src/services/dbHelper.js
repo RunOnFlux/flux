@@ -139,6 +139,20 @@ async function findOneAndUpdateInDatabase(database, collection, query, update, o
 }
 
 /**
+ * Counts document from the DB based on the query
+ *
+ * @param {string} database
+ * @param {string} collection
+ * @param {object} query
+ *
+ * @returns count of documents
+ */
+async function countInDatabase(database, collection, query) {
+  const result = await database.collection(collection).countDocuments(query);
+  return result;
+}
+
+/**
  * Inserts one document into the database, into a specific collection.
  *
  * @param {string} database
@@ -281,4 +295,5 @@ module.exports = {
   closeDbConnection,
   insertManyToDatabase,
   aggregateInDatabase,
+  countInDatabase,
 };
