@@ -5682,7 +5682,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
 
     if (typeof staticip !== 'boolean') {
-      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+      throw new Error('Invalid static ip value obtained. Only boolean as true or false allowed.');
     }
   }
 
