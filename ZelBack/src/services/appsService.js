@@ -7519,48 +7519,54 @@ function specificationFormatter(appSpecification) {
       appComponentCorrect.cpu = serviceHelper.ensureNumber(appComponent.cpu);
       appComponentCorrect.ram = serviceHelper.ensureNumber(appComponent.ram);
       appComponentCorrect.hdd = serviceHelper.ensureNumber(appComponent.hdd);
-      appComponentCorrect.tiered = appComponent.tiered;
-      if (typeof appComponentCorrect.tiered !== 'boolean') {
-        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-      }
-      if (appComponentCorrect.tiered) {
-        let {
-          cpubasic,
-          cpusuper,
-          cpubamf,
-          rambasic,
-          ramsuper,
-          rambamf,
-          hddbasic,
-          hddsuper,
-          hddbamf,
-        } = appComponent;
-        if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-          throw new Error(`Flux App component ${appComponent.name} was requested as tiered setup but specifications are missing`);
-        }
-        cpubasic = serviceHelper.ensureNumber(cpubasic);
-        cpusuper = serviceHelper.ensureNumber(cpusuper);
-        cpubamf = serviceHelper.ensureNumber(cpubamf);
-        rambasic = serviceHelper.ensureNumber(rambasic);
-        ramsuper = serviceHelper.ensureNumber(ramsuper);
-        rambamf = serviceHelper.ensureNumber(rambamf);
-        hddbasic = serviceHelper.ensureNumber(hddbasic);
-        hddsuper = serviceHelper.ensureNumber(hddsuper);
-        hddbamf = serviceHelper.ensureNumber(hddbamf);
 
-        appComponentCorrect.cpubasic = cpubasic;
-        appComponentCorrect.cpusuper = cpusuper;
-        appComponentCorrect.cpubamf = cpubamf;
-        appComponentCorrect.rambasic = rambasic;
-        appComponentCorrect.ramsuper = ramsuper;
-        appComponentCorrect.rambamf = rambamf;
-        appComponentCorrect.hddbasic = hddbasic;
-        appComponentCorrect.hddsuper = hddsuper;
-        appComponentCorrect.hddbamf = hddbamf;
+      if (version <= 7) {
+        appComponentCorrect.tiered = appComponent.tiered;
+        if (typeof appComponentCorrect.tiered !== 'boolean') {
+          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+        }
+        if (appComponentCorrect.tiered) {
+          let {
+            cpubasic,
+            cpusuper,
+            cpubamf,
+            rambasic,
+            ramsuper,
+            rambamf,
+            hddbasic,
+            hddsuper,
+            hddbamf,
+          } = appComponent;
+          if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+            throw new Error(`Flux App component ${appComponent.name} was requested as tiered setup but specifications are missing`);
+          }
+          cpubasic = serviceHelper.ensureNumber(cpubasic);
+          cpusuper = serviceHelper.ensureNumber(cpusuper);
+          cpubamf = serviceHelper.ensureNumber(cpubamf);
+          rambasic = serviceHelper.ensureNumber(rambasic);
+          ramsuper = serviceHelper.ensureNumber(ramsuper);
+          rambamf = serviceHelper.ensureNumber(rambamf);
+          hddbasic = serviceHelper.ensureNumber(hddbasic);
+          hddsuper = serviceHelper.ensureNumber(hddsuper);
+          hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+          appComponentCorrect.cpubasic = cpubasic;
+          appComponentCorrect.cpusuper = cpusuper;
+          appComponentCorrect.cpubamf = cpubamf;
+          appComponentCorrect.rambasic = rambasic;
+          appComponentCorrect.ramsuper = ramsuper;
+          appComponentCorrect.rambamf = rambamf;
+          appComponentCorrect.hddbasic = hddbasic;
+          appComponentCorrect.hddsuper = hddsuper;
+          appComponentCorrect.hddbamf = hddbamf;
+        }
       }
+
       if (version >= 7) {
-        appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
         appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
+        if (version === 7) {
+          appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
+        }
       }
       correctCompose.push(appComponentCorrect);
     });
