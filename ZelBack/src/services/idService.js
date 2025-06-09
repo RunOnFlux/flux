@@ -180,7 +180,7 @@ async function loginPhrase(req, res) {
   try {
     const messageToSign = await getMessageToLogin(res);
     if (messageToSign) {
-      const phraseResponse = messageHelper.createDataMessage(loginPhrase);
+      const phraseResponse = messageHelper.createDataMessage(messageToSign);
       res.json(phraseResponse);
     }
   } catch (error) {
