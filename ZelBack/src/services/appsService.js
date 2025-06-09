@@ -12262,78 +12262,72 @@ async function verifyAppRegistrationParameters(req, res) {
 
 /**
  * To verify app update parameters. Checks for correct format, specs and non-duplication of values/resources.
- * @param {object} req Request.
- * @param {object} res Response.
+ * @param {express.Request} req Request.
+ * @param {express.Response} res Response.
  * @returns {object} Message.
  */
 async function verifyAppUpdateParameters(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
-      appSpecification = serviceHelper.ensureObject(appSpecification);
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    let appSpecification = processedBody;
+    appSpecification = serviceHelper.ensureObject(appSpecification);
 
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-
-      const encryptedEnterpriseKey = req.headers.enterpriseKey;
-      let enterprise = null;
-      let newEnterpriseEncrypted = null;
-      if (appSpecification.version >= 8 && appSpecification.enterprise) {
-        if (!encryptedEnterpriseKey) {
-          throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-        }
-        enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey);
-        appSpecification.contacts = enterprise.contacts;
-        appSpecification.compose = enterprise.compose;
-        newEnterpriseEncrypted = await encryptEnterpriseWithAes(enterprise, appSpecification.name, daemonHeight);
-      }
-      const appSpecFormatted = specificationFormatter(appSpecification);
-
-      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
-
-      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecFormatted.compose) {
-          if (appComponent.secrets) {
-            // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
-          }
-        }
-      }
-
-      // check if name is not yet registered
-      const timestamp = Date.now();
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
-
-      if (newEnterpriseEncrypted) {
-        appSpecFormatted.enterprise = newEnterpriseEncrypted;
-        appSpecFormatted.contacts = [];
-        appSpecFormatted.compose = [];
-      }
-
-      // app is valid and can be registered
-      // respond with formatted specifications
-      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
-      return res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
     }
-  });
+    const daemonHeight = syncStatus.data.height;
+
+    const encryptedEnterpriseKey = req.headers.enterpriseKey;
+    let enterprise = null;
+    let newEnterpriseEncrypted = null;
+    if (appSpecification.version >= 8 && appSpecification.enterprise) {
+      if (!encryptedEnterpriseKey) {
+        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+      }
+      enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey);
+      appSpecification.contacts = enterprise.contacts;
+      appSpecification.compose = enterprise.compose;
+      newEnterpriseEncrypted = await encryptEnterpriseWithAes(enterprise, appSpecification.name, daemonHeight);
+    }
+    const appSpecFormatted = specificationFormatter(appSpecification);
+
+    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+    if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponent of appSpecFormatted.compose) {
+        if (appComponent.secrets) {
+          // eslint-disable-next-line no-await-in-loop
+          await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+        }
+      }
+    }
+
+    // check if name is not yet registered
+    const timestamp = Date.now();
+    await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+    if (newEnterpriseEncrypted) {
+      appSpecFormatted.enterprise = newEnterpriseEncrypted;
+      appSpecFormatted.contacts = [];
+      appSpecFormatted.compose = [];
+    }
+
+    // app is valid and can be registered
+    // respond with formatted specifications
+    const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+    return res.json(respondPrice);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
 }
 
 /**
