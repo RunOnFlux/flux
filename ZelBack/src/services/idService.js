@@ -94,6 +94,7 @@ async function confirmNodeTierHardware() {
  */
 let firstLoginPhraseExecution = true;
 async function getMessageToLogin(res, message = null) {
+  let phrase = null;
   // check db
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.local.database);
@@ -126,7 +127,7 @@ async function getMessageToLogin(res, message = null) {
     const errorMessage = 'Unable to check DOS state';
     const errMessage = messageHelper.createErrorMessage(errorMessage);
     res.json(errMessage);
-    return;
+    return phrase;
   }
   if (dosState.status === 'success') {
     // nodeHardwareSpecsGood is not part of response yet
@@ -139,7 +140,7 @@ async function getMessageToLogin(res, message = null) {
         errMessage = messageHelper.createErrorMessage('Minimum hardware required for FluxNode tier not met', 'DOS', 100);
       }
       res.json(errMessage);
-      return;
+      return phrase;
     }
   }
 
@@ -151,13 +152,13 @@ async function getMessageToLogin(res, message = null) {
       const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
       log.error(errMessage);
       res.json(errMessage);
-      return;
+      return phrase;
     }
   }
 
   const timestamp = message ? +message.substring(0, 13) : Date.now();
   const validTill = timestamp + (15 * 60 * 1000); // 15 minutes
-  const phrase = message || timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  phrase = message || timestamp + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
   // insert to db
   const newLoginPhrase = {
     loginPhrase: phrase,
@@ -166,7 +167,6 @@ async function getMessageToLogin(res, message = null) {
   };
   const value = newLoginPhrase;
   await dbHelper.insertOneToDatabase(database, collection, value);
-  // eslint-disable-next-line consistent-return
   return phrase;
 }
 
