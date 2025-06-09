@@ -1,11 +1,14 @@
 const config = require('config');
+
+const os = require('node:os');
+const path = require('node:path');
+const crypto = require('node:crypto');
+
 const https = require('https');
 const axios = require('axios');
 const express = require('express');
 const http = require('http');
 // eslint-disable-next-line import/no-extraneous-dependencies
-const os = require('os');
-const path = require('path');
 const nodecmd = require('node-cmd');
 const archiver = require('archiver');
 const df = require('node-df');
@@ -7853,7 +7856,7 @@ async function encryptEnterpriseWithAes(enterprise, appName, daemonHeight = null
   const { status, data } = dataReturned;
   if (status === 'success') {
     const dataParsed = JSON.parse(data);
-    const newEnterprise = status === 'success' && dataParsed.status === 'ok' ? JSON.parse(dataParsed.message) : null;
+    const newEnterprise = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
     if (newEnterprise) {
       return newEnterprise;
     }
@@ -7935,12 +7938,12 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
  *
  * We base64 encode the key so that were not passing around raw bytes
  *
- * @param {object} encrypted enterprise encrypted content
+ * @param {object} encrypted enterprise encrypted content (decrypted is a JSON string)
  * @param {string} appName application name
  * @param {integer} daemonHeight daemon block height
  * @param {string} owner original owner of the application
  * @param {string} enterpriseKey RSA encrypted AES key use to encrypt the enterprise field
- * @returns {<Promise<object>} Return enterprise object decrypted.
+ * @returns {Promise<object>} Return enterprise object decrypted.
  */
 async function decryptEnterpriseFromSession(encrypted, appName, daemonHeight, enterpriseKey, owner = null) {
   if (!isArcane) {
@@ -7950,8 +7953,7 @@ async function decryptEnterpriseFromSession(encrypted, appName, daemonHeight, en
     throw new Error('enterpriseKey is mandatory for enterprise Apps.');
   }
   const base64AesKey = await decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, owner);
-  const base64JsonEnterprise = decryptWithAesSession(appName, encrypted, base64AesKey);
-  const jsonEnterprise = Buffer.fromString(base64JsonEnterprise, 'base64').toString('utf-8');
+  const jsonEnterprise = decryptWithAesSession(appName, encrypted, base64AesKey);
   const decryptedEnterprise = JSON.parse(jsonEnterprise);
 
   if (decryptedEnterprise) {
@@ -8137,7 +8139,7 @@ async function updateAppGlobalyApi(req, res) {
     if (incomingPeers.length < config.fluxapps.minIncoming) {
       throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
     }
-    const processedBody = serviceHelper.ensureObject(body);
+    const processedBody = serviceHelper.ensureObject(req.body);
     // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
     // name and ports HAVE to be unique for application. Check if they don't exist in global database
     // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
@@ -12168,9 +12170,7 @@ async function redeployAPI(req, res) {
  */
 async function verifyAppRegistrationParameters(req, res) {
   try {
-    const processedBody = serviceHelper.ensureObject(req.body);
-    let appSpecification = processedBody;
-    appSpecification = serviceHelper.ensureObject(appSpecification);
+    const appSpecification = serviceHelper.ensureObject(req.body);
 
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
@@ -12178,7 +12178,7 @@ async function verifyAppRegistrationParameters(req, res) {
     }
     const daemonHeight = syncStatus.data.height;
 
-    const encryptedEnterpriseKey = req.headers.enterpriseKey;
+    const encryptedEnterpriseKey = req.headers['enterprise-key'];
     let enterprise = null;
     let newEnterpriseEncrypted = null;
     if (appSpecification.version >= 8 && appSpecification.enterprise) {
