@@ -11292,15 +11292,17 @@ async function reinstallOldApplications() {
           delete auxInstalledApp.owner;
 
           if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
-            log.warn(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
+            log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
             // connect to mongodb
             const dbopen = dbHelper.databaseConnection();
             const appsDatabase = dbopen.db(config.database.appslocal.database);
             const appsQuery = { name: appSpecifications.name };
-            const appsProjection = {};
+            const options = {
+              upsert: true,
+            };
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.findOneAndUpdateInDatabase(appsDatabase, localAppsInformation, appsQuery, appSpecifications, appsProjection);
-            log.warn('Database updated');
+            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appSpecifications, options);
+            log.info(`Application ${installedApp.name} Database updated`);
             // eslint-disable-next-line no-continue
             continue;
           }
