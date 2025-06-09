@@ -4776,7 +4776,7 @@ async function verifyAppHash(message) {
  * @param {object} appSpec App specifications.
  * @param {number} timestamp Time stamp.
  * @param {string} signature Signature.
- * @returns {boolean} True if no error is thrown.
+ * @returns {Promise<boolean>} True if no error is thrown.
  */
 async function verifyAppMessageSignature(type, version, appSpec, timestamp, signature) {
   if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
@@ -7835,16 +7835,14 @@ async function decryptEnterpriseFromSession(encrypted, appName, daemonHeight, en
  * Decrypts app specs if they are encrypted
  * @param {object} appSpec application specifications.
  * @param {integer} daemonHeight daemon block height.
- * @param {{daemonHeight?: Number, owner?: string, enterpriseKey? string}} options daemonHeight - block height  \
- *    owner - the application owner  \
- *    enterpriseKey - the frontend base64 encoded AES session key
+ * @param {{daemonHeight?: Number, owner?: string}} options daemonHeight - block height  \
+ *    owner - the application owner
  * @returns {Promise<object>} Return appSpecs decrypted if it is enterprise.
  */
 async function checkAndDecryptAppSpecs(appSpec, options = {}) {
   const appSpecs = appSpec;
   let block = options.daemonHeight || null;
   let appOwner = options.owner || null;
-  const enterpriseKey = options.enterpriseKey || null;
 
   if (!appSpecs || appSpecs.version < 8 || !appSpecs.enterprise) {
     return appSpecs;
@@ -7888,47 +7886,31 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
     block = lastUpdate.height;
   }
 
-  let enterprise = null;
+  const inputData = JSON.stringify({
+    fluxID: appOwner,
+    appName: appSpec.name,
+    message: appSpec.enterprise,
+    blockHeight: block,
+  });
 
-  // we are decrypting frontend specs
-  if (enterpriseKey) {
-    enterprise = await decryptEnterpriseFromSession(
-      appSpecs.enterprise,
-      appSpecs.name,
-      block,
-      enterpriseKey,
-      appSpecs.owner,
-    );
-    // backend
-  } else {
-    // this should be in it's own function. I.e. decryptEnterpriseWithAes
-    const inputData = JSON.stringify({
-      fluxID: appOwner,
-      appName: appSpec.name,
-      message: appSpec.enterprise,
-      blockHeight: block,
-    });
+  const dataReturned = await benchmarkService.decryptMessage(inputData);
+  const { status, data } = dataReturned;
 
-    const dataReturned = await benchmarkService.decryptMessage(inputData);
-    const { status, data } = dataReturned;
+  if (status === 'success') {
+    const dataParsed = JSON.parse(data);
+    const base64JsonEnterprise = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
 
-    if (status === 'success') {
-      const dataParsed = JSON.parse(data);
-      const base64JsonEnterprise = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
-
-      if (base64JsonEnterprise) {
-        const jsonEnterprise = Buffer.from(base64JsonEnterprise, 'base64').toString('utf-8');
-        enterprise = JSON.parse(jsonEnterprise);
-      } else {
-        throw new Error('Error decrypting applications specifications.');
-      }
+    if (base64JsonEnterprise) {
+      const jsonEnterprise = Buffer.from(base64JsonEnterprise, 'base64').toString('utf-8');
+      const enterprise = JSON.parse(jsonEnterprise);
+      appSpecs.compose = enterprise.compose;
+      appSpecs.contacts = enterprise.contacts;
     } else {
-      throw new Error('Error getting public key to encrypt app enterprise content.');
+      throw new Error('Error decrypting applications specifications.');
     }
+  } else {
+    throw new Error('Error getting public key to encrypt app enterprise content.');
   }
-
-  appSpecs.compose = enterprise.compose;
-  appSpecs.contacts = enterprise.contacts;
 
   return appSpecs;
 }
@@ -8080,13 +8062,9 @@ async function registerAppGlobalyApi(req, res) {
     }
     const daemonHeight = syncStatus.data.height;
 
-    let encryptedEnterpriseKey = null;
-
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-      encryptedEnterpriseKey = req.headers['enterprise-key'];
-      if (!encryptedEnterpriseKey) {
-        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-      }
+      // we need to verify the specs before they are decrypted
+      await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
     }
 
     const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
@@ -8094,7 +8072,6 @@ async function registerAppGlobalyApi(req, res) {
       {
         daemonHeight,
         owner: appSpecFormatted.owner,
-        enterpriseKey: encryptedEnterpriseKey,
       },
     );
 
@@ -8114,9 +8091,11 @@ async function registerAppGlobalyApi(req, res) {
     // check if name is not yet registered
     await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted);
 
-    // check if zelid owner is correct ( done in message verification )
-    // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
-    await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
+    if (appSpecFormattedDecrypted.version < 8) {
+      // check if zelid owner is correct ( done in message verification )
+      // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
+      await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
+    }
 
     // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
     // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
@@ -8229,20 +8208,10 @@ async function updateAppGlobalyApi(req, res) {
     }
     const daemonHeight = syncStatus.data.height;
 
-    let encryptedEnterpriseKey = null;
-
-    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-      encryptedEnterpriseKey = req.headers['enterprise-key'];
-      if (!encryptedEnterpriseKey) {
-        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-      }
-    }
-
     const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
       appSpecFormatted,
       {
         daemonHeight,
-        enterpriseKey: encryptedEnterpriseKey,
       },
     );
 
