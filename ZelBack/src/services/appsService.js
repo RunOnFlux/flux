@@ -10146,7 +10146,7 @@ async function getApplicationSpecificationAPI(req, res) {
     const daemonHeight = syncStatus.data.height;
 
     if (specifications.version >= 8 && specifications.enterprise) {
-      const encryptedEnterpriseKey = req.headers.enterpriseKey;
+      const encryptedEnterpriseKey = req.headers['enterprise-key'];
       if (decrypt) {
         authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
         if (!authorized) {
