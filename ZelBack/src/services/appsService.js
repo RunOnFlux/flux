@@ -12264,7 +12264,7 @@ async function verifyAppRegistrationParameters(req, res) {
  * To verify app update parameters. Checks for correct format, specs and non-duplication of values/resources.
  * @param {express.Request} req Request.
  * @param {express.Response} res Response.
- * @returns {object} Message.
+ * @returns {Promise<void>} Message.
  */
 async function verifyAppUpdateParameters(req, res) {
   try {
@@ -12278,10 +12278,10 @@ async function verifyAppUpdateParameters(req, res) {
     }
     const daemonHeight = syncStatus.data.height;
 
-    const encryptedEnterpriseKey = req.headers.enterpriseKey;
     let enterprise = null;
     let newEnterpriseEncrypted = null;
     if (appSpecification.version >= 8 && appSpecification.enterprise) {
+      const encryptedEnterpriseKey = req.headers['enterprise-key'];
       if (!encryptedEnterpriseKey) {
         throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
       }
@@ -12290,6 +12290,7 @@ async function verifyAppUpdateParameters(req, res) {
       appSpecification.compose = enterprise.compose;
       newEnterpriseEncrypted = await encryptEnterpriseWithAes(enterprise, appSpecification.name, daemonHeight);
     }
+
     const appSpecFormatted = specificationFormatter(appSpecification);
 
     // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
@@ -12318,7 +12319,7 @@ async function verifyAppUpdateParameters(req, res) {
     // app is valid and can be registered
     // respond with formatted specifications
     const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
-    return res.json(respondPrice);
+    res.json(respondPrice);
   } catch (error) {
     log.warn(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -12326,7 +12327,7 @@ async function verifyAppUpdateParameters(req, res) {
       error.name,
       error.code,
     );
-    return res.json(errorResponse);
+    res.json(errorResponse);
   }
 }
 
