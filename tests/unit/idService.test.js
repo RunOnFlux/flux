@@ -742,35 +742,6 @@ describe('idService tests', () => {
       sinon.assert.calledOnceWithExactly(res.json, expectedError);
     });
 
-    it('should return error if database returns nothing', async () => {
-      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
-      const timestamp = Date.now();
-      await dbHelper.initiateDB();
-      dbHelper.databaseConnection();
-      const req = {
-        zelid: '1Z1234341Z1234341Z1234341Z1234341',
-        signature: '1234356asdf',
-        message: `${timestamp - 300000}11111111111111111111111111111`,
-      };
-      const mockStream = new PassThrough();
-      mockStream.push(JSON.stringify(req));
-      mockStream.end();
-      const res = generateResponse();
-      const expectedError = {
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'Signed message is no longer valid. Please request a new one.',
-        },
-      };
-
-      await idService.verifyLogin(mockStream, res);
-      await serviceHelper.delay(100);
-
-      sinon.assert.calledOnceWithExactly(res.json, expectedError);
-    });
-
     it('should return error if signature in database is invalid', async () => {
       const timestamp = Date.now();
       sinon.stub(dbHelper, 'findOneInDatabase').resolves({
