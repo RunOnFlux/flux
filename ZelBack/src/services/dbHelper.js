@@ -114,6 +114,19 @@ async function findOneInDatabase(database, collection, query, projection) {
 }
 
 /**
+ * Executes bulkwrite operations on database.
+ *
+ * @param {string} database
+ * @param {string} collection
+ * @param {object} operations
+ * @returns void
+ */
+async function bulkWriteInDatabase(database, collection, operations) {
+  const result = await database.collection(collection).bulkWrite(operations);
+  return result;
+}
+
+/**
  * Updates document from the DB based on the query and update operators and returns it.
  *
  * @param {string} database
@@ -296,4 +309,5 @@ module.exports = {
   insertManyToDatabase,
   aggregateInDatabase,
   countInDatabase,
+  bulkWriteInDatabase,
 };

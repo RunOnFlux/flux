@@ -7119,7 +7119,7 @@ async function storeAppInstallingErrorMessage(message) {
   // we already have the exact same data
   // eslint-disable-next-line no-await-in-loop
   const results = await dbHelper.countInDatabase(database, globalAppsInstallingErrorsLocations, queryFind);
-  if (results > 5) {
+  if (results >= 5) {
     update = { $set: { startCacheAt: null, expireAt: null } };
     // eslint-disable-next-line no-await-in-loop
     await dbHelper.updateInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update);
@@ -8459,6 +8459,8 @@ async function updateAppSpecifications(appSpecs) {
     } else {
       await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
     }
+    const queryDeleteAppErrors = { name: appSpecs.name };
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
   } catch (error) {
     // retry
     log.error(error);
@@ -10172,6 +10174,68 @@ function getAppPorts(appSpecs) {
 }
 
 /**
+ * Get from another peer the list of apps installing errors or just for a specific application name
+ */
+async function getPeerAppsInstallingErrorMessages() {
+  try {
+    let finished = false;
+    let i = 0;
+    while (!finished && i <= 10) {
+      i += 1;
+      const client = outgoingPeers[Math.floor(Math.random() * outgoingPeers.length)];
+      let axiosConfig = {
+        timeout: 5000,
+      };
+      log.info(`getPeerAppsInstallingErrorMessages - Getting fluxos uptime from ${client.ip}:${client.port}`);
+      // eslint-disable-next-line no-await-in-loop
+      const response = await serviceHelper.axiosGet(`http://${client.ip}:${client.port}/flux/uptime`, axiosConfig).catch((error) => log.error(error));
+      if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
+        log.info(`getPeerAppsInstallingErrorMessages - Failed to get fluxos uptime from ${client.ip}:${client.port}`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const ut = process.uptime();
+      const measureUptime = Math.floor(ut);
+      // let's get information from a node that have higher fluxos uptime than me for at least one hour.
+      if (response.data.data < measureUptime + 3600) {
+        log.info(`getPeerAppsInstallingErrorMessages - Connected peer ${client.ip}:${client.port} doesn't have FluxOS uptime to be used`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      log.info(`getPeerAppsInstallingErrorMessages - FluxOS uptime is ok on ${client.ip}:${client.port}`);
+      axiosConfig = {
+        timeout: 30000,
+      };
+      log.info(`getPeerAppsInstallingErrorMessages - Getting app installing errors from ${client.ip}:${client.port}`);
+      const url = `http://${client.ip}:${client.port}/apps/installlingerrorslocations`;
+      // eslint-disable-next-line no-await-in-loop
+      const appsResponse = await serviceHelper.axiosGet(url, axiosConfig).catch((error) => log.error(error));
+      if (!appsResponse || !appsResponse.data || appsResponse.data.status !== 'success' || !appsResponse.data.data) {
+        log.info(`getPeerAppsInstallingErrorMessages - Failed to get app installing error locations from ${client.ip}:${client.port}`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const apps = appsResponse.data.data;
+      log.info(`getPeerAppsInstallingErrorMessages - Will process ${apps.length} apps installing errors locations messages`);
+      const operations = apps.map((message) => ({
+        updateOne: {
+          filter: { name: message.name, hash: message.hash, ip: message.ip }, // ou outro campo único
+          update: { $set: message },
+          upsert: true,
+        },
+      }));
+      const dbopen = dbHelper.databaseConnection();
+      const database = dbopen.db(config.database.appsglobal.database);
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.bulkWriteInDatabase(database, globalAppsInstallingErrorsLocations, operations);
+      finished = true;
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address.
  * Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
@@ -10200,12 +10264,6 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    if (firstExecutionAfterItsSynced === true) {
-      log.info('Explorer Synced, checking for expired apps');
-      // eslint-disable-next-line no-use-before-define
-      await expireGlobalApplications();
-      firstExecutionAfterItsSynced = false;
-    }
 
     let isNodeConfirmed = false;
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
@@ -10215,6 +10273,14 @@ async function trySpawningGlobalApplication() {
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
+    }
+
+    if (firstExecutionAfterItsSynced === true) {
+      log.info('Explorer Synced, checking for expired apps');
+      // eslint-disable-next-line no-use-before-define
+      await expireGlobalApplications();
+      firstExecutionAfterItsSynced = false;
+      await getPeerAppsInstallingErrorMessages();
     }
 
     if (fluxNodeWasAlreadyConfirmed && fluxNodeWasNotConfirmedOnLastCheck) {
@@ -11051,7 +11117,7 @@ async function expireGlobalApplications() {
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
 
-      const queryDeleteAppErrors = { name: app.name, hash: app.hash };
+      const queryDeleteAppErrors = { name: app.name };
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
     }
