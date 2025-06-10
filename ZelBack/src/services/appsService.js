@@ -3809,29 +3809,31 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
       }
     } catch (error) {
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      const broadcastedAt = Date.now();
-      const newAppRunningMessage = {
-        type: 'fluxappinstallingerror',
-        version: 1,
-        name: appSpecifications.name,
-        hash: appSpecifications.hash, // hash of application specifics that are running
-        error: serviceHelper.ensureString(errorResponse),
-        ip: myIP,
-        broadcastedAt,
-      };
-      // store it in local database first
-      // eslint-disable-next-line no-await-in-loop, no-use-before-define
-      await storeAppInstallingErrorMessage(newAppRunningMessage);
-      // broadcast messages about running apps to all peers
-      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
-      await serviceHelper.delay(500);
-      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
-      // broadcast messages about running apps to all peers
+      if (!test) {
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        const broadcastedAt = Date.now();
+        const newAppRunningMessage = {
+          type: 'fluxappinstallingerror',
+          version: 1,
+          name: appSpecifications.name,
+          hash: appSpecifications.hash, // hash of application specifics that are running
+          error: serviceHelper.ensureString(errorResponse),
+          ip: myIP,
+          broadcastedAt,
+        };
+        // store it in local database first
+        // eslint-disable-next-line no-await-in-loop, no-use-before-define
+        await storeAppInstallingErrorMessage(newAppRunningMessage);
+        // broadcast messages about running apps to all peers
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+        await serviceHelper.delay(500);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+        // broadcast messages about running apps to all peers
+      }
       throw error;
     }
     if (!test) {
