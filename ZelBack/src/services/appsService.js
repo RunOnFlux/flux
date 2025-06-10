@@ -11905,8 +11905,9 @@ async function verifyAppRegistrationParameters(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
+      log.info(appSpecification);
       let appSpecFormatted = specificationFormatter(appSpecification);
-
+      log.info(appSpecFormatted);
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
@@ -11914,6 +11915,7 @@ async function verifyAppRegistrationParameters(req, res) {
       const daemonHeight = syncStatus.data.height;
 
       appSpecFormatted = checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
+      log.info(appSpecFormatted);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
