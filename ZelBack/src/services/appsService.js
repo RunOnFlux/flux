@@ -7666,7 +7666,7 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
   const appSpecs = appSpec;
   let block = daemonHeight;
   let appOwner = owner;
-
+  log.info(appSpecs);
   if (!appSpecs) return appSpecs;
 
   if (appSpec.version >= 8 && appSpec.enterprise) {
@@ -7721,6 +7721,7 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
       throw new Error('Error getting public key to encrypt app enterprise content.');
     }
   }
+  log.info(appSpecs);
   return appSpecs;
 }
 
