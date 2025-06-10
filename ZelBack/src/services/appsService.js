@@ -11958,184 +11958,178 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
 
 /**
  * To get app price.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
+ * @param {express.Request} req Request.
+ * @param {express.Response} res Response.
+ * @returns {Promise<object>} Message.
  */
 async function getAppFiatAndFluxPrice(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
+  try {
+    const processedBody = serviceHelper.ensureObject(req.body);
+    let appSpecification = processedBody;
 
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      if (!syncStatus.data.synced) {
-        throw new Error('Daemon not yet synced.');
-      }
-      const daemonHeight = syncStatus.data.height;
-      appSpecification = checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
-      const appSpecFormatted = specificationFormatter(appSpecification);
+    appSpecification = serviceHelper.ensureObject(appSpecification);
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+    const daemonHeight = syncStatus.data.height;
+    appSpecification = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+    const appSpecFormatted = specificationFormatter(appSpecification);
 
-      // verifications skipped. This endpoint is only for price evaluation
+    // verifications skipped. This endpoint is only for price evaluation
 
-      // check if app exists or its a new registration price
-      const db = dbHelper.databaseConnection();
-      const database = db.db(config.database.appsglobal.database);
-      // may throw
-      const query = { name: appSpecFormatted.name };
-      const projection = {
-        projection: {
-          _id: 0,
-        },
-      };
+    // check if app exists or its a new registration price
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    // may throw
+    const query = { name: appSpecFormatted.name };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
 
-      if (await checkFreeAppUpdate(appSpecFormatted, daemonHeight)) {
-        const price = {
-          usd: 0,
-          flux: 0,
-          fluxDiscount: 0,
-        };
-        const respondPrice = messageHelper.createDataMessage(price);
-        return res.json(respondPrice);
-      }
-
-      const axiosConfig = {
-        timeout: 5000,
-      };
-      const appPrices = [];
-      if (myLongCache.has('appPrices')) {
-        appPrices.push(myLongCache.get('appPrices'));
-      } else {
-        let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
-        if (response && response.data && response.data.status === 'success') {
-          myLongCache.set('appPrices', response.data.data);
-          appPrices.push(response.data.data);
-        } else {
-          response = config.fluxapps.usdprice;
-          myLongCache.set('appPrices', response);
-          appPrices.push(response);
-        }
-      }
-      let actualPriceToPay = 0;
-      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-      actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
-      const expireIn = appSpecFormatted.expire || defaultExpire;
-      // app prices are ceiled to highest 0.01
-      const multiplier = expireIn / defaultExpire;
-      actualPriceToPay *= multiplier;
-      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-      if (appInfo) {
-        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
-        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
-        if (daemonHeight > 1315000) {
-          previousExpireIn = appInfo.expire || defaultExpire;
-        }
-        const multiplierPrevious = previousExpireIn / defaultExpire;
-        previousSpecsPrice *= multiplierPrevious;
-        previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
-        // what is the height difference
-        const heightDifference = daemonHeight - appInfo.height;
-        const perc = (previousExpireIn - heightDifference) / previousExpireIn;
-        if (perc > 0) {
-          actualPriceToPay -= (perc * previousSpecsPrice);
-        }
-      }
-      const appHWrequirements = totalAppHWRequirements(appSpecFormatted, 'bamf');
-      if (appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
-        actualPriceToPay *= 0.8;
-      } else if (appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
-        actualPriceToPay *= 0.9;
-      }
-      let gSyncthgApp = false;
-      if (appSpecFormatted.version <= 3) {
-        gSyncthgApp = appSpecFormatted.containerData.includes('g:');
-      } else {
-        gSyncthgApp = appSpecFormatted.compose.find((comp) => comp.containerData.includes('g:'));
-      }
-      if (gSyncthgApp) {
-        actualPriceToPay *= 0.8;
-      }
-      const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
-      let marketPlaceApps = [];
-      if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
-        marketPlaceApps = marketplaceResponse.data.data;
-      } else {
-        log.error('Unable to get marketplace information');
-      }
-
-      if (appSpecification.priceUSD) {
-        if (appSpecification.priceUSD < actualPriceToPay) {
-          log.info(appSpecification.priceUSD);
-          log.info(actualPriceToPay);
-          throw new Error('USD price is not valid');
-        }
-        actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
-      } else {
-        const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
-        if (marketPlaceApp) {
-          if (marketPlaceApp.multiplier > 1) {
-            actualPriceToPay *= marketPlaceApp.multiplier;
-          }
-        }
-        actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
-        if (actualPriceToPay < appPrices[0].minUSDPrice) {
-          actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
-        }
-      }
-      let fiatRates;
-      let fluxUSDRate;
-      if (myShortCache.has('fluxRates')) {
-        fluxUSDRate = myShortCache.get('fluxRates');
-      } else {
-        fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
-        if (fiatRates && fiatRates.data) {
-          const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
-          if (!rateObj) {
-            throw new Error('Unable to get USD rate.');
-          }
-          const btcRateforFlux = fiatRates.data[1].FLUX;
-          if (btcRateforFlux === undefined) {
-            throw new Error('Unable to get Flux USD Price.');
-          }
-          fluxUSDRate = rateObj.rate * btcRateforFlux;
-          myShortCache.set('fluxRates', fluxUSDRate);
-        } else {
-          fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
-          if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
-            fluxUSDRate = fiatRates.data.zelcash.usd;
-            myShortCache.set('fluxRates', fluxUSDRate);
-          } else {
-            // eslint-disable-next-line prefer-destructuring
-            fluxUSDRate = config.fluxapps.fluxUSDRate;
-            myShortCache.set('fluxRates', fluxUSDRate);
-          }
-        }
-      }
-      const fluxPrice = Number(((actualPriceToPay / fluxUSDRate) * appPrices[0].fluxmultiplier));
-      const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
+    if (await checkFreeAppUpdate(appSpecFormatted, daemonHeight)) {
       const price = {
-        usd: Number(actualPriceToPay),
-        flux: fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2)),
-        fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : Number(100 - (appPrices[0].fluxmultiplier * 100)),
+        usd: 0,
+        flux: 0,
+        fluxDiscount: 0,
       };
       const respondPrice = messageHelper.createDataMessage(price);
       return res.json(respondPrice);
-    } catch (error) {
-      log.warn(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      return res.json(errorResponse);
     }
-  });
+
+    const axiosConfig = {
+      timeout: 5000,
+    };
+    const appPrices = [];
+    if (myLongCache.has('appPrices')) {
+      appPrices.push(myLongCache.get('appPrices'));
+    } else {
+      let response = await axios.get('https://stats.runonflux.io/apps/getappspecsusdprice', axiosConfig).catch((error) => log.error(error));
+      if (response && response.data && response.data.status === 'success') {
+        myLongCache.set('appPrices', response.data.data);
+        appPrices.push(response.data.data);
+      } else {
+        response = config.fluxapps.usdprice;
+        myLongCache.set('appPrices', response);
+        appPrices.push(response);
+      }
+    }
+    let actualPriceToPay = 0;
+    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+    actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
+    const expireIn = appSpecFormatted.expire || defaultExpire;
+    // app prices are ceiled to highest 0.01
+    const multiplier = expireIn / defaultExpire;
+    actualPriceToPay *= multiplier;
+    actualPriceToPay = Number(actualPriceToPay).toFixed(2);
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    if (appInfo) {
+      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+      let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+      if (daemonHeight > 1315000) {
+        previousExpireIn = appInfo.expire || defaultExpire;
+      }
+      const multiplierPrevious = previousExpireIn / defaultExpire;
+      previousSpecsPrice *= multiplierPrevious;
+      previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
+      // what is the height difference
+      const heightDifference = daemonHeight - appInfo.height;
+      const perc = (previousExpireIn - heightDifference) / previousExpireIn;
+      if (perc > 0) {
+        actualPriceToPay -= (perc * previousSpecsPrice);
+      }
+    }
+    const appHWrequirements = totalAppHWRequirements(appSpecFormatted, 'bamf');
+    if (appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+      actualPriceToPay *= 0.8;
+    } else if (appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+      actualPriceToPay *= 0.9;
+    }
+    let gSyncthgApp = false;
+    if (appSpecFormatted.version <= 3) {
+      gSyncthgApp = appSpecFormatted.containerData.includes('g:');
+    } else {
+      gSyncthgApp = appSpecFormatted.compose.find((comp) => comp.containerData.includes('g:'));
+    }
+    if (gSyncthgApp) {
+      actualPriceToPay *= 0.8;
+    }
+    const marketplaceResponse = await axios.get('https://stats.runonflux.io/marketplace/listapps').catch((error) => log.error(error));
+    let marketPlaceApps = [];
+    if (marketplaceResponse && marketplaceResponse.data && marketplaceResponse.data.status === 'success') {
+      marketPlaceApps = marketplaceResponse.data.data;
+    } else {
+      log.error('Unable to get marketplace information');
+    }
+
+    if (appSpecification.priceUSD) {
+      if (appSpecification.priceUSD < actualPriceToPay) {
+        log.info(appSpecification.priceUSD);
+        log.info(actualPriceToPay);
+        throw new Error('USD price is not valid');
+      }
+      actualPriceToPay = Number(appSpecification.priceUSD).toFixed(2);
+    } else {
+      const marketPlaceApp = marketPlaceApps.find((app) => appSpecFormatted.name.toLowerCase().startsWith(app.name.toLowerCase()));
+      if (marketPlaceApp) {
+        if (marketPlaceApp.multiplier > 1) {
+          actualPriceToPay *= marketPlaceApp.multiplier;
+        }
+      }
+      actualPriceToPay = Number(actualPriceToPay * appPrices[0].multiplier).toFixed(2);
+      if (actualPriceToPay < appPrices[0].minUSDPrice) {
+        actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+      }
+    }
+    let fiatRates;
+    let fluxUSDRate;
+    if (myShortCache.has('fluxRates')) {
+      fluxUSDRate = myShortCache.get('fluxRates');
+    } else {
+      fiatRates = await axios.get('https://viprates.runonflux.io/rates', axiosConfig).catch((error) => log.error(error));
+      if (fiatRates && fiatRates.data) {
+        const rateObj = fiatRates.data[0].find((rate) => rate.code === 'USD');
+        if (!rateObj) {
+          throw new Error('Unable to get USD rate.');
+        }
+        const btcRateforFlux = fiatRates.data[1].FLUX;
+        if (btcRateforFlux === undefined) {
+          throw new Error('Unable to get Flux USD Price.');
+        }
+        fluxUSDRate = rateObj.rate * btcRateforFlux;
+        myShortCache.set('fluxRates', fluxUSDRate);
+      } else {
+        fiatRates = await axios.get('https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=zelcash', axiosConfig);
+        if (fiatRates && fiatRates.data && fiatRates.data.zelcash && fiatRates.data.zelcash.usd) {
+          fluxUSDRate = fiatRates.data.zelcash.usd;
+          myShortCache.set('fluxRates', fluxUSDRate);
+        } else {
+          // eslint-disable-next-line prefer-destructuring
+          fluxUSDRate = config.fluxapps.fluxUSDRate;
+          myShortCache.set('fluxRates', fluxUSDRate);
+        }
+      }
+    }
+    const fluxPrice = Number(((actualPriceToPay / fluxUSDRate) * appPrices[0].fluxmultiplier));
+    const fluxChainPrice = Number(await getAppFluxOnChainPrice(appSpecification));
+    const price = {
+      usd: Number(actualPriceToPay),
+      flux: fluxChainPrice > fluxPrice ? Number(fluxChainPrice.toFixed(2)) : Number(fluxPrice.toFixed(2)),
+      fluxDiscount: fluxChainPrice > fluxPrice ? 'Not possible to define discount' : Number(100 - (appPrices[0].fluxmultiplier * 100)),
+    };
+    const respondPrice = messageHelper.createDataMessage(price);
+    return res.json(respondPrice);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res.json(errorResponse);
+  }
 }
 
 /**
@@ -12237,24 +12231,15 @@ async function verifyAppRegistrationParameters(req, res) {
       appSpecification.version >= 8 && appSpecification.enterprise,
     );
 
-    if (isEnterprise) {
-      if (!appSpecification.enterpriseKey) {
-        throw new Error('enterpriseKey is mandatory for enterprise Apps.');
-      }
-
-      const enterprise = await decryptEnterpriseFromSession(
-        appSpecification.enterprise,
-        appSpecification.name,
+    const appSpecDecrypted = await checkAndDecryptAppSpecs(
+      appSpecification,
+      {
         daemonHeight,
-        appSpecification.enterpriseKey,
-        appSpecification.owner,
-      );
+        owner: appSpecification.owner,
+      },
+    );
 
-      appSpecification.contacts = enterprise.contacts;
-      appSpecification.compose = enterprise.compose;
-    }
-
-    const appSpecFormatted = specificationFormatter(appSpecification);
+    const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
     // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
     await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
