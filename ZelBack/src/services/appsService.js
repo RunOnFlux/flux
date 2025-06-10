@@ -8109,6 +8109,11 @@ async function registerAppGlobalyApi(req, res) {
     // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
     await verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
 
+    if (isEnterprise) {
+      appSpecFormatted.contacts = [];
+      appSpecFormatted.compose = [];
+    }
+
     // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
     // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
     // We respond with a hash that is supposed to go to transaction.
@@ -8270,6 +8275,11 @@ async function updateAppGlobalyApi(req, res) {
 
     // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
     await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+    if (isEnterprise) {
+      appSpecFormatted.contacts = [];
+      appSpecFormatted.compose = [];
+    }
 
     // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
     // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
