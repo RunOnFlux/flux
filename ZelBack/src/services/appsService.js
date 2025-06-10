@@ -5207,6 +5207,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     nodes,
     staticip,
     enterprise,
+    enterpriseKey,
   } = appSpecification;
 
   if (!version) {
@@ -5528,6 +5529,12 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
     if (!enterprise && nodes && nodes.length > 0) {
       throw new Error('Nodes can only be used in enterprise apps');
+    }
+    if (enterprise && !enterpriseKey) {
+      throw new Error('Enterprise Key must be present if enterprise app');
+    }
+    if (enterprise && typeof enterpriseKey !== 'string') {
+      throw new Error('EnterpriseKey must be a string');
     }
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
@@ -6141,7 +6148,8 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     });
   } else if (appSpecifications.version === 8) {
     const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip', 'enterprise',
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts',
+      'geolocation', 'expire', 'nodes', 'staticip', 'enterprise', 'enterpriseKey',
     ];
     const componentSpecifications = [
       'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'repoauth',
@@ -6788,7 +6796,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const fluxService = require('./fluxService');
       if (await fluxService.isSystemSecure()) {
         // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(appSpecFormatted, block, appSpecFormatted.owner);
+        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
+          appSpecFormatted,
+          { daemonHeight: block, owner: appSpecFormatted.owner },
+        );
         await verifyAppSpecifications(appSpecFormattedDecrypted, block);
         if (appRegistraiton) {
           await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
@@ -7227,6 +7238,7 @@ function specificationFormatter(appSpecification) {
     nodes,
     staticip,
     enterprise,
+    enterpriseKey,
   } = appSpecification;
 
   if (!version) {
@@ -7664,7 +7676,14 @@ function specificationFormatter(appSpecification) {
 
   if (version >= 8 && enterprise) {
     enterprise = serviceHelper.ensureString(enterprise);
+    enterpriseKey = serviceHelper.ensureString(enterpriseKey);
+
+    if (enterprise && !enterpriseKey) {
+      throw new Error('Enterprise key must contain a string if enterprise app');
+    }
+
     appSpecFormatted.enterprise = enterprise;
+    appSpecFormatted.enterprise = enterpriseKey;
   }
 
   return appSpecFormatted;
@@ -7840,20 +7859,24 @@ async function decryptEnterpriseFromSession(encrypted, appName, daemonHeight, en
  * @returns {Promise<object>} Return appSpecs decrypted if it is enterprise.
  */
 async function checkAndDecryptAppSpecs(appSpec, options = {}) {
-  // move to structuredClone when we are at > nodeJS 17.0.0
-  // we do this so we can have a copy of both formatted and decrypted
-  const appSpecs = JSON.parse(JSON.stringify(appSpec));
-
-  let block = options.daemonHeight || null;
-  let appOwner = options.owner || null;
-
-  if (!appSpecs || appSpecs.version < 8 || !appSpecs.enterprise) {
-    return appSpecs;
+  if (!appSpec || appSpec.version < 8 || !appSpec.enterprise) {
+    return appSpec;
   }
 
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
   }
+
+  if (!appSpec.enterpriseKey) {
+    throw new Error('Enterprise App specs require enterpriseKey to decrypt');
+  }
+
+  // move to structuredClone when we are at > nodeJS 17.0.0
+  // we do this so we can have a copy of both formatted and decrypted
+  const appSpecs = JSON.parse(JSON.stringify(appSpec));
+
+  let daemonHeight = options.daemonHeight || null;
+  let appOwner = options.owner || null;
 
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
@@ -7879,41 +7902,26 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
     }
   }
 
-  if (!block) {
+  if (!daemonHeight) {
     log.info(`Searching register permanent messages for ${appSpecs.name} to get latest update`);
     appsQuery = {
       'appSpecifications.name': appSpecs.name,
     };
     const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
     const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
-    block = lastUpdate.height;
+    daemonHeight = lastUpdate.height;
   }
 
-  const inputData = JSON.stringify({
-    fluxID: appOwner,
-    appName: appSpec.name,
-    message: appSpec.enterprise,
-    blockHeight: block,
-  });
+  const enterprise = await decryptEnterpriseFromSession(
+    appSpecs.enterprise,
+    appSpecs.name,
+    daemonHeight,
+    appSpecs.enterpriseKey,
+    appSpecs.owner,
+  );
 
-  const dataReturned = await benchmarkService.decryptMessage(inputData);
-  const { status, data } = dataReturned;
-
-  if (status === 'success') {
-    const dataParsed = JSON.parse(data);
-    const base64JsonEnterprise = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
-
-    if (base64JsonEnterprise) {
-      const jsonEnterprise = Buffer.from(base64JsonEnterprise, 'base64').toString('utf-8');
-      const enterprise = JSON.parse(jsonEnterprise);
-      appSpecs.compose = enterprise.compose;
-      appSpecs.contacts = enterprise.contacts;
-    } else {
-      throw new Error('Error decrypting applications specifications.');
-    }
-  } else {
-    throw new Error('Error getting public key to encrypt app enterprise content.');
-  }
+  appSpecs.contacts = enterprise.contacts;
+  appSpecs.compose = enterprise.compose;
 
   return appSpecs;
 }
@@ -8057,49 +8065,55 @@ async function registerAppGlobalyApi(req, res) {
       throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
     }
 
-    const appSpecFormatted = specificationFormatter(appSpecification);
-
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced.');
     }
     const daemonHeight = syncStatus.data.height;
 
-    const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
-      appSpecFormatted,
+    const appSpecDecrypted = await checkAndDecryptAppSpecs(
+      appSpecification,
       {
         daemonHeight,
-        owner: appSpecFormatted.owner,
+        owner: appSpecification.owner,
       },
     );
 
-    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-    await verifyAppSpecifications(appSpecFormattedDecrypted, daemonHeight, true);
+    const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
-    if (appSpecFormattedDecrypted.version === 7 && appSpecFormattedDecrypted.nodes.length > 0) {
+    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+    if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
       // eslint-disable-next-line no-restricted-syntax
-      for (const appComponent of appSpecFormattedDecrypted.compose) {
+      for (const appComponent of appSpecFormatted.compose) {
         if (appComponent.secrets) {
           // eslint-disable-next-line no-await-in-loop
-          await checkAppSecrets(appSpecFormattedDecrypted.name, appComponent, appSpecFormattedDecrypted.owner);
+          await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
         }
       }
     }
 
     // check if name is not yet registered
-    await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted);
+    await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+    const isEnterprise = Boolean(
+      appSpecification.version >= 8 && appSpecification.enterprise,
+    );
+
+    const toVerify = isEnterprise
+      ? specificationFormatter(appSpecification)
+      : appSpecFormatted;
 
     // check if zelid owner is correct ( done in message verification )
     // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
-    await verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
+    await verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
 
     // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
     // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
     // We respond with a hash that is supposed to go to transaction.
     const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
     const messageHASH = await generalService.messageHash(message);
-
-    const isEnterpriseApp = !!(appSpecFormattedDecrypted.version >= 8 && appSpecFormattedDecrypted.enterprise);
 
     // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
     const temporaryAppMessage = { // specification of temp message
@@ -8109,7 +8123,7 @@ async function registerAppGlobalyApi(req, res) {
       hash: messageHASH,
       timestamp,
       signature,
-      arcaneSender: isEnterpriseApp,
+      arcaneSender: isEnterprise,
     };
 
     await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
@@ -8196,30 +8210,30 @@ async function updateAppGlobalyApi(req, res) {
       throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
     }
 
-    const appSpecFormatted = specificationFormatter(appSpecification);
-
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced.');
     }
     const daemonHeight = syncStatus.data.height;
 
-    const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
-      appSpecFormatted,
+    const appSpecDecrypted = await checkAndDecryptAppSpecs(
+      appSpecification,
       {
         daemonHeight,
       },
     );
 
-    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-    await verifyAppSpecifications(appSpecFormattedDecrypted, daemonHeight, true);
+    const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
-    if (appSpecFormattedDecrypted.version === 7 && appSpecFormattedDecrypted.nodes.length > 0) {
+    // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+    await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+    if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
       // eslint-disable-next-line no-restricted-syntax
-      for (const appComponent of appSpecFormattedDecrypted.compose) {
+      for (const appComponent of appSpecFormatted.compose) {
         if (appComponent.secrets) {
           // eslint-disable-next-line no-await-in-loop
-          await checkAppSecrets(appSpecFormattedDecrypted.name, appComponent, appSpecFormattedDecrypted.owner);
+          await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
         }
       }
     }
@@ -8242,19 +8256,26 @@ async function updateAppGlobalyApi(req, res) {
       throw new Error('Flux App update of repotag is not allowed');
     }
     const appOwner = appInfo.owner; // ensure previous app owner is signing this message
+
+    const isEnterprise = Boolean(
+      appSpecification.version >= 8 && appSpecification.enterprise,
+    );
+
+    const toVerify = isEnterprise
+      ? specificationFormatter(appSpecification)
+      : appSpecFormatted;
+
     // here signature is checked against PREVIOUS app owner
-    await verifyAppMessageUpdateSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature, appOwner, daemonHeight);
+    await verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
 
     // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-    await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, timestamp);
+    await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
     // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
     // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
     // We respond with a hash that is supposed to go to transaction.
     const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
     const messageHASH = await generalService.messageHash(message);
-
-    const isEnterpriseApp = !!(appSpecFormattedDecrypted.version >= 8 && appSpecFormattedDecrypted.enterprise);
 
     // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
     const temporaryAppMessage = { // specification of temp message
@@ -8264,7 +8285,7 @@ async function updateAppGlobalyApi(req, res) {
       hash: messageHASH,
       timestamp,
       signature,
-      arcaneSender: isEnterpriseApp,
+      arcaneSender: isEnterprise,
     };
     await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
     // above takes 2-3 seconds
@@ -12212,17 +12233,25 @@ async function verifyAppRegistrationParameters(req, res) {
     }
     const daemonHeight = syncStatus.data.height;
 
-    let enterprise = null;
-    let newEnterpriseEncrypted = null;
-    if (appSpecification.version >= 8 && appSpecification.enterprise) {
-      const encryptedEnterpriseKey = req.headers['enterprise-key'];
-      if (!encryptedEnterpriseKey) {
-        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+    const isEnterprise = Boolean(
+      appSpecification.version >= 8 && appSpecification.enterprise,
+    );
+
+    if (isEnterprise) {
+      if (!appSpecification.enterpriseKey) {
+        throw new Error('enterpriseKey is mandatory for enterprise Apps.');
       }
-      enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey, appSpecification.owner);
+
+      const enterprise = await decryptEnterpriseFromSession(
+        appSpecification.enterprise,
+        appSpecification.name,
+        daemonHeight,
+        appSpecification.enterpriseKey,
+        appSpecification.owner,
+      );
+
       appSpecification.contacts = enterprise.contacts;
       appSpecification.compose = enterprise.compose;
-      newEnterpriseEncrypted = await encryptEnterpriseWithAes(enterprise, appSpecification.name, daemonHeight, appSpecification.owner);
     }
 
     const appSpecFormatted = specificationFormatter(appSpecification);
@@ -12243,8 +12272,7 @@ async function verifyAppRegistrationParameters(req, res) {
     // check if name is not yet registered
     await checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
-    if (newEnterpriseEncrypted) {
-      appSpecFormatted.enterprise = newEnterpriseEncrypted;
+    if (isEnterprise) {
       appSpecFormatted.contacts = [];
       appSpecFormatted.compose = [];
     }
