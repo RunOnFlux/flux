@@ -5207,12 +5207,12 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
   } = appSpecification;
 
   if (!version) {
-    throw new Error('Missing Flux App specification parameter');
+    throw new Error('Missing Flux App specification parameter version');
   }
 
   // commons
   if (!version || !name || !description || !owner) {
-    throw new Error('Missing Flux App specification parameter');
+    throw new Error('Missing Flux App specification parameter name and/or description and/or owner');
   }
 
   if (typeof version !== 'number') {
@@ -5236,17 +5236,17 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 
   if (version === 1) {
     if (!port || !containerPort) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter port and/or containerPort');
     }
   } else if (version >= 2 && version <= 3) {
     if (!ports || !domains || !containerPorts) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter port and/or containerPort and/or domains');
     }
   }
 
   if (version === 1) {
     if (!repotag || !enviromentParameters || !commands || !containerData || !cpu || !ram || !hdd) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter repotag and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
     }
 
     if (typeof port !== 'number') {
@@ -5315,7 +5315,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
   } else if (version <= 3) {
     if (!repotag || !enviromentParameters || !commands || !containerData || !cpu || !ram || !hdd) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter repotag and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
     }
 
     if (Array.isArray(ports)) {
@@ -5404,7 +5404,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
   } else if (version <= 7) { // v4 to v7
     if (!compose) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter compose');
     }
     if (typeof compose !== 'object') {
       throw new Error('Invalid Flux App Specifications');
@@ -5527,7 +5527,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
       throw new Error('Nodes can only be used in enterprise apps');
     }
     if (!compose) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter compose');
     }
     if (typeof compose !== 'object') {
       throw new Error('Invalid Flux App Specifications');
@@ -5615,7 +5615,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 
   if (version >= 3) {
     if (!instances) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter instances');
     }
     if (typeof instances !== 'number') {
       throw new Error('Invalid instances specification');
@@ -5651,7 +5651,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 
   if (version >= 6) {
     if (!expire) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter expire');
     }
     if (typeof expire !== 'number') {
       throw new Error('Invalid expire specification');
@@ -5666,7 +5666,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 
   if (version >= 7) {
     if (!nodes) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter nodes');
     }
     if (Array.isArray(nodes)) {
       nodes.forEach((parameter) => {
@@ -7226,13 +7226,13 @@ function specificationFormatter(appSpecification) {
   } = appSpecification;
 
   if (!version) {
-    throw new Error('Missing Flux App specification parameter');
+    throw new Error('Missing Flux App specification parameter version');
   }
   version = serviceHelper.ensureNumber(version);
 
   // commons
   if (!name || !description || !owner) {
-    throw new Error('Missing Flux App specification parameter');
+    throw new Error('Missing Flux App specification parameter name and/or description and/or owner');
   }
   name = serviceHelper.ensureString(name);
   description = serviceHelper.ensureString(description);
@@ -7250,7 +7250,7 @@ function specificationFormatter(appSpecification) {
 
   if (version === 1) {
     if (!repotag || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter repotag and/or port and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
     }
 
     repotag = serviceHelper.ensureString(repotag);
@@ -7333,7 +7333,7 @@ function specificationFormatter(appSpecification) {
     }
   } else if (version <= 3) {
     if (!repotag || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter repotag and/or port and/or domains and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
     }
 
     repotag = serviceHelper.ensureString(repotag);
@@ -7446,7 +7446,7 @@ function specificationFormatter(appSpecification) {
     }
   } else { // v4+
     if (!compose) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter compose');
     }
     compose = serviceHelper.ensureObject(compose);
     if (!Array.isArray(compose)) {
@@ -7565,7 +7565,7 @@ function specificationFormatter(appSpecification) {
 
   if (version >= 3) {
     if (!instances) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter instances');
     }
     instances = serviceHelper.ensureNumber(instances);
     if (typeof instances !== 'number') {
@@ -7585,7 +7585,7 @@ function specificationFormatter(appSpecification) {
 
   if (version >= 5) {
     if (!contacts || !geolocation) { // can be empty array for no contact or no geolocation requirements
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter contacts and/or geolocation');
     }
     contacts = serviceHelper.ensureObject(contacts);
     const contactsCorrect = [];
@@ -7614,7 +7614,7 @@ function specificationFormatter(appSpecification) {
 
   if (version >= 6) {
     if (!expire) {
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter expire');
     }
     expire = serviceHelper.ensureNumber(expire);
     if (typeof expire !== 'number') {
@@ -7631,7 +7631,7 @@ function specificationFormatter(appSpecification) {
 
   if (version >= 7) {
     if (!nodes) { // can be empty array for no nodes set
-      throw new Error('Missing Flux App specification parameter');
+      throw new Error('Missing Flux App specification parameter nodes');
     }
     nodes = serviceHelper.ensureObject(nodes);
     const nodesCorrect = [];
