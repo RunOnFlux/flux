@@ -7666,7 +7666,6 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
   const appSpecs = appSpec;
   let block = daemonHeight;
   let appOwner = owner;
-  log.info(appSpecs);
   if (!appSpecs) return appSpecs;
 
   if (appSpec.version >= 8 && appSpec.enterprise) {
@@ -7721,7 +7720,6 @@ async function checkAndDecryptAppSpecs(appSpec, daemonHeight = null, owner = nul
       throw new Error('Error getting public key to encrypt app enterprise content.');
     }
   }
-  log.info(appSpecs);
   return appSpecs;
 }
 
@@ -11906,17 +11904,14 @@ async function verifyAppRegistrationParameters(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
-      log.info(appSpecification);
       let appSpecFormatted = specificationFormatter(appSpecification);
-      log.info(appSpecFormatted);
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
 
-      appSpecFormatted = checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
-      log.info(appSpecFormatted);
+      appSpecFormatted = await checkAndDecryptAppSpecs(appSpecFormatted, daemonHeight, appSpecFormatted.owner);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
