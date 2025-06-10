@@ -7683,7 +7683,7 @@ function specificationFormatter(appSpecification) {
     }
 
     appSpecFormatted.enterprise = enterprise;
-    appSpecFormatted.enterprise = enterpriseKey;
+    appSpecFormatted.enterpriseKey = enterpriseKey;
   }
 
   return appSpecFormatted;
