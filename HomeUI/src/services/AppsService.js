@@ -290,6 +290,9 @@ export default {
   appRegistrationVerificaiton(data) {
     return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data));
   },
+  getAppPublicKey(data) {
+    return Api().post('/apps/getpublickey', JSON.stringify(data));
+  },
   appUpdateVerification(data) {
     return Api().post('/apps/verifyappupdatespecifications', JSON.stringify(data));
   },
