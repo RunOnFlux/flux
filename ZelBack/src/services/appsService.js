@@ -13655,6 +13655,21 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       });
     }
     await serviceHelper.delay(10 * 1000);
+    const timeout = 30000;
+    const axiosConfig = {
+      timeout,
+    };
+    const data = {
+      ip: myIP,
+      port: myPort,
+      appname: 'appPortsTest',
+      ports: portsToTest,
+      pubKey,
+    };
+    const stringData = JSON.stringify(data);
+    // eslint-disable-next-line no-await-in-loop
+    const signature = await signCheckAppData(stringData);
+    data.signature = signature;
     let i = 0;
     let finished = false;
     while (!finished && i < 5) {
@@ -13672,21 +13687,6 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         askingIP = splittedIP[0];
         askingIpPort = splittedIP[1];
       }
-      const timeout = 30000;
-      const axiosConfig = {
-        timeout,
-      };
-      const data = {
-        ip: myIP,
-        port: myPort,
-        appname: 'appPortsTest',
-        ports: portsToTest,
-        pubKey,
-      };
-      const stringData = JSON.stringify(data);
-      // eslint-disable-next-line no-await-in-loop
-      const signature = await signCheckAppData(stringData);
-      data.signature = signature;
       // first check against our IP address
       // eslint-disable-next-line no-await-in-loop
       const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
