@@ -234,6 +234,7 @@ module.exports = {
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
     applyMinimumForExtraInstances: 1890000,
+    latestAppSpecification: 8,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

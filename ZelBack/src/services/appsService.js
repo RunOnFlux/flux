@@ -5111,6 +5111,19 @@ async function checkApplicationImagesComplience(appSpecs) {
 }
 
 /**
+ *
+ * @param {express.Request} req
+ * @param {express.Response} res
+ */
+async function getlatestApplicationSpecificationAPI(req, res) {
+  const latestSpec = config.fluxapps.latestAppSpecification || 1;
+
+  const message = messageHelper.createDataMessage(latestSpec);
+
+  res.json(message);
+}
+
+/**
  * To check if application image is part of blocked repositories
  * @param {object} appSpecs App specifications.
  * @returns {boolean, string} False if blocked, String of reason if yes
@@ -10190,7 +10203,7 @@ async function getApplicationSpecificationAPI(req, res) {
     );
 
     if (!isEnterprise) {
-      throw new Error('App spec decryption is only possible for version 8+ Apps.')
+      throw new Error('App spec decryption is only possible for version 8+ Apps.');
     }
 
     const encryptedEnterpriseKey = req.headers['enterprise-key'];
@@ -15391,6 +15404,7 @@ module.exports = {
   downloadAppsFolder,
   downloadAppsFile,
   encryptEnterpriseWithAes,
+  getlatestApplicationSpecificationAPI,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,
