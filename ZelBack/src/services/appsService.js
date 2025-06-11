@@ -15390,6 +15390,7 @@ module.exports = {
   removeAppsObject,
   downloadAppsFolder,
   downloadAppsFile,
+  encryptEnterpriseWithAes,
   // exports for testing purposes
   setAppsMonitored,
   getAppsMonitored,
