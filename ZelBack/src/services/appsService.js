@@ -5207,7 +5207,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     nodes,
     staticip,
     enterprise,
-    enterpriseKey,
   } = appSpecification;
 
   if (!version) {
@@ -5529,12 +5528,6 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     }
     if (!enterprise && nodes && nodes.length > 0) {
       throw new Error('Nodes can only be used in enterprise apps');
-    }
-    if (enterprise && !enterpriseKey) {
-      throw new Error('Enterprise Key must be present if enterprise app');
-    }
-    if (enterprise && typeof enterpriseKey !== 'string') {
-      throw new Error('EnterpriseKey must be a string');
     }
     if (!compose) {
       throw new Error('Missing Flux App specification parameter');
@@ -6149,7 +6142,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
   } else if (appSpecifications.version === 8) {
     const specifications = [
       'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts',
-      'geolocation', 'expire', 'nodes', 'staticip', 'enterprise', 'enterpriseKey',
+      'geolocation', 'expire', 'nodes', 'staticip', 'enterprise',
     ];
     const componentSpecifications = [
       'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'repoauth',
@@ -6571,7 +6564,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
  * To check for any conflicts with the latest permenent app registration message and any app update messages.
  * @param {object} specifications App specifications.
  * @param {number} verificationTimestamp Verifiaction time stamp.
- * @returns {boolean} True if no errors are thrown.
+ * @returns {Promise<boolean>} True if no errors are thrown.
  */
 async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
   // eslint-disable-next-line no-use-before-define
@@ -7238,7 +7231,6 @@ function specificationFormatter(appSpecification) {
     nodes,
     staticip,
     enterprise,
-    enterpriseKey,
   } = appSpecification;
 
   if (!version) {
@@ -7676,14 +7668,8 @@ function specificationFormatter(appSpecification) {
 
   if (version >= 8 && enterprise) {
     enterprise = serviceHelper.ensureString(enterprise);
-    enterpriseKey = serviceHelper.ensureString(enterpriseKey);
-
-    if (enterprise && !enterpriseKey) {
-      throw new Error('Enterprise key must contain a string if enterprise app');
-    }
 
     appSpecFormatted.enterprise = enterprise;
-    appSpecFormatted.enterpriseKey = enterpriseKey;
   }
 
   return appSpecFormatted;
@@ -7759,7 +7745,7 @@ function encryptWithAesSession(appName, dataToEncrypt, base64AesKey) {
  * @param {string} appName application name.
  * @param {integer} daemonHeight daemon block height.
  * @param {string} owner original owner of the application
- * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
+ * @param {string} enterpriseKey base64 RSA encrypted AES key used to encrypt enterprise app data
  * @returns {object} Return enterprise object decrypted.
  */
 async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, owner = null) {
@@ -7826,22 +7812,38 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
  *
  * We base64 encode the key so that were not passing around raw bytes
  *
- * @param {object} encrypted enterprise encrypted content (decrypted is a JSON string)
+ * @param {string} base64Encrypted enterprise encrypted content (decrypted is a JSON string)
  * @param {string} appName application name
  * @param {integer} daemonHeight daemon block height
  * @param {string} owner original owner of the application
  * @param {string} enterpriseKey RSA encrypted AES key use to encrypt the enterprise field
  * @returns {Promise<object>} Return enterprise object decrypted.
  */
-async function decryptEnterpriseFromSession(encrypted, appName, daemonHeight, enterpriseKey, owner = null) {
+async function decryptEnterpriseFromSession(base64Encrypted, appName, daemonHeight, owner = null) {
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
   }
-  if (!enterpriseKey) {
-    throw new Error('enterpriseKey is mandatory for enterprise Apps.');
-  }
-  const base64AesKey = await decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, owner);
-  const jsonEnterprise = decryptWithAesSession(appName, encrypted, base64AesKey);
+
+  const enterpriseBuf = Buffer.from(base64Encrypted, 'base64');
+  const aesKeyEncrypted = enterpriseBuf.subarray(0, 256);
+  const nonceCiphertextTag = enterpriseBuf.subarray(256);
+
+  // we encode this as we are passing it as an api call
+  const base64EncryptedAesKey = aesKeyEncrypted.toString('base64');
+
+  const base64AesKey = await decryptAesKeyWithRsaKey(
+    appName,
+    daemonHeight,
+    base64EncryptedAesKey,
+    owner,
+  );
+
+  const jsonEnterprise = decryptWithAesSession(
+    appName,
+    nonceCiphertextTag,
+    base64AesKey,
+  );
+
   const decryptedEnterprise = JSON.parse(jsonEnterprise);
 
   if (decryptedEnterprise) {
@@ -7865,10 +7867,6 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
 
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-  }
-
-  if (!appSpec.enterpriseKey) {
-    throw new Error('Enterprise App specs require enterpriseKey to decrypt');
   }
 
   // move to structuredClone when we are at > nodeJS 17.0.0
@@ -7916,7 +7914,6 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
     appSpecs.enterprise,
     appSpecs.name,
     daemonHeight,
-    appSpecs.enterpriseKey,
     appSpecs.owner,
   );
 
@@ -7927,7 +7924,7 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
 }
 
 /**
- * Decrypts app specs if they are encrypted
+ * Encrypts app specs
  * @param {object} enterprise content to be encrypted.
  * @param {string} appName name of the app.
  * @param {integer} daemonHeight daemon block height.
@@ -7994,21 +7991,23 @@ async function encryptEnterpriseWithAes(enterprise, appName, daemonHeight = null
 
 /**
  * Encrypts app specs for api request
- * @param {object} enterprise enterprise encrypted content.
- * @param {string} appName application name.
+ * @param {object} appSpec App spec that needs contacts / compose encrypted
 * @param {integer} daemonHeight daemon block height.
  * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
- * @returns {object} Return enterprise object decrypted.
+ * @returns {Promise<object>} Return app specs copy with enterprise object encrypted (and sensitive content removed)
  */
-async function encryptEnterpriseFromSession(enterprise, appName, daemonHeight, enterpriseKey) {
+async function encryptEnterpriseFromSession(appSpec, daemonHeight, enterpriseKey) {
   if (!isArcane) {
     throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
   }
   if (!enterpriseKey) {
     throw new Error('enterpriseKey is mandatory for enterprise Apps.');
   }
+
+  const appName = appSpec.name;
+
   const base64AesKey = await decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey);
-  const encryptedEnterprise = encryptWithAesSession(appName, enterprise, base64AesKey);
+  const encryptedEnterprise = encryptWithAesSession(appSpec.enterprise, base64AesKey);
   if (encryptedEnterprise) {
     return encryptedEnterprise;
   }
@@ -9884,7 +9883,7 @@ function updateToLatestAppSpecifications(appSpec) {
       owner: appSpec.owner,
       staticip: false,
       compose: [component],
-      enterprise: false,
+      enterprise: "",
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -9921,7 +9920,7 @@ function updateToLatestAppSpecifications(appSpec) {
       owner: appSpec.owner,
       staticip: false,
       compose: [component],
-      enterprise: false,
+      enterprise: "",
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -9959,7 +9958,7 @@ function updateToLatestAppSpecifications(appSpec) {
       owner: appSpec.owner,
       staticip: false,
       compose: [component],
-      enterprise: false,
+      enterprise: "",
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -9982,7 +9981,7 @@ function updateToLatestAppSpecifications(appSpec) {
       istances: appSpec.instances,
       nodes: [],
       staticip: false,
-      enterprise: false,
+      enterprise: "",
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -10026,7 +10025,7 @@ function updateToLatestAppSpecifications(appSpec) {
       istances: appSpec.instances,
       nodes: [],
       staticip: false,
-      enterprise: false,
+      enterprise: "",
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -10070,7 +10069,7 @@ function updateToLatestAppSpecifications(appSpec) {
       istances: appSpec.instances,
       nodes: [],
       staticip: false,
-      enterprise: false,
+      enterprise: "",
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -10114,7 +10113,7 @@ function updateToLatestAppSpecifications(appSpec) {
       istances: appSpec.instances,
       nodes: [], // we don't fill the nodes as they were used for different thing.
       staticip: appSpec.staticip,
-      enterprise: false,
+      enterprise: "",
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -10147,90 +10146,159 @@ function updateToLatestAppSpecifications(appSpec) {
 }
 
 /**
- * To get app specifications for a specific app (global or local) via API.
+ * To get app specifications for a specific app (global or local) via API. If it's
+ * a v8+ app, can request the specs with the original encryption, or reencrypted with
+ * a session key provided by the client in the Enterprise-Key header
  * @param {express.Request} req Request.
  * @param {express.Response} res Response.
+ * @returns {Promise<void>}
  */
-// eslint-disable-next-line consistent-return
 async function getApplicationSpecificationAPI(req, res) {
   try {
-    let { appname, update, decrypt } = req.params;
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+
+    const { data: { daemonHeight } } = syncStatus;
+
+    let { appname, decrypt } = req.params;
     appname = appname || req.query.appname;
+
     if (!appname) {
       throw new Error('No Application Name specified');
     }
 
+    // query params take precedence over params (they were set explictly)
+    decrypt = req.query.decrypt || decrypt;
+
+    const specifications = await getApplicationSpecifications(appname);
     const mainAppName = appname.split('_')[1] || appname;
-    let authorized = false;
-    update = update || req.query.update;
-    decrypt = decrypt || req.query.decrypt;
+
+    if (!specifications) {
+      throw new Error('Application not found');
+    }
+
+    if (!decrypt) {
+      const specResponse = messageHelper.createDataMessage(specifications);
+      res.json(specResponse);
+      return null;
+    }
+
+    const isEnterprise = Boolean(
+      specifications.version >= 8 && specifications.enterprise,
+    );
+
+    if (!isEnterprise) {
+      throw new Error('App spec decryption is only possible for version 8+ Apps.')
+    }
+
+    const encryptedEnterpriseKey = req.headers['enterprise-key'];
+    if (!encryptedEnterpriseKey) {
+      throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+    }
+
+    const authorized = await verificationHelper.verifyPrivilege(
+      'appowner',
+      req,
+      mainAppName,
+    );
+
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return null;
+    }
+
+    // this seems a bit weird, but the client can ask for the specs encrypted or decrypted.
+    // If decrypted, they pass us another session key and we use that to encrypt.
+    specifications.enterprise = await encryptEnterpriseFromSession(
+      specifications,
+      daemonHeight,
+      encryptedEnterpriseKey,
+    );
+    specifications.contacts = [];
+    specifications.compose = [];
+
+    const specResponse = messageHelper.createDataMessage(specifications);
+    res.json(specResponse);
+  } catch (error) {
+    log.error(error);
+
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+
+    res.json(errorResponse);
+  }
+
+  return null;
+}
+
+/**
+ * To update specifications to the latest version. (This is futureproofed, i.e.
+ * clients can update from 8 to 8+, by passing encryption key)
+ * @param {express.Request} req Request.
+ * @param {express.Response} res Response.
+ */
+async function updateApplicationSpecificationAPI(req, res) {
+  try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+
+    const { data: { daemonHeight } } = syncStatus;
+    const { appname } = req.params;
 
     const specifications = await getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
 
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
-    }
-    const daemonHeight = syncStatus.data.height;
+    const mainAppName = appname.split('_')[1] || appname;
 
-    if (specifications.version >= 8 && specifications.enterprise) {
-      const encryptedEnterpriseKey = req.headers['enterprise-key'];
-      if (decrypt) {
-        authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
-        if (!authorized) {
-          const errMessage = messageHelper.errUnauthorizedMessage();
-          return res.json(errMessage);
-        }
-        if (!encryptedEnterpriseKey) {
-          throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-        }
-        specifications.enterprise = {
-          contacts: specifications.contacts,
-          compose: specifications.compose,
-        };
-        specifications.contacts = [];
-        specifications.compose = [];
-        specifications.enterprise = await encryptEnterpriseFromSession(specifications.enterprise, specifications.name, daemonHeight, encryptedEnterpriseKey);
-      }
-      authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
-      if (authorized) {
-        if (!encryptedEnterpriseKey) {
-          throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-        }
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of specifications.compose) {
-          component.environmentParameters = [];
-          component.repoauth = '';
-        }
-        specifications.enterprise = {
-          contacts: specifications.contacts,
-          compose: specifications.compose,
-        };
-        specifications.enterprise = await encryptEnterpriseFromSession(specifications.enterprise, specifications.name, daemonHeight, encryptedEnterpriseKey);
-        specifications.contacts = [];
-        specifications.compose = [];
-      } else {
-        specifications.compose = [];
-        specifications.contacts = [];
+    const isEnterprise = Boolean(
+      specifications.version >= 8 && specifications.enterprise,
+    );
+
+    let encryptedEnterpriseKey = null;
+    if (isEnterprise) {
+      encryptedEnterpriseKey = req.headers['enterprise-key'];
+      if (!encryptedEnterpriseKey) {
+        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
       }
     }
 
-    let updatedSpecifications = specifications;
-    if (update) {
-      authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        res.json(errMessage);
-        return null;
-      }
-      updatedSpecifications = updateToLatestAppSpecifications(specifications);
-      const specResponse = messageHelper.createDataMessage(updatedSpecifications);
-      res.json(specResponse);
+    const authorized = await verificationHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      mainAppName,
+    );
+
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return null;
     }
-    const specResponse = messageHelper.createDataMessage(updatedSpecifications);
+
+    const updatedSpecs = updateToLatestAppSpecifications(specifications);
+
+    if (isEnterprise) {
+      const enterprise = await encryptEnterpriseFromSession(
+        updatedSpecs,
+        daemonHeight,
+        encryptedEnterpriseKey,
+      );
+
+      updatedSpecs.enterprise = enterprise;
+      updatedSpecs.contact = [];
+      updatedSpecs.compose = [];
+    }
+
+    const specResponse = messageHelper.createDataMessage(updatedSpecs);
     res.json(specResponse);
   } catch (error) {
     log.error(error);
@@ -10241,6 +10309,7 @@ async function getApplicationSpecificationAPI(req, res) {
     );
     res.json(errorResponse);
   }
+  return null;
 }
 
 /**
@@ -12305,20 +12374,13 @@ async function verifyAppUpdateParameters(req, res) {
     }
     const daemonHeight = syncStatus.data.height;
 
-    let enterprise = null;
-    let newEnterpriseEncrypted = null;
-    if (appSpecification.version >= 8 && appSpecification.enterprise) {
-      const encryptedEnterpriseKey = req.headers['enterprise-key'];
-      if (!encryptedEnterpriseKey) {
-        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
-      }
-      enterprise = await decryptEnterpriseFromSession(appSpecification.enterprise, appSpecification.name, daemonHeight, encryptedEnterpriseKey);
-      appSpecification.contacts = enterprise.contacts;
-      appSpecification.compose = enterprise.compose;
-      newEnterpriseEncrypted = await encryptEnterpriseWithAes(enterprise, appSpecification.name, daemonHeight);
-    }
+    const isEnterprise = Boolean(
+      appSpecification.version >= 8 && appSpecification.enterprise,
+    );
 
-    const appSpecFormatted = specificationFormatter(appSpecification);
+    const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+
+    const appSpecFormatted = specificationFormatter(decryptedSpecs);
 
     // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
     await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -12337,8 +12399,7 @@ async function verifyAppUpdateParameters(req, res) {
     const timestamp = Date.now();
     await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
-    if (newEnterpriseEncrypted) {
-      appSpecFormatted.enterprise = newEnterpriseEncrypted;
+    if (isEnterprise) {
       appSpecFormatted.contacts = [];
       appSpecFormatted.compose = [];
     }
@@ -15282,6 +15343,7 @@ module.exports = {
   getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications,
   getApplicationSpecificationAPI,
+  updateApplicationSpecificationAPI,
   getApplicationOwnerAPI,
   checkAndNotifyPeersOfRunningApps,
   rescanGlobalAppsInformationAPI,
