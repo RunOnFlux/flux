@@ -13655,52 +13655,58 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       });
     }
     await serviceHelper.delay(10 * 1000);
-    // eslint-disable-next-line no-await-in-loop
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
-    while (!askingIP || askingIP.split(':')[0] === myIP) {
+    let i = 0;
+    let finished = false;
+    while (!finished && i < 5) {
+      i += 1;
       // eslint-disable-next-line no-await-in-loop
-      askingIP = await fluxNetworkHelper.getRandomConnection();
-    }
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) { // has port specification
-      // it has port specification
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
-    const timeout = 30000;
-    const axiosConfig = {
-      timeout,
-    };
-    const data = {
-      ip: myIP,
-      port: myPort,
-      appname: 'appPortsTest',
-      ports: portsToTest,
-      pubKey,
-    };
-    const stringData = JSON.stringify(data);
-    // eslint-disable-next-line no-await-in-loop
-    const signature = await signCheckAppData(stringData);
-    data.signature = signature;
-    // first check against our IP address
-    // eslint-disable-next-line no-await-in-loop
-    const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
-      log.error(`${askingIP} for app availability is not reachable`);
-      log.error(error);
-    });
-    if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
-      if (resMyAppAvailability.data.data && resMyAppAvailability.data.data.message && resMyAppAvailability.data.data.message.includes('Failed port: ')) {
-        const portToRetest = serviceHelper.ensureNumber(resMyAppAvailability.data.data.message.split('Failed port: ')[1]);
-        if (portToRetest > 0) {
-          failedPort = portToRetest;
-        }
+      let askingIP = await fluxNetworkHelper.getRandomConnection();
+      while (!askingIP || askingIP.split(':')[0] === myIP) {
+      // eslint-disable-next-line no-await-in-loop
+        askingIP = await fluxNetworkHelper.getRandomConnection();
       }
-      portsStatus = false;
-    } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
-      portsStatus = true;
+      let askingIpPort = config.server.apiport;
+      if (askingIP.includes(':')) { // has port specification
+      // it has port specification
+        const splittedIP = askingIP.split(':');
+        askingIP = splittedIP[0];
+        askingIpPort = splittedIP[1];
+      }
+      const timeout = 30000;
+      const axiosConfig = {
+        timeout,
+      };
+      const data = {
+        ip: myIP,
+        port: myPort,
+        appname: 'appPortsTest',
+        ports: portsToTest,
+        pubKey,
+      };
+      const stringData = JSON.stringify(data);
+      // eslint-disable-next-line no-await-in-loop
+      const signature = await signCheckAppData(stringData);
+      data.signature = signature;
+      // first check against our IP address
+      // eslint-disable-next-line no-await-in-loop
+      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+        log.error(`${askingIP} for app availability is not reachable`);
+        log.error(error);
+      });
+      if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
+        if (resMyAppAvailability.data.data && resMyAppAvailability.data.data.message && resMyAppAvailability.data.data.message.includes('Failed port: ')) {
+          const portToRetest = serviceHelper.ensureNumber(resMyAppAvailability.data.data.message.split('Failed port: ')[1]);
+          if (portToRetest > 0) {
+            failedPort = portsNotWorking.push(portToRetest);
+          }
+        }
+        portsStatus = false;
+        finished = true;
+      } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+        portsStatus = true;
+        finished = true;
+      }
     }
-
     // stop listening on the port, close the port
     // eslint-disable-next-line no-restricted-syntax
     for (const portToTest of portsToTest) {
