@@ -10579,13 +10579,69 @@ export default {
         time: 365 * 24 * 60 * 60 * 1000,
       });
     },
+    async decryptEnterpriseWithAes(base64keyNonceCiphertextTag, aesKey) {
+      const keyNonceCiphertextTag = this.base64ToUint8Array(base64keyNonceCiphertextTag);
+
+      const nonce = keyNonceCiphertextTag.slice(256, 268);
+      const ciphertextTag = keyNonceCiphertextTag.slice(268);
+
+      const aesCryptoKey = await crypto.subtle.importKey(
+        'raw',
+        aesKey,
+        'AES-GCM',
+        true,
+        ['encrypt', 'decrypt'],
+      );
+
+      const plainTextBuf = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: nonce },
+        aesCryptoKey,
+        ciphertextTag,
+      );
+
+      const plainText = new TextDecoder().decode(plainTextBuf);
+
+      return plainText;
+    },
     async getGlobalApplicationSpecifics() {
-      const response = await AppsService.getAppSpecifics(this.appName);
+      let response = await AppsService.getAppSpecifics(this.appName);
       console.log(response);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
         this.callBResponse.status = response.data.status;
       } else {
+        if (response.data.data.version >= 8 && response.data.data.enterprise) {
+          // call api to get RSA public key
+          const appPubKeyData = {
+            name: response.data.data.name,
+            owner: response.data.data.owner,
+          };
+          const responseGetPublicKey = await AppsService.getAppDecryptedSpecifics(appPubKeyData);
+          if (responseGetPublicKey.data.status === 'error') {
+            throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
+          }
+          const pubkey = responseGetPublicKey.data.data;
+
+          const rsaPubKey = await this.importRsaPublicKey(pubkey);
+          const aesKey = crypto.getRandomValues(new Uint8Array(32));
+
+          const encryptedEnterpriseKey = await this.encryptAesKeyWithRsaKey(
+            aesKey,
+            rsaPubKey,
+          );
+          const zelidauth = localStorage.getItem('zelidauth');
+          response = await AppsService.getAppDecryptedSpecifics(this.appName, zelidauth, encryptedEnterpriseKey);
+          console.log(response);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+            this.callBResponse.status = response.data.status;
+            return;
+          }
+          const enterpriseDecrypted = this.decryptEnterpriseWithAes(response.data.data.enterprise);
+          response.data.data.contacts = enterpriseDecrypted.contacts;
+          response.data.data.compose = enterpriseDecrypted.compose;
+          response.data.data.enterprise = true;
+        }
         this.callBResponse.status = response.data.status;
         this.callBResponse.data = response.data.data;
         const specs = response.data.data;
@@ -10642,7 +10698,7 @@ export default {
             this.getExpireOptions();
             this.appUpdateSpecification.expire = this.ensureNumber(this.expireOptions[this.expirePosition].value);
           }
-          if (this.appUpdateSpecification.version >= 7) {
+          if (this.appUpdateSpecification.version === 7) {
             this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
             this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
             if (this.appUpdateSpecification.nodes && this.appUpdateSpecification.nodes.length) {
@@ -10679,6 +10735,29 @@ export default {
                 }
               } else {
                 this.showToast('danger', 'Failed to load Enterprise Node List');
+              }
+            });
+          }
+          if (this.appUpdateSpecification.version >= 8) {
+            this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
+            this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
+            if (this.appUpdateSpecification.enterprise) {
+              this.isPrivateApp = true;
+              this.showToast('danger', 'This app was enterprise, all components information will not be migrated');
+            }
+            if (!this.enterpriseNodes) {
+              await this.getEnterpriseNodes();
+            }
+            this.selectedEnterpriseNodes = [];
+            this.appUpdateSpecification.nodes.forEach((node) => {
+              // add to selected node list
+              if (this.enterpriseNodes) {
+                const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
+                if (nodeFound) {
+                  this.selectedEnterpriseNodes.push(nodeFound);
+                }
+              } else {
+                this.showToast('danger', 'Failed to load Priority Node List');
               }
             });
           }

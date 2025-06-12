@@ -134,6 +134,15 @@ export default {
   getAppSpecifics(name) {
     return Api().get(`/apps/appspecifications/${name}`);
   },
+  getAppDecryptedSpecifics(name, zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+        'enterprise-key': data,
+      },
+    };
+    return Api().get(`/apps/appspecifications/${name}/true`, axiosConfig);
+  },
   getAppOwner(name) {
     return Api().get(`/apps/appowner/${name}`);
   },
