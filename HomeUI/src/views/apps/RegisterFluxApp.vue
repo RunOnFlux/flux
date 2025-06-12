@@ -1234,7 +1234,7 @@
                 :filter="entNodesTable.filter"
                 :filter-included-fields="entNodesTable.filterOn"
                 show-empty
-                :empty-text="'No Enterprise Nodes selected'"
+                :empty-text="'No Priority Nodes selected'"
               >
                 <template #cell(show_details)="row">
                   <a @click="row.toggleDetails">
