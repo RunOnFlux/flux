@@ -7815,7 +7815,7 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
  * encrypted with the RSA public key received via prior api call.
  *
  * The enterpise field is in this format:
- * base64(nonce + aes-256-gcm(base64(json(enterprise specs))) + authTag)
+ * base64(rsa encrypted aes key + nonce + aes-256-gcm(base64(json(enterprise specs))) + authTag)
  *
  * We do this so that we don't have to double JSON encode, and we have the
  * nonce + cyphertext + tag all in one entry
@@ -7829,7 +7829,6 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
  * @param {string} appName application name
  * @param {integer} daemonHeight daemon block height
  * @param {string} owner original owner of the application
- * @param {string} enterpriseKey RSA encrypted AES key use to encrypt the enterprise field
  * @returns {Promise<object>} Return enterprise object decrypted.
  */
 async function decryptEnterpriseFromSession(base64Encrypted, appName, daemonHeight, owner = null) {
