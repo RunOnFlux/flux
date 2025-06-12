@@ -10238,7 +10238,7 @@ async function getApplicationSpecificationAPI(req, res) {
         mainAppName,
       );
 
-    if (!ownerAuthorized || !fluxTeamAuthorized) {
+    if (!ownerAuthorized === true || !fluxTeamAuthorized === true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return null;
