@@ -3135,6 +3135,48 @@ export default {
 
       return base64RsaEncryptedBase64AesKey;
     },
+    async encryptEnterpriseWithAes(
+      plainText,
+      aesKey,
+      base64RsaEncryptedAesKey,
+    ) {
+      const nonce = crypto.getRandomValues(new Uint8Array(12));
+      const plaintextEncoded = new TextEncoder().encode(plainText);
+      const rsaEncryptedAesKey = this.base64ToUint8Array(base64RsaEncryptedAesKey);
+
+      const aesCryptoKey = await crypto.subtle.importKey(
+        'raw',
+        aesKey,
+        'AES-GCM',
+        true,
+        ['encrypt', 'decrypt'],
+      );
+
+      const ciphertextTagBuf = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: nonce },
+        aesCryptoKey,
+        plaintextEncoded,
+      );
+
+      const ciphertextTag = new Uint8Array(ciphertextTagBuf);
+
+      const keyNonceCiphertextTag = new Uint8Array(
+        rsaEncryptedAesKey.length + nonce.length + ciphertextTag.length,
+      );
+
+      keyNonceCiphertextTag.set(rsaEncryptedAesKey);
+      keyNonceCiphertextTag.set(nonce, rsaEncryptedAesKey.byteLength);
+      keyNonceCiphertextTag.set(
+        ciphertextTag,
+        rsaEncryptedAesKey.byteLength + nonce.length,
+      );
+
+      const keyNonceCiphertextTagBase64 = this.arrayBufferToBase64(
+        keyNonceCiphertextTag.buffer,
+      );
+
+      return keyNonceCiphertextTagBase64;
+    },
     async checkFluxSpecificationsAndFormatMessage() {
       try {
         if (!this.tosAgreed) {
