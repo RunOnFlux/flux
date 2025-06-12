@@ -13322,7 +13322,10 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 let failedPort;
 let testingPort;
 const portsNotWorking = [];
+let originalPortFailed;
+let portToTest = false;
 let lastUPNPMapFailed = false;
+let checkMyAppsAvailabilityFirstRun = true;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -13399,7 +13402,16 @@ async function checkMyAppsAvailability() {
     // choose random port
     const min = minPort;
     const max = maxPort;
-    testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
+    if (portToTest) {
+      testingPort = portToTest;
+    } else {
+      testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
+    }
+
+    if (checkMyAppsAvailabilityFirstRun) {
+      testingPort = 10000;
+      checkMyAppsAvailabilityFirstRun = false;
+    }
 
     log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
     const portNotWorking = portsNotWorking.includes(testingPort);
@@ -13514,26 +13526,40 @@ async function checkMyAppsAvailability() {
     data.signature = signature;
     // first check against our IP address
     // eslint-disable-next-line no-await-in-loop
-    const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+    const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch(async (error) => {
       log.error(`checkMyAppsAvailability - ${askingIP} for app availability is not reachable`);
       log.error(error);
-      failedPort = testingPort;
+      portToTest = testingPort;
       failedNodesTestPortsCache.set(askingIP, askingIP);
+      await serviceHelper.delay(30 * 1000);
+      return checkMyAppsAvailability();
     });
     if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
       log.warn(`checkMyAppsAvailability - Applications port range unavailability detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
       log.warn(JSON.stringify(data));
       portTestFailed = true;
       dosState += 0.4;
-      failedPort = testingPort;
-      failedNodesTestPortsCache.set(askingIP, askingIP);
+      if (!originalPortFailed) {
+        originalPortFailed = testingPort;
+      } else if (testingPort >= originalPortFailed && testingPort + 1 <= 65535) {
+        portToTest = testingPort + 1;
+      } else if (testingPort - 1 > 0) {
+        portToTest = testingPort - 1;
+      } else {
+        portToTest = null;
+      }
     } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
       log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
       failedPort = null;
+      if (originalPortFailed && originalPortFailed >= testingPort && originalPortFailed - 1 > 0) {
+        portToTest = originalPortFailed - 1;
+      } else {
+        portToTest = null;
+      }
     }
 
     if (dosState > 10) {
-      dosMessage = `Applications port range is not reachable from outside! All ports that have failed: ${JSON.stringify(portsNotWorking)}`;
+      dosMessage = `Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: ${JSON.stringify(portsNotWorking)}`;
     }
     // stop listening on the port, close the port
     if (firewallActive) {
@@ -13551,16 +13577,23 @@ async function checkMyAppsAvailability() {
     if (!portTestFailed) {
       dosState = 0;
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
-      await serviceHelper.delay(60 * 60 * 1000);
+      if (portToTest) {
+        await serviceHelper.delay(1 * 60 * 1000);
+      } else {
+        await serviceHelper.delay(60 * 60 * 1000);
+      }
     } else {
-      portsNotWorking.push(failedPort);
       log.error(`checkMyAppsAvailability - portsNotWorking ${JSON.stringify(portsNotWorking)}.`);
       if (portsNotWorking.length <= 100) {
+        portsNotWorking.push(failedPort);
         failedPort = null;
         dosState = 0;
         dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+        await serviceHelper.delay(15 * 1000);
+      } else {
+        portToTest = portsNotWorking[Math.floor(Math.random() * portsNotWorking.length)];
+        await serviceHelper.delay(1 * 60 * 1000);
       }
-      await serviceHelper.delay(1 * 60 * 1000);
     }
     checkMyAppsAvailability();
   } catch (error) {
