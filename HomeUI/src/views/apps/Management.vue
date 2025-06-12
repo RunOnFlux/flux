@@ -10582,8 +10582,8 @@ export default {
     async decryptEnterpriseWithAes(base64keyNonceCiphertextTag, aesKey) {
       const keyNonceCiphertextTag = this.base64ToUint8Array(base64keyNonceCiphertextTag);
 
-      const nonce = keyNonceCiphertextTag.slice(256, 268);
-      const ciphertextTag = keyNonceCiphertextTag.slice(268);
+      const nonce = keyNonceCiphertextTag.slice(0, 12);
+      const ciphertextTag = keyNonceCiphertextTag.slice(12);
 
       const aesCryptoKey = await crypto.subtle.importKey(
         'raw',
