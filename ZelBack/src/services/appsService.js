@@ -13323,9 +13323,8 @@ let failedPort;
 let testingPort;
 const portsNotWorking = [];
 let originalPortFailed;
-let portToTest = false;
+let portToTest = 10000;
 let lastUPNPMapFailed = false;
-let checkMyAppsAvailabilityFirstRun = true;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
   try {
@@ -13408,12 +13407,7 @@ async function checkMyAppsAvailability() {
       testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
     }
 
-    if (checkMyAppsAvailabilityFirstRun) {
-      testingPort = 10000;
-      checkMyAppsAvailabilityFirstRun = false;
-    }
-
-    log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
+     log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
     let iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is banned.`);
