@@ -10579,11 +10579,11 @@ export default {
         time: 365 * 24 * 60 * 60 * 1000,
       });
     },
-    async decryptEnterpriseWithAes(base64keyNonceCiphertextTag, aesKey) {
-      const keyNonceCiphertextTag = this.base64ToUint8Array(base64keyNonceCiphertextTag);
+    async decryptEnterpriseWithAes(base64nonceCiphertextTag, aesKey) {
+      const nonceCiphertextTag = this.base64ToUint8Array(base64nonceCiphertextTag);
 
-      const nonce = keyNonceCiphertextTag.slice(256, 268);
-      const ciphertextTag = keyNonceCiphertextTag.slice(268);
+      const nonce = nonceCiphertextTag.slice(0, 12);
+      const ciphertextTag = nonceCiphertextTag.slice(12);
 
       const aesCryptoKey = await crypto.subtle.importKey(
         'raw',
