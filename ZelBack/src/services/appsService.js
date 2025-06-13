@@ -9907,7 +9907,7 @@ function updateToLatestAppSpecifications(appSpec) {
       owner: appSpec.owner,
       staticip: false,
       compose: [component],
-      enterprise: "",
+      enterprise: '',
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -9944,7 +9944,7 @@ function updateToLatestAppSpecifications(appSpec) {
       owner: appSpec.owner,
       staticip: false,
       compose: [component],
-      enterprise: "",
+      enterprise: '',
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -9982,7 +9982,7 @@ function updateToLatestAppSpecifications(appSpec) {
       owner: appSpec.owner,
       staticip: false,
       compose: [component],
-      enterprise: "",
+      enterprise: '',
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -10005,7 +10005,7 @@ function updateToLatestAppSpecifications(appSpec) {
       istances: appSpec.instances,
       nodes: [],
       staticip: false,
-      enterprise: "",
+      enterprise: '',
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -10049,7 +10049,7 @@ function updateToLatestAppSpecifications(appSpec) {
       istances: appSpec.instances,
       nodes: [],
       staticip: false,
-      enterprise: "",
+      enterprise: '',
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -10093,7 +10093,7 @@ function updateToLatestAppSpecifications(appSpec) {
       istances: appSpec.instances,
       nodes: [],
       staticip: false,
-      enterprise: "",
+      enterprise: '',
       hash: appSpec.hash,
       height: appSpec.height,
     };
@@ -10137,7 +10137,7 @@ function updateToLatestAppSpecifications(appSpec) {
       istances: appSpec.instances,
       nodes: [], // we don't fill the nodes as they were used for different thing.
       staticip: appSpec.staticip,
-      enterprise: "",
+      enterprise: '',
       hash: appSpec.hash,
       height: appSpec.height,
     };
