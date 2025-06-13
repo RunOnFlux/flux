@@ -13607,7 +13607,9 @@ async function checkMyAppsAvailability() {
         dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
         await serviceHelper.delay(15 * 1000);
       } else {
-        portToTest = portsNotWorking[Math.floor(Math.random() * portsNotWorking.length)];
+        const randomIndex = Math.floor(Math.random() * portsNotWorking.length);
+        portToTest = portsNotWorking[randomIndex];
+        portsNotWorking.splice(randomIndex, 1);
         await serviceHelper.delay(1 * 60 * 1000);
       }
     }
