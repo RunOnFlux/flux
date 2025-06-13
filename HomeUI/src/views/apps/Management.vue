@@ -3929,13 +3929,34 @@
                   </div>
                   <br>
                   <div
-                    v-if="appUpdateSpecification.version >= 7"
+                    v-if="appUpdateSpecification.version === 7"
                     class="form-row form-group"
                   >
                     <label class="col-form-label">
                       Enterprise Application
                       <v-icon
                         v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run. Geolocation targetting is not possible in this case.'"
+                        name="info-circle"
+                        class="mr-1"
+                      />
+                    </label>
+                    <div class="col">
+                      <b-form-checkbox
+                        id="enterpriseapp"
+                        v-model="isPrivateApp"
+                        switch
+                        class="custom-control-primary inline"
+                      />
+                    </div>
+                  </div>
+                  <div
+                    v-if="appUpdateSpecification.version >= 8"
+                    class="form-row form-group"
+                  >
+                    <label class="col-form-label">
+                      Enterprise Application
+                      <v-icon
+                        v-b-tooltip.hover.top="'Select if your application requires privacy, your components specifications will be encrypted and only machines running ArcaneOS will be able to install them.'"
                         name="info-circle"
                         class="mr-1"
                       />
@@ -4183,7 +4204,7 @@
                       </div>
                     </div>
                     <div
-                      v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
+                      v-if="appUpdateSpecification.version === 7 && isPrivateApp"
                       class="form-row form-group"
                     >
                       <label class="col-3 col-form-label">
@@ -4204,7 +4225,7 @@
                     </div>
                     <br>
                     <b-card-title>
-                      Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                      Resources &nbsp;&nbsp;&nbsp;<h6 v-if="appUpdateSpecification.version < 8" class="inline text-small">
                         Tiered:
                         <b-form-checkbox
                           id="tiered"
@@ -4394,7 +4415,7 @@
               </b-row>
             </b-card>
             <b-card
-              v-if="appUpdateSpecification.version >= 7 && isPrivateApp"
+              v-if="appUpdateSpecification.version === 7 && isPrivateApp"
               title="Enterprise Nodes"
             >
               Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able to access your private image and secrets.<br>
@@ -4603,6 +4624,186 @@
                   @click="chooseEnterpriseDialog = true"
                 >
                   Choose Enterprise Nodes
+                </b-button>
+              </div>
+            </b-card>
+            <b-card
+              v-if="appUpdateSpecification.version >= 8 && isPrivateApp"
+              title="Priority Nodes"
+            >
+              Priority Nodes will be priority to run your app, the app can still deploy on other nodes on the network.<br>
+              <b-row>
+                <b-col
+                  md="4"
+                  sm="4"
+                  class="my-1"
+                >
+                  <b-form-group class="mb-0">
+                    <label class="d-inline-block text-left mr-50">Per page</label>
+                    <b-form-select
+                      id="perPageSelect"
+                      v-model="entNodesTable.perPage"
+                      size="sm"
+                      :options="entNodesTable.pageOptions"
+                      class="w-50"
+                    />
+                  </b-form-group>
+                </b-col>
+                <b-col
+                  md="8"
+                  class="my-1"
+                >
+                  <b-form-group
+                    label="Filter"
+                    label-cols-sm="1"
+                    label-align-sm="right"
+                    label-for="filterInput"
+                    class="mb-0"
+                  >
+                    <b-input-group size="sm">
+                      <b-form-input
+                        id="filterInput"
+                        v-model="entNodesTable.filter"
+                        type="search"
+                        placeholder="Type to Search"
+                      />
+                      <b-input-group-append>
+                        <b-button
+                          :disabled="!entNodesTable.filter"
+                          @click="entNodesTable.filter = ''"
+                        >
+                          Clear
+                        </b-button>
+                      </b-input-group-append>
+                    </b-input-group>
+                  </b-form-group>
+                </b-col>
+
+                <b-col cols="12">
+                  <b-table
+                    class="app-enterprise-nodes-table"
+                    striped
+                    hover
+                    responsive
+                    :per-page="entNodesTable.perPage"
+                    :current-page="entNodesTable.currentPage"
+                    :items="selectedEnterpriseNodes"
+                    :fields="entNodesTable.fields"
+                    :sort-by.sync="entNodesTable.sortBy"
+                    :sort-desc.sync="entNodesTable.sortDesc"
+                    :sort-direction="entNodesTable.sortDirection"
+                    :filter="entNodesTable.filter"
+                    :filter-included-fields="entNodesTable.filterOn"
+                    show-empty
+                    :empty-text="'No Priority Nodes selected'"
+                  >
+                    <template #cell(show_details)="row">
+                      <a @click="row.toggleDetails">
+                        <v-icon
+                          v-if="!row.detailsShowing"
+                          name="chevron-down"
+                        />
+                        <v-icon
+                          v-if="row.detailsShowing"
+                          name="chevron-up"
+                        />
+                      </a>
+                    </template>
+                    <template #row-details="row">
+                      <b-card class="">
+                        <list-entry
+                          v-if="row.item.ip"
+                          title="IP Address"
+                          :data="row.item.ip"
+                        />
+                        <list-entry
+                          title="Public Key"
+                          :data="row.item.pubkey"
+                        />
+                        <list-entry
+                          title="Node Address"
+                          :data="row.item.payment_address"
+                        />
+                        <list-entry
+                          title="Collateral"
+                          :data="`${row.item.txhash}:${row.item.outidx}`"
+                        />
+                        <list-entry
+                          title="Tier"
+                          :data="row.item.tier"
+                        />
+                        <div>
+                          <b-button
+                            size="sm"
+                            class="mr-0"
+                            variant="primary"
+                            @click="openNodeFluxOS(row.item.ip.split(':')[0], row.item.ip.split(':')[1] ? +row.item.ip.split(':')[1] - 1 : 16126)"
+                          >
+                            Visit FluxNode
+                          </b-button>
+                        </div>
+                      </b-card>
+                    </template>
+                    <template #cell(ip)="row">
+                      {{ row.item.ip }}
+                    </template>
+                    <template #cell(payment_address)="row">
+                      {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
+                    </template>
+                    <template #cell(tier)="row">
+                      {{ row.item.tier }}
+                    </template>
+                    <template #cell(score)="row">
+                      {{ row.item.score }}
+                    </template>
+                    <template #cell(actions)="locationRow">
+                      <b-button
+                        :id="`remove-${locationRow.item.ip}`"
+                        size="sm"
+                        class="mr-1 mb-1"
+                        variant="danger"
+                      >
+                        Remove
+                      </b-button>
+                      <confirm-dialog
+                        :target="`remove-${locationRow.item.ip}`"
+                        confirm-button="Remove FluxNode"
+                        @confirm="removeFluxNode(locationRow.item.ip)"
+                      />
+                      <b-button
+                        size="sm"
+                        class="mr-1 mb-1"
+                        variant="primary"
+                        @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                      >
+                        Visit
+                      </b-button>
+                    </template>
+                  </b-table>
+                </b-col>
+                <b-col cols="12">
+                  <b-pagination
+                    v-model="entNodesTable.currentPage"
+                    :total-rows="selectedEnterpriseNodes.length"
+                    :per-page="entNodesTable.perPage"
+                    align="center"
+                    size="sm"
+                    class="my-0"
+                  />
+                  <span class="table-total">Total: {{ selectedEnterpriseNodes.length }}</span>
+                </b-col>
+              </b-row>
+              <br>
+              <br>
+              <div class="text-center">
+                <b-button
+                  v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                  variant="primary"
+                  aria-label="Choose Enterprise Nodes"
+                  class="mb-2 mr-2"
+                  @click="chooseEnterpriseDialog = true"
+                >
+                  Choose Priority Nodes
                 </b-button>
               </div>
             </b-card>
@@ -7238,16 +7439,20 @@ export default {
       if (this.appUpdateSpecification.version >= 7 && value === false) {
         this.appUpdateSpecification.nodes = [];
         this.appUpdateSpecification.compose.forEach((component) => {
-          // eslint-disable-next-line no-param-reassign
-          component.secrets = '';
+          if (this.appUpdateSpecification.version === 7 && value === false) {
+            // eslint-disable-next-line no-param-reassign
+            component.secrets = '';
+          }
           // eslint-disable-next-line no-param-reassign
           component.repoauth = '';
         });
         this.selectedEnterpriseNodes = [];
       }
-      // remove any geolocation
-      this.allowedGeolocations = {};
-      this.forbiddenGeolocations = {};
+      if (this.appUpdateSpecification.version === 7 && value === false) {
+        // remove any geolocation
+        this.allowedGeolocations = {};
+        this.forbiddenGeolocations = {};
+      }
       this.dataToSign = '';
       this.signature = '';
       this.timestamp = null;
@@ -10374,13 +10579,73 @@ export default {
         time: 365 * 24 * 60 * 60 * 1000,
       });
     },
+    async decryptEnterpriseWithAes(base64nonceCiphertextTag, aesKey) {
+      const nonceCiphertextTag = this.base64ToUint8Array(base64nonceCiphertextTag);
+
+      const nonce = nonceCiphertextTag.slice(0, 12);
+      const ciphertextTag = nonceCiphertextTag.slice(12);
+
+      const aesCryptoKey = await crypto.subtle.importKey(
+        'raw',
+        aesKey,
+        'AES-GCM',
+        true,
+        ['encrypt', 'decrypt'],
+      );
+
+      const plainTextBuf = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: nonce },
+        aesCryptoKey,
+        ciphertextTag,
+      );
+
+      const plainText = new TextDecoder().decode(plainTextBuf);
+
+      return plainText;
+    },
     async getGlobalApplicationSpecifics() {
-      const response = await AppsService.getAppSpecifics(this.appName);
+      let response = await AppsService.getAppSpecifics(this.appName);
       console.log(response);
       if (response.data.status === 'error') {
         this.showToast('danger', response.data.data.message || response.data.data);
         this.callBResponse.status = response.data.status;
       } else {
+        if (response.data.data.version >= 8 && response.data.data.enterprise) {
+          const responseGetOriginalOwner = await AppsService.getAppOriginalOwner(this.appName);
+          if (responseGetOriginalOwner.data.status === 'error') {
+            throw new Error(responseGetOriginalOwner.data.data.message || responseGetOriginalOwner.data.data);
+          }
+          // call api to get RSA public key
+          const appPubKeyData = {
+            name: response.data.data.name,
+            owner: responseGetOriginalOwner.data.data,
+          };
+          const responseGetPublicKey = await AppsService.getAppPublicKey(appPubKeyData);
+          if (responseGetPublicKey.data.status === 'error') {
+            throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
+          }
+          const pubkey = responseGetPublicKey.data.data;
+
+          const rsaPubKey = await this.importRsaPublicKey(pubkey);
+          const aesKey = crypto.getRandomValues(new Uint8Array(32));
+
+          const encryptedEnterpriseKey = await this.encryptAesKeyWithRsaKey(
+            aesKey,
+            rsaPubKey,
+          );
+          const zelidauth = localStorage.getItem('zelidauth');
+          response = await AppsService.getAppDecryptedSpecifics(this.appName, zelidauth, encryptedEnterpriseKey);
+          console.log(response);
+          if (response.data.status === 'error') {
+            this.showToast('danger', response.data.data.message || response.data.data);
+            this.callBResponse.status = response.data.status;
+            return;
+          }
+          const enterpriseDecrypted = this.decryptEnterpriseWithAes(response.data.data.enterprise);
+          response.data.data.contacts = enterpriseDecrypted.contacts;
+          response.data.data.compose = enterpriseDecrypted.compose;
+          response.data.data.enterprise = true;
+        }
         this.callBResponse.status = response.data.status;
         this.callBResponse.data = response.data.data;
         const specs = response.data.data;
@@ -10437,7 +10702,7 @@ export default {
             this.getExpireOptions();
             this.appUpdateSpecification.expire = this.ensureNumber(this.expireOptions[this.expirePosition].value);
           }
-          if (this.appUpdateSpecification.version >= 7) {
+          if (this.appUpdateSpecification.version === 7) {
             this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
             this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
             if (this.appUpdateSpecification.nodes && this.appUpdateSpecification.nodes.length) {
@@ -10474,6 +10739,29 @@ export default {
                 }
               } else {
                 this.showToast('danger', 'Failed to load Enterprise Node List');
+              }
+            });
+          }
+          if (this.appUpdateSpecification.version >= 8) {
+            this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
+            this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
+            if (this.appUpdateSpecification.enterprise) {
+              this.isPrivateApp = true;
+              this.showToast('danger', 'This app was enterprise, all components information will not be migrated');
+            }
+            if (!this.enterpriseNodes) {
+              await this.getEnterpriseNodes();
+            }
+            this.selectedEnterpriseNodes = [];
+            this.appUpdateSpecification.nodes.forEach((node) => {
+              // add to selected node list
+              if (this.enterpriseNodes) {
+                const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
+                if (nodeFound) {
+                  this.selectedEnterpriseNodes.push(nodeFound);
+                }
+              } else {
+                this.showToast('danger', 'Failed to load Priority Node List');
               }
             });
           }
@@ -10599,6 +10887,102 @@ export default {
       }
       return 22000;
     },
+    async importRsaPublicKey(base64SpkiDer) {
+      const spkiDer = Buffer.from(base64SpkiDer, 'base64');
+      // eslint-disable-next-line no-return-await
+      return await crypto.subtle.importKey(
+        'spki',
+        spkiDer,
+        {
+          name: 'RSA-OAEP',
+          hash: 'SHA-256',
+        },
+        false,
+        ['encrypt'],
+      );
+    },
+    base64ToUint8Array(base64) {
+      const binaryString = atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+
+      for (let i = 0; i < len; i += 1) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      return bytes;
+    },
+    arrayBufferToBase64(buffer) {
+      const data = [];
+
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+
+      for (let i = 0; i < len; i += 1) {
+        data.push(String.fromCharCode(bytes[i]));
+      }
+
+      return btoa(data.join(''));
+    },
+    async encryptAesKeyWithRsaKey(aesKey, rsaPubKey) {
+      const base64AesKey = this.arrayBufferToBase64(aesKey);
+
+      const rsaEncryptedBase64AesKey = await crypto.subtle.encrypt(
+        {
+          name: 'RSA-OAEP',
+        },
+        rsaPubKey,
+        Buffer.from(base64AesKey),
+      );
+
+      const base64RsaEncryptedBase64AesKey = this.arrayBufferToBase64(
+        rsaEncryptedBase64AesKey,
+      );
+
+      return base64RsaEncryptedBase64AesKey;
+    },
+    async encryptEnterpriseWithAes(
+      plainText,
+      aesKey,
+      base64RsaEncryptedAesKey,
+    ) {
+      const nonce = crypto.getRandomValues(new Uint8Array(12));
+      const plaintextEncoded = new TextEncoder().encode(plainText);
+      const rsaEncryptedAesKey = this.base64ToUint8Array(base64RsaEncryptedAesKey);
+
+      const aesCryptoKey = await crypto.subtle.importKey(
+        'raw',
+        aesKey,
+        'AES-GCM',
+        true,
+        ['encrypt', 'decrypt'],
+      );
+
+      const ciphertextTagBuf = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: nonce },
+        aesCryptoKey,
+        plaintextEncoded,
+      );
+
+      const ciphertextTag = new Uint8Array(ciphertextTagBuf);
+
+      const keyNonceCiphertextTag = new Uint8Array(
+        rsaEncryptedAesKey.length + nonce.length + ciphertextTag.length,
+      );
+
+      keyNonceCiphertextTag.set(rsaEncryptedAesKey);
+      keyNonceCiphertextTag.set(nonce, rsaEncryptedAesKey.byteLength);
+      keyNonceCiphertextTag.set(
+        ciphertextTag,
+        rsaEncryptedAesKey.byteLength + nonce.length,
+      );
+
+      const keyNonceCiphertextTagBase64 = this.arrayBufferToBase64(
+        keyNonceCiphertextTag.buffer,
+      );
+
+      return keyNonceCiphertextTagBase64;
+    },
     async checkFluxUpdateSpecificationsAndFormatMessage() {
       try {
         if (this.appRunningTill.new < this.appRunningTill.current) {
@@ -10609,9 +10993,9 @@ export default {
         }
         this.operationTitle = ' Compute update message...';
         this.progressVisable = true;
-        const appSpecification = this.appUpdateSpecification;
+        const appSpecification = JSON.parse(JSON.stringify(this.appUpdateSpecification));
         let secretsPresent = false;
-        if (appSpecification.version >= 7) {
+        if (appSpecification.version === 7) {
           // construct nodes
           this.constructNodes();
           // encryption
@@ -10625,75 +11009,116 @@ export default {
               }
             }
           });
-        }
-        if (secretsPresent) { // we do encryption
-          this.showToast('info', 'Encrypting specifications, this will take a while...');
-          const fetchedKeys = [];
-          // eslint-disable-next-line no-restricted-syntax
-          for (const node of this.appUpdateSpecification.nodes) {
-            const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
-            if (keyExists) {
-              fetchedKeys.push(keyExists.nodekey);
-            } else {
+          if (secretsPresent) { // we do encryption
+            this.showToast('info', 'Encrypting specifications, this will take a while...');
+            const fetchedKeys = [];
+            // eslint-disable-next-line no-restricted-syntax
+            for (const node of this.appUpdateSpecification.nodes) {
+              const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+              if (keyExists) {
+                fetchedKeys.push(keyExists.nodekey);
+              } else {
               // eslint-disable-next-line no-await-in-loop
-              const pgpKey = await this.fetchEnterpriseKey(node);
-              if (pgpKey) {
-                const pair = {
-                  nodeip: node.ip,
-                  nodekey: pgpKey,
-                };
-                const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node.ip);
-                if (!keyExistsB) {
-                  this.enterprisePublicKeys.push(pair);
+                const pgpKey = await this.fetchEnterpriseKey(node);
+                if (pgpKey) {
+                  const pair = {
+                    nodeip: node.ip,
+                    nodekey: pgpKey,
+                  };
+                  const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+                  if (!keyExistsB) {
+                    this.enterprisePublicKeys.push(pair);
+                  }
+                  fetchedKeys.push(pgpKey);
+                } // else silently fail
+              }
+            }
+            // time to encrypt
+            // eslint-disable-next-line no-restricted-syntax
+            for (const component of this.appUpdateSpecification.compose) {
+              component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
+              component.commands = component.commands.replace('\\“', '\\"');
+              component.domains = component.domains.replace('\\“', '\\"');
+              if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
+              // need encryption
+                component.secrets = component.secrets.replace('\\“', '\\"');
+                // eslint-disable-next-line no-await-in-loop
+                const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
+                if (!encryptedMessage) {
+                  return;
                 }
-                fetchedKeys.push(pgpKey);
-              } // else silently fail
-            }
-          }
-          // time to encrypt
-          // eslint-disable-next-line no-restricted-syntax
-          for (const component of this.appUpdateSpecification.compose) {
-            component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
-            component.commands = component.commands.replace('\\“', '\\"');
-            component.domains = component.domains.replace('\\“', '\\"');
-            if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
-              // need encryption
-              component.secrets = component.secrets.replace('\\“', '\\"');
-              // eslint-disable-next-line no-await-in-loop
-              const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
-              if (!encryptedMessage) {
-                return;
+                component.secrets = encryptedMessage;
               }
-              component.secrets = encryptedMessage;
-            }
-            if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
+              if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
               // eslint-disable-next-line no-await-in-loop
-              const encryptedMessage = await this.encryptMessage(component.repoauth, fetchedKeys);
-              if (!encryptedMessage) {
-                return;
+                const encryptedMessage = await this.encryptMessage(component.repoauth, fetchedKeys);
+                if (!encryptedMessage) {
+                  return;
+                }
+                component.repoauth = encryptedMessage;
               }
-              component.repoauth = encryptedMessage;
             }
           }
+          // recheck if encryption ok
+          if (secretsPresent) {
+            this.appUpdateSpecification.compose.forEach((component) => {
+              if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
+                throw new Error('Encryption failed');
+              }
+              if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
+                throw new Error('Encryption failed');
+              }
+            });
+          }
         }
-        // recheck if encryption ok
-        if (secretsPresent) {
-          this.appUpdateSpecification.compose.forEach((component) => {
-            if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
-              throw new Error('Encryption failed');
-            }
-            if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
-              throw new Error('Encryption failed');
-            }
-          });
-        }
+
         if (appSpecification.version >= 5) {
           appSpecification.geolocation = this.generateGeolocations();
         }
         if (appSpecification.version >= 6) {
           await this.getDaemonBlockCount();
           appSpecification.expire = this.convertExpire();
+        }
+        if (appSpecification.version >= 8) {
+          // construct nodes
+          this.constructNodes();
+          if (this.isPrivateApp) {
+            const responseGetOriginalOwner = await AppsService.getAppOriginalOwner(this.appName);
+            if (responseGetOriginalOwner.data.status === 'error') {
+              throw new Error(responseGetOriginalOwner.data.data.message || responseGetOriginalOwner.data.data);
+            }
+            // call api to get RSA public key
+            const appPubKeyData = {
+              name: appSpecification.name,
+              owner: responseGetOriginalOwner.data.data,
+            };
+            const responseGetPublicKey = await AppsService.getAppPublicKey(appPubKeyData);
+            if (responseGetPublicKey.data.status === 'error') {
+              throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
+            }
+            const pubkey = responseGetPublicKey.data.data;
+
+            const rsaPubKey = await this.importRsaPublicKey(pubkey);
+            const aesKey = crypto.getRandomValues(new Uint8Array(32));
+
+            const encryptedEnterpriseKey = await this.encryptAesKeyWithRsaKey(
+              aesKey,
+              rsaPubKey,
+            );
+            const enterpriseSpecs = {
+              contacts: appSpecification.contacts,
+              compose: appSpecification.compose,
+            };
+            const encryptedEnterprise = await this.encryptEnterpriseWithAes(
+              JSON.stringify(enterpriseSpecs),
+              aesKey,
+              encryptedEnterpriseKey,
+            );
+            appSpecification.enterprise = encryptedEnterprise;
+            appSpecification.contacts = [];
+            appSpecification.compose = [];
+          }
         }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appUpdateVerification(appSpecification);
