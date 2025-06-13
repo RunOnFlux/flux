@@ -13414,19 +13414,15 @@ async function checkMyAppsAvailability() {
     }
 
     log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
-    const portNotWorking = portsNotWorking.includes(testingPort);
-    if (portNotWorking) {
-      log.info(`checkMyAppsAvailability - Testing port ${testingPort} is part of the list of ports not working on this node.`);
-      failedPort = null;
-      // skip this check, port is not possible to run on flux
-      await serviceHelper.delay(15 * 1000);
-      checkMyAppsAvailability();
-      return;
-    }
     let iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is banned.`);
       failedPort = null;
+      if (originalPortFailed && testingPort > originalPortFailed) {
+        portToTest = originalPortFailed - 1;
+      } else if (originalPortFailed) {
+        portToTest = null;
+      }
       // skip this check, port is not possible to run on flux
       await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
@@ -13437,6 +13433,11 @@ async function checkMyAppsAvailability() {
       if (iBP) {
         log.info(`checkMyAppsAvailability - Testing port ${testingPort} is UPNP banned.`);
         failedPort = null;
+        if (originalPortFailed && testingPort > originalPortFailed) {
+          portToTest = originalPortFailed - 1;
+        } else if (originalPortFailed) {
+          portToTest = null;
+        }
         // skip this check, port is not possible to run on flux
         await serviceHelper.delay(15 * 1000);
         checkMyAppsAvailability();
@@ -13447,6 +13448,11 @@ async function checkMyAppsAvailability() {
     if (isPortUserBlocked) {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is user blocked.`);
       failedPort = null;
+      if (originalPortFailed && testingPort > originalPortFailed) {
+        portToTest = originalPortFailed - 1;
+      } else if (originalPortFailed) {
+        portToTest = null;
+      }
       // skip this check, port is not allowed for this flux node by user
       await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
@@ -13455,6 +13461,11 @@ async function checkMyAppsAvailability() {
     if (appPorts.includes(testingPort)) {
       log.info(`checkMyAppsAvailability - Skipped checking ${testingPort} - in use.`);
       failedPort = null;
+      if (originalPortFailed && testingPort > originalPortFailed) {
+        portToTest = originalPortFailed - 1;
+      } else if (originalPortFailed) {
+        portToTest = null;
+      }
       // skip this check
       await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
@@ -13477,6 +13488,11 @@ async function checkMyAppsAvailability() {
         lastUPNPMapFailed = true;
         log.info(`checkMyAppsAvailability - Testing port ${testingPort} failed to create on UPNP mappings. Possible already assigned?`);
         failedPort = null;
+        if (originalPortFailed && testingPort > originalPortFailed) {
+          portToTest = originalPortFailed - 1;
+        } else if (originalPortFailed) {
+          portToTest = null;
+        }
         throw new Error('Failed to create map UPNP port');
       }
       lastUPNPMapFailed = false;
