@@ -10461,9 +10461,12 @@ async function trySpawningGlobalApplication() {
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
     const installingAppErrorsList = await appInstallingErrorsLocation(appToRun);
-    if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
+    /* if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
       spawnErrorsLongerAppCache.set(appHash, appHash);
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
+    } */
+    if (installingAppErrorsList.length > 0) {
+      log.info(`trySpawningGlobalApplication - App ${appToRun} have failed previously to install on ${installingAppErrorsList.length} different nodes`);
     }
 
     runningAppList = await appLocation(appToRun);
