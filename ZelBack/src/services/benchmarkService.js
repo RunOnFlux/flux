@@ -12,6 +12,8 @@ const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const fluxRpc = require('./utils/fluxRpc');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 let response = messageHelper.createErrorMessage();
 
 let benchdClient = null;
@@ -299,7 +301,7 @@ async function executeUpnpBench() {
     return;
   }
   const isUPNP = upnpService.isUPNP();
-  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+  if (!isArcane && ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP)) {
     log.info('Calling FluxBench startMultiPortBench');
     log.info(await startMultiPortBench());
   }
