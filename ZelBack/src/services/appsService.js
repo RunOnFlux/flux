@@ -10209,7 +10209,7 @@ async function getPeerAppsInstallingErrorMessages() {
         timeout: 30000,
       };
       log.info(`getPeerAppsInstallingErrorMessages - Getting app installing errors from ${client.ip}:${client.port}`);
-      const url = `http://${client.ip}:${client.port}/apps/installlingerrorslocations`;
+      const url = `http://${client.ip}:${client.port}/apps/installingerrorslocations`;
       // eslint-disable-next-line no-await-in-loop
       const appsResponse = await serviceHelper.axiosGet(url, axiosConfig).catch((error) => log.error(error));
       if (!appsResponse || !appsResponse.data || appsResponse.data.status !== 'success' || !appsResponse.data.data) {
