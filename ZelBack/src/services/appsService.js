@@ -13407,7 +13407,7 @@ async function checkMyAppsAvailability() {
       testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
     }
 
-     log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
+    log.info(`checkMyAppsAvailability - Testing port ${testingPort}.`);
     let iBP = fluxNetworkHelper.isPortBanned(testingPort);
     if (iBP) {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is banned.`);
