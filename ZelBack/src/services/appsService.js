@@ -10286,13 +10286,17 @@ async function getApplicationSpecificationAPI(req, res) {
  */
 async function updateApplicationSpecificationAPI(req, res) {
   try {
+    const { appname } = req.params;
+    if (!appname) {
+      throw new Error('appname parameter is mandatory');
+    }
+
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not yet synced.');
     }
 
     const { data: { daemonHeight } } = syncStatus;
-    const { appname } = req.params;
 
     const specifications = await getApplicationSpecifications(appname);
     if (!specifications) {

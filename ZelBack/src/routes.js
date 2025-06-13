@@ -340,7 +340,7 @@ module.exports = (app) => {
   app.get('/apps/latestspecificationversion', cache('5 minutes'), (req, res) => {
     appsService.getlatestApplicationSpecificationAPI(req, res);
   });
-  app.get('/apps/updatetolatestspecs/:appname/update', cache('30 seconds'), (req, res) => {
+  app.get('/apps/updatetolatestspecs/appname', cache('30 seconds'), (req, res) => {
     appsService.updateApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appspecifications/:appname/:decrypt?', cache('30 seconds'), (req, res) => {
