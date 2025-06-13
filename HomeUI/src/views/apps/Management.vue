@@ -10611,12 +10611,16 @@ export default {
         this.callBResponse.status = response.data.status;
       } else {
         if (response.data.data.version >= 8 && response.data.data.enterprise) {
+          const responseGetOriginalOwner = await AppsService.getAppOriginalOwner(this.appName);
+          if (responseGetOriginalOwner.data.status === 'error') {
+            throw new Error(responseGetOriginalOwner.data.data.message || responseGetOriginalOwner.data.data);
+          }
           // call api to get RSA public key
           const appPubKeyData = {
             name: response.data.data.name,
-            owner: response.data.data.owner,
+            owner: responseGetOriginalOwner.data.data,
           };
-          const responseGetPublicKey = await AppsService.getAppDecryptedSpecifics(appPubKeyData);
+          const responseGetPublicKey = await AppsService.getAppPublicKey(appPubKeyData);
           if (responseGetPublicKey.data.status === 'error') {
             throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
           }
@@ -11080,10 +11084,14 @@ export default {
           // construct nodes
           this.constructNodes();
           if (this.isPrivateApp) {
+            const responseGetOriginalOwner = await AppsService.getAppOriginalOwner(this.appName);
+            if (responseGetOriginalOwner.data.status === 'error') {
+              throw new Error(responseGetOriginalOwner.data.data.message || responseGetOriginalOwner.data.data);
+            }
             // call api to get RSA public key
             const appPubKeyData = {
               name: appSpecification.name,
-              owner: appSpecification.owner,
+              owner: responseGetOriginalOwner.data.data,
             };
             const responseGetPublicKey = await AppsService.getAppPublicKey(appPubKeyData);
             if (responseGetPublicKey.data.status === 'error') {

@@ -302,6 +302,9 @@ export default {
   getAppPublicKey(data) {
     return Api().post('/apps/getpublickey', JSON.stringify(data));
   },
+  getAppOriginalOwner(app) {
+    return Api().get(`/apps/apporiginalowner/${app}`);
+  },
   appUpdateVerification(data) {
     return Api().post('/apps/verifyappupdatespecifications', JSON.stringify(data));
   },
