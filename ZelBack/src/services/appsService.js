@@ -67,6 +67,7 @@ const globalAppsInformation = config.database.appsglobal.collections.appsInforma
 const globalAppsTempMessages = config.database.appsglobal.collections.appsTemporaryMessages;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 const globalAppsInstallingLocations = config.database.appsglobal.collections.appsInstallingLocations;
+const globalAppsInstallingErrorsLocations = config.database.appsglobal.collections.appsInstallingErrorsLocations;
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
@@ -3793,22 +3794,50 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
-
-    if (specificationsToInstall.version >= 4) { // version is undefined for component
-      // eslint-disable-next-line no-restricted-syntax
-      for (const appComponentSpecs of specificationsToInstall.compose) {
-        isComponent = true;
-        const hddTier = `hdd${tier}`;
-        const ramTier = `ram${tier}`;
-        const cpuTier = `cpu${tier}`;
-        appComponentSpecs.cpu = test ? 0.2 : appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
-        appComponentSpecs.ram = test ? 300 : appComponentSpecs[ramTier] || appComponentSpecs.ram;
-        appComponentSpecs.hdd = test ? 2 : appComponentSpecs[hddTier] || appComponentSpecs.hdd;
-        // eslint-disable-next-line no-await-in-loop
-        await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test);
+    try {
+      if (specificationsToInstall.version >= 4) { // version is undefined for component
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponentSpecs of specificationsToInstall.compose) {
+          isComponent = true;
+          const hddTier = `hdd${tier}`;
+          const ramTier = `ram${tier}`;
+          const cpuTier = `cpu${tier}`;
+          appComponentSpecs.cpu = test ? 0.2 : appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
+          appComponentSpecs.ram = test ? 300 : appComponentSpecs[ramTier] || appComponentSpecs.ram;
+          appComponentSpecs.hdd = test ? 2 : appComponentSpecs[hddTier] || appComponentSpecs.hdd;
+          // eslint-disable-next-line no-await-in-loop
+          await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test);
+        }
+      } else {
+        await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
       }
-    } else {
-      await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
+    } catch (error) {
+      if (!test) {
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        const broadcastedAt = Date.now();
+        const newAppRunningMessage = {
+          type: 'fluxappinstallingerror',
+          version: 1,
+          name: appSpecifications.name,
+          hash: appSpecifications.hash, // hash of application specifics that are running
+          error: serviceHelper.ensureString(errorResponse),
+          ip: myIP,
+          broadcastedAt,
+        };
+        // store it in local database first
+        // eslint-disable-next-line no-await-in-loop, no-use-before-define
+        await storeAppInstallingErrorMessage(newAppRunningMessage);
+        // broadcast messages about running apps to all peers
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
+        await serviceHelper.delay(500);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newAppRunningMessage);
+        // broadcast messages about running apps to all peers
+      }
+      throw error;
     }
     if (!test) {
       const broadcastedAt = Date.now();
@@ -7047,6 +7076,81 @@ async function storeAppInstallingMessage(message) {
 }
 
 /**
+ * To store a message for a app error installing.
+ * @param {object} message Message.
+ * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is old. Throws an error if invalid.
+ */
+async function storeAppInstallingErrorMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param broadcastedAt number
+  * @param name string
+  * @param hash string
+  * @param ip string
+  * @param error string
+  */
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string'
+    || typeof message.hash !== 'number' || typeof message.error !== 'string') {
+    return new Error('Invalid Flux App Installing Error message for storing');
+  }
+
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux App Installing Error message for storing version ${message.version} not supported`);
+  }
+
+  const validTill = message.broadcastedAt + (60 * 60 * 1000); // 60 minutes
+  if (validTill < Date.now()) {
+    log.warn(`Rejecting old/not valid fluxappinstallingerror message, message:${JSON.stringify(message)}`);
+    // reject old message
+    return false;
+  }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const newAppInstallingErrorMessage = {
+    name: message.name,
+    hash: message.hash,
+    ip: message.ip,
+    error: message.error,
+    broadcastedAt: new Date(message.broadcastedAt),
+    startCacheAt: new Date(message.broadcastedAt),
+    expireAt: new Date(validTill),
+  };
+
+  let queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash, ip: newAppInstallingErrorMessage.ip };
+  const projection = { _id: 0 };
+  // we already have the exact same data
+  // eslint-disable-next-line no-await-in-loop
+  const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, projection);
+  if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingErrorMessage.broadcastedAt) {
+    // found a message that was already stored/probably from duplicated message processsed
+    return false;
+  }
+
+  let update = { $set: newAppInstallingErrorMessage };
+  const options = {
+    upsert: true,
+  };
+  // eslint-disable-next-line no-await-in-loop
+  await dbHelper.updateOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update, options);
+
+  queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash };
+  // we already have the exact same data
+  // eslint-disable-next-line no-await-in-loop
+  const results = await dbHelper.countInDatabase(database, globalAppsInstallingErrorsLocations, queryFind);
+  if (results >= 5) {
+    update = { $set: { startCacheAt: null, expireAt: null } };
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.updateInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update);
+  }
+  // all stored, rebroadcast
+  return true;
+}
+
+/**
  * To update DB with new node IP that is running app.
  * @param {object} message Message.
  * @returns {boolean} True if message is valid. Returns false if message is old. Throws an error if invalid/wrong properties.
@@ -8693,6 +8797,8 @@ async function updateAppSpecifications(appSpecs) {
     } else {
       await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
     }
+    const queryDeleteAppErrors = { name: appSpecs.name };
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
   } catch (error) {
     // retry
     log.error(error);
@@ -9614,7 +9720,7 @@ async function getAppsLocations(req, res) {
 }
 
 /**
- * To get app locations or a location of an app
+ * To get app installing locations or a location of an app
  * @param {string} appname Application Name.
  */
 async function appInstallingLocation(appname) {
@@ -9638,13 +9744,61 @@ async function appInstallingLocation(appname) {
 }
 
 /**
- * To get app locations.
+ * To get app installing locations.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function getAppsInstallingLocations(req, res) {
   try {
     const results = await appInstallingLocation();
+    const resultsResponse = messageHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To get app installing errors locations or a location of an app
+ * @param {string} appname Application Name.
+ */
+async function appInstallingErrorsLocation(appname) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  let query = {};
+  if (appname) {
+    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+  }
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      error: 1,
+      broadcastedAt: 1,
+      cachedAt: 1,
+      expireAt: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsInstallingErrorsLocations, query, projection);
+  return results;
+}
+
+/**
+ * To get app installing errors locations.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsInstallingErrorsLocations(req, res) {
+  try {
+    const results = await appInstallingErrorsLocation();
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -9697,6 +9851,32 @@ async function getAppInstallingLocation(req, res) {
       throw new Error('No Flux App name specified');
     }
     const results = await appInstallingLocation(appname);
+    const resultsResponse = messageHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To get a specific app's installing error locations.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppInstallingErrorsLocation(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No Flux App name specified');
+    }
+    const results = await appInstallingErrorsLocation(appname);
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -10450,6 +10630,68 @@ function getAppPorts(appSpecs) {
 }
 
 /**
+ * Get from another peer the list of apps installing errors or just for a specific application name
+ */
+async function getPeerAppsInstallingErrorMessages() {
+  try {
+    let finished = false;
+    let i = 0;
+    while (!finished && i <= 10) {
+      i += 1;
+      const client = outgoingPeers[Math.floor(Math.random() * outgoingPeers.length)];
+      let axiosConfig = {
+        timeout: 5000,
+      };
+      log.info(`getPeerAppsInstallingErrorMessages - Getting fluxos uptime from ${client.ip}:${client.port}`);
+      // eslint-disable-next-line no-await-in-loop
+      const response = await serviceHelper.axiosGet(`http://${client.ip}:${client.port}/flux/uptime`, axiosConfig).catch((error) => log.error(error));
+      if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
+        log.info(`getPeerAppsInstallingErrorMessages - Failed to get fluxos uptime from ${client.ip}:${client.port}`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const ut = process.uptime();
+      const measureUptime = Math.floor(ut);
+      // let's get information from a node that have higher fluxos uptime than me for at least one hour.
+      if (response.data.data < measureUptime + 3600) {
+        log.info(`getPeerAppsInstallingErrorMessages - Connected peer ${client.ip}:${client.port} doesn't have FluxOS uptime to be used`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      log.info(`getPeerAppsInstallingErrorMessages - FluxOS uptime is ok on ${client.ip}:${client.port}`);
+      axiosConfig = {
+        timeout: 30000,
+      };
+      log.info(`getPeerAppsInstallingErrorMessages - Getting app installing errors from ${client.ip}:${client.port}`);
+      const url = `http://${client.ip}:${client.port}/apps/installingerrorslocations`;
+      // eslint-disable-next-line no-await-in-loop
+      const appsResponse = await serviceHelper.axiosGet(url, axiosConfig).catch((error) => log.error(error));
+      if (!appsResponse || !appsResponse.data || appsResponse.data.status !== 'success' || !appsResponse.data.data) {
+        log.info(`getPeerAppsInstallingErrorMessages - Failed to get app installing error locations from ${client.ip}:${client.port}`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const apps = appsResponse.data.data;
+      log.info(`getPeerAppsInstallingErrorMessages - Will process ${apps.length} apps installing errors locations messages`);
+      const operations = apps.map((message) => ({
+        updateOne: {
+          filter: { name: message.name, hash: message.hash, ip: message.ip }, // ou outro campo único
+          update: { $set: message },
+          upsert: true,
+        },
+      }));
+      const dbopen = dbHelper.databaseConnection();
+      const database = dbopen.db(config.database.appsglobal.database);
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.bulkWriteInDatabase(database, globalAppsInstallingErrorsLocations, operations);
+      finished = true;
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To try spawning a global application. Performs various checks before the app is spawned. Checks that app is not already running on the FluxNode/IP address.
  * Checks if app already has the required number of instances deployed. Checks that application image is not blacklisted. Checks that ports not already in use.
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
@@ -10478,12 +10720,6 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    if (firstExecutionAfterItsSynced === true) {
-      log.info('Explorer Synced, checking for expired apps');
-      // eslint-disable-next-line no-use-before-define
-      await expireGlobalApplications();
-      firstExecutionAfterItsSynced = false;
-    }
 
     let isNodeConfirmed = false;
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
@@ -10493,6 +10729,14 @@ async function trySpawningGlobalApplication() {
       await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
       trySpawningGlobalApplication();
       return;
+    }
+
+    if (firstExecutionAfterItsSynced === true) {
+      log.info('Explorer Synced, checking for expired apps');
+      // eslint-disable-next-line no-use-before-define
+      await expireGlobalApplications();
+      firstExecutionAfterItsSynced = false;
+      await getPeerAppsInstallingErrorMessages();
     }
 
     if (fluxNodeWasAlreadyConfirmed && fluxNodeWasNotConfirmedOnLastCheck) {
@@ -10669,6 +10913,15 @@ async function trySpawningGlobalApplication() {
 
     trySpawningGlobalAppCache.set(appHash, appHash);
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
+
+    const installingAppErrorsList = await appInstallingErrorsLocation(appToRun);
+    /* if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
+      spawnErrorsLongerAppCache.set(appHash, appHash);
+      throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
+    } */
+    if (installingAppErrorsList.length > 0) {
+      log.info(`trySpawningGlobalApplication - App ${appToRun} have failed previously to install on ${installingAppErrorsList.length} different nodes`);
+    }
 
     runningAppList = await appLocation(appToRun);
 
@@ -10982,20 +11235,7 @@ async function trySpawningGlobalApplication() {
       registerOk = false;
     }
     if (!registerOk) {
-      broadcastedAt = Date.now();
       log.info('trySpawningGlobalApplication - Error on registerAppLocally');
-      const appRemovedMessage = {
-        type: 'fluxappremoved',
-        version: 1,
-        appName: appSpecifications.name,
-        ip: myIP,
-        broadcastedAt,
-      };
-      log.info('trySpawningGlobalApplication - Broadcasting appremoved message to the network');
-      // broadcast messages about app removed to all peers
-      await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
-      await serviceHelper.delay(500);
-      await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
       await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
@@ -11330,11 +11570,15 @@ async function expireGlobalApplications() {
     const appNamesToExpire = appsToExpire.map((res) => res.name);
     // remove appNamesToExpire apps from global database
     // eslint-disable-next-line no-restricted-syntax
-    for (const appName of appNamesToExpire) {
-      log.info(`Expiring application ${appName}`);
-      const queryDeleteApp = { name: appName };
+    for (const app of appsToExpire) {
+      log.info(`Expiring application ${app.name}`);
+      const queryDeleteApp = { name: app.name };
       // eslint-disable-next-line no-await-in-loop
       await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
+
+      const queryDeleteAppErrors = { name: app.name };
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
     }
 
     // get list of locally installed apps.
@@ -15542,4 +15786,7 @@ module.exports = {
   storeAppInstallingMessage,
   getAppInstallingLocation,
   getAppsInstallingLocations,
+  storeAppInstallingErrorMessage,
+  getAppInstallingErrorsLocation,
+  getAppsInstallingErrorsLocations,
 };

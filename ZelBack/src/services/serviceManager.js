@@ -99,6 +99,12 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
     log.info('Flux Apps installing locations prepared');
+    // we keep installing error messages for 60 minutes
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ cachedAt: 1 }, { expireAfterSeconds: 3600 });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
+    log.info('Flux Apps installing locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
