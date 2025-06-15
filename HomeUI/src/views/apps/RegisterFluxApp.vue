@@ -3351,6 +3351,12 @@ export default {
     },
 
     async getDaemonInfo() {
+      const daemonGetInfo = await DaemonService.getInfo();
+      if (daemonGetInfo.data.status === 'error') {
+        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
+      } else {
+        this.currentHeight = daemonGetInfo.data.data.blocks;
+      }
       if (this.currentHeight < 1921500) { // this needs to be updated to master v8 block 1932380
         this.specificationVersion = 7;
         this.composeTemplate = this.composeTemplatev7;
