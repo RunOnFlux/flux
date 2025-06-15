@@ -13802,7 +13802,7 @@ let failedPort;
 let testingPort;
 const portsNotWorking = [];
 let originalPortFailed;
-let portToTest = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
+let setPortToTest = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 let lastUPNPMapFailed = false;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
@@ -13880,8 +13880,8 @@ async function checkMyAppsAvailability() {
     // choose random port
     const min = minPort;
     const max = maxPort;
-    if (portToTest) {
-      testingPort = portToTest;
+    if (setPortToTest) {
+      testingPort = setPortToTest;
     } else {
       testingPort = failedPort || Math.floor(Math.random() * (max - min) + min);
     }
@@ -13892,9 +13892,9 @@ async function checkMyAppsAvailability() {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is banned.`);
       failedPort = null;
       if (originalPortFailed && testingPort > originalPortFailed) {
-        portToTest = originalPortFailed - 1;
+        setPortToTest = originalPortFailed - 1;
       } else if (originalPortFailed) {
-        portToTest = null;
+        setPortToTest = null;
       }
       // skip this check, port is not possible to run on flux
       await serviceHelper.delay(15 * 1000);
@@ -13907,9 +13907,9 @@ async function checkMyAppsAvailability() {
         log.info(`checkMyAppsAvailability - Testing port ${testingPort} is UPNP banned.`);
         failedPort = null;
         if (originalPortFailed && testingPort > originalPortFailed) {
-          portToTest = originalPortFailed - 1;
+          setPortToTest = originalPortFailed - 1;
         } else if (originalPortFailed) {
-          portToTest = null;
+          setPortToTest = null;
         }
         // skip this check, port is not possible to run on flux
         await serviceHelper.delay(15 * 1000);
@@ -13922,9 +13922,9 @@ async function checkMyAppsAvailability() {
       log.info(`checkMyAppsAvailability - Testing port ${testingPort} is user blocked.`);
       failedPort = null;
       if (originalPortFailed && testingPort > originalPortFailed) {
-        portToTest = originalPortFailed - 1;
+        setPortToTest = originalPortFailed - 1;
       } else if (originalPortFailed) {
-        portToTest = null;
+        setPortToTest = null;
       }
       // skip this check, port is not allowed for this flux node by user
       await serviceHelper.delay(15 * 1000);
@@ -13935,9 +13935,9 @@ async function checkMyAppsAvailability() {
       log.info(`checkMyAppsAvailability - Skipped checking ${testingPort} - in use.`);
       failedPort = null;
       if (originalPortFailed && testingPort > originalPortFailed) {
-        portToTest = originalPortFailed - 1;
+        setPortToTest = originalPortFailed - 1;
       } else if (originalPortFailed) {
-        portToTest = null;
+        setPortToTest = null;
       }
       // skip this check
       await serviceHelper.delay(15 * 1000);
@@ -13962,9 +13962,9 @@ async function checkMyAppsAvailability() {
         log.info(`checkMyAppsAvailability - Testing port ${testingPort} failed to create on UPNP mappings. Possible already assigned?`);
         failedPort = null;
         if (originalPortFailed && testingPort > originalPortFailed) {
-          portToTest = originalPortFailed - 1;
+          setPortToTest = originalPortFailed - 1;
         } else if (originalPortFailed) {
-          portToTest = null;
+          setPortToTest = null;
         }
         throw new Error('Failed to create map UPNP port');
       }
@@ -14018,7 +14018,7 @@ async function checkMyAppsAvailability() {
     const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch(async (error) => {
       log.error(`checkMyAppsAvailability - ${askingIP} for app availability is not reachable`);
       log.error(error);
-      portToTest = testingPort;
+      setPortToTest = testingPort;
       failedNodesTestPortsCache.set(askingIP, askingIP);
       await serviceHelper.delay(30 * 1000);
       return checkMyAppsAvailability();
@@ -14031,19 +14031,19 @@ async function checkMyAppsAvailability() {
       if (!originalPortFailed) {
         originalPortFailed = testingPort;
       } else if (testingPort >= originalPortFailed && testingPort + 1 <= 65535) {
-        portToTest = testingPort + 1;
+        setPortToTest = testingPort + 1;
       } else if (testingPort - 1 > 0) {
-        portToTest = testingPort - 1;
+        setPortToTest = testingPort - 1;
       } else {
-        portToTest = null;
+        setPortToTest = null;
       }
     } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
       log.info(`${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort} on ${testingPort}`);
       failedPort = null;
       if (originalPortFailed && originalPortFailed >= testingPort && originalPortFailed - 1 > 0) {
-        portToTest = originalPortFailed - 1;
+        setPortToTest = originalPortFailed - 1;
       } else {
-        portToTest = null;
+        setPortToTest = null;
       }
     }
 
@@ -14066,7 +14066,7 @@ async function checkMyAppsAvailability() {
     if (!portTestFailed) {
       dosState = 0;
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
-      if (portToTest) {
+      if (setPortToTest) {
         await serviceHelper.delay(1 * 60 * 1000);
       } else {
         await serviceHelper.delay(60 * 60 * 1000);
@@ -14081,7 +14081,7 @@ async function checkMyAppsAvailability() {
         await serviceHelper.delay(15 * 1000);
       } else {
         const randomIndex = Math.floor(Math.random() * portsNotWorking.length);
-        portToTest = portsNotWorking[randomIndex];
+        setPortToTest = portsNotWorking[randomIndex];
         portsNotWorking.splice(randomIndex, 1);
         await serviceHelper.delay(1 * 60 * 1000);
       }
