@@ -13323,7 +13323,7 @@ let failedPort;
 let testingPort;
 const portsNotWorking = [];
 let originalPortFailed;
-let portToTest = 10000;
+let portToTest = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 let lastUPNPMapFailed = false;
 async function checkMyAppsAvailability() {
   const isUPNP = upnpService.isUPNP();
