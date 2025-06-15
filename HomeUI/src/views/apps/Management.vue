@@ -10615,12 +10615,13 @@ export default {
           if (responseGetOriginalOwner.data.status === 'error') {
             throw new Error(responseGetOriginalOwner.data.data.message || responseGetOriginalOwner.data.data);
           }
+          const zelidauth = localStorage.getItem('zelidauth');
           // call api to get RSA public key
           const appPubKeyData = {
             name: response.data.data.name,
             owner: responseGetOriginalOwner.data.data,
           };
-          const responseGetPublicKey = await AppsService.getAppPublicKey(appPubKeyData);
+          const responseGetPublicKey = await AppsService.getAppPublicKey(zelidauth, appPubKeyData);
           if (responseGetPublicKey.data.status === 'error') {
             throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
           }
@@ -10633,7 +10634,7 @@ export default {
             aesKey,
             rsaPubKey,
           );
-          const zelidauth = localStorage.getItem('zelidauth');
+
           response = await AppsService.getAppDecryptedSpecifics(this.appName, zelidauth, encryptedEnterpriseKey);
           console.log(response);
           if (response.data.status === 'error') {
@@ -11088,12 +11089,13 @@ export default {
             if (responseGetOriginalOwner.data.status === 'error') {
               throw new Error(responseGetOriginalOwner.data.data.message || responseGetOriginalOwner.data.data);
             }
+            const zelidauth = localStorage.getItem('zelidauth');
             // call api to get RSA public key
             const appPubKeyData = {
               name: appSpecification.name,
               owner: responseGetOriginalOwner.data.data,
             };
-            const responseGetPublicKey = await AppsService.getAppPublicKey(appPubKeyData);
+            const responseGetPublicKey = await AppsService.getAppPublicKey(zelidauth, appPubKeyData);
             if (responseGetPublicKey.data.status === 'error') {
               throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
             }

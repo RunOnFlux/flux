@@ -3279,12 +3279,13 @@ export default {
           // construct nodes
           this.constructNodes();
           if (this.isPrivateApp) {
+            const zelidauth = localStorage.getItem('zelidauth');
             // call api to get RSA public key
             const appPubKeyData = {
               name: appSpecification.name,
               owner: appSpecification.owner,
             };
-            const responseGetPublicKey = await AppsService.getAppPublicKey(appPubKeyData);
+            const responseGetPublicKey = await AppsService.getAppPublicKey(zelidauth, appPubKeyData);
             if (responseGetPublicKey.data.status === 'error') {
               throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
             }

@@ -299,8 +299,13 @@ export default {
   appRegistrationVerificaiton(data) {
     return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data));
   },
-  getAppPublicKey(data) {
-    return Api().post('/apps/getpublickey', JSON.stringify(data));
+  getAppPublicKey(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/apps/getpublickey', JSON.stringify(data), axiosConfig);
   },
   getAppOriginalOwner(app) {
     return Api().get(`/apps/apporiginalowner/${app}`);
