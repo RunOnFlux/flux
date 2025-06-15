@@ -156,6 +156,16 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
           return false;
         }
       }
+    } else if (dataObj.data && dataObj.data.type === 'fluxappinstallingerror') {
+      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
+      if (!node) {
+        zl = await deterministicFluxList();
+        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
+        if (!node) {
+          log.warn(`Invalid fluxappinstallingerror message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
+          return false;
+        }
+      }
     } else if (dataObj.data && dataObj.data.type === 'fluxipchanged') {
       node = zl.find((key) => key.pubkey === pubKey && dataObj.data.oldIP && dataObj.data.oldIP === key.ip); // check ip is on the network and belongs to broadcasted public key
       if (!node) {
