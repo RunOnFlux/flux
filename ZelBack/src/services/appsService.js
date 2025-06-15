@@ -15267,44 +15267,44 @@ async function monitorNodeStatus() {
       }
       await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
       return monitorNodeStatus();
-    }
-
-    log.info('monitorNodeStatus - Node is Confirmed');
-    // lets remove from locations when nodes are no longer confirmed
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const variable = 'ip';
-    // we already have the exact same data
-    const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
-    log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
-    let nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    nodeList = nodeList.map(({ ip }) => ip);
-    const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes(location));
-    log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const location of appsLocationsNotOnNodelist) {
-      log.info(`monitorNodeStatus - Checking IP ${location}.`);
-      const ip = location.split(':')[0];
-      const port = location.split(':')[1] || 16127;
-      const { CancelToken } = axios;
-      const source = CancelToken.source();
-      let isResolved = false;
-      const timeout = 10 * 1000; // 10 seconds
-      setTimeout(() => {
-        if (!isResolved) {
-          source.cancel('Operation canceled by the user.');
-        }
-      }, timeout * 2);
-      // eslint-disable-next-line no-await-in-loop
-      const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
-      isResolved = true;
-      if (response && response.data && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
-        log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
-      } else {
-        log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
-        const query = { ip: location };
+    } if (isNodeConfirmed) {
+      log.info('monitorNodeStatus - Node is Confirmed');
+      // lets remove from locations when nodes are no longer confirmed
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      const variable = 'ip';
+      // we already have the exact same data
+      const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
+      log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
+      let nodeList = await fluxCommunicationUtils.deterministicFluxList();
+      nodeList = nodeList.map(({ ip }) => ip);
+      const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes(location));
+      log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const location of appsLocationsNotOnNodelist) {
+        log.info(`monitorNodeStatus - Checking IP ${location}.`);
+        const ip = location.split(':')[0];
+        const port = location.split(':')[1] || 16127;
+        const { CancelToken } = axios;
+        const source = CancelToken.source();
+        let isResolved = false;
+        const timeout = 10 * 1000; // 10 seconds
+        setTimeout(() => {
+          if (!isResolved) {
+            source.cancel('Operation canceled by the user.');
+          }
+        }, timeout * 2);
         // eslint-disable-next-line no-await-in-loop
-        await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
+        const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
+        isResolved = true;
+        if (response && response.data && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
+          log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
+        } else {
+          log.info(`monitorNodeStatus - Removing IP ${location} from globalAppsLocations`);
+          const query = { ip: location };
+          // eslint-disable-next-line no-await-in-loop
+          await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, query);
+        }
       }
     }
     await serviceHelper.delay(20 * 60 * 1000); // 20m delay before next check
