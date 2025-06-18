@@ -337,7 +337,13 @@ module.exports = (app) => {
   app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getGlobalAppsSpecifications(req, res);
   });
-  app.get('/apps/appspecifications/:appname?/:update?/:decrypt?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/latestspecificationversion', cache('5 minutes'), (req, res) => {
+    appsService.getlatestApplicationSpecificationAPI(req, res);
+  });
+  app.get('/apps/updatetolatestspecs/appname', cache('30 seconds'), (req, res) => {
+    appsService.updateApplicationSpecificationAPI(req, res);
+  });
+  app.get('/apps/appspecifications/:appname/:decrypt?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appowner/:appname?', cache('30 seconds'), (req, res) => {
@@ -358,8 +364,14 @@ module.exports = (app) => {
   app.get('/apps/installinglocation/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppInstallingLocation(req, res);
   });
-  app.get('/apps/installlinglocations', cache('30 seconds'), (req, res) => {
+  app.get('/apps/installinglocations', cache('30 seconds'), (req, res) => {
     appsService.getAppsInstallingLocations(req, res);
+  });
+  app.get('/apps/installingerrorslocation/:appname?', cache('30 seconds'), (req, res) => {
+    appsService.getAppInstallingErrorsLocation(req, res);
+  });
+  app.get('/apps/installingerrorslocations', cache('30 seconds'), (req, res) => {
+    appsService.getAppsInstallingErrorsLocations(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
     appsService.getAppPrice(req, res);

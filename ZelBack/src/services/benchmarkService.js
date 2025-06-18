@@ -166,6 +166,26 @@ async function decryptMessage(message) {
 }
 
 /**
+ * Ask FLuxBench to decrypt rsa message
+ * @param {object} message message object with information to be decrypted.
+ */
+async function decryptRSAMessage(message) {
+  const rpccall = 'decryptrsamessage';
+  const rpcparameters = [message];
+  return executeCall(rpccall, rpcparameters);
+}
+
+/**
+ * Ask FLuxBench to encrypt message
+ * @param {object} message message object with information to be decrypted.
+ */
+async function encryptMessage(message) {
+  const rpccall = 'encryptmessage';
+  const rpcparameters = [message];
+  return executeCall(rpccall, rpcparameters);
+}
+
+/**
  * Ask FLuxBench to get public key to encrypt enterprise content
  * @param {object} message message object with the key.
  */
@@ -315,4 +335,6 @@ module.exports = {
   //
   decryptMessage,
   getPublicKey,
+  decryptRSAMessage,
+  encryptMessage,
 };
