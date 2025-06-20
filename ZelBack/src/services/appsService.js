@@ -10831,8 +10831,8 @@ async function trySpawningGlobalApplication() {
     let appFromAppsSyncthingToBeCheckedLater = false;
     const appIndex = appsToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
     const appSyncthingIndex = appsSyncthingToBeCheckedLater.findIndex((app) => app.timeToCheck >= Date.now());
-    let runningAppList = null;
-    let installingAppList = null;
+    let runningAppList = [];
+    let installingAppList = [];
     if (appIndex >= 0) {
       appToRun = appsToBeCheckedLater[appIndex].appName;
       appHash = appsToBeCheckedLater[appIndex].hash;
