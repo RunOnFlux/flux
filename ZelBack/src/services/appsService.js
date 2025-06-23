@@ -37,6 +37,7 @@ const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
 const appsMessageExistenceService = require('./appsMessageExistence');
+const appsAvailableService = require('./appsAvailable');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
@@ -2666,7 +2667,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       if (!appSpecifications) {
         // get it from locally available Specifications
         // eslint-disable-next-line no-use-before-define
-        const allApps = await availableApps();
+        const allApps = await appsAvailableService.availableApps();
         appSpecifications = allApps.find((a) => a.name === appName);
         // get it from permanent messages
         if (!appSpecifications) {
@@ -4679,78 +4680,6 @@ async function getGlobalAppsSpecifications(req, res) {
 }
 
 /**
- * To return available apps.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {(object|object[])} Returns a response or an array of app objects.
- */
-async function availableApps(req, res) {
-  // calls to global mongo db
-  // simulate a similar response
-  const apps = [
-    { // app specifications
-      version: 2,
-      name: 'FoldingAtHomeB',
-      description: 'Folding @ Home for AMD64 Devices. Folding@home is a project focused on disease research. Client Visit was disabled, to check your stats go to https://stats.foldingathome.org/donor and search for your zelid.',
-      repotag: 'yurinnick/folding-at-home:latest',
-      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-      tiered: true,
-      ports: [30000],
-      containerPorts: [7396],
-      domains: [''],
-      cpu: 0.5,
-      ram: 500,
-      hdd: 5,
-      cpubasic: 0.5,
-      cpusuper: 1,
-      cpubamf: 2,
-      rambasic: 500,
-      ramsuper: 500,
-      rambamf: 500,
-      hddbasic: 5,
-      hddsuper: 5,
-      hddbamf: 5,
-      enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
-      commands: [],
-      containerData: '/config',
-      hash: 'localappinstancehashABCDEF', // hash of app message
-      height: 0, // height of tx on which it was
-    },
-    { // app specifications
-      version: 2,
-      name: 'FoldingAtHomeArm64',
-      description: 'Folding @ Home For ARM64. Folding@home is a project focused on disease research. Client Visit was disabled, to check your stats go to https://stats.foldingathome.org/donor and search for your zelid.',
-      repotag: 'beastob/foldingathome-arm64',
-      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      tiered: true,
-      ports: [30000],
-      containerPorts: [7396],
-      domains: [''],
-      cpu: 1,
-      ram: 500,
-      hdd: 5,
-      cpubasic: 1,
-      cpusuper: 2,
-      cpubamf: 2,
-      rambasic: 500,
-      ramsuper: 500,
-      rambamf: 500,
-      hddbasic: 5,
-      hddsuper: 5,
-      hddbamf: 5,
-      enviromentParameters: [`FOLD_USER=${userconfig.initial.zelid}`, 'FOLD_TEAM=262156', 'FOLD_ANON=false'],
-      commands: [],
-      containerData: '/config',
-      hash: 'localSpecificationsFoldingVersion1', // hash of app message
-      height: 0, // height of tx on which it was
-    },
-  ];
-
-  const dataResponse = messageHelper.createDataMessage(apps);
-  return res ? res.json(dataResponse) : apps;
-}
-
-/**
  * To verify an app hash message.
  * @param {object} message Message.
  * @returns {boolean} True if no error is thrown.
@@ -6592,7 +6521,7 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
     }
   }
 
-  const localApps = await availableApps();
+  const localApps = await appsAvailableService.availableApps();
   const appExists = localApps.find((localApp) => localApp.name.toLowerCase() === appSpecFormatted.name.toLowerCase());
   if (appExists) {
     throw new Error(`Flux App ${appSpecFormatted.name} already assigned to local application. Flux App has to be registered under different name.`);
@@ -8437,7 +8366,7 @@ async function installAppLocally(req, res) {
         }
       }
       if (!appSpecifications) {
-        const allApps = await availableApps();
+        const allApps = await appsAvailableService.availableApps();
         appSpecifications = allApps.find((app) => app.name === appname);
       }
       if (!appSpecifications) {
@@ -8546,7 +8475,7 @@ async function testAppInstall(req, res) {
         }
       }
       if (!appSpecifications) {
-        const allApps = await availableApps();
+        const allApps = await appsAvailableService.availableApps();
         appSpecifications = allApps.find((app) => app.name === appname);
       }
       if (!appSpecifications) {
@@ -9908,7 +9837,7 @@ async function getApplicationGlobalSpecifications(appName) {
  * @returns {object} Document with app info.
  */
 async function getApplicationLocalSpecifications(appName) {
-  const allApps = await availableApps();
+  const allApps = await appsAvailableService.availableApps();
   const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   return appInfo;
 }
@@ -9958,7 +9887,7 @@ async function getApplicationSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
-    const allApps = await availableApps();
+    const allApps = await appsAvailableService.availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
 
@@ -9983,7 +9912,7 @@ async function getStrictApplicationSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
-    const allApps = await availableApps();
+    const allApps = await appsAvailableService.availableApps();
     appInfo = allApps.find((app) => app.name === appName);
   }
   appInfo = await checkAndDecryptAppSpecs(appInfo);
@@ -15610,7 +15539,6 @@ module.exports = {
   createFluxNetworkAPI,
   removeAppLocallyApi,
   installedApps,
-  availableApps,
   appsResources,
   requestAppMessageAPI,
   checkAndRequestApp,

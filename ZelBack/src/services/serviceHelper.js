@@ -13,6 +13,7 @@ const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
 const fluxController = require('./utils/fluxController');
+const appsAvailableService = require('./appsAvailable');
 
 /**
  * The Service Helper controller
@@ -120,9 +121,7 @@ async function getApplicationOwner(appName) {
   if (appSpecs) {
     return appSpecs.owner;
   }
-  // eslint-disable-next-line global-require
-  const appsService = require('./appsService');
-  const allApps = await appsService.availableApps();
+  const allApps = await appsAvailableService.availableApps();
   const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   if (appInfo) {
     return appInfo.owner;
