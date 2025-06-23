@@ -6,6 +6,7 @@ const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
+const appsMessageExistenceService = require('./appsMessageExistence');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -310,8 +311,6 @@ async function sendMessageToWS(message, ws) {
 async function respondWithAppMessage(msgObj, ws) {
   try {
     // check if we have it database of permanent appMessages
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const appsMessages = [];
     if (!msgObj.data) {
       throw new Error('Invalid Flux App Request message');
@@ -354,7 +353,7 @@ async function respondWithAppMessage(msgObj, ws) {
       }
       let temporaryAppMessage = null;
       // eslint-disable-next-line no-await-in-loop
-      const appMessage = await appsService.checkAppMessageExistence(hash) || await appsService.checkAppTemporaryMessageExistence(hash);
+      const appMessage = await appsMessageExistenceService.checkAppMessageExistence(hash) || await appsMessageExistenceService.checkAppTemporaryMessageExistence(hash);
       if (appMessage) {
         temporaryAppMessage = { // specification of temp message
           type: appMessage.type,

@@ -36,6 +36,7 @@ const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
+const appsMessageExistenceService = require('./appsMessageExistence');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
 const signatureVerifier = require('./signatureVerifier');
@@ -6700,64 +6701,6 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
 }
 
 /**
- * To check if an app message hash exists.
- * @param {string} hash Message hash.
- * @returns {(object|boolean)} Returns document object if it exists in the database. Otherwise returns false.
- */
-async function checkAppMessageExistence(hash) {
-  const dbopen = dbHelper.databaseConnection();
-  const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  const appsQuery = { hash };
-  const appsProjection = {};
-  // a permanent global zelappmessage looks like this:
-  // const permanentAppMessage = {
-  //   type: messageType,
-  //   version: typeVersion,
-  //   zelAppSpecifications: appSpecFormatted,
-  //   appSpecifications: appSpecFormatted,
-  //   hash: messageHASH,
-  //   timestamp,
-  //   signature,
-  //   txid,
-  //   height,
-  //   valueSat,
-  // };
-  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
-  if (appResult) {
-    return appResult;
-  }
-  return false;
-}
-
-/**
- * To check if an app temporary message hash exists.
- * @param {string} hash Message hash.
- * @returns {(object|boolean)} Returns document object if it exists in the database. Otherwise returns false.
- */
-async function checkAppTemporaryMessageExistence(hash) {
-  const dbopen = dbHelper.databaseConnection();
-  const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  const appsQuery = { hash };
-  const appsProjection = {};
-  // a temporary zelappmessage looks like this:
-  // const newMessage = {
-  //   appSpecifications: message.appSpecifications,
-  //   type: message.type,
-  //   version: message.version,
-  //   hash: message.hash,
-  //   timestamp: message.timestamp,
-  //   signature: message.signature,
-  //   createdAt: new Date(message.timestamp),
-  //   expireAt: new Date(validTill),
-  // };
-  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
-  if (appResult) {
-    return appResult;
-  }
-  return false;
-}
-
-/**
  * To store a temporary message for an app.
  * @param {object} message Message.
  * @param {boolean} furtherVerification Defaults to false.
@@ -6787,13 +6730,13 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const messageVersion = serviceHelper.ensureNumber(message.version);
 
   // check permanent app message storage
-  const appMessage = await checkAppMessageExistence(message.hash);
+  const appMessage = await appsMessageExistenceService.checkAppMessageExistence(message.hash);
   if (appMessage) {
     // do not rebroadcast further
     return false;
   }
   // check temporary message storage
-  const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
+  const tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(message.hash);
   if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
     // do not rebroadcast further
     return false;
@@ -8257,13 +8200,13 @@ async function registerAppGlobalyApi(req, res) {
       // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
       await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
       // check temporary message storage
-      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+      let tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
       for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
         if (!tempMessage) {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
           // eslint-disable-next-line no-await-in-loop
-          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+          tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(messageHASH);
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
@@ -8428,13 +8371,13 @@ async function updateAppGlobalyApi(req, res) {
       await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
       await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
       // check temporary message storage
-      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      let tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(messageHASH);
       for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
         if (!tempMessage) {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
           // eslint-disable-next-line no-await-in-loop
-          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+          tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(messageHASH);
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
@@ -8478,7 +8421,7 @@ async function installAppLocally(req, res) {
       let appSpecifications;
       // anyone can deploy temporary app
       // favor temporary to launch test temporary apps
-      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      const tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
         // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
@@ -8503,7 +8446,7 @@ async function installAppLocally(req, res) {
       }
       // search in permanent messages for the specific apphash to launch
       if (!appSpecifications) {
-        const permMessage = await checkAppMessageExistence(appname);
+        const permMessage = await appsMessageExistenceService.checkAppMessageExistence(appname);
         if (permMessage) {
           // eslint-disable-next-line prefer-destructuring
           appSpecifications = permMessage.appSpecifications;
@@ -8587,7 +8530,7 @@ async function testAppInstall(req, res) {
       let appSpecifications;
       // anyone can deploy temporary app
       // favor temporary to launch test temporary apps
-      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      const tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
         // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
@@ -8612,7 +8555,7 @@ async function testAppInstall(req, res) {
       }
       // search in permanent messages for the specific apphash to launch
       if (!appSpecifications) {
-        const permMessage = await checkAppMessageExistence(appname);
+        const permMessage = await appsMessageExistenceService.checkAppMessageExistence(appname);
         if (permMessage) {
           // eslint-disable-next-line prefer-destructuring
           appSpecifications = permMessage.appSpecifications;
@@ -8909,12 +8852,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
       return false;
     }
-    const appMessageExists = await checkAppMessageExistence(hash);
+    const appMessageExists = await appsMessageExistenceService.checkAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
       // we surely do not have that message in permanent storaage.
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
-      const tempMessage = await checkAppTemporaryMessageExistence(hash);
+      const tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(hash);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
         // temp message means its all ok. store it as permanent app message
@@ -15669,7 +15612,6 @@ module.exports = {
   installedApps,
   availableApps,
   appsResources,
-  checkAppMessageExistence,
   requestAppMessageAPI,
   checkAndRequestApp,
   checkAndRequestMultipleApps,
@@ -15715,7 +15657,6 @@ module.exports = {
   getAppFiatAndFluxPrice,
   reinstallOldApplications,
   checkAndRemoveApplicationInstance,
-  checkAppTemporaryMessageExistence,
   softRegisterAppLocally,
   softRemoveAppLocally,
   softRedeploy,
