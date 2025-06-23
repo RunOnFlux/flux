@@ -307,6 +307,20 @@ async function executeUpnpBench() {
   }
 }
 
+// Return boolean true if system is running ArcaneOS
+async function isSystemSecure() {
+  try {
+    const benchmarkResponse = await getBenchmarks();
+    if (benchmarkResponse.status === 'error') {
+      throw new Error('Not possible to check if node is ArcaneOS.');
+    }
+    return benchmarkResponse.data.systemsecure;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
 if (require.main === module) {
   getInfo().then((res) => console.log(res));
 }
@@ -337,4 +351,5 @@ module.exports = {
   getPublicKey,
   decryptRSAMessage,
   encryptMessage,
+  isSystemSecure,
 };
