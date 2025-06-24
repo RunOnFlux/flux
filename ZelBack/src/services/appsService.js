@@ -14135,7 +14135,7 @@ async function checkMyAppsAvailability() {
       return;
     }
 
-    const syncStatus = { data: { synced: true } };
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       log.info('Flux Node daemon not synced. Application checks are disabled');
       await serviceHelper.delay(4 * 60 * 1000);
