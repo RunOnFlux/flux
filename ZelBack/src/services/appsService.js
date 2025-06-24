@@ -14041,7 +14041,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 
 /**
  *
- * @param {*} testingPort The target port
+ * @param {Number} testingPort The target port
  * @param {{skipFirewall?: Boolean, skipUpnp?: Boolean, skipHttpServer?: Boolean}} options Options
  */
 async function handleTestShutdown(testingPort, options = {}) {
