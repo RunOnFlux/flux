@@ -2,7 +2,6 @@ const config = require('config');
 
 const os = require('node:os');
 const path = require('node:path');
-const crypto = require('node:crypto');
 
 const https = require('https');
 const axios = require('axios');
@@ -36,9 +35,14 @@ const dockerService = require('./dockerService');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const geolocationService = require('./geolocationService');
+const appsMessageExistenceService = require('./appsMessageExistenceService');
+const appsAuxiliarService = require('./appsAuxiliarService');
+const appsEncryptDecryptService = require('./appsEncryptDecryptService');
+const appsDockerService = require('./appsDockerService');
+const storeWSMessagesService = require('./storeWSMessagesService');
+const appsAvailableService = require('./appsAvailableService');
 const syncthingService = require('./syncthingService');
 const pgpService = require('./pgpService');
-const signatureVerifier = require('./signatureVerifier');
 const imageVerifier = require('./utils/imageVerifier');
 // eslint-disable-next-line no-unused-vars
 const backupRestoreService = require('./backupRestoreService');
@@ -149,26 +153,6 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
-const appsMonitored = {
-  // appsMonitored Object Examples:
-  // component1_appname2: { // >= 4 or name for <= 3
-  //   oneMinuteInterval: null, // interval
-  //   fifteenMinInterval: null, // interval
-  //   oneMinuteStatsStore: [ // stores last hour of stats of app measured every minute
-  //     { // object of timestamp, data
-  //       timestamp: 0,
-  //       data: { },
-  //     },
-  //   ],
-  //   fifteenMinStatsStore: [ // stores last 24 hours of stats of app measured every 15 minutes
-  //     { // object of timestamp, data
-  //       timestamp: 0,
-  //       data: { },
-  //     },
-  //   ],
-  // },
-};
-
 /**
  * To get array of price specifications updates
  * @returns {(object|object[])} Returns an array of app objects.
@@ -219,41 +203,6 @@ async function getChainParamsPriceUpdates() {
 }
 
 /**
- * To get array of team support address updates
- * @returns {(object|object[])} Returns an array of team support addresses with height.
- */
-function getChainTeamSupportddressUpdates() {
-  try {
-    /* to be adjusted in the future to check database
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.chainparams.database);
-    const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
-    const query = { version: 'p' };
-    const projection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const priceMessages = await dbHelper.findInDatabase(database, chainParamsMessagesCollection, query, projection);
-    */
-    const addressForks = [];
-    config.fluxapps.teamSupportAddress.forEach((address) => {
-      addressForks.push(address);
-    });
-    // sort priceForks depending on height
-    addressForks.sort((a, b) => {
-      if (a.height > b.height) return 1;
-      if (a.height < b.height) return -1;
-      return 0;
-    });
-    return addressForks;
-  } catch (error) {
-    log.error(error);
-    return [];
-  }
-}
-
-/**
  * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -261,31 +210,7 @@ function getChainTeamSupportddressUpdates() {
  */
 async function installedApps(req, res) {
   try {
-    const dbopen = dbHelper.databaseConnection();
-
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    let appsQuery = {};
-    if (req && req.params && req.query) {
-      let { appname } = req.params; // we accept both help/command and help?command=getinfo
-      appname = appname || req.query.appname;
-      if (appname) {
-        appsQuery = {
-          name: appname,
-        };
-      }
-    } else if (req && typeof req === 'string') {
-      // consider it as appname
-      appsQuery = {
-        name: req,
-      };
-    }
-    const appsProjection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const dataResponse = messageHelper.createDataMessage(apps);
+    const dataResponse = messageHelper.createDataMessage(await appsAuxiliarService.installedApps(req));
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
     log.error(error);
@@ -402,7 +327,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
   try {
     // get a list of the specific app locations
     // eslint-disable-next-line no-use-before-define
-    const locations = await appLocation(appname);
+    const locations = await appsAuxiliarService.appLocation(appname);
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     const myUrl = myIP.split(':')[0];
     const myUrlPort = myIP.split(':')[1] || 16127;
@@ -475,26 +400,25 @@ async function appStart(req, res) {
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerStart(appname);
-      // eslint-disable-next-line no-use-before-define
-      startAppMonitoring(appname);
+      appsDockerService.startAppMonitoring(appname);
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerStart(appname);
         // eslint-disable-next-line no-use-before-define
-        startAppMonitoring(appname);
+        appsDockerService.startAppMonitoring(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
           // eslint-disable-next-line no-use-before-define
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+          appsDockerService.startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -548,25 +472,21 @@ async function appStop(req, res) {
 
     let appRes;
     if (isComponent) {
-      // eslint-disable-next-line no-use-before-define
-      stopAppMonitoring(appname, false);
+      appsDockerService.stopAppMonitoring(appname, false);
       appRes = await dockerService.appDockerStop(appname);
     } else {
       // ask for stopping entire composed application
-      // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
-        // eslint-disable-next-line no-use-before-define
-        stopAppMonitoring(appname, false);
+        appsDockerService.stopAppMonitoring(appname, false);
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose.reverse()) {
-          // eslint-disable-next-line no-use-before-define
-          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
+          appsDockerService.stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
@@ -626,7 +546,7 @@ async function appRestart(req, res) {
     } else {
       // ask for restarting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -686,7 +606,7 @@ async function appKill(req, res) {
     } else {
       // ask for killing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -754,7 +674,7 @@ async function appPause(req, res) {
     } else {
       // ask for pausing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -822,7 +742,7 @@ async function appUnpause(req, res) {
     } else {
       // ask for unpausing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -1093,7 +1013,7 @@ async function appStats(req, res) {
     if (authorized === true) {
       const response = await dockerService.dockerContainerStats(appname);
       // eslint-disable-next-line no-use-before-define
-      const containerStorageInfo = await getContainerStorage(appname);
+      const containerStorageInfo = await appsDockerService.getContainerStorage(appname);
       response.disk_stats = containerStorageInfo;
       const inspect = await dockerService.dockerContainerInspect(appname);
       response.nanoCpus = inspect.HostConfig.NanoCpus;
@@ -1140,6 +1060,7 @@ async function appMonitor(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
+      const appsMonitored = appsDockerService.getAppsMonitored();
       if (appsMonitored[appname]) {
         let appStatsMonitoring = appsMonitored[appname].statsStore;
         if (range) {
@@ -1223,211 +1144,6 @@ async function getAppFolderSize(appName) {
 }
 
 /**
- * Retrieves the storage usage of a specified Docker container, including bind mounts and volume mounts.
- * @param {string} appName The name of the Docker container to inspect.
- * @returns {Promise<object>} An object containing the sizes of bind mounts, volume mounts, root filesystem, total used storage, and status.
- *   - bind: Size of bind mounts in bytes.
- *   - volume: Size of volume mounts in bytes.
- *   - rootfs: Size of the container's root filesystem in bytes.
- *   - used: Total used size (sum of bind, volume, and rootfs sizes) in bytes.
- *   - status: 'success' if the operation succeeded, 'error' otherwise.
- *   - message: An error message if the operation failed.
- */
-async function getContainerStorage(appName) {
-  try {
-    const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
-    let bindMountsSize = 0;
-    let volumeMountsSize = 0;
-    const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
-    if (containerInfo?.Mounts?.length) {
-      await Promise.all(containerInfo.Mounts.map(async (mount) => {
-        let source = mount?.Source;
-        const mountType = mount?.Type;
-        if (source) {
-          if (mountType === 'bind') {
-            source = source.replace('/appdata', '');
-            const exec = `sudo du -sb ${source}`;
-            const mountInfo = await cmdAsync(exec);
-            if (mountInfo) {
-              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
-              bindMountsSize += sizeNum;
-            } else {
-              log.warn(`No mount info returned for source: ${source}`);
-            }
-          } else if (mountType === 'volume') {
-            const exec = `sudo du -sb ${source}`;
-            const mountInfo = await cmdAsync(exec);
-            if (mountInfo) {
-              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
-              volumeMountsSize += sizeNum;
-            } else {
-              log.warn(`No mount info returned for source: ${source}`);
-            }
-          } else {
-            log.warn(`Unsupported mount type or source: Type: ${mountType}, Source: ${source}`);
-          }
-        }
-      }));
-    }
-    const usedSize = bindMountsSize + volumeMountsSize + containerRootFsSize;
-    return {
-      bind: bindMountsSize,
-      volume: volumeMountsSize,
-      rootfs: containerRootFsSize,
-      used: usedSize,
-      status: 'success',
-    };
-  } catch (error) {
-    log.error(`Error fetching container storage: ${error.message}`);
-    return {
-      bind: 0,
-      volume: 0,
-      rootfs: 0,
-      used: 0,
-      status: 'error',
-      message: error.message,
-    };
-  }
-}
-
-/**
- * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
- * @param {object} appName monitored component name
- */
-function startAppMonitoring(appName) {
-  if (!appName) {
-    throw new Error('No App specified');
-  } else {
-    log.info('Initialize Monitoring...');
-    appsMonitored[appName] = {}; // Initialize the app's monitoring object
-    if (!appsMonitored[appName].statsStore) {
-      appsMonitored[appName].statsStore = [];
-    }
-    if (!appsMonitored[appName].lastHourstatsStore) {
-      appsMonitored[appName].lastHourstatsStore = [];
-    }
-    // Clear previous interval for this app to prevent multiple intervals
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
-    appsMonitored[appName].run = 0;
-    appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
-      try {
-        if (!appsMonitored[appName]) {
-          log.error(`Monitoring of ${appName} already stopped`);
-          clearInterval(appsMonitored[appName].oneMinuteInterval);
-          return;
-        }
-        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
-        if (!dockerContainer) {
-          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
-          // eslint-disable-next-line no-use-before-define
-          stopAppMonitoring(appName, true);
-          return;
-        }
-        appsMonitored[appName].run += 1;
-        const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerStorageInfo = await getContainerStorage(appName);
-        statsNow.disk_stats = containerStorageInfo;
-        const now = Date.now();
-        if (appsMonitored[appName].run % 3 === 0) {
-          const inspect = await dockerService.dockerContainerInspect(appName);
-          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
-          appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
-          const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
-          const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
-          log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
-          appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
-            (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
-          );
-        }
-        appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
-        appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
-          (stat) => now - stat.timestamp <= 60 * 60 * 1000,
-        );
-      } catch (error) {
-        log.error(error);
-      }
-    }, 1 * 60 * 1000);
-  }
-}
-
-/**
- * Stops app monitoring for a single app.
- * @param {object} appName App specifications.
- * @param {boolean} deleteData Delete monitored data
- */
-// At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
-function stopAppMonitoring(appName, deleteData) {
-  if (appsMonitored[appName]) {
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
-  }
-  if (deleteData) {
-    delete appsMonitored[appName];
-  }
-}
-
-/**
- * Starts app monitoring for all apps.
- * @param {array} appSpecsToMonitor Array of application specs to be monitored
- */
-async function startMonitoringOfApps(appSpecsToMonitor) {
-  try {
-    let apps = appSpecsToMonitor;
-    if (!apps) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      apps = installedAppsRes.data;
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-      if (app.version <= 3) {
-        startAppMonitoring(app.name);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of app.compose) {
-          const monitoredName = `${component.name}_${app.name}`;
-          startAppMonitoring(monitoredName);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * Stops app monitoring for all apps.
- * @param {array} appSpecsToMonitor Array of application specs to be stopped for monitor
- */
-async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
-  try {
-    let apps = appSpecsToMonitor;
-    if (!apps) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      apps = installedAppsRes.data;
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-      if (app.version <= 3) {
-        stopAppMonitoring(app.name, deleteData);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of app.compose) {
-          const monitoredName = `${component.name}_${app.name}`;
-          stopAppMonitoring(monitoredName, deleteData);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
  * API call to start app monitoring and save monitoring data in-memory to the appsMonitored object. Monitors all apps or a single app if its name is specified in the API request.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1446,8 +1162,8 @@ async function startAppMonitoringAPI(req, res) {
         return;
       }
       // this should not be started if some monitoring is already running. Stop all monitoring before
-      await stopMonitoringOfApps();
-      await startMonitoringOfApps();
+      await appsDockerService.stopMonitoringOfApps();
+      await appsDockerService.startMonitoringOfApps();
       const monitoringResponse = messageHelper.createSuccessMessage('Application monitoring started for all apps');
       res.json(monitoringResponse);
     } else {
@@ -1468,11 +1184,11 @@ async function startAppMonitoringAPI(req, res) {
         throw new Error(`Application ${mainAppName} is not installed`);
       }
       if (mainAppName === appname) {
-        await stopMonitoringOfApps([appSpecs]);
-        await startMonitoringOfApps([appSpecs]);
+        await appsDockerService.stopMonitoringOfApps([appSpecs]);
+        await appsDockerService.startMonitoringOfApps([appSpecs]);
       } else { // component based or <= 3
-        stopAppMonitoring(appname);
-        startAppMonitoring(appname);
+        appsDockerService.stopAppMonitoring(appname);
+        appsDockerService.startAppMonitoring(appname);
       }
       const monitoringResponse = messageHelper.createSuccessMessage(`Application monitoring started for ${appSpecs.name}`);
       res.json(monitoringResponse);
@@ -1509,7 +1225,7 @@ async function stopAppMonitoringAPI(req, res) {
         res.json(errMessage);
         return;
       }
-      await stopMonitoringOfApps();
+      await appsDockerService.stopMonitoringOfApps();
       let successMessage = '';
       if (!deletedata) {
         successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
@@ -1539,9 +1255,9 @@ async function stopAppMonitoringAPI(req, res) {
         if (!appSpecs) {
           throw new Error(`Application ${mainAppName} is not installed`);
         }
-        await stopMonitoringOfApps([appSpecs], deletedata);
+        await appsDockerService.stopMonitoringOfApps([appSpecs], deletedata);
       } else { // component based or <= 3
-        stopAppMonitoring(appname, deletedata);
+        appsDockerService.stopAppMonitoring(appname, deletedata);
       }
       if (deletedata) {
         successMessage = `Application monitoring stopped and monitoring data deleted for ${appname}.`;
@@ -1559,36 +1275,6 @@ async function stopAppMonitoringAPI(req, res) {
       error.code,
     );
     res.json(errorResponse);
-  }
-}
-
-/**
- * Created for testing purposes - sets appMonitored
- *
- * @param {object} appData
- */
-
-function setAppsMonitored(appData) {
-  appsMonitored[appData.appName] = appData;
-}
-/**
- * Created for testing purposes - gets appMonitored
- */
-
-function getAppsMonitored() {
-  return appsMonitored;
-}
-
-/**
- * Created for testing purposes - clears appMonitored
- *
- * @param {object} appData
- */
-
-function clearAppsMonitored() {
-  // eslint-disable-next-line no-restricted-syntax
-  for (const prop of Object.getOwnPropertyNames(appsMonitored)) {
-    delete appsMonitored[prop];
   }
 }
 
@@ -2292,7 +1978,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   if (isComponent) {
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
-  stopAppMonitoring(monitoredName, true);
+  appsDockerService.stopAppMonitoring(monitoredName, true);
   await dockerService.appDockerStop(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
@@ -2665,7 +2351,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       if (!appSpecifications) {
         // get it from locally available Specifications
         // eslint-disable-next-line no-use-before-define
-        const allApps = await availableApps();
+        const allApps = await appsAvailableService.availableApps();
         appSpecifications = allApps.find((a) => a.name === appName);
         // get it from permanent messages
         if (!appSpecifications) {
@@ -2818,7 +2504,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (isComponent) {
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
-  stopAppMonitoring(monitoredName, false);
+  appsDockerService.stopAppMonitoring(monitoredName, false);
   await dockerService.appDockerStop(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
@@ -3332,7 +3018,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   // check blacklist
   // eslint-disable-next-line no-use-before-define
-  await checkApplicationImagesComplience(fullAppSpecs);
+  await appsAuxiliarService.checkApplicationImagesComplience(fullAppSpecs);
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     appSpecifications.repotag,
@@ -3498,7 +3184,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       return;
     }
     if (!test) {
-      startAppMonitoring(identifier);
+      appsDockerService.startAppMonitoring(identifier);
     }
     const appResponse = messageHelper.createDataMessage(app);
     log.info(appResponse);
@@ -3830,7 +3516,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         };
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop, no-use-before-define
-        await storeAppInstallingErrorMessage(newAppRunningMessage);
+        await storeWSMessagesService.storeAppInstallingErrorMessage(newAppRunningMessage);
         // broadcast messages about running apps to all peers
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
         await serviceHelper.delay(500);
@@ -3855,7 +3541,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
 
       // store it in local database first
       // eslint-disable-next-line no-await-in-loop, no-use-before-define
-      await storeAppRunningMessage(newAppRunningMessage);
+      await storeWSMessagesService.storeAppRunningMessage(newAppRunningMessage);
       // broadcast messages about running apps to all peers
       await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
       await serviceHelper.delay(500);
@@ -3913,7 +3599,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
   // check blacklist
   // eslint-disable-next-line no-use-before-define
-  await checkApplicationImagesComplience(fullAppSpecs);
+  await appsAuxiliarService.checkApplicationImagesComplience(fullAppSpecs);
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     appSpecifications.repotag,
@@ -4074,7 +3760,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     if (!app) {
       return;
     }
-    startAppMonitoring(identifier);
+    appsDockerService.startAppMonitoring(identifier);
     const appResponse = messageHelper.createDataMessage(app);
     log.info(appResponse);
     if (res) {
@@ -4443,133 +4129,6 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
 }
 
 /**
- * To check if a node's hardware is suitable for running the assigned app.
- * @param {object} appSpecs App specifications.
- * @returns {boolean} True if no errors are thrown.
- */
-function checkHWParameters(appSpecs) {
-  // check specs parameters. JS precision
-  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
-    throw new Error(`CPU badly assigned for ${appSpecs.name}`);
-  }
-  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
-    throw new Error(`RAM badly assigned for ${appSpecs.name}`);
-  }
-  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
-    throw new Error(`SSD badly assigned for ${appSpecs.name}`);
-  }
-  if (appSpecs.tiered) {
-    if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
-      throw new Error(`CPU for Cumulus badly assigned for ${appSpecs.name}`);
-    }
-    if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
-      throw new Error(`RAM for Cumulus badly assigned for ${appSpecs.name}`);
-    }
-    if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
-      throw new Error(`SSD for Cumulus badly assigned for ${appSpecs.name}`);
-    }
-    if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
-      throw new Error(`CPU for Nimbus badly assigned for ${appSpecs.name}`);
-    }
-    if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
-      throw new Error(`RAM for Nimbus badly assigned for ${appSpecs.name}`);
-    }
-    if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
-      throw new Error(`SSD for Nimbus badly assigned for ${appSpecs.name}`);
-    }
-    if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
-      throw new Error(`CPU for Stratus badly assigned for ${appSpecs.name}`);
-    }
-    if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
-      throw new Error(`RAM for Stratus badly assigned for ${appSpecs.name}`);
-    }
-    if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
-      throw new Error(`SSD for Stratus badly assigned for ${appSpecs.name}`);
-    }
-  }
-  return true;
-}
-
-/**
- * To check if a node's hardware is suitable for running the assigned Docker Compose app. Advises if too much resources being assigned to an app.
- * @param {object} appSpecsComposed App specifications composed.
- * @returns {boolean} True if no errors are thrown.
- */
-function checkComposeHWParameters(appSpecsComposed) {
-  // calculate total HW assigned
-  let totalCpu = 0;
-  let totalRam = 0;
-  let totalHdd = 0;
-  let totalCpuBasic = 0;
-  let totalCpuSuper = 0;
-  let totalCpuBamf = 0;
-  let totalRamBasic = 0;
-  let totalRamSuper = 0;
-  let totalRamBamf = 0;
-  let totalHddBasic = 0;
-  let totalHddSuper = 0;
-  let totalHddBamf = 0;
-  const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
-  appSpecsComposed.compose.forEach((appComponent) => {
-    if (isTiered) {
-      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10);
-      totalRamBamf += appComponent.rambamf || appComponent.ram;
-      totalHddBamf += appComponent.hddbamf || appComponent.hdd;
-      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10);
-      totalRamSuper += appComponent.ramsuper || appComponent.ram;
-      totalHddSuper += appComponent.hddsuper || appComponent.hdd;
-      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10);
-      totalRamBasic += appComponent.rambasic || appComponent.ram;
-      totalHddBasic += appComponent.hddbasic || appComponent.hdd;
-    } else {
-      totalCpu += (appComponent.cpu * 10);
-      totalRam += appComponent.ram;
-      totalHdd += appComponent.hdd;
-    }
-  });
-  // check specs parameters. JS precision
-  if (totalCpu > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
-    throw new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
-  }
-  if (totalRam > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
-    throw new Error(`Too much RAM resources assigned for ${appSpecsComposed.name}`);
-  }
-  if (totalHdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
-    throw new Error(`Too much SSD resources assigned for ${appSpecsComposed.name}`);
-  }
-  if (isTiered) {
-    if (totalCpuBasic > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu)) {
-      throw new Error(`Too much CPU for Cumulus resources assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalRamBasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram)) {
-      throw new Error(`Too much RAM for Cumulus resources assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalHddBasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd)) {
-      throw new Error(`Too much SSD for Cumulus resources assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalCpuSuper > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu)) {
-      throw new Error(`Too much CPU for Nimbus resources assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalRamSuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram)) {
-      throw new Error(`Too much RAM for Nimbus resources assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalHddSuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd)) {
-      throw new Error(`Too much SSD for Nimbus resources assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalCpuBamf > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
-      throw new Error(`Too much CPU for Stratus resources assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalRamBamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
-      throw new Error(`Too much RAM for Stratus resources assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalHddBamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
-      throw new Error(`Too much SSD for Stratus resources assigned for ${appSpecsComposed.name}`);
-    }
-  }
-  return true;
-}
-
-/**
  * To get temporary hash messages for global apps.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -4678,468 +4237,6 @@ async function getGlobalAppsSpecifications(req, res) {
 }
 
 /**
- * To return available apps.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {(object|object[])} Returns a response or an array of app objects.
- */
-async function availableApps(req, res) {
-  // calls to global mongo db
-  // simulate a similar response
-  const apps = [
-    { // app specifications
-      version: 2,
-      name: 'FoldingAtHomeB',
-      description: 'Folding @ Home for AMD64 Devices. Folding@home is a project focused on disease research. Client Visit was disabled, to check your stats go to https://stats.foldingathome.org/donor and search for your zelid.',
-      repotag: 'yurinnick/folding-at-home:latest',
-      owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-      tiered: true,
-      ports: [30000],
-      containerPorts: [7396],
-      domains: [''],
-      cpu: 0.5,
-      ram: 500,
-      hdd: 5,
-      cpubasic: 0.5,
-      cpusuper: 1,
-      cpubamf: 2,
-      rambasic: 500,
-      ramsuper: 500,
-      rambamf: 500,
-      hddbasic: 5,
-      hddsuper: 5,
-      hddbamf: 5,
-      enviromentParameters: [`USER=${userconfig.initial.zelid}`, 'TEAM=262156', 'ENABLE_GPU=false', 'ENABLE_SMP=true'],
-      commands: [],
-      containerData: '/config',
-      hash: 'localappinstancehashABCDEF', // hash of app message
-      height: 0, // height of tx on which it was
-    },
-    { // app specifications
-      version: 2,
-      name: 'FoldingAtHomeArm64',
-      description: 'Folding @ Home For ARM64. Folding@home is a project focused on disease research. Client Visit was disabled, to check your stats go to https://stats.foldingathome.org/donor and search for your zelid.',
-      repotag: 'beastob/foldingathome-arm64',
-      owner: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
-      tiered: true,
-      ports: [30000],
-      containerPorts: [7396],
-      domains: [''],
-      cpu: 1,
-      ram: 500,
-      hdd: 5,
-      cpubasic: 1,
-      cpusuper: 2,
-      cpubamf: 2,
-      rambasic: 500,
-      ramsuper: 500,
-      rambamf: 500,
-      hddbasic: 5,
-      hddsuper: 5,
-      hddbamf: 5,
-      enviromentParameters: [`FOLD_USER=${userconfig.initial.zelid}`, 'FOLD_TEAM=262156', 'FOLD_ANON=false'],
-      commands: [],
-      containerData: '/config',
-      hash: 'localSpecificationsFoldingVersion1', // hash of app message
-      height: 0, // height of tx on which it was
-    },
-  ];
-
-  const dataResponse = messageHelper.createDataMessage(apps);
-  return res ? res.json(dataResponse) : apps;
-}
-
-/**
- * To verify an app hash message.
- * @param {object} message Message.
- * @returns {boolean} True if no error is thrown.
- */
-async function verifyAppHash(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param appSpecifications object
-  * @param hash string
-  * @param timestamp number
-  * @param signature string
-  */
-  const specifications = message.appSpecifications || message.zelAppSpecifications;
-  let messToHash = message.type + message.version + JSON.stringify(specifications) + message.timestamp + message.signature;
-  let messageHASH = await generalService.messageHash(messToHash);
-  if (messageHASH !== message.hash) {
-    if (specifications.version <= 3) {
-      // as of specification changes, adjust our appSpecs order of owner and repotag
-      // in new scheme it is always version, name, description, owner, repotag... Old format was version, name, description, repotag, owner
-      const appSpecsCopy = JSON.parse(JSON.stringify(specifications));
-      delete appSpecsCopy.version;
-      delete appSpecsCopy.name;
-      delete appSpecsCopy.description;
-      delete appSpecsCopy.repotag;
-      delete appSpecsCopy.owner;
-      const appSpecOld = {
-        version: specifications.version,
-        name: specifications.name,
-        description: specifications.description,
-        repotag: specifications.repotag,
-        owner: specifications.owner,
-        ...appSpecsCopy,
-      };
-      messToHash = message.type + message.version + JSON.stringify(appSpecOld) + message.timestamp + message.signature;
-      messageHASH = await generalService.messageHash(messToHash);
-      if (messageHASH !== message.hash) {
-        log.error(`Hashes dont match - expected - ${message.hash} - calculated - ${messageHASH} for the message ${JSON.stringify(message)}`);
-        throw new Error('Invalid Flux App hash received');
-      }
-      return true;
-    }
-    log.error(`Hashes dont match - expected - ${message.hash} - calculated - ${messageHASH} for the message ${JSON.stringify(message)}`);
-    throw new Error('Invalid Flux App hash received');
-  }
-  return true;
-}
-
-/**
- * To verify an app message signature.
- * @param {string} type Type.
- * @param {number} version Version.
- * @param {object} appSpec App specifications.
- * @param {number} timestamp Time stamp.
- * @param {string} signature Signature.
- * @returns {Promise<boolean>} True if no error is thrown.
- */
-async function verifyAppMessageSignature(type, version, appSpec, timestamp, signature) {
-  if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
-    throw new Error('Invalid Flux App message specifications');
-  }
-  const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, signature); // only btc
-  if (timestamp > 1688947200000) {
-    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, signature); // btc, eth
-  }
-  if (isValidSignature !== true && appSpec.version <= 3) {
-    // as of specification changes, adjust our appSpecs order of owner and repotag
-    // in new scheme it is always version, name, description, owner, repotag... Old format was version, name, description, repotag, owner
-    const appSpecsCopy = JSON.parse(JSON.stringify(appSpec));
-    delete appSpecsCopy.version;
-    delete appSpecsCopy.name;
-    delete appSpecsCopy.description;
-    delete appSpecsCopy.repotag;
-    delete appSpecsCopy.owner;
-    const appSpecOld = {
-      version: appSpec.version,
-      name: appSpec.name,
-      description: appSpec.description,
-      repotag: appSpec.repotag,
-      owner: appSpec.owner,
-      ...appSpecsCopy,
-    };
-    const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
-    isValidSignature = verificationHelper.verifyMessage(messageToVerifyB, appSpec.owner, signature); // only btc
-    if (timestamp > 1688947200000) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appSpec.owner, signature); // btc, eth
-    }
-  }
-  if (isValidSignature !== true) {
-    log.debug(`${messageToVerify}, ${appSpec.owner}, ${signature}`);
-    const errorMessage = isValidSignature === false ? 'Received signature is invalid or Flux App specifications are not properly formatted' : isValidSignature;
-    throw new Error(errorMessage);
-  }
-  return true;
-}
-
-/**
- * To verify an app message signature update.
- * @param {string} type Type.
- * @param {number} version Version.
- * @param {object} appSpec App specifications.
- * @param {number} timestamp Time stamp.
- * @param {string} signature Signature.
- * @param {string} appOwner App owner.
- * @param {number} daemonHeight Daemon height.
- * @returns {boolean} True if no errors are thrown.
- */
-async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp, signature, appOwner, daemonHeight) {
-  if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
-    throw new Error('Invalid Flux App message specifications');
-  }
-  let marketplaceApp = false;
-  let fluxSupportTeamFluxID = null;
-  const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  let isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
-  if (isValidSignature !== true) {
-    const teamSupportAddresses = getChainTeamSupportddressUpdates();
-    if (teamSupportAddresses.length > 0) {
-      const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight);
-      if (intervals) {
-        const addressInfo = intervals[intervals.length - 1];
-        if (daemonHeight >= addressInfo.height) {
-          fluxSupportTeamFluxID = addressInfo.address;
-          const numbersOnAppName = appSpec.name.match(/\d+/g);
-          if (numbersOnAppName && numbersOnAppName.length > 0) {
-            const dateBeforeReleaseMarketplace = Date.parse('2020-01-01');
-            // eslint-disable-next-line no-restricted-syntax
-            for (const possibleTimestamp of numbersOnAppName) {
-              if (Number(possibleTimestamp) > dateBeforeReleaseMarketplace) {
-                marketplaceApp = true;
-                break;
-              }
-            }
-            if (marketplaceApp) {
-              isValidSignature = signatureVerifier.verifySignature(messageToVerify, fluxSupportTeamFluxID, signature); // btc, eth
-            }
-          }
-        }
-      }
-    }
-  }
-  if (isValidSignature !== true && appSpec.version <= 3) {
-    // as of specification changes, adjust our appSpecs order of owner and repotag
-    // in new scheme it is always version, name, description, owner, repotag... Old format was version, name, description, repotag, owner
-    const appSpecsCopy = JSON.parse(JSON.stringify(appSpec));
-    delete appSpecsCopy.version;
-    delete appSpecsCopy.name;
-    delete appSpecsCopy.description;
-    delete appSpecsCopy.repotag;
-    delete appSpecsCopy.owner;
-    const appSpecOld = {
-      version: appSpec.version,
-      name: appSpec.name,
-      description: appSpec.description,
-      repotag: appSpec.repotag,
-      owner: appSpec.owner,
-      ...appSpecsCopy,
-    };
-    const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
-    isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appOwner, signature); // btc, eth
-    if (isValidSignature !== true && marketplaceApp) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, fluxSupportTeamFluxID, signature); // btc, eth
-    }
-  }
-  if (isValidSignature !== true) {
-    log.debug(`${messageToVerify}, ${appOwner}, ${signature}`);
-    const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
-    throw new Error(errorMessage);
-  }
-  return true;
-}
-
-/**
- * Checks that the supplied Docker Image Tag is in the Flux Whitelist, if auth is provided,
- * that it is in the correct format, and verifies that the image can run on the Flux network,
- * and that it can run on this specific node (architecture match). Throws if requirements not met.
- * @param {string} repotag The Docker Image Tag
- * @param {{repoauth?:string, skipVerification?:boolean, architecture:string}} options
- * @returns {Promise<void>}
- */
-async function verifyRepository(repotag, options = {}) {
-  const repoauth = options.repoauth || null;
-  const skipVerification = options.skipVerification || false;
-  const architecture = options.architecture || null;
-
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
-
-  // ToDo: fix this upstream
-  if (repoauth && skipVerification) {
-    return;
-  }
-
-  if (repoauth) {
-    const authToken = await pgpService.decryptMessage(repoauth);
-
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
-
-    if (!authToken.includes(':')) {
-      throw new Error('Provided credentials not in the correct username:token format');
-    }
-
-    imgVerifier.addCredentials(authToken);
-  }
-
-  await imgVerifier.verifyImage();
-  imgVerifier.throwIfError();
-
-  if (architecture && !imgVerifier.supported) {
-    throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
-  }
-}
-
-async function getBlockedRepositores() {
-  try {
-    const cachedResponse = myLongCache.get('blockedRepositories');
-    if (cachedResponse) {
-      return cachedResponse;
-    }
-    const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json');
-    if (resBlockedRepo.data) {
-      myLongCache.set('blockedRepositories', resBlockedRepo.data);
-      return resBlockedRepo.data;
-    }
-    return null;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
-}
-
-/**
- * Check fluxOs configuration to see if there is any repository blocked and return a list of them that doesn't exist on marketplace
- * As any change of the config will restart FluxOs we cache the first execution and always return that.
- * @returns {array} array of string repositories.
- */
-let cacheUserBlockedRepos = null;
-async function getUserBlockedRepositores() {
-  try {
-    if (cacheUserBlockedRepos) {
-      return cacheUserBlockedRepos;
-    }
-    const userBlockedRepos = userconfig.initial.blockedRepositories || [];
-    if (userBlockedRepos.length === 0) {
-      return userBlockedRepos;
-    }
-    const usableUserBlockedRepos = [];
-    const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
-    const response = await axios.get(marketPlaceUrl);
-    console.log(response);
-    if (response && response.data && response.data.status === 'success') {
-      const visibleApps = response.data.data.filter((val) => val.visible);
-      for (let i = 0; i < userBlockedRepos.length; i += 1) {
-        const userRepo = userBlockedRepos[i];
-        userRepo.substring(0, userRepo.lastIndexOf(':') > -1 ? userRepo.lastIndexOf(':') : userRepo.length);
-        const exist = visibleApps.find((app) => app.compose.find((compose) => compose.repotag.substring(0, compose.repotag.lastIndexOf(':') > -1 ? compose.repotag.lastIndexOf(':') : compose.repotag.length).toLowerCase() === userRepo.toLowerCase()));
-        if (!exist) {
-          usableUserBlockedRepos.push(userRepo);
-        } else {
-          log.info(`${userRepo} is part of marketplace offer and despite being on blockedRepositories it will not be take in consideration`);
-        }
-      }
-      cacheUserBlockedRepos = usableUserBlockedRepos;
-      return cacheUserBlockedRepos;
-    }
-    return [];
-  } catch (error) {
-    log.error(error);
-    return [];
-  }
-}
-
-/**
- * Check secrets, if they are being used return exception
- * @param {string} appName App name.
- * @param {object} appComponentSpecs App specifications.
- * @param {string} appOwner owner Id of the app.
- */
-async function checkAppSecrets(appName, appComponentSpecs, appOwner) {
-  // Normalize PGP secrets string
-  const normalizePGP = (pgpMessage) => {
-    if (!pgpMessage) return '';
-    return pgpMessage.replace(/\s+/g, '').replace(/\\n/g, '').trim();
-  };
-
-  const appComponentSecrets = normalizePGP(appComponentSpecs.secrets);
-
-  // Database connection
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = { projection: { _id: 0 } };
-  // Query permanent app messages
-  const appsQuery = {
-    $and: [
-      { 'appSpecifications.version': 7 },
-      { 'appSpecifications.nodes': { $exists: true, $ne: [] } },
-    ],
-  };
-
-  const permanentAppMessages = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-
-  const processedSecrets = new Set();
-  // eslint-disable-next-line no-restricted-syntax
-  for (const message of permanentAppMessages) {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const component of message.appSpecifications.compose.filter((comp) => comp.secrets)) {
-      const normalizedComponentSecret = normalizePGP(component.secrets);
-      // eslint-disable-next-line no-continue
-      if (processedSecrets.has(normalizedComponentSecret)) continue;
-      processedSecrets.add(normalizedComponentSecret);
-
-      if (normalizedComponentSecret === appComponentSecrets && message.appSpecifications.owner !== appOwner) {
-        throw new Error(
-          `Component '${appComponentSpecs.name}' secrets are not valid - registered already with different app owner').`,
-        );
-      }
-    }
-  }
-}
-
-/**
- * To check compliance of app images (including images for each component if a Docker Compose app). Checks Flux OS's GitHub repository for list of blocked Docker Hub/Github/Google repositories.
- * @param {object} appSpecs App specifications.
- * @returns {Promise<boolean>} True if no errors are thrown.
- */
-async function checkApplicationImagesComplience(appSpecs) {
-  const repos = await getBlockedRepositores();
-  const userBlockedRepos = await getUserBlockedRepositores();
-  if (!repos) {
-    throw new Error('Unable to communicate with Flux Services! Try again later.');
-  }
-
-  const pureImagesOrOrganisationsRepos = [];
-  repos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-  });
-
-  // blacklist works also for zelid and app hash
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
-    throw new Error(`${appSpecs.hash} is not allowed to be spawned`);
-  }
-  if (pureImagesOrOrganisationsRepos.includes(appSpecs.owner)) {
-    throw new Error(`${appSpecs.owner} is not allowed to run applications`);
-  }
-
-  const images = [];
-  const organisations = [];
-  if (appSpecs.version <= 3) {
-    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
-    images.push(repository);
-    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-    organisations.push(pureNamespace);
-  } else {
-    appSpecs.compose.forEach((component) => {
-      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
-      images.push(repository);
-      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
-      organisations.push(pureNamespace);
-    });
-  }
-
-  images.forEach((image) => {
-    if (pureImagesOrOrganisationsRepos.includes(image)) {
-      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-  organisations.forEach((org) => {
-    if (pureImagesOrOrganisationsRepos.includes(org)) {
-      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
-    }
-  });
-
-  if (userBlockedRepos) {
-    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
-    images.forEach((image) => {
-      if (userBlockedRepos.includes(image.toLowerCase())) {
-        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
-      }
-    });
-  }
-
-  return true;
-}
-
-/**
  *
  * @param {express.Request} req
  * @param {express.Response} res
@@ -5158,8 +4255,8 @@ async function getlatestApplicationSpecificationAPI(req, res) {
  * @returns {boolean, string} False if blocked, String of reason if yes
  */
 async function checkApplicationImagesBlocked(appSpecs) {
-  const repos = await getBlockedRepositores();
-  const userBlockedRepos = await getUserBlockedRepositores();
+  const repos = await appsAuxiliarService.getBlockedRepositores();
+  const userBlockedRepos = await appsAuxiliarService.getUserBlockedRepositores();
   let isBlocked = false;
   if (!repos && !userBlockedRepos) {
     return isBlocked;
@@ -5215,1098 +4312,6 @@ async function checkApplicationImagesBlocked(appSpecs) {
   }
 
   return isBlocked;
-}
-
-/**
- * To verify correctness of attribute values within an app specification object. Checks for types and that required attributes exist.
- * @param {object} appSpecification App specifications.
- * @returns {boolean} True if no errors are thrown.
- */
-function verifyTypeCorrectnessOfApp(appSpecification) {
-  const {
-    version,
-    name,
-    description,
-    owner,
-    port,
-    containerPort,
-    compose,
-    repotag,
-    ports,
-    domains,
-    enviromentParameters,
-    commands,
-    containerPorts,
-    containerData,
-    instances,
-    cpu,
-    ram,
-    hdd,
-    tiered,
-    contacts,
-    geolocation,
-    expire,
-    nodes,
-    staticip,
-    enterprise,
-  } = appSpecification;
-
-  if (!version) {
-    throw new Error('Missing Flux App specification parameter version');
-  }
-
-  // commons
-  if (!version || !name || !description || !owner) {
-    throw new Error('Missing Flux App specification parameter name and/or description and/or owner');
-  }
-
-  if (typeof version !== 'number') {
-    throw new Error('Invalid Flux App version');
-  }
-  if (!serviceHelper.isDecimalLimit(version)) {
-    throw new Error('Invalid Flux App version decimals');
-  }
-
-  if (typeof name !== 'string') {
-    throw new Error('Invalid Flux App name');
-  }
-
-  if (typeof description !== 'string') {
-    throw new Error('Invalid Flux App description');
-  }
-
-  if (typeof owner !== 'string') {
-    throw new Error('Invalid Flux App owner');
-  }
-
-  if (version === 1) {
-    if (!port || !containerPort) {
-      throw new Error('Missing Flux App specification parameter port and/or containerPort');
-    }
-  } else if (version >= 2 && version <= 3) {
-    if (!ports || !domains || !containerPorts) {
-      throw new Error('Missing Flux App specification parameter port and/or containerPort and/or domains');
-    }
-  }
-
-  if (version === 1) {
-    if (!repotag || !enviromentParameters || !commands || !containerData || !cpu || !ram || !hdd) {
-      throw new Error('Missing Flux App specification parameter repotag and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
-    }
-
-    if (typeof port !== 'number') {
-      throw new Error('Port for Flux App is invalid');
-    }
-    if (!serviceHelper.isDecimalLimit(port, 0)) {
-      throw new Error('Ports for Flux App are invalid decimals');
-    }
-
-    if (Array.isArray(enviromentParameters)) {
-      enviromentParameters.forEach((parameter) => {
-        if (typeof parameter !== 'string') {
-          throw new Error('Environmental parameters for Flux App are invalid');
-        }
-      });
-    } else {
-      throw new Error('Environmental parameters for Flux App are invalid');
-    }
-    if (Array.isArray(commands)) {
-      commands.forEach((command) => {
-        if (typeof command !== 'string') {
-          throw new Error('Flux App commands are invalid');
-        }
-      });
-    } else {
-      throw new Error('Flux App commands are invalid');
-    }
-    if (typeof containerPort !== 'number') {
-      throw new Error('Container Port for Flux App is invalid');
-    }
-    if (!serviceHelper.isDecimalLimit(containerPort, 0)) {
-      throw new Error('Ports for Flux App are invalid decimals');
-    }
-    if (typeof tiered !== 'boolean') {
-      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-    }
-    if (typeof cpu !== 'number' || typeof hdd !== 'number' || typeof ram !== 'number') {
-      throw new Error('Invalid HW specifications');
-    }
-    if (!serviceHelper.isDecimalLimit(cpu) || !serviceHelper.isDecimalLimit(hdd) || !serviceHelper.isDecimalLimit(ram)) {
-      throw new Error('Invalid HW specifications decimal limits');
-    }
-
-    if (tiered) {
-      const {
-        cpubasic,
-        cpusuper,
-        cpubamf,
-        rambasic,
-        ramsuper,
-        rambamf,
-        hddbasic,
-        hddsuper,
-        hddbamf,
-      } = appSpecification;
-      if (typeof cpubasic !== 'number' || typeof cpusuper !== 'number' || typeof cpubamf !== 'number'
-        || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
-        || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
-        throw new Error('Invalid tiered HW specifications');
-      }
-      if (!serviceHelper.isDecimalLimit(cpubasic) || !serviceHelper.isDecimalLimit(cpusuper) || !serviceHelper.isDecimalLimit(cpubamf)
-        || !serviceHelper.isDecimalLimit(rambasic) || !serviceHelper.isDecimalLimit(ramsuper) || !serviceHelper.isDecimalLimit(rambamf)
-        || !serviceHelper.isDecimalLimit(hddbasic) || !serviceHelper.isDecimalLimit(hddsuper) || !serviceHelper.isDecimalLimit(hddbamf)) {
-        throw new Error('Invalid tiered HW specifications');
-      }
-    }
-  } else if (version <= 3) {
-    if (!repotag || !enviromentParameters || !commands || !containerData || !cpu || !ram || !hdd) {
-      throw new Error('Missing Flux App specification parameter repotag and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
-    }
-
-    if (Array.isArray(ports)) {
-      ports.forEach((parameter) => {
-        if (typeof parameter !== 'string') {
-          throw new Error('Port of Flux App is invalid');
-        }
-        if (!serviceHelper.isDecimalLimit(parameter, 0)) {
-          throw new Error('Ports for Flux App are invalid decimals');
-        }
-      });
-    } else {
-      throw new Error('Ports for Flux App are invalid');
-    }
-    if (Array.isArray(domains)) {
-      domains.forEach((parameter) => {
-        if (typeof parameter !== 'string') {
-          throw new Error('Domains for Flux App are invalid');
-        }
-      });
-    } else {
-      throw new Error('Domains for Flux App are invalid');
-    }
-    if (Array.isArray(enviromentParameters)) {
-      enviromentParameters.forEach((parameter) => {
-        if (typeof parameter !== 'string') {
-          throw new Error('Environmental parameters for Flux App are invalid');
-        }
-      });
-    } else {
-      throw new Error('Environmental parameters for Flux App are invalid');
-    }
-    if (Array.isArray(commands)) {
-      commands.forEach((command) => {
-        if (typeof command !== 'string') {
-          throw new Error('Flux App commands are invalid');
-        }
-      });
-    } else {
-      throw new Error('Flux App commands are invalid');
-    }
-    if (Array.isArray(containerPorts)) {
-      containerPorts.forEach((parameter) => {
-        if (typeof parameter !== 'string') {
-          throw new Error('Container Port of Flux App is invalid');
-        }
-        if (!serviceHelper.isDecimalLimit(parameter, 0)) {
-          throw new Error('Container Ports for Flux App are invalid decimals');
-        }
-      });
-    } else {
-      throw new Error('Container Ports for Flux App are invalid');
-    }
-    if (typeof tiered !== 'boolean') {
-      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-    }
-    if (typeof cpu !== 'number' || typeof hdd !== 'number' || typeof ram !== 'number') {
-      throw new Error('Invalid HW specifications');
-    }
-    if (!serviceHelper.isDecimalLimit(cpu) || !serviceHelper.isDecimalLimit(hdd) || !serviceHelper.isDecimalLimit(ram)) {
-      throw new Error('Invalid HW specifications decimal limits');
-    }
-
-    if (tiered) {
-      const {
-        cpubasic,
-        cpusuper,
-        cpubamf,
-        rambasic,
-        ramsuper,
-        rambamf,
-        hddbasic,
-        hddsuper,
-        hddbamf,
-      } = appSpecification;
-      if (typeof cpubasic !== 'number' || typeof cpusuper !== 'number' || typeof cpubamf !== 'number'
-        || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
-        || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
-        throw new Error('Invalid tiered HW specifications');
-      }
-      if (!serviceHelper.isDecimalLimit(cpubasic) || !serviceHelper.isDecimalLimit(cpusuper) || !serviceHelper.isDecimalLimit(cpubamf)
-        || !serviceHelper.isDecimalLimit(rambasic) || !serviceHelper.isDecimalLimit(ramsuper) || !serviceHelper.isDecimalLimit(rambamf)
-        || !serviceHelper.isDecimalLimit(hddbasic) || !serviceHelper.isDecimalLimit(hddsuper) || !serviceHelper.isDecimalLimit(hddbamf)) {
-        throw new Error('Invalid tiered HW specifications');
-      }
-    }
-  } else if (version <= 7) { // v4 to v7
-    if (!compose) {
-      throw new Error('Missing Flux App specification parameter compose');
-    }
-    if (typeof compose !== 'object') {
-      throw new Error('Invalid Flux App Specifications');
-    }
-    if (!Array.isArray(compose)) {
-      throw new Error('Invalid Flux App Specifications');
-    }
-    compose.forEach((appComponent) => {
-      if (Array.isArray(appComponent)) {
-        throw new Error('Invalid Flux App Specifications');
-      }
-      if (typeof appComponent.name !== 'string') {
-        throw new Error('Invalid Flux App component name');
-      }
-      if (typeof appComponent.description !== 'string') {
-        throw new Error(`Invalid Flux App component ${appComponent.name} description`);
-      }
-      if (Array.isArray(appComponent.ports)) {
-        appComponent.ports.forEach((parameter) => {
-          if (typeof parameter !== 'number') {
-            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
-          }
-          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
-            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid decimals`);
-          }
-        });
-      } else {
-        throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
-      }
-      if (Array.isArray(appComponent.domains)) {
-        appComponent.domains.forEach((parameter) => {
-          if (typeof parameter !== 'string') {
-            throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
-          }
-        });
-      } else {
-        throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
-      }
-      if (Array.isArray(appComponent.environmentParameters)) {
-        appComponent.environmentParameters.forEach((parameter) => {
-          if (typeof parameter !== 'string') {
-            throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
-          }
-        });
-      } else {
-        throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
-      }
-      if (Array.isArray(appComponent.commands)) {
-        appComponent.commands.forEach((command) => {
-          if (typeof command !== 'string') {
-            throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
-          }
-        });
-      } else {
-        throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
-      }
-      if (Array.isArray(appComponent.containerPorts)) {
-        appComponent.containerPorts.forEach((parameter) => {
-          if (typeof parameter !== 'number') {
-            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
-          }
-          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
-            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid decimals`);
-          }
-        });
-      } else {
-        throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
-      }
-      if (typeof appComponent.tiered !== 'boolean') {
-        throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-      }
-      const cpuB = appComponent.cpu;
-      const ramB = appComponent.ram;
-      const hddB = appComponent.hdd;
-      if (typeof cpuB !== 'number' || typeof ramB !== 'number' || typeof hddB !== 'number') {
-        throw new Error('Invalid HW specifications');
-      }
-      if (!serviceHelper.isDecimalLimit(cpuB) || !serviceHelper.isDecimalLimit(ramB) || !serviceHelper.isDecimalLimit(hddB)) {
-        throw new Error('Invalid HW specifications decimal limits');
-      }
-      if (appComponent.tiered) {
-        const {
-          cpubasic,
-          cpusuper,
-          cpubamf,
-          rambasic,
-          ramsuper,
-          rambamf,
-          hddbasic,
-          hddsuper,
-          hddbamf,
-        } = appComponent;
-        if (typeof cpubasic !== 'number' || typeof cpusuper !== 'number' || typeof cpubamf !== 'number'
-          || typeof rambasic !== 'number' || typeof ramsuper !== 'number' || typeof rambamf !== 'number'
-          || typeof hddbasic !== 'number' || typeof hddsuper !== 'number' || typeof hddbamf !== 'number') {
-          throw new Error('Invalid tiered HW specifications');
-        }
-        if (!serviceHelper.isDecimalLimit(cpubasic) || !serviceHelper.isDecimalLimit(cpusuper) || !serviceHelper.isDecimalLimit(cpubamf)
-          || !serviceHelper.isDecimalLimit(rambasic) || !serviceHelper.isDecimalLimit(ramsuper) || !serviceHelper.isDecimalLimit(rambamf)
-          || !serviceHelper.isDecimalLimit(hddbasic) || !serviceHelper.isDecimalLimit(hddsuper) || !serviceHelper.isDecimalLimit(hddbamf)) {
-          throw new Error('Invalid tiered HW specifications');
-        }
-      }
-
-      if (version === 7) {
-        if (typeof appComponent.secrets !== 'string') {
-          throw new Error(`Secrets for Flux App component ${appComponent.name} are invalid`);
-        }
-
-        if (typeof appComponent.repoauth !== 'string') {
-          throw new Error(`Repository Authentication for Flux App component ${appComponent.name} are invalid`);
-        }
-      }
-    });
-  } else { // v8+
-    if (enterprise === null || enterprise === undefined) { // enterprise can be false or a encrypted string with a object with contacts and components
-      throw new Error('Missing enterprise property');
-    }
-    if (!enterprise && nodes && nodes.length > 0) {
-      throw new Error('Nodes can only be used in enterprise apps');
-    }
-    if (!compose) {
-      throw new Error('Missing Flux App specification parameter compose');
-    }
-    if (typeof compose !== 'object') {
-      throw new Error('Invalid Flux App Specifications');
-    }
-    if (!Array.isArray(compose)) {
-      throw new Error('Invalid Flux App Specifications');
-    }
-    compose.forEach((appComponent) => {
-      if (Array.isArray(appComponent)) {
-        throw new Error('Invalid Flux App Specifications');
-      }
-      if (typeof appComponent.name !== 'string') {
-        throw new Error('Invalid Flux App component name');
-      }
-      if (typeof appComponent.description !== 'string') {
-        throw new Error(`Invalid Flux App component ${appComponent.name} description`);
-      }
-      if (Array.isArray(appComponent.ports)) {
-        appComponent.ports.forEach((parameter) => {
-          if (typeof parameter !== 'number') {
-            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
-          }
-          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
-            throw new Error(`Ports for Flux App component ${appComponent.name} are invalid decimals`);
-          }
-        });
-      } else {
-        throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
-      }
-      if (Array.isArray(appComponent.domains)) {
-        appComponent.domains.forEach((parameter) => {
-          if (typeof parameter !== 'string') {
-            throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
-          }
-        });
-      } else {
-        throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
-      }
-      if (Array.isArray(appComponent.environmentParameters)) {
-        appComponent.environmentParameters.forEach((parameter) => {
-          if (typeof parameter !== 'string') {
-            throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
-          }
-        });
-      } else {
-        throw new Error(`Environment parameters for Flux App component ${appComponent.name} are invalid`);
-      }
-      if (Array.isArray(appComponent.commands)) {
-        appComponent.commands.forEach((command) => {
-          if (typeof command !== 'string') {
-            throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
-          }
-        });
-      } else {
-        throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
-      }
-      if (Array.isArray(appComponent.containerPorts)) {
-        appComponent.containerPorts.forEach((parameter) => {
-          if (typeof parameter !== 'number') {
-            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
-          }
-          if (!serviceHelper.isDecimalLimit(parameter, 0)) {
-            throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid decimals`);
-          }
-        });
-      } else {
-        throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
-      }
-
-      const cpuB = appComponent.cpu;
-      const ramB = appComponent.ram;
-      const hddB = appComponent.hdd;
-      if (typeof cpuB !== 'number' || typeof ramB !== 'number' || typeof hddB !== 'number') {
-        throw new Error('Invalid HW specifications');
-      }
-      if (!serviceHelper.isDecimalLimit(cpuB) || !serviceHelper.isDecimalLimit(ramB) || !serviceHelper.isDecimalLimit(hddB)) {
-        throw new Error('Invalid HW specifications decimal limits');
-      }
-
-      if (typeof appComponent.repoauth !== 'string') {
-        throw new Error(`Repository Authentication for Flux App component ${appComponent.name} are invalid`);
-      }
-    });
-  }
-
-  if (version >= 3) {
-    if (!instances) {
-      throw new Error('Missing Flux App specification parameter instances');
-    }
-    if (typeof instances !== 'number') {
-      throw new Error('Invalid instances specification');
-    }
-    if (Number.isInteger(instances) !== true) {
-      throw new Error('Invalid instances specified');
-    }
-    if (!serviceHelper.isDecimalLimit(instances, 0)) {
-      throw new Error('Invalid instances specified');
-    }
-  }
-
-  if (version >= 5) {
-    if (Array.isArray(contacts)) {
-      contacts.forEach((parameter) => {
-        if (typeof parameter !== 'string') {
-          throw new Error('Contacts for Flux App are invalid');
-        }
-      });
-    } else {
-      throw new Error('Contacts for Flux App are invalid');
-    }
-    if (Array.isArray(geolocation)) {
-      geolocation.forEach((parameter) => {
-        if (typeof parameter !== 'string') {
-          throw new Error('Geolocation for Flux App are invalid');
-        }
-      });
-    } else {
-      throw new Error('Geolocation for Flux App are invalid');
-    }
-  }
-
-  if (version >= 6) {
-    if (!expire) {
-      throw new Error('Missing Flux App specification parameter expire');
-    }
-    if (typeof expire !== 'number') {
-      throw new Error('Invalid expire specification');
-    }
-    if (Number.isInteger(expire) !== true) {
-      throw new Error('Invalid expire specified');
-    }
-    if (!serviceHelper.isDecimalLimit(expire, 0)) {
-      throw new Error('Invalid expire specified');
-    }
-  }
-
-  if (version >= 7) {
-    if (!nodes) {
-      throw new Error('Missing Flux App specification parameter nodes');
-    }
-    if (Array.isArray(nodes)) {
-      nodes.forEach((parameter) => {
-        if (typeof parameter !== 'string') {
-          throw new Error('Nodes for Flux App are invalid');
-        }
-      });
-    } else {
-      throw new Error('Nodes for Flux App are invalid');
-    }
-
-    if (typeof staticip !== 'boolean') {
-      throw new Error('Invalid static ip value obtained. Only boolean as true or false allowed.');
-    }
-  }
-
-  return true;
-}
-
-/**
- * To verify correctness of attribute values within an app specification object. Checks for if restrictions of specs are valid.
- * @param {object} appSpecification App specifications.
- * @returns {boolean} True if no errors are thrown.
- */
-function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
-  const minPort = height >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin;
-  const maxPort = height >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
-  if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7 && appSpecifications.version !== 8) {
-    throw new Error('Flux App message version specification is invalid');
-  }
-  if (appSpecifications.name.length > 32) {
-    throw new Error('Flux App name is too long');
-  }
-  // furthermore name cannot contain any special character
-  if (!appSpecifications.name) {
-    throw new Error('Please provide a valid Flux App name');
-  }
-  if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
-    throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
-  }
-  if (appSpecifications.name.startsWith('zel')) {
-    throw new Error('Flux App name can not start with zel');
-  }
-  if (appSpecifications.name.toLowerCase() === 'watchtower') {
-    throw new Error('Flux App name is conflicting with another application');
-  }
-  if (appSpecifications.name.startsWith('flux')) {
-    throw new Error('Flux App name can not start with flux');
-  }
-  if (appSpecifications.description.length > 256) {
-    throw new Error('Description is too long. Maximum of 256 characters is allowed');
-  }
-
-  if (appSpecifications.version === 1) {
-    // check port is within range
-    if (appSpecifications.port < minPort || appSpecifications.port > maxPort) {
-      throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${minPort}-${maxPort}`);
-    }
-    const iBP = fluxNetworkHelper.isPortBanned(appSpecifications.port);
-    if (iBP) {
-      throw new Error(`Assigned port ${appSpecifications.port} is not allowed for Flux Apps`);
-    }
-    // check if containerPort makes sense
-    if (appSpecifications.containerPort < 0 || appSpecifications.containerPort > 65535) {
-      throw new Error(`Container Port ${appSpecifications.containerPort} is not within system limits 0-65535`);
-    }
-  } else if (appSpecifications.version <= 3) {
-    // check port is within range
-    appSpecifications.ports.forEach((port) => {
-      if (port < minPort || port > maxPort) {
-        throw new Error(`Assigned port ${port} is not within Flux Apps range ${minPort}-${maxPort}`);
-      }
-      const iBP = fluxNetworkHelper.isPortBanned(port);
-      if (iBP) {
-        throw new Error(`Assigned port ${port} is not allowed for Flux Apps`);
-      }
-    });
-    // check if containerPort makes sense
-    appSpecifications.containerPorts.forEach((port) => {
-      if (port < 0 || port > 65535) {
-        throw new Error(`Container Port ${port} is not within system limits 0-65535`);
-      }
-    });
-    if (appSpecifications.containerPorts.length !== appSpecifications.ports.length) {
-      throw new Error('Ports specifications do not match');
-    }
-    if (appSpecifications.domains.length !== appSpecifications.ports.length) {
-      throw new Error('Domains specifications do not match available ports');
-    }
-    if (appSpecifications.ports.length > 5) {
-      throw new Error('Too many ports defined. Maximum of 5 allowed.');
-    }
-    appSpecifications.domains.forEach((dom) => {
-      if (dom.length > 253) {
-        throw new Error(`App ${appSpecifications.name} domain ${dom} is too long. Maximum of 253 characters is allowed`);
-      }
-    });
-  }
-
-  if (appSpecifications.version <= 3) {
-    // check wheter shared Folder is not root
-    if (appSpecifications.containerData.length < 2) {
-      throw new Error('Flux App container data folder not specified. If no data folder is whished, use /tmp');
-    }
-    if (appSpecifications.containerData.length > 200) {
-      throw new Error('Flux App Container Data is too long. Maximum of 200 characters is allowed');
-    }
-    if (appSpecifications.repotag.length > 200) {
-      throw new Error('Flux App Repository is too long. Maximum of 200 characters is allowed.');
-    }
-    if (appSpecifications.enviromentParameters.length > 20) {
-      throw new Error(`App ${appSpecifications.name} environment invalid. Maximum of 20 environment variables allowed.`);
-    }
-    appSpecifications.enviromentParameters.forEach((env) => {
-      if (env.length > 400) {
-        throw new Error(`App ${appSpecifications.name} environment ${env} is too long. Maximum of 400 characters is allowed`);
-      }
-    });
-    if (appSpecifications.commands.length > 20) {
-      throw new Error(`App ${appSpecifications.name} commands invalid. Maximum of 20 commands allowed.`);
-    }
-    appSpecifications.commands.forEach((com) => {
-      if (com.length > 400) {
-        throw new Error(`App ${appSpecifications.name} command ${com} is too long. Maximum of 400 characters is allowed`);
-      }
-    });
-  } else {
-    if (appSpecifications.compose.length < 1) {
-      throw new Error('Flux App does not contain any composition');
-    }
-    let maxComponents = 10;
-    if (height < config.fluxapps.appSpecsEnforcementHeights[6]) {
-      maxComponents = 5;
-    }
-    if (appSpecifications.compose.length > maxComponents) {
-      throw new Error('Flux App has too many components');
-    }
-    // check port is within range
-    const usedNames = [];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appComponent of appSpecifications.compose) {
-      if (!appComponent) {
-        throw new Error('Invalid Flux App Specifications');
-      }
-      if (typeof appComponent !== 'object') {
-        throw new Error('Invalid Flux App Specifications');
-      }
-      if (!appComponent.name) {
-        throw new Error('Please provide a valid Flux App Component name');
-      }
-      if (appComponent.name.length > 32) {
-        throw new Error('Flux App name is too long');
-      }
-      if (appComponent.name.startsWith('zel')) {
-        throw new Error('Flux App Component name can not start with zel');
-      }
-      if (appComponent.name.startsWith('flux')) {
-        throw new Error('Flux App Component name can not start with flux');
-      }
-      // furthermore name cannot contain any special character
-      if (!appComponent.name.match(/^[a-zA-Z0-9]+$/)) {
-        throw new Error('Flux App component name contains special characters. Only a-z, A-Z and 0-9 are allowed');
-      }
-      if (usedNames.includes(appComponent.name)) {
-        throw new Error(`Flux App component ${appComponent.name} already assigned. Use different name.`);
-      }
-      usedNames.push(appComponent.name);
-      if (appComponent.description.length > 256) {
-        throw new Error('Description is too long. Maximum of 256 characters is allowed.');
-      }
-      appComponent.ports.forEach((port) => {
-        if (port < minPort || port > maxPort) {
-          throw new Error(`Assigned port ${port} is not within Flux Apps range ${minPort}-${maxPort}`);
-        }
-        const iBP = fluxNetworkHelper.isPortBanned(port);
-        if (iBP) {
-          throw new Error(`Assigned port ${port} is not allowed for Flux Apps`);
-        }
-      });
-      if (appComponent.repotag.length > 200) {
-        throw new Error('Flux App Repository is too long. Maximum of 200 characters is allowed.');
-      }
-      if (appComponent.containerData.length > 200) {
-        throw new Error('Flux App Container Data is too long. Maximum of 200 characters is allowed');
-      }
-      if (appComponent.environmentParameters.length > 20) {
-        throw new Error(`App component ${appComponent.name} environment invalid. Maximum of 20 environment variables allowed.`);
-      }
-      appComponent.environmentParameters.forEach((env) => {
-        if (env.length > 400) {
-          throw new Error(`App component ${appComponent.name} environment ${env} is too long. Maximum of 400 characters is allowed`);
-        }
-      });
-      if (appComponent.commands.length > 20) {
-        throw new Error(`App component ${appComponent.name} commands invalid. Maximum of 20 commands allowed.`);
-      }
-      appComponent.commands.forEach((com) => {
-        if (com.length > 400) {
-          throw new Error(`App component ${appComponent.name} command ${com} is too long. Maximum of 400 characters is allowed`);
-        }
-      });
-      appComponent.domains.forEach((dom) => {
-        if (dom.length > 253) {
-          throw new Error(`App component ${appComponent.name} domain ${dom} is too long. Maximum of 253 characters is allowed`);
-        }
-      });
-      // check if containerPort makes sense
-      appComponent.containerPorts.forEach((port) => {
-        if (port < 0 || port > 65535) {
-          throw new Error(`Container Port ${port} in in ${appComponent.name} is not within system limits 0-65535`);
-        }
-      });
-      if (appComponent.containerPorts.length !== appComponent.ports.length) {
-        throw new Error(`Ports specifications in ${appComponent.name} do not match`);
-      }
-      if (appComponent.domains.length !== appComponent.ports.length) {
-        throw new Error(`Domains specifications in ${appComponent.name} do not match available ports`);
-      }
-      if (appComponent.ports.length > 5) {
-        throw new Error(`Too many ports defined in ${appComponent.name}. Maximum of 5 allowed.`);
-      }
-      // check wheter shared Folder is not root
-      if (appComponent.containerData.length < 2) {
-        throw new Error(`Flux App container data folder not specified in in ${appComponent.name}. If no data folder is whished, use /tmp`);
-      }
-
-      if (appSpecifications.version === 7) {
-        if (!appSpecifications.nodes.length) { // this is NOT an enterprise app, no nodes scoping
-          if (appComponent.secrets.length) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
-            throw new Error('Secrets can not be defined for non Enterprise Applications');
-          }
-          if (appComponent.repoauth.length) { // pgp encrypted message.
-            throw new Error('Private repositories are only allowed for Enterprise Applications');
-          }
-        } else {
-          if (appComponent.secrets.length > 15000) { // pgp encrypted message. Every signature encryption of node is about 100 characters. For 100 selected nodes, this gives ~5k chars limit
-            throw new Error('Maximum length of secrets is 15000. Consider uploading to Flux Storage for bigger payload.');
-          }
-          if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
-            throw new Error('Maximum length of repoauth is 15000.');
-          }
-        }
-      }
-      if (appSpecifications.version >= 8) {
-        if (!appSpecifications.enterpise) { // this is NOT an enterprise app
-          if (appComponent.repoauth.length) { // pgp encrypted message.
-            throw new Error('Private repositories are only allowed for Enterprise Applications');
-          }
-        } else if (appComponent.repoauth.length > 15000) { // pgp encrypted message.
-          throw new Error('Maximum length of repoauth is 15000.');
-        }
-      }
-    }
-  }
-
-  if (appSpecifications.version >= 3) {
-    if (appSpecifications.instances < config.fluxapps.minimumInstances) {
-      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
-    }
-    if (appSpecifications.instances > config.fluxapps.maximumInstances) {
-      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
-    }
-  }
-
-  if (appSpecifications.version >= 5) {
-    if (appSpecifications.contacts.length > 5) {
-      throw new Error('Too many contacts defined. Maximum of 5 allowed.');
-    }
-    appSpecifications.contacts.forEach((contact) => {
-      if (contact.length > 75) {
-        throw new Error(`Contact ${contact} is too long. Maximum of 75 characters is allowed.`);
-      }
-    });
-    if (appSpecifications.geolocation.length > 10) { // we only expect 2
-      throw new Error('Invalid geolocation submited.'); // for now we are only accepting continent and country.
-    }
-    appSpecifications.geolocation.forEach((geo) => {
-      const maxGeoLength = 50;
-      if (geo.length > maxGeoLength) { // for now we only treat aXX and bXX as continent and country specs.
-        throw new Error(`Geolocation ${geo} is not valid.`); // firt letter for what represents and next two for the code
-      }
-    });
-  }
-
-  if (appSpecifications.version >= 6) {
-    if (height < config.fluxapps.newMinBlocksAllowanceBlock) {
-      if (appSpecifications.expire < config.fluxapps.minBlocksAllowance) {
-        throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
-      }
-    } else if (appSpecifications.expire < config.fluxapps.newMinBlocksAllowance) {
-      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 3 hours`);
-    }
-    if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
-      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
-    }
-    if (height < config.fluxapps.removeBlocksAllowanceIntervalBlock) {
-      if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {
-        throw new Error(`Expiration of application has to be a multiple of ${config.fluxapps.blocksAllowanceInterval} blocks ~ 1 day`);
-      }
-    }
-  }
-
-  if (appSpecifications.version >= 7) {
-    if (appSpecifications.nodes.length > 120) {
-      throw new Error('Maximum number of selecteed nodes is 120');
-    }
-    appSpecifications.nodes.forEach((node) => {
-      if (node.length > 70) { // 64 for txhash, : separator, max 5 for outidx
-        throw new Error('Invalid node length');
-      }
-    });
-  }
-}
-
-/**
- * To verify correctness of attribute values within an app specification object. Checks if all object keys are assigned and no excess present
- * @param {object} appSpecification App specifications.
- * @returns {boolean} True if no errors are thrown.
- */
-function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
-  if (appSpecifications.version === 1) {
-    // appSpecs: {
-    //   version: 2,
-    //   name: 'FoldingAtHomeB',
-    //   description: 'Folding @ Home is cool :)',
-    //   repotag: 'yurinnick/folding-at-home:latest',
-    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    //   ports: '[30001]', // []
-    //   containerPorts: '[7396]', // []
-    //   domains: '[""]', // []
-    //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-    //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-    //   containerData: '/config',
-    //   cpu: 0.5,
-    //   ram: 500,
-    //   hdd: 5,
-    //   tiered: true,
-    //   cpubasic: 0.5,
-    //   rambasic: 500,
-    //   hddbasic: 5,
-    //   cpusuper: 1,
-    //   ramsuper: 1000,
-    //   hddsuper: 5,
-    //   cpubamf: 2,
-    //   rambamf: 2000,
-    //   hddbamf: 5,
-    //   hash: hash of message that has these paramenters,
-    //   height: height containing the message
-    // };
-    const specifications = [
-      'version', 'name', 'description', 'owner', 'repotag', 'port', 'containerPort', 'enviromentParameters', 'commands', 'containerData',
-      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
-    ];
-    const specsKeys = Object.keys(appSpecifications);
-    specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v1 app specifications');
-      }
-    });
-  } else if (appSpecifications.version === 2) {
-    const specifications = [
-      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
-      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
-    ];
-    const specsKeys = Object.keys(appSpecifications);
-    specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v2 app specifications');
-      }
-    });
-  } else if (appSpecifications.version === 3) {
-    const specifications = [
-      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains', 'instances',
-      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
-    ];
-    const specsKeys = Object.keys(appSpecifications);
-    specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v3 app specifications');
-      }
-    });
-  } else if (appSpecifications.version === 4) {
-    const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances',
-    ];
-    const componentSpecifications = [
-      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
-      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
-    ];
-    const specsKeys = Object.keys(appSpecifications);
-    specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v4 app specifications');
-      }
-    });
-    appSpecifications.compose.forEach((appComponent) => {
-      const specsKeysComponent = Object.keys(appComponent);
-      specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
-          throw new Error('Unsupported parameter for v4 app specifications');
-        }
-      });
-    });
-  } else if (appSpecifications.version === 5) {
-    const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation',
-    ];
-    const componentSpecifications = [
-      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
-      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
-    ];
-    const specsKeys = Object.keys(appSpecifications);
-    specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v5 app specifications');
-      }
-    });
-    appSpecifications.compose.forEach((appComponent) => {
-      const specsKeysComponent = Object.keys(appComponent);
-      specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
-          throw new Error('Unsupported parameter for v5 app specifications');
-        }
-      });
-    });
-  } else if (appSpecifications.version === 6) {
-    const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire',
-    ];
-    const componentSpecifications = [
-      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
-      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
-    ];
-    const specsKeys = Object.keys(appSpecifications);
-    specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v6 app specifications');
-      }
-    });
-    appSpecifications.compose.forEach((appComponent) => {
-      const specsKeysComponent = Object.keys(appComponent);
-      specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
-          throw new Error('Unsupported parameter for v6 app specifications');
-        }
-      });
-    });
-  } else if (appSpecifications.version === 7) {
-    const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip',
-    ];
-    const componentSpecifications = [
-      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'secrets', 'repoauth',
-      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
-    ];
-    const specsKeys = Object.keys(appSpecifications);
-    specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v7 app specifications');
-      }
-    });
-    appSpecifications.compose.forEach((appComponent) => {
-      const specsKeysComponent = Object.keys(appComponent);
-      specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
-          throw new Error('Unsupported parameter for v7 app specifications');
-        }
-      });
-    });
-  } else if (appSpecifications.version === 8) {
-    const specifications = [
-      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts',
-      'geolocation', 'expire', 'nodes', 'staticip', 'enterprise',
-    ];
-    const componentSpecifications = [
-      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'repoauth',
-      'cpu', 'ram', 'hdd',
-    ];
-    const specsKeys = Object.keys(appSpecifications);
-    specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
-        throw new Error('Unsupported parameter for v8 app specifications');
-      }
-    });
-    appSpecifications.compose.forEach((appComponent) => {
-      const specsKeysComponent = Object.keys(appComponent);
-      specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
-          throw new Error('Unsupported parameter for v8 app specifications');
-        }
-      });
-    });
-  } else {
-    throw new Error(`Invalid version specification of ${appSpecifications.version}`);
-  }
-}
-
-/**
- * To convert an array of ports to a set object containing a list of unique ports.
- * @param {number[]} portsArray Array of ports.
- * @returns {object} Set object.
- */
-function appPortsUnique(portsArray) {
-  return (new Set(portsArray)).size === portsArray.length;
-}
-
-/**
- * To ensure that the app ports are unique.
- * @param {object} appSpecFormatted App specifications.
- * @returns True if Docker version 1. If Docker version 2 to 3, returns true if no errors are thrown.
- */
-function ensureAppUniquePorts(appSpecFormatted) {
-  if (appSpecFormatted.version === 1) {
-    return true;
-  }
-  if (appSpecFormatted.version <= 3) {
-    const portsUnique = appPortsUnique(appSpecFormatted.ports);
-    if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified`);
-    }
-  } else {
-    const allPorts = [];
-    appSpecFormatted.compose.forEach((component) => {
-      component.ports.forEach((port) => {
-        allPorts.push(port);
-      });
-    });
-    const portsUnique = appPortsUnique(allPorts);
-    if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
-    }
-  }
-  return true;
-}
-
-/**
- * To verify app specifications. Checks the attribute values of the appSpecifications object.
- * @param {object} appSpecifications App specifications.
- * @param {number} height Block height.
- * @param {boolean} checkDockerAndWhitelist Defaults to false.
- */
-async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
-  if (!appSpecifications) {
-    throw new Error('Invalid Flux App Specifications');
-  }
-  if (typeof appSpecifications !== 'object') {
-    throw new Error('Invalid Flux App Specifications');
-  }
-  if (Array.isArray(appSpecifications)) {
-    throw new Error('Invalid Flux App Specifications');
-  }
-
-  // TYPE CHECKS
-  verifyTypeCorrectnessOfApp(appSpecifications);
-
-  // RESTRICTION CHECKS
-  verifyRestrictionCorrectnessOfApp(appSpecifications, height);
-
-  // SPECS VALIDIT TIME
-  if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
-    throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
-  }
-
-  // OBJECT KEY CHECKS
-  // check for Object.keys in applications. App can have only the fields that are in the version specification.
-  verifyObjectKeysCorrectnessOfApp(appSpecifications);
-
-  // PORTS UNIQUE CHECKS
-  // verify ports are unique accross app
-  ensureAppUniquePorts(appSpecifications);
-
-  // HW Checks
-  if (appSpecifications.version <= 3) {
-    checkHWParameters(appSpecifications);
-  } else {
-    checkComposeHWParameters(appSpecifications);
-  }
-
-  // Whitelist, repository checks
-  if (checkDockerAndWhitelist) {
-    // check blacklist
-    await checkApplicationImagesComplience(appSpecifications);
-
-    if (appSpecifications.version <= 3) {
-      // check repository whitelisted and repotag is available for download
-      await verifyRepository(appSpecifications.repotag, { repoauth: appSpecifications.repoauth, skipVerification: true });
-    } else {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const appComponent of appSpecifications.compose) {
-        // check repository whitelisted and repotag is available for download
-        // eslint-disable-next-line no-await-in-loop
-        await verifyRepository(appComponent.repotag, { repoauth: appComponent.repoauth, skipVerification: true });
-      }
-    }
-  }
 }
 
 /**
@@ -6536,719 +4541,6 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
 }
 
 /**
- * To check if app name already registered. App names must be unique.
- * @param {object} appSpecFormatted App specifications.
- * @param {hash} string hash of App specifications.
- * @param {number} timestamp Timestamp of App specifications message.
- * @returns {boolean} True if no errors are thrown.
- */
-async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash) {
-  // check if name is not yet registered
-  const dbopen = dbHelper.databaseConnection();
-
-  const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  const appsQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') }; // case insensitive
-  const appsProjection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      height: 1,
-      expire: 1,
-    },
-  };
-  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsInformation, appsQuery, appsProjection);
-
-  if (appResult) {
-    // in this case, check if hash of the message is older than our current app
-    if (hash) {
-      // check if we have the hash of the app in our db
-      const query = { hash };
-      const projection = {
-        projection: {
-          _id: 0,
-          txid: 1,
-          hash: 1,
-          height: 1,
-        },
-      };
-      const database = dbopen.db(config.database.daemon.database);
-      const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
-      if (!result) {
-        throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash not found in collection.`);
-      }
-      if (appResult.height <= result.height) {
-        log.debug(appResult);
-        log.debug(result);
-        const currentExpiration = appResult.height + (appResult.expire || 22000);
-        if (currentExpiration >= result.height) {
-          throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash is not older than our current app.`);
-        } else {
-          log.warn(`Flux App ${appSpecFormatted.name} active specifications are outdated. Will be cleaned on next expiration`);
-        }
-      }
-    } else {
-      throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name.`);
-    }
-  }
-
-  const localApps = await availableApps();
-  const appExists = localApps.find((localApp) => localApp.name.toLowerCase() === appSpecFormatted.name.toLowerCase());
-  if (appExists) {
-    throw new Error(`Flux App ${appSpecFormatted.name} already assigned to local application. Flux App has to be registered under different name.`);
-  }
-  if (appSpecFormatted.name.toLowerCase() === 'share') {
-    throw new Error(`Flux App ${appSpecFormatted.name} already assigned to Flux main application. Flux App has to be registered under different name.`);
-  }
-  return true;
-}
-
-/**
- * To check for any conflicts with the latest permenent app registration message and any app update messages.
- * @param {object} specifications App specifications.
- * @param {number} verificationTimestamp Verifiaction time stamp.
- * @returns {Promise<boolean>} True if no errors are thrown.
- */
-async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
-  // eslint-disable-next-line no-use-before-define
-  const appSpecs = await getPreviousAppSpecifications(specifications, verificationTimestamp);
-  if (specifications.version >= 4) {
-    if (appSpecs.version >= 4) {
-      // update and current are both v4 compositions
-      // must be same amount of copmositions
-      // must be same names
-      if (specifications.compose.length !== appSpecs.compose.length) {
-        throw new Error(`Flux App ${specifications.name} change of components is not allowed`);
-      }
-      appSpecs.compose.forEach((appComponent) => {
-        const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
-        if (!newSpecComponentFound) {
-          throw new Error(`Flux App ${specifications.name} change of component name is not allowed`);
-        }
-        // v4 allows for changes of repotag
-      });
-    } else { // update is v4+ and current app have v1,2,3
-      throw new Error(`Flux App ${specifications.name} on update to different specifications is not possible`);
-    }
-  } else if (appSpecs.version >= 4) {
-    throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
-  } else { // bot update and current app have v1,2,3
-    // eslint-disable-next-line no-lonely-if
-    if (appSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
-      throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
-    }
-  }
-  return true;
-}
-
-/**
- * To get previous app specifications.
- * @param {object} specifications App sepcifications.
- * @param {object} verificationTimestamp Message timestamp
- * @returns {object} App specifications.
- */
-async function getPreviousAppSpecifications(specifications, verificationTimestamp) {
-  // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  const appsQuery = {
-    'appSpecifications.name': specifications.name,
-  };
-  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-  let latestPermanentRegistrationMessage;
-  permanentAppMessage.forEach((foundMessage) => {
-    // has to be registration message
-    if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) { // no message and found message is not newer than our message
-        latestPermanentRegistrationMessage = foundMessage;
-      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-          latestPermanentRegistrationMessage = foundMessage;
-        }
-      }
-    }
-  });
-  // some early app have zelAppSepcifications
-  const appsQueryB = {
-    'zelAppSpecifications.name': specifications.name,
-  };
-  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
-  permanentAppMessageB.forEach((foundMessage) => {
-    // has to be registration message
-    if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) { // no message and found message is not newer than our message
-        latestPermanentRegistrationMessage = foundMessage;
-      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= verificationTimestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
-          latestPermanentRegistrationMessage = foundMessage;
-        }
-      }
-    }
-  });
-  if (!latestPermanentRegistrationMessage) {
-    throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
-  }
-  const appSpecs = latestPermanentRegistrationMessage.appSpecifications || latestPermanentRegistrationMessage.zelAppSpecifications;
-  if (!appSpecs) {
-    throw new Error(`Previous specifications for ${specifications.name} update message does not exists! This should not happen.`);
-  }
-  return appSpecs;
-}
-
-/**
- * To check if an app message hash exists.
- * @param {string} hash Message hash.
- * @returns {(object|boolean)} Returns document object if it exists in the database. Otherwise returns false.
- */
-async function checkAppMessageExistence(hash) {
-  const dbopen = dbHelper.databaseConnection();
-  const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  const appsQuery = { hash };
-  const appsProjection = {};
-  // a permanent global zelappmessage looks like this:
-  // const permanentAppMessage = {
-  //   type: messageType,
-  //   version: typeVersion,
-  //   zelAppSpecifications: appSpecFormatted,
-  //   appSpecifications: appSpecFormatted,
-  //   hash: messageHASH,
-  //   timestamp,
-  //   signature,
-  //   txid,
-  //   height,
-  //   valueSat,
-  // };
-  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
-  if (appResult) {
-    return appResult;
-  }
-  return false;
-}
-
-/**
- * To check if an app temporary message hash exists.
- * @param {string} hash Message hash.
- * @returns {(object|boolean)} Returns document object if it exists in the database. Otherwise returns false.
- */
-async function checkAppTemporaryMessageExistence(hash) {
-  const dbopen = dbHelper.databaseConnection();
-  const appsDatabase = dbopen.db(config.database.appsglobal.database);
-  const appsQuery = { hash };
-  const appsProjection = {};
-  // a temporary zelappmessage looks like this:
-  // const newMessage = {
-  //   appSpecifications: message.appSpecifications,
-  //   type: message.type,
-  //   version: message.version,
-  //   hash: message.hash,
-  //   timestamp: message.timestamp,
-  //   signature: message.signature,
-  //   createdAt: new Date(message.timestamp),
-  //   expireAt: new Date(validTill),
-  // };
-  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
-  if (appResult) {
-    return appResult;
-  }
-  return false;
-}
-
-/**
- * To store a temporary message for an app.
- * @param {object} message Message.
- * @param {boolean} furtherVerification Defaults to false.
- * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is already in cache or has already been broadcast. Otherwise an error is thrown.
- */
-async function storeAppTemporaryMessage(message, furtherVerification = false) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param appSpecifications object
-  * @param hash string
-  * @param timestamp number
-  * @param signature string
-  */
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
-    return new Error('Invalid Flux App message for storing');
-  }
-  // expect one to be present
-  if (typeof message.appSpecifications !== 'object' && typeof message.zelAppSpecifications !== 'object') {
-    return new Error('Invalid Flux App message for storing');
-  }
-
-  const specifications = message.appSpecifications || message.zelAppSpecifications;
-  // eslint-disable-next-line no-use-before-define
-  const appSpecFormatted = specificationFormatter(specifications);
-  const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
-  const messageVersion = serviceHelper.ensureNumber(message.version);
-
-  // check permanent app message storage
-  const appMessage = await checkAppMessageExistence(message.hash);
-  if (appMessage) {
-    // do not rebroadcast further
-    return false;
-  }
-  // check temporary message storage
-  const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
-  if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-    // do not rebroadcast further
-    return false;
-  }
-
-  let isAppRequested = false;
-  const db = dbHelper.databaseConnection();
-  const query = { hash: message.hash };
-  const projection = {
-    projection: {
-      _id: 0,
-      message: 1,
-      height: 1,
-    },
-  };
-  let database = db.db(config.database.daemon.database);
-  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
-  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-  const daemonHeight = syncStatus.data.height;
-  let block = daemonHeight;
-  if (result && !result.message) {
-    isAppRequested = true;
-    block = result.height;
-  }
-
-  // data shall already be verified by the broadcasting node. But verify all again.
-  // this takes roughly at least 1 second
-  if (furtherVerification) {
-    const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
-    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-      if (!message.arcaneSender) {
-        return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
-      }
-      // eslint-disable-next-line global-require
-      const fluxService = require('./fluxService');
-      if (await fluxService.isSystemSecure()) {
-        // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
-          appSpecFormatted,
-          { daemonHeight: block, owner: appSpecFormatted.owner },
-        );
-        await verifyAppSpecifications(appSpecFormattedDecrypted, block);
-        if (appRegistraiton) {
-          await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
-        } else {
-          await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
-        }
-      }
-    } else {
-      await verifyAppSpecifications(appSpecFormatted, block);
-      if (appRegistraiton) {
-        await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
-      } else {
-        await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
-      }
-    }
-
-    await verifyAppHash(message);
-    if (appRegistraiton) {
-      await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
-    } else {
-      // get previousAppSpecifications as we need previous owner
-      const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
-      const { owner } = previousAppSpecs;
-      // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block);
-    }
-  }
-
-  const receivedAt = Date.now();
-  const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
-
-  const newMessage = {
-    appSpecifications: appSpecFormatted,
-    type: message.type, // shall be fluxappregister, fluxappupdate
-    version: messageVersion,
-    hash: message.hash,
-    timestamp: messageTimestamp,
-    signature: message.signature,
-    receivedAt: new Date(receivedAt),
-    expireAt: new Date(validTill),
-    arcaneSender: message.arcaneSender,
-  };
-  const value = newMessage;
-
-  database = db.db(config.database.appsglobal.database);
-  // message does not exist anywhere and is ok, store it
-  await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
-  // it is stored and rebroadcasted
-  if (isAppRequested) {
-    // node received the message but it is coming from a requestappmessage we should not rebroadcast to all peers
-    return false;
-  }
-  return true;
-}
-
-/**
- * To store a message for a running app.
- * @param {object} message Message.
- * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is old. Throws an error if invalid.
- */
-async function storeAppRunningMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param hash string
-  * @param broadcastedAt number
-  * @param name string
-  * @param ip string
-  */
-  const appsMessages = [];
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
-    return new Error('Invalid Flux App Running message for storing');
-  }
-
-  if (message.version !== 1 && message.version !== 2) {
-    return new Error(`Invalid Flux App Running message for storing version ${message.version} not supported`);
-  }
-
-  if (message.version === 1) {
-    if (typeof message.hash !== 'string' || typeof message.name !== 'string') {
-      return new Error('Invalid Flux App Running message for storing');
-    }
-    const app = {
-      name: message.name,
-      hash: message.hash,
-    };
-    appsMessages.push(app);
-  }
-
-  if (message.version === 2) {
-    if (!message.apps || !Array.isArray(message.apps)) {
-      return new Error('Invalid Flux App Running message for storing');
-    }
-    for (let i = 0; i < message.apps.length; i += 1) {
-      const app = message.apps[i];
-      appsMessages.push(app);
-      if (typeof app.hash !== 'string' || typeof app.name !== 'string') {
-        return new Error('Invalid Flux App Running v2 message for storing');
-      }
-    }
-  }
-
-  const validTill = message.broadcastedAt + (125 * 60 * 1000); // 7500 seconds
-  if (validTill < Date.now()) {
-    log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
-    // reject old message
-    return false;
-  }
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  let messageNotOk = false;
-  for (let i = 0; i < appsMessages.length; i += 1) {
-    const app = appsMessages[i];
-    const newAppRunningMessage = {
-      name: app.name,
-      hash: app.hash, // hash of application specifics that are running
-      ip: message.ip,
-      broadcastedAt: new Date(message.broadcastedAt),
-      expireAt: new Date(validTill),
-      osUptime: message.osUptime,
-      staticIp: message.staticIp,
-    };
-
-    // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-    const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-    const projection = { _id: 0, runningSince: 1 };
-    // we already have the exact same data
-    // eslint-disable-next-line no-await-in-loop
-    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-    if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
-      // found a message that was already stored/probably from duplicated message processsed
-      messageNotOk = true;
-      break;
-    }
-    if (message.runningSince) {
-      newAppRunningMessage.runningSince = new Date(message.runningSince);
-    } else if (app.runningSince) {
-      newAppRunningMessage.runningSince = new Date(app.runningSince);
-    } else if (result && result.runningSince) {
-      newAppRunningMessage.runningSince = result.runningSince;
-    }
-    const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-    const update = { $set: newAppRunningMessage };
-    const options = {
-      upsert: true,
-    };
-    // eslint-disable-next-line no-await-in-loop
-    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-  }
-
-  if (message.version === 2 && appsMessages.length === 0) {
-    const queryFind = { ip: message.ip };
-    const projection = { _id: 0, runningSince: 1 };
-    // we already have the exact same data
-    const result = await dbHelper.findInDatabase(database, globalAppsLocations, queryFind, projection);
-    if (result.length > 0) {
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, queryFind);
-    } else {
-      return false;
-    }
-  }
-
-  if (message.version === 1) {
-    const queryFind = { name: appsMessages[0].name, ip: message.ip };
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
-  }
-
-  if (messageNotOk) {
-    return false;
-  }
-
-  // all stored, rebroadcast
-  return true;
-}
-
-/**
- * To store a message for a installing app.
- * @param {object} message Message.
- * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is old. Throws an error if invalid.
- */
-async function storeAppInstallingMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param broadcastedAt number
-  * @param name string
-  * @param ip string
-  */
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
-    return new Error('Invalid Flux App Installing message for storing');
-  }
-
-  if (message.version !== 1) {
-    return new Error(`Invalid Flux App Installing message for storing version ${message.version} not supported`);
-  }
-
-  const validTill = message.broadcastedAt + (5 * 60 * 1000); // 5 minutes
-  if (validTill < Date.now()) {
-    log.warn(`Rejecting old/not valid fluxappinstalling message, message:${JSON.stringify(message)}`);
-    // reject old message
-    return false;
-  }
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  const newAppInstallingMessage = {
-    name: message.name,
-    ip: message.ip,
-    broadcastedAt: new Date(message.broadcastedAt),
-    expireAt: new Date(validTill),
-  };
-
-  // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-  const queryFind = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
-  const projection = { _id: 0 };
-  // we already have the exact same data
-  // eslint-disable-next-line no-await-in-loop
-  const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingLocations, queryFind, projection);
-  if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingMessage.broadcastedAt) {
-    // found a message that was already stored/probably from duplicated message processsed
-    return false;
-  }
-
-  const queryUpdate = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
-  const update = { $set: newAppInstallingMessage };
-  const options = {
-    upsert: true,
-  };
-  // eslint-disable-next-line no-await-in-loop
-  await dbHelper.updateOneInDatabase(database, globalAppsInstallingLocations, queryUpdate, update, options);
-
-  // all stored, rebroadcast
-  return true;
-}
-
-/**
- * To store a message for a app error installing.
- * @param {object} message Message.
- * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is old. Throws an error if invalid.
- */
-async function storeAppInstallingErrorMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param broadcastedAt number
-  * @param name string
-  * @param hash string
-  * @param ip string
-  * @param error string
-  */
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string'
-    || typeof message.hash !== 'number' || typeof message.error !== 'string') {
-    return new Error('Invalid Flux App Installing Error message for storing');
-  }
-
-  if (message.version !== 1) {
-    return new Error(`Invalid Flux App Installing Error message for storing version ${message.version} not supported`);
-  }
-
-  const validTill = message.broadcastedAt + (60 * 60 * 1000); // 60 minutes
-  if (validTill < Date.now()) {
-    log.warn(`Rejecting old/not valid fluxappinstallingerror message, message:${JSON.stringify(message)}`);
-    // reject old message
-    return false;
-  }
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  const newAppInstallingErrorMessage = {
-    name: message.name,
-    hash: message.hash,
-    ip: message.ip,
-    error: message.error,
-    broadcastedAt: new Date(message.broadcastedAt),
-    startCacheAt: new Date(message.broadcastedAt),
-    expireAt: new Date(validTill),
-  };
-
-  let queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash, ip: newAppInstallingErrorMessage.ip };
-  const projection = { _id: 0 };
-  // we already have the exact same data
-  // eslint-disable-next-line no-await-in-loop
-  const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, projection);
-  if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingErrorMessage.broadcastedAt) {
-    // found a message that was already stored/probably from duplicated message processsed
-    return false;
-  }
-
-  let update = { $set: newAppInstallingErrorMessage };
-  const options = {
-    upsert: true,
-  };
-  // eslint-disable-next-line no-await-in-loop
-  await dbHelper.updateOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update, options);
-
-  queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash };
-  // we already have the exact same data
-  // eslint-disable-next-line no-await-in-loop
-  const results = await dbHelper.countInDatabase(database, globalAppsInstallingErrorsLocations, queryFind);
-  if (results >= 5) {
-    update = { $set: { startCacheAt: null, expireAt: null } };
-    // eslint-disable-next-line no-await-in-loop
-    await dbHelper.updateInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update);
-  }
-  // all stored, rebroadcast
-  return true;
-}
-
-/**
- * To update DB with new node IP that is running app.
- * @param {object} message Message.
- * @returns {boolean} True if message is valid. Returns false if message is old. Throws an error if invalid/wrong properties.
- */
-async function storeIPChangedMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param oldIP string
-  * @param newIP string
-  * @param broadcastedAt number
-  */
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || typeof message.oldIP !== 'string' || typeof message.newIP !== 'string') {
-    return new Error('Invalid Flux IP Changed message for storing');
-  }
-
-  if (message.version !== 1) {
-    return new Error(`Invalid Flux IP Changed message for storing version ${message.version} not supported`);
-  }
-
-  if (!message.oldIP || !message.newIP) {
-    return new Error('Invalid Flux IP Changed message oldIP and newIP cannot be empty');
-  }
-
-  if (message.oldIP === message.newIP) {
-    return new Error(`Invalid Flux IP Changed message oldIP and newIP are the same ${message.newIP}`);
-  }
-
-  log.info('New Flux IP Changed message received.');
-  log.info(message);
-
-  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < Date.now()) {
-    // reject old message
-    return false;
-  }
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const query = { ip: message.oldIP };
-  const update = { $set: { ip: message.newIP, broadcastedAt: new Date(message.broadcastedAt) } };
-  await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
-
-  // all stored, rebroadcast
-  return true;
-}
-
-/**
- * To remove from DB that the IP is running the app.
- * @param {object} message Message.
- * @returns {boolean} True if message is valid. Returns false if message is old. Throws an error if invalid/wrong properties.
- */
-async function storeAppRemovedMessage(message) {
-  /* message object
-  * @param type string
-  * @param version number
-  * @param ip string
-  * @param appName string
-  * @param broadcastedAt number
-  */
-  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.appName !== 'string') {
-    return new Error('Invalid Flux App Removed message for storing');
-  }
-
-  if (message.version !== 1) {
-    return new Error(`Invalid Flux App Removed message for storing version ${message.version} not supported`);
-  }
-
-  if (!message.ip) {
-    return new Error('Invalid Flux App Removed message ip cannot be empty');
-  }
-
-  if (!message.appName) {
-    return new Error('Invalid Flux App Removed message appName cannot be empty');
-  }
-
-  log.info('New Flux App Removed message received.');
-  log.info(message);
-
-  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
-  if (validTill < Date.now()) {
-    // reject old message
-    return false;
-  }
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const query = { ip: message.ip, name: message.appName };
-  const projection = {};
-  await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
-
-  // all stored, rebroadcast
-  return true;
-}
-
-/**
  * To request app message.
  * @param {string} hash Message hash.
  */
@@ -7314,729 +4606,6 @@ async function requestAppMessageAPI(req, res) {
     const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
     res.json(errMessage);
   }
-}
-
-/**
- * To format app specification object. Checks that all parameters exist and are correct.
- * @param {object} appSpecification App specification.
- * @returns {object} Returns formatted app specification to be stored in global database. Otherwise throws error.
- */
-function specificationFormatter(appSpecification) {
-  let {
-    version,
-    name,
-    description,
-    owner,
-    port, // version 1 deprecated
-    containerPort, // version 1 deprecated
-    compose,
-    repotag,
-    ports,
-    domains,
-    enviromentParameters,
-    commands,
-    containerPorts,
-    containerData,
-    instances,
-    cpu,
-    ram,
-    hdd,
-    tiered,
-    contacts,
-    geolocation,
-    expire,
-    nodes,
-    staticip,
-    enterprise,
-  } = appSpecification;
-
-  if (!version) {
-    throw new Error('Missing Flux App specification parameter version');
-  }
-  version = serviceHelper.ensureNumber(version);
-
-  // commons
-  if (!name || !description || !owner) {
-    throw new Error('Missing Flux App specification parameter name and/or description and/or owner');
-  }
-  name = serviceHelper.ensureString(name);
-  description = serviceHelper.ensureString(description);
-  owner = serviceHelper.ensureString(owner);
-
-  // finalised parameters that will get stored in global database
-  const appSpecFormatted = {
-    version, // integer
-    name, // string
-    description, // string
-    owner, // zelid string
-  };
-
-  const correctCompose = [];
-
-  if (version === 1) {
-    if (!repotag || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
-      throw new Error('Missing Flux App specification parameter repotag and/or port and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
-    }
-
-    repotag = serviceHelper.ensureString(repotag);
-    port = serviceHelper.ensureNumber(port);
-    containerPort = serviceHelper.ensureNumber(containerPort);
-    enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
-    const envParamsCorrected = [];
-    if (Array.isArray(enviromentParameters)) {
-      enviromentParameters.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter);
-        envParamsCorrected.push(param);
-      });
-    } else {
-      throw new Error('Environmental parameters for Flux App are invalid');
-    }
-    commands = serviceHelper.ensureObject(commands);
-    const commandsCorrected = [];
-    if (Array.isArray(commands)) {
-      commands.forEach((command) => {
-        const cmm = serviceHelper.ensureString(command);
-        commandsCorrected.push(cmm);
-      });
-    } else {
-      throw new Error('Flux App commands are invalid');
-    }
-    containerData = serviceHelper.ensureString(containerData);
-    cpu = serviceHelper.ensureNumber(cpu);
-    ram = serviceHelper.ensureNumber(ram);
-    hdd = serviceHelper.ensureNumber(hdd);
-    tiered = serviceHelper.ensureBoolean(tiered);
-    if (typeof tiered !== 'boolean') {
-      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-    }
-    // finalised parameters
-    appSpecFormatted.repotag = repotag; // string
-    appSpecFormatted.port = port; // integer
-    appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
-    appSpecFormatted.commands = commandsCorrected; // array of strings
-    appSpecFormatted.containerPort = containerPort; // integer
-    appSpecFormatted.containerData = containerData; // string
-    appSpecFormatted.cpu = cpu; // float 0.1 step
-    appSpecFormatted.ram = ram; // integer 100 step (mb)
-    appSpecFormatted.hdd = hdd; // integer 1 step
-    appSpecFormatted.tiered = tiered; // boolean
-
-    if (tiered) {
-      let {
-        cpubasic,
-        cpusuper,
-        cpubamf,
-        rambasic,
-        ramsuper,
-        rambamf,
-        hddbasic,
-        hddsuper,
-        hddbamf,
-      } = appSpecification;
-      if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-        throw new Error('Flux App was requested as tiered setup but specifications are missing');
-      }
-      cpubasic = serviceHelper.ensureNumber(cpubasic);
-      cpusuper = serviceHelper.ensureNumber(cpusuper);
-      cpubamf = serviceHelper.ensureNumber(cpubamf);
-      rambasic = serviceHelper.ensureNumber(rambasic);
-      ramsuper = serviceHelper.ensureNumber(ramsuper);
-      rambamf = serviceHelper.ensureNumber(rambamf);
-      hddbasic = serviceHelper.ensureNumber(hddbasic);
-      hddsuper = serviceHelper.ensureNumber(hddsuper);
-      hddbamf = serviceHelper.ensureNumber(hddbamf);
-
-      appSpecFormatted.cpubasic = cpubasic;
-      appSpecFormatted.cpusuper = cpusuper;
-      appSpecFormatted.cpubamf = cpubamf;
-      appSpecFormatted.rambasic = rambasic;
-      appSpecFormatted.ramsuper = ramsuper;
-      appSpecFormatted.rambamf = rambamf;
-      appSpecFormatted.hddbasic = hddbasic;
-      appSpecFormatted.hddsuper = hddsuper;
-      appSpecFormatted.hddbamf = hddbamf;
-    }
-  } else if (version <= 3) {
-    if (!repotag || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
-      throw new Error('Missing Flux App specification parameter repotag and/or port and/or domains and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
-    }
-
-    repotag = serviceHelper.ensureString(repotag);
-    ports = serviceHelper.ensureObject(ports);
-    const portsCorrect = [];
-    if (Array.isArray(ports)) {
-      ports.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter); // v2 and v3 have string
-        portsCorrect.push(param);
-      });
-    } else {
-      throw new Error('Ports for Flux App are invalid');
-    }
-    domains = serviceHelper.ensureObject(domains);
-    const domainsCorrect = [];
-    if (Array.isArray(domains)) {
-      domains.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter);
-        domainsCorrect.push(param);
-      });
-    } else {
-      throw new Error('Domains for Flux App are invalid');
-    }
-    enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
-    const envParamsCorrected = [];
-    if (Array.isArray(enviromentParameters)) {
-      enviromentParameters.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter);
-        envParamsCorrected.push(param);
-      });
-    } else {
-      throw new Error('Environmental parameters for Flux App are invalid');
-    }
-    commands = serviceHelper.ensureObject(commands);
-    const commandsCorrected = [];
-    if (Array.isArray(commands)) {
-      commands.forEach((command) => {
-        const cmm = serviceHelper.ensureString(command);
-        commandsCorrected.push(cmm);
-      });
-    } else {
-      throw new Error('Flux App commands are invalid');
-    }
-    containerPorts = serviceHelper.ensureObject(containerPorts);
-    const containerportsCorrect = [];
-    if (Array.isArray(containerPorts)) {
-      containerPorts.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
-        containerportsCorrect.push(param);
-      });
-    } else {
-      throw new Error('Container Ports for Flux App are invalid');
-    }
-    containerData = serviceHelper.ensureString(containerData);
-    cpu = serviceHelper.ensureNumber(cpu);
-    ram = serviceHelper.ensureNumber(ram);
-    hdd = serviceHelper.ensureNumber(hdd);
-    tiered = serviceHelper.ensureBoolean(tiered);
-    if (typeof tiered !== 'boolean') {
-      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-    }
-
-    // finalised parameters.
-    appSpecFormatted.repotag = repotag; // string
-    appSpecFormatted.ports = portsCorrect; // array of integers
-    appSpecFormatted.domains = domainsCorrect;
-    appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
-    appSpecFormatted.commands = commandsCorrected; // array of strings
-    appSpecFormatted.containerPorts = containerportsCorrect; // array of integers
-    appSpecFormatted.containerData = containerData; // string
-    appSpecFormatted.cpu = cpu; // float 0.1 step
-    appSpecFormatted.ram = ram; // integer 100 step (mb)
-    appSpecFormatted.hdd = hdd; // integer 1 step
-    appSpecFormatted.tiered = tiered; // boolean
-
-    if (tiered) {
-      let {
-        cpubasic,
-        cpusuper,
-        cpubamf,
-        rambasic,
-        ramsuper,
-        rambamf,
-        hddbasic,
-        hddsuper,
-        hddbamf,
-      } = appSpecification;
-      if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-        throw new Error('Flux App was requested as tiered setup but specifications are missing');
-      }
-      cpubasic = serviceHelper.ensureNumber(cpubasic);
-      cpusuper = serviceHelper.ensureNumber(cpusuper);
-      cpubamf = serviceHelper.ensureNumber(cpubamf);
-      rambasic = serviceHelper.ensureNumber(rambasic);
-      ramsuper = serviceHelper.ensureNumber(ramsuper);
-      rambamf = serviceHelper.ensureNumber(rambamf);
-      hddbasic = serviceHelper.ensureNumber(hddbasic);
-      hddsuper = serviceHelper.ensureNumber(hddsuper);
-      hddbamf = serviceHelper.ensureNumber(hddbamf);
-
-      appSpecFormatted.cpubasic = cpubasic;
-      appSpecFormatted.cpusuper = cpusuper;
-      appSpecFormatted.cpubamf = cpubamf;
-      appSpecFormatted.rambasic = rambasic;
-      appSpecFormatted.ramsuper = ramsuper;
-      appSpecFormatted.rambamf = rambamf;
-      appSpecFormatted.hddbasic = hddbasic;
-      appSpecFormatted.hddsuper = hddsuper;
-      appSpecFormatted.hddbamf = hddbamf;
-    }
-  } else { // v4+
-    if (!compose) {
-      throw new Error('Missing Flux App specification parameter compose');
-    }
-    compose = serviceHelper.ensureObject(compose);
-    if (!Array.isArray(compose)) {
-      throw new Error('Flux App compose parameter is not valid');
-    }
-    compose.forEach((appComponent) => {
-      const appComponentCorrect = {};
-      appComponentCorrect.name = serviceHelper.ensureString(appComponent.name);
-      appComponentCorrect.description = serviceHelper.ensureString(appComponent.description);
-      appComponentCorrect.repotag = serviceHelper.ensureString(appComponent.repotag);
-      appComponentCorrect.ports = serviceHelper.ensureObject(appComponent.ports);
-      const portsCorrect = [];
-      if (Array.isArray(appComponentCorrect.ports)) {
-        appComponentCorrect.ports.forEach((parameter) => {
-          const param = serviceHelper.ensureNumber(parameter);
-          portsCorrect.push(param);
-        });
-        appComponentCorrect.ports = portsCorrect;
-      } else {
-        throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
-      }
-      appComponentCorrect.domains = serviceHelper.ensureObject(appComponent.domains);
-      const domainsCorect = [];
-      if (Array.isArray(appComponentCorrect.domains)) {
-        appComponentCorrect.domains.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
-          domainsCorect.push(param);
-        });
-        appComponentCorrect.domains = domainsCorect;
-      } else {
-        throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
-      }
-      appComponentCorrect.environmentParameters = serviceHelper.ensureObject(appComponent.environmentParameters);
-      const envParamsCorrected = [];
-      if (Array.isArray(appComponentCorrect.environmentParameters)) {
-        appComponentCorrect.environmentParameters.forEach((parameter) => {
-          const param = serviceHelper.ensureString(parameter);
-          envParamsCorrected.push(param);
-        });
-        appComponentCorrect.environmentParameters = envParamsCorrected;
-      } else {
-        throw new Error(`Environmental parameters for Flux App component ${appComponent.name} are invalid`);
-      }
-      appComponentCorrect.commands = serviceHelper.ensureObject(appComponent.commands);
-      const commandsCorrected = [];
-      if (Array.isArray(appComponentCorrect.commands)) {
-        appComponentCorrect.commands.forEach((command) => {
-          const cmm = serviceHelper.ensureString(command);
-          commandsCorrected.push(cmm);
-        });
-        appComponentCorrect.commands = commandsCorrected;
-      } else {
-        throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
-      }
-      appComponentCorrect.containerPorts = serviceHelper.ensureObject(appComponent.containerPorts);
-      const containerportsCorrect = [];
-      if (Array.isArray(appComponentCorrect.containerPorts)) {
-        appComponentCorrect.containerPorts.forEach((parameter) => {
-          const param = serviceHelper.ensureNumber(parameter);
-          containerportsCorrect.push(param);
-        });
-      } else {
-        throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
-      }
-      appComponentCorrect.containerData = serviceHelper.ensureString(appComponent.containerData);
-      appComponentCorrect.cpu = serviceHelper.ensureNumber(appComponent.cpu);
-      appComponentCorrect.ram = serviceHelper.ensureNumber(appComponent.ram);
-      appComponentCorrect.hdd = serviceHelper.ensureNumber(appComponent.hdd);
-
-      if (version <= 7) {
-        appComponentCorrect.tiered = appComponent.tiered;
-        if (typeof appComponentCorrect.tiered !== 'boolean') {
-          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
-        }
-        if (appComponentCorrect.tiered) {
-          let {
-            cpubasic,
-            cpusuper,
-            cpubamf,
-            rambasic,
-            ramsuper,
-            rambamf,
-            hddbasic,
-            hddsuper,
-            hddbamf,
-          } = appComponent;
-          if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
-            throw new Error(`Flux App component ${appComponent.name} was requested as tiered setup but specifications are missing`);
-          }
-          cpubasic = serviceHelper.ensureNumber(cpubasic);
-          cpusuper = serviceHelper.ensureNumber(cpusuper);
-          cpubamf = serviceHelper.ensureNumber(cpubamf);
-          rambasic = serviceHelper.ensureNumber(rambasic);
-          ramsuper = serviceHelper.ensureNumber(ramsuper);
-          rambamf = serviceHelper.ensureNumber(rambamf);
-          hddbasic = serviceHelper.ensureNumber(hddbasic);
-          hddsuper = serviceHelper.ensureNumber(hddsuper);
-          hddbamf = serviceHelper.ensureNumber(hddbamf);
-
-          appComponentCorrect.cpubasic = cpubasic;
-          appComponentCorrect.cpusuper = cpusuper;
-          appComponentCorrect.cpubamf = cpubamf;
-          appComponentCorrect.rambasic = rambasic;
-          appComponentCorrect.ramsuper = ramsuper;
-          appComponentCorrect.rambamf = rambamf;
-          appComponentCorrect.hddbasic = hddbasic;
-          appComponentCorrect.hddsuper = hddsuper;
-          appComponentCorrect.hddbamf = hddbamf;
-        }
-      }
-
-      if (version >= 7) {
-        appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
-        if (version === 7) {
-          appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
-        }
-      }
-      correctCompose.push(appComponentCorrect);
-    });
-    appSpecFormatted.compose = correctCompose;
-  }
-
-  if (version >= 3) {
-    if (!instances) {
-      throw new Error('Missing Flux App specification parameter instances');
-    }
-    instances = serviceHelper.ensureNumber(instances);
-    if (typeof instances !== 'number') {
-      throw new Error('Invalid instances specification');
-    }
-    if (Number.isInteger(instances) !== true) {
-      throw new Error('Invalid instances specified');
-    }
-    if (instances < config.fluxapps.minimumInstances) {
-      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
-    }
-    if (instances > config.fluxapps.maximumInstances) {
-      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
-    }
-    appSpecFormatted.instances = instances;
-  }
-
-  if (version >= 5) {
-    if (!contacts || !geolocation) { // can be empty array for no contact or no geolocation requirements
-      throw new Error('Missing Flux App specification parameter contacts and/or geolocation');
-    }
-    contacts = serviceHelper.ensureObject(contacts);
-    const contactsCorrect = [];
-    if (Array.isArray(contacts)) {
-      contacts.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter); // string
-        contactsCorrect.push(param);
-      });
-    } else {
-      throw new Error('Contacts for Flux App are invalid');
-    }
-    appSpecFormatted.contacts = contactsCorrect;
-
-    geolocation = serviceHelper.ensureObject(geolocation);
-    const geolocationCorrect = [];
-    if (Array.isArray(geolocation)) {
-      geolocation.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter); // string
-        geolocationCorrect.push(param);
-      });
-    } else {
-      throw new Error('Geolocation for Flux App is invalid');
-    }
-    appSpecFormatted.geolocation = geolocationCorrect;
-  }
-
-  if (version >= 6) {
-    if (!expire) {
-      throw new Error('Missing Flux App specification parameter expire');
-    }
-    expire = serviceHelper.ensureNumber(expire);
-    if (typeof expire !== 'number') {
-      throw new Error('Invalid instances specification');
-    }
-    if (Number.isInteger(expire) !== true) {
-      throw new Error('Invalid instances specified');
-    }
-    if (expire > config.fluxapps.maxBlocksAllowance) {
-      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
-    }
-    appSpecFormatted.expire = expire;
-  }
-
-  if (version >= 7) {
-    if (!nodes) { // can be empty array for no nodes set
-      throw new Error('Missing Flux App specification parameter nodes');
-    }
-    nodes = serviceHelper.ensureObject(nodes);
-    const nodesCorrect = [];
-    if (Array.isArray(nodes)) {
-      nodes.forEach((parameter) => {
-        const param = serviceHelper.ensureString(parameter); // string
-        nodesCorrect.push(param);
-      });
-    } else {
-      throw new Error('Nodes for Flux App are invalid');
-    }
-    appSpecFormatted.nodes = nodesCorrect;
-
-    staticip = serviceHelper.ensureBoolean(staticip);
-    if (typeof staticip !== 'boolean') {
-      throw new Error('Invalid staticip specification. Only boolean as true or false allowed.');
-    }
-    appSpecFormatted.staticip = staticip;
-  }
-
-  if (version >= 8 && enterprise) {
-    enterprise = serviceHelper.ensureString(enterprise);
-
-    appSpecFormatted.enterprise = enterprise;
-  }
-
-  return appSpecFormatted;
-}
-
-/**
- * Decrypts content with aes key
- * @param {string} appName application name.
- * @param {String} base64NonceCiphertextTag base64 encoded encrypted data
- * @param {String} base64AesKey base64 encoded AesKey
- * @returns {any} decrypted data
- */
-function decryptWithAesSession(appName, base64NonceCiphertextTag, base64AesKey) {
-  if (!isArcane) {
-    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-  }
-
-  try {
-    const key = Buffer.from(base64AesKey, 'base64');
-    const nonceCiphertextTag = Buffer.from(base64NonceCiphertextTag, 'base64');
-
-    const nonce = nonceCiphertextTag.subarray(0, 12);
-    const ciphertext = nonceCiphertextTag.subarray(12, -16);
-    const tag = nonceCiphertextTag.subarray(-16);
-
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
-    decipher.setAuthTag(tag);
-
-    const decrypted = decipher.update(ciphertext, '', 'utf8') + decipher.final('utf8');
-
-    return decrypted;
-  } catch (error) {
-    log.error(`Error decrypting ${appName}`);
-    throw error;
-  }
-}
-/**
- * Encrypts content with aes key
- * @param {String} appName application name
- * @param {any} dataToEncrypt data to encrypt
- * @param {String} base64AesKey encoded AES key
- * @returns {String} Return base64 encrypted nonce + cyphertext + tag
- */
-function encryptWithAesSession(appName, dataToEncrypt, base64AesKey) {
-  if (!isArcane) {
-    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-  }
-  try {
-    const key = Buffer.from(base64AesKey, 'base64');
-    const nonce = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
-
-    const encryptedStart = cipher.update(dataToEncrypt, 'utf8');
-    const encryptedEnd = cipher.final();
-
-    const nonceCyphertextTag = Buffer.concat([
-      nonce,
-      encryptedStart,
-      encryptedEnd,
-      cipher.getAuthTag(),
-    ]);
-
-    const base64NonceCyphertextTag = nonceCyphertextTag.toString('base64');
-    return base64NonceCyphertextTag;
-  } catch (error) {
-    log.error(`Error encrypting ${appName}`);
-    throw error;
-  }
-}
-
-/**
- * Decrypts aes key
- * @param {string} appName application name.
- * @param {integer} daemonHeight daemon block height.
- * @param {string} owner original owner of the application
- * @param {string} enterpriseKey base64 RSA encrypted AES key used to encrypt enterprise app data
- * @returns {object} Return enterprise object decrypted.
- */
-async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, owner = null) {
-  const block = daemonHeight;
-  let appOwner = owner;
-
-  if (!isArcane) {
-    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-  }
-  if (!enterpriseKey) {
-    throw new Error('enterpriseKey is mandatory for enterprise Apps.');
-  }
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  let appsQuery = null;
-  if (!appOwner) {
-    log.info(`Searching register permanent messages for ${appName} to get registration message`);
-    appsQuery = {
-      'appSpecifications.name': appName,
-      type: 'fluxappregister',
-    };
-    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-    appOwner = lastAppRegistration.owner;
-  }
-  const inputData = JSON.stringify({
-    fluxID: appOwner,
-    appName,
-    message: enterpriseKey,
-    blockHeight: block,
-  });
-  const dataReturned = await benchmarkService.decryptRSAMessage(inputData);
-  const { status, data } = dataReturned;
-  if (status === 'success') {
-    const dataParsed = JSON.parse(data);
-    const base64AesKey = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
-    if (base64AesKey) {
-      return base64AesKey;
-    }
-    throw new Error('Error decrypting AES key.');
-  } else {
-    throw new Error('Error getting decrypted AES key.');
-  }
-}
-
-/**
- * Decrypts app specs from api request. It is expected that the caller of this
- * endpoint has aes-256-gcm encrypted the app specs with a random aes key,
- * encrypted with the RSA public key received via prior api call.
- *
- * The enterpise field is in this format:
- * base64(rsa encrypted aes key + nonce + aes-256-gcm(base64(json(enterprise specs))) + authTag)
- *
- * We do this so that we don't have to double JSON encode, and we have the
- * nonce + cyphertext + tag all in one entry
- *
- * The enterpriseKey is in this format:
- * base64(rsa(base64(aes key bytes))))
- *
- * We base64 encode the key so that were not passing around raw bytes
- *
- * @param {string} base64Encrypted enterprise encrypted content (decrypted is a JSON string)
- * @param {string} appName application name
- * @param {integer} daemonHeight daemon block height
- * @param {string} owner original owner of the application
- * @returns {Promise<object>} Return enterprise object decrypted.
- */
-async function decryptEnterpriseFromSession(base64Encrypted, appName, daemonHeight, owner = null) {
-  if (!isArcane) {
-    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-  }
-
-  const enterpriseBuf = Buffer.from(base64Encrypted, 'base64');
-  const aesKeyEncrypted = enterpriseBuf.subarray(0, 256);
-  const nonceCiphertextTag = enterpriseBuf.subarray(256);
-
-  // we encode this as we are passing it as an api call
-  const base64EncryptedAesKey = aesKeyEncrypted.toString('base64');
-
-  const base64AesKey = await decryptAesKeyWithRsaKey(
-    appName,
-    daemonHeight,
-    base64EncryptedAesKey,
-    owner,
-  );
-
-  const jsonEnterprise = decryptWithAesSession(
-    appName,
-    nonceCiphertextTag,
-    base64AesKey,
-  );
-
-  const decryptedEnterprise = JSON.parse(jsonEnterprise);
-
-  if (decryptedEnterprise) {
-    return decryptedEnterprise;
-  }
-  throw new Error('Error decrypting enterprise object.');
-}
-
-/**
- * Decrypts app specs if they are encrypted
- * @param {object} appSpec application specifications.
- * @param {integer} daemonHeight daemon block height.
- * @param {{daemonHeight?: Number, owner?: string}} options daemonHeight - block height  \
- *    owner - the application owner
- * @returns {Promise<object>} Return appSpecs decrypted if it is enterprise.
- */
-async function checkAndDecryptAppSpecs(appSpec, options = {}) {
-  if (!appSpec || appSpec.version < 8 || !appSpec.enterprise) {
-    return appSpec;
-  }
-
-  if (!isArcane) {
-    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-  }
-
-  // move to structuredClone when we are at > nodeJS 17.0.0
-  // we do this so we can have a copy of both formatted and decrypted
-  const appSpecs = JSON.parse(JSON.stringify(appSpec));
-
-  let daemonHeight = options.daemonHeight || null;
-  let appOwner = options.owner || null;
-
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  let appsQuery = null;
-
-  if (!appOwner) {
-    log.info(`Searching register permanent messages for ${appSpecs.name} to get registration message`);
-    appsQuery = {
-      'appSpecifications.name': appSpecs.name,
-      type: 'fluxappregister',
-    };
-    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    if (permanentAppMessage.length > 0) {
-      const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-      appOwner = lastAppRegistration.owner;
-    } else {
-      appOwner = appSpec.owner;
-    }
-  }
-
-  if (!daemonHeight) {
-    log.info(`Searching register permanent messages for ${appSpecs.name} to get latest update`);
-    appsQuery = {
-      'appSpecifications.name': appSpecs.name,
-    };
-    const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-    const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
-    daemonHeight = lastUpdate.height;
-  }
-
-  const enterprise = await decryptEnterpriseFromSession(
-    appSpecs.enterprise,
-    appSpecs.name,
-    daemonHeight,
-    appSpecs.owner,
-  );
-
-  appSpecs.contacts = enterprise.contacts;
-  appSpecs.compose = enterprise.compose;
-
-  return appSpecs;
 }
 
 /**
@@ -8106,31 +4675,6 @@ async function encryptEnterpriseWithAes(enterprise, appName, daemonHeight = null
 }
 
 /**
- * Encrypts app specs for api request
- * @param {object} appSpec App spec that needs contacts / compose encrypted
-* @param {integer} daemonHeight daemon block height.
- * @param {string} enterpriseKey enterprise key encrypted used to encrypt encrypt enterprise app.
- * @returns {Promise<object>} Return app specs copy with enterprise object encrypted (and sensitive content removed)
- */
-async function encryptEnterpriseFromSession(appSpec, daemonHeight, enterpriseKey) {
-  if (!isArcane) {
-    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
-  }
-  if (!enterpriseKey) {
-    throw new Error('enterpriseKey is mandatory for enterprise Apps.');
-  }
-
-  const appName = appSpec.name;
-
-  const base64AesKey = await decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey);
-  const encryptedEnterprise = encryptWithAesSession(appSpec.enterprise, base64AesKey);
-  if (encryptedEnterprise) {
-    return encryptedEnterprise;
-  }
-  throw new Error('Error encrypting enterprise object.');
-}
-
-/**
  * To register an app globally via API. Performs various checks before the app can be registered. Only accessible by users.
  * @param {express.Request} req Request.
  * @param {express.Response} res Response.
@@ -8191,7 +4735,7 @@ async function registerAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      const appSpecDecrypted = await checkAndDecryptAppSpecs(
+      const appSpecDecrypted = await appsEncryptDecryptService.checkAndDecryptAppSpecs(
         appSpecification,
         {
           daemonHeight,
@@ -8199,35 +4743,35 @@ async function registerAppGlobalyApi(req, res) {
         },
       );
 
-      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+      const appSpecFormatted = appsAuxiliarService.specificationFormatter(appSpecDecrypted);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+      await appsAuxiliarService.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await appsEncryptDecryptService.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
 
       // check if name is not yet registered
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+      await appsAuxiliarService.checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
       const isEnterprise = Boolean(
         appSpecification.version >= 8 && appSpecification.enterprise,
       );
 
       const toVerify = isEnterprise
-        ? specificationFormatter(appSpecification)
+        ? appsAuxiliarService.specificationFormatter(appSpecification)
         : appSpecFormatted;
 
       // check if zelid owner is correct ( done in message verification )
       // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
-      await verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
+      await appsAuxiliarService.verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
@@ -8259,13 +4803,13 @@ async function registerAppGlobalyApi(req, res) {
       // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
       await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
       // check temporary message storage
-      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+      let tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
       for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
         if (!tempMessage) {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
           // eslint-disable-next-line no-await-in-loop
-          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+          tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(messageHASH);
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
@@ -8347,24 +4891,24 @@ async function updateAppGlobalyApi(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      const appSpecDecrypted = await checkAndDecryptAppSpecs(
+      const appSpecDecrypted = await appsEncryptDecryptService.checkAndDecryptAppSpecs(
         appSpecification,
         {
           daemonHeight,
         },
       );
 
-      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+      const appSpecFormatted = appsAuxiliarService.specificationFormatter(appSpecDecrypted);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+      await appsAuxiliarService.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await appsEncryptDecryptService.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
@@ -8393,14 +4937,14 @@ async function updateAppGlobalyApi(req, res) {
       );
 
       const toVerify = isEnterprise
-        ? specificationFormatter(appSpecification)
+        ? appsAuxiliarService.specificationFormatter(appSpecification)
         : appSpecFormatted;
 
       // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
+      await appsAuxiliarService.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
 
       // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+      await appsAuxiliarService.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
@@ -8430,13 +4974,13 @@ async function updateAppGlobalyApi(req, res) {
       await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
       await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
       // check temporary message storage
-      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+      let tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(messageHASH);
       for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
         if (!tempMessage) {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
           // eslint-disable-next-line no-await-in-loop
-          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+          tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(messageHASH);
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
@@ -8480,7 +5024,7 @@ async function installAppLocally(req, res) {
       let appSpecifications;
       // anyone can deploy temporary app
       // favor temporary to launch test temporary apps
-      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      const tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
         // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
@@ -8496,7 +5040,7 @@ async function installAppLocally(req, res) {
         }
       }
       if (!appSpecifications) {
-        const allApps = await availableApps();
+        const allApps = await appsAvailableService.availableApps();
         appSpecifications = allApps.find((app) => app.name === appname);
       }
       if (!appSpecifications) {
@@ -8505,7 +5049,7 @@ async function installAppLocally(req, res) {
       }
       // search in permanent messages for the specific apphash to launch
       if (!appSpecifications) {
-        const permMessage = await checkAppMessageExistence(appname);
+        const permMessage = await appsMessageExistenceService.checkAppMessageExistence(appname);
         if (permMessage) {
           // eslint-disable-next-line prefer-destructuring
           appSpecifications = permMessage.appSpecifications;
@@ -8589,7 +5133,7 @@ async function testAppInstall(req, res) {
       let appSpecifications;
       // anyone can deploy temporary app
       // favor temporary to launch test temporary apps
-      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      const tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(appname);
       if (tempMessage) {
         // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
@@ -8605,7 +5149,7 @@ async function testAppInstall(req, res) {
         }
       }
       if (!appSpecifications) {
-        const allApps = await availableApps();
+        const allApps = await appsAvailableService.availableApps();
         appSpecifications = allApps.find((app) => app.name === appname);
       }
       if (!appSpecifications) {
@@ -8614,7 +5158,7 @@ async function testAppInstall(req, res) {
       }
       // search in permanent messages for the specific apphash to launch
       if (!appSpecifications) {
-        const permMessage = await checkAppMessageExistence(appname);
+        const permMessage = await appsMessageExistenceService.checkAppMessageExistence(appname);
         if (permMessage) {
           // eslint-disable-next-line prefer-destructuring
           appSpecifications = permMessage.appSpecifications;
@@ -8911,12 +5455,12 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
     if (height < config.fluxapps.epochstart) { // do not request testing apps
       return false;
     }
-    const appMessageExists = await checkAppMessageExistence(hash);
+    const appMessageExists = await appsMessageExistenceService.checkAppMessageExistence(hash);
     if (appMessageExists === false) { // otherwise do nothing
       // we surely do not have that message in permanent storaage.
       // check temporary message storage
       // if we have it in temporary storage, get the temporary message
-      const tempMessage = await checkAppTemporaryMessageExistence(hash);
+      const tempMessage = await appsMessageExistenceService.checkAppTemporaryMessageExistence(hash);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
         // temp message means its all ok. store it as permanent app message
@@ -9465,7 +6009,7 @@ async function checkAndSyncAppHashes() {
           y += 1;
           try {
             // eslint-disable-next-line no-await-in-loop
-            await storeAppTemporaryMessage(appMessage, true);
+            await storeWSMessagesService.storeAppTemporaryMessage(appMessage, true);
             // eslint-disable-next-line no-await-in-loop
             await checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.value, 2);
             // eslint-disable-next-line no-await-in-loop
@@ -9671,41 +6215,13 @@ async function getAppHashes(req, res) {
 }
 
 /**
- * To get app locations or a location of an app
- * @param {string} appname Application Name.
- */
-async function appLocation(appname) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.appsglobal.database);
-  let query = {};
-  if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
-  }
-  const projection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      hash: 1,
-      ip: 1,
-      broadcastedAt: 1,
-      expireAt: 1,
-      runningSince: 1,
-      osUptime: 1,
-      staticIp: 1,
-    },
-  };
-  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-  return results;
-}
-
-/**
  * To get app locations.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function getAppsLocations(req, res) {
   try {
-    const results = await appLocation();
+    const results = await appsAuxiliarService.appLocation();
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -9824,7 +6340,7 @@ async function getAppsLocation(req, res) {
     if (!appname) {
       throw new Error('No Flux App name specified');
     }
-    const results = await appLocation(appname);
+    const results = await appsAuxiliarService.appLocation(appname);
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -9957,7 +6473,7 @@ async function getApplicationGlobalSpecifications(appName) {
     },
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  appInfo = await checkAndDecryptAppSpecs(appInfo);
+  appInfo = await appsEncryptDecryptService.checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -9967,61 +6483,8 @@ async function getApplicationGlobalSpecifications(appName) {
  * @returns {object} Document with app info.
  */
 async function getApplicationLocalSpecifications(appName) {
-  const allApps = await availableApps();
+  const allApps = await appsAvailableService.availableApps();
   const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
-  return appInfo;
-}
-
-/**
- * To get app specifications for a specific app if global/local status is unkown. First searches global apps and if not found then searches local apps.
- * @param {string} appName App name.
- * @returns {object} Document with app info.
- */
-async function getApplicationSpecifications(appName) {
-  // appSpecs: {
-  //   version: 2,
-  //   name: 'FoldingAtHomeB',
-  //   description: 'Folding @ Home is cool :)',
-  //   repotag: 'yurinnick/folding-at-home:latest',
-  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-  //   ports: '[30001]', // []
-  //   containerPorts: '[7396]', // []
-  //   domains: '[""]', // []
-  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-  //   containerData: '/config',
-  //   cpu: 0.5,
-  //   ram: 500,
-  //   hdd: 5,
-  //   tiered: true,
-  //   cpubasic: 0.5,
-  //   rambasic: 500,
-  //   hddbasic: 5,
-  //   cpusuper: 1,
-  //   ramsuper: 1000,
-  //   hddsuper: 5,
-  //   cpubamf: 2,
-  //   rambamf: 2000,
-  //   hddbamf: 5,
-  //   hash: hash of message that has these paramenters,
-  //   height: height containing the message
-  // };
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (!appInfo) {
-    const allApps = await availableApps();
-    appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
-  }
-
-  appInfo = await checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -10042,10 +6505,10 @@ async function getStrictApplicationSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
-    const allApps = await availableApps();
+    const allApps = await appsAvailableService.availableApps();
     appInfo = allApps.find((app) => app.name === appName);
   }
-  appInfo = await checkAndDecryptAppSpecs(appInfo);
+  appInfo = await appsEncryptDecryptService.checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -10377,7 +6840,7 @@ async function getApplicationSpecificationAPI(req, res) {
     // query params take precedence over params (they were set explictly)
     decrypt = req.query.decrypt || decrypt;
 
-    const specifications = await getApplicationSpecifications(appname);
+    const specifications = await appsAuxiliarService.getApplicationSpecifications(appname);
     const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
@@ -10433,7 +6896,7 @@ async function getApplicationSpecificationAPI(req, res) {
 
     // this seems a bit weird, but the client can ask for the specs encrypted or decrypted.
     // If decrypted, they pass us another session key and we use that to encrypt.
-    specifications.enterprise = await encryptEnterpriseFromSession(
+    specifications.enterprise = await appsEncryptDecryptService.encryptEnterpriseFromSession(
       specifications,
       daemonHeight,
       encryptedEnterpriseKey,
@@ -10478,7 +6941,7 @@ async function updateApplicationSpecificationAPI(req, res) {
 
     const { data: { daemonHeight } } = syncStatus;
 
-    const specifications = await getApplicationSpecifications(appname);
+    const specifications = await appsAuxiliarService.getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
@@ -10512,7 +6975,7 @@ async function updateApplicationSpecificationAPI(req, res) {
     const updatedSpecs = updateToLatestAppSpecifications(specifications);
 
     if (isEnterprise) {
-      const enterprise = await encryptEnterpriseFromSession(
+      const enterprise = await appsEncryptDecryptService.encryptEnterpriseFromSession(
         updatedSpecs,
         daemonHeight,
         encryptedEnterpriseKey,
@@ -10875,7 +7338,7 @@ async function trySpawningGlobalApplication() {
       minInstances = appToRunAux.required;
 
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
-      runningAppList = await appLocation(appToRun);
+      runningAppList = await appsAuxiliarService.appLocation(appToRun);
       installingAppList = await appInstallingLocation(appToRun);
       if (runningAppList.length + installingAppList.length > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
@@ -10923,7 +7386,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - App ${appToRun} have failed previously to install on ${installingAppErrorsList.length} different nodes`);
     }
 
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
 
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
@@ -10956,7 +7419,7 @@ async function trySpawningGlobalApplication() {
     if (!appSpecifications) {
       throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
     }
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+    appSpecifications = await appsEncryptDecryptService.checkAndDecryptAppSpecs(appSpecifications);
 
     // eslint-disable-next-line no-restricted-syntax
     const dbopen = dbHelper.databaseConnection();
@@ -10981,7 +7444,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // verify app compliance
-    await checkApplicationImagesComplience(appSpecifications).catch((error) => {
+    await appsAuxiliarService.checkApplicationImagesComplience(appSpecifications).catch((error) => {
       if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
         spawnErrorsLongerAppCache.set(appHash, appHash);
       }
@@ -11020,7 +7483,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // double check if app is installed on the number of instances requested
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
     installingAppList = await appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
@@ -11165,14 +7628,14 @@ async function trySpawningGlobalApplication() {
 
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
-      await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
+      await appsAuxiliarService.verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
         spawnErrorsLongerAppCache.set(appHash, appHash);
         throw error;
       });
     }
 
     // triple check if app is installed on the number of instances requested
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
     installingAppList = await appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
@@ -11194,7 +7657,7 @@ async function trySpawningGlobalApplication() {
 
     // store it in local database first
     // eslint-disable-next-line no-await-in-loop, no-use-before-define
-    await storeAppInstallingMessage(newAppInstallingMessage);
+    await storeWSMessagesService.storeAppInstallingMessage(newAppInstallingMessage);
     // broadcast messages about running apps to all peers
     await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppInstallingMessage);
     await serviceHelper.delay(500);
@@ -11204,7 +7667,7 @@ async function trySpawningGlobalApplication() {
     await serviceHelper.delay(30 * 1000); // give it time so messages are propagated on the network
 
     // double check if app is installed in more of the instances requested
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
     installingAppList = await appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
       installingAppList.sort((a, b) => {
@@ -11243,7 +7706,7 @@ async function trySpawningGlobalApplication() {
 
     await serviceHelper.delay(1 * 60 * 1000); // await 1 minute to give time for messages to be propagated on the network
     // double check if app is installed in more of the instances requested
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
     if (runningAppList.length > minInstances) {
       runningAppList.sort((a, b) => {
         if (!a.runningSince && b.runningSince) {
@@ -11383,7 +7846,7 @@ async function checkAndNotifyPeersOfRunningApps() {
               } else {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerStart(stoppedApp);
-                startAppMonitoring(stoppedApp);
+                appsDockerService.startAppMonitoring(stoppedApp);
               }
             } else {
               log.warn(`Not starting ${stoppedApp} as application removal or installation or backup/restore is in progress`);
@@ -11457,7 +7920,7 @@ async function checkAndNotifyPeersOfRunningApps() {
         apps.push(app);
         // store it in local database first
         // eslint-disable-next-line no-await-in-loop
-        await storeAppRunningMessage(newAppRunningMessage);
+        await storeWSMessagesService.storeAppRunningMessage(newAppRunningMessage);
         if (installedAndRunning.length === 1) {
           // eslint-disable-next-line no-await-in-loop
           await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newAppRunningMessage);
@@ -11670,6 +8133,7 @@ async function checkApplicationsCpuUSage() {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
       if (app.version <= 3) {
+        const appsMonitored = appsDockerService.getAppsMonitored();
         stats = appsMonitored[app.name].lastHourstatsStore;
         // eslint-disable-next-line no-await-in-loop
         const inspect = await dockerService.dockerContainerInspect(app.name);
@@ -11727,6 +8191,7 @@ async function checkApplicationsCpuUSage() {
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of app.compose) {
+          const appsMonitored = appsDockerService.getAppsMonitored();
           stats = appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore;
           // eslint-disable-next-line no-await-in-loop
           const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
@@ -11812,7 +8277,7 @@ async function checkAndRemoveApplicationInstance() {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
-      const runningAppList = await appLocation(installedApp.name);
+      const runningAppList = await appsAuxiliarService.appLocation(installedApp.name);
       const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
       if (runningAppList.length > minInstances) {
         // eslint-disable-next-line no-await-in-loop
@@ -12054,7 +8519,7 @@ async function reinstallOldApplications() {
             log.warn(`Composed application ${appSpecifications.name} updated.`);
             log.warn(`Restarting application ${appSpecifications.name}`);
             // eslint-disable-next-line no-await-in-loop, no-use-before-define
-            await appDockerRestart(appSpecifications.name);
+            await appsDockerService.appsDockerService.appDockerRestart(appSpecifications.name);
           } else if (appSpecifications.version <= 3) {
             if (appSpecifications.tiered) {
               const hddTier = `hdd${tier}`;
@@ -12185,7 +8650,7 @@ async function reinstallOldApplications() {
               log.warn(`Composed application ${appSpecifications.name} updated.`);
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
-              await appDockerRestart(appSpecifications.name);
+              await appsDockerService.appDockerRestart(appSpecifications.name);
             } catch (error) {
               log.error(error);
               removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
@@ -12211,7 +8676,7 @@ async function reinstallOldApplications() {
  */
 async function getAppFluxOnChainPrice(appSpecification) {
   try {
-    const appSpecFormatted = specificationFormatter(appSpecification);
+    const appSpecFormatted = appsAuxiliarService.specificationFormatter(appSpecification);
 
     // check if app exists or its a new registration price
     const db = dbHelper.databaseConnection();
@@ -12348,8 +8813,8 @@ async function getAppFiatAndFluxPrice(req, res) {
         throw new Error('Daemon not yet synced.');
       }
       const daemonHeight = syncStatus.data.height;
-      appSpecification = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      appSpecification = await appsEncryptDecryptService.checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+      const appSpecFormatted = appsAuxiliarService.specificationFormatter(appSpecification);
 
       // verifications skipped. This endpoint is only for price evaluation
 
@@ -12564,7 +9029,7 @@ async function redeployAPI(req, res) {
       return;
     }
 
-    const specifications = await getApplicationSpecifications(appname);
+    const specifications = await appsAuxiliarService.getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
@@ -12612,7 +9077,7 @@ async function verifyAppRegistrationParameters(req, res) {
         appSpecification.version >= 8 && appSpecification.enterprise,
       );
 
-      const appSpecDecrypted = await checkAndDecryptAppSpecs(
+      const appSpecDecrypted = await appsEncryptDecryptService.checkAndDecryptAppSpecs(
         appSpecification,
         {
           daemonHeight,
@@ -12620,23 +9085,23 @@ async function verifyAppRegistrationParameters(req, res) {
         },
       );
 
-      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+      const appSpecFormatted = appsAuxiliarService.specificationFormatter(appSpecDecrypted);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+      await appsAuxiliarService.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await appsEncryptDecryptService.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
 
       // check if name is not yet registered
-      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+      await appsAuxiliarService.checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
@@ -12686,26 +9151,26 @@ async function verifyAppUpdateParameters(req, res) {
         appSpecification.version >= 8 && appSpecification.enterprise,
       );
 
-      const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+      const decryptedSpecs = await appsEncryptDecryptService.checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
 
-      const appSpecFormatted = specificationFormatter(decryptedSpecs);
+      const appSpecFormatted = appsAuxiliarService.specificationFormatter(decryptedSpecs);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
-      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+      await appsAuxiliarService.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
       if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await appsEncryptDecryptService.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
           }
         }
       }
 
       // check if name is not yet registered
       const timestamp = Date.now();
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+      await appsAuxiliarService.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
@@ -12997,113 +9462,6 @@ async function getDeviceID(fluxIP) {
 }
 
 /**
- * To restart an app. Restarts each component if the app is using Docker Compose.
- * Function to ba called after synthing database revert that can cause no data to show up inside container despite it exists on mountpoint.
- * @param {string} appname Request.
- */
-async function appDockerRestart(appname) {
-  try {
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
-    if (isComponent) {
-      await dockerService.appDockerRestart(appname);
-      startAppMonitoring(appname);
-    } else {
-      // ask for restarting entire composed application
-      // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      if (appSpecs.version <= 3) {
-        await dockerService.appDockerRestart(appname);
-        startAppMonitoring(appname);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * To start an app. Start each component if the app is using Docker Compose.
- * @param {string} appname Request.
- */
-async function appDockerStart(appname) {
-  try {
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
-    if (isComponent) {
-      await dockerService.appDockerStart(appname);
-      startAppMonitoring(appname);
-    } else {
-      // ask for restarting entire composed application
-      // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      if (appSpecs.version <= 3) {
-        await dockerService.appDockerStart(appname);
-        startAppMonitoring(appname);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * To stop an app. Stop each component if the app is using Docker Compose.
- * Function to ba called before starting synthing in r: mode.
- * @param {string} appname Request.
- */
-async function appDockerStop(appname) {
-  try {
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
-    if (isComponent) {
-      await dockerService.appDockerStop(appname);
-      stopAppMonitoring(appname, false);
-    } else {
-      // ask for restarting entire composed application
-      // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      if (appSpecs.version <= 3) {
-        await dockerService.appDockerStop(appname);
-        stopAppMonitoring(appname, false);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
-          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
  * To delete all data inside app mount point
  * Function to ba called before starting synthing in r: mode.
  * @param {string} appname Request.
@@ -13171,7 +9529,7 @@ async function syncthingApps() {
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execDIRst);
             // eslint-disable-next-line no-await-in-loop
-            const locations = await appLocation(installedApp.name);
+            const locations = await appsAuxiliarService.appLocation(installedApp.name);
             locations.sort((a, b) => {
               if (a.ip < b.ip) {
                 return -1;
@@ -13243,7 +9601,7 @@ async function syncthingApps() {
                   };
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                   // eslint-disable-next-line no-await-in-loop
-                  await appDockerStop(id);
+                  await appsDockerService.appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(500);
                   // eslint-disable-next-line no-await-in-loop
@@ -13265,7 +9623,7 @@ async function syncthingApps() {
                 const cache = receiveOnlySyncthingAppsCache.get(appId);
 
                 // eslint-disable-next-line no-await-in-loop
-                const runningAppList = await appLocation(installedApp.name);
+                const runningAppList = await appsAuxiliarService.appLocation(installedApp.name);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
                     return -1;
@@ -13316,7 +9674,7 @@ async function syncthingApps() {
                     if (containerDataFlags.includes('r')) {
                       log.info(`SyncthingApps starting appIdentifier ${appId}`);
                       // eslint-disable-next-line no-await-in-loop
-                      await appDockerRestart(id);
+                      await appsDockerService.appDockerRestart(id);
                     }
                     cache.restarted = true;
                   }
@@ -13330,7 +9688,7 @@ async function syncthingApps() {
                 };
                 receiveOnlySyncthingAppsCache.set(appId, cache);
                 // eslint-disable-next-line no-await-in-loop
-                await appDockerStop(id);
+                await appsDockerService.appDockerStop(id);
                 // eslint-disable-next-line no-await-in-loop
                 await serviceHelper.delay(500);
                 // eslint-disable-next-line no-await-in-loop
@@ -13368,7 +9726,7 @@ async function syncthingApps() {
               // eslint-disable-next-line no-await-in-loop
               await cmdAsync(execDIRst);
               // eslint-disable-next-line no-await-in-loop
-              const locations = await appLocation(installedApp.name);
+              const locations = await appsAuxiliarService.appLocation(installedApp.name);
               locations.sort((a, b) => {
                 if (a.ip < b.ip) {
                   return -1;
@@ -13440,7 +9798,7 @@ async function syncthingApps() {
                     };
                     receiveOnlySyncthingAppsCache.set(appId, cache);
                     // eslint-disable-next-line no-await-in-loop
-                    await appDockerStop(id);
+                    await appsDockerService.appDockerStop(id);
                     // eslint-disable-next-line no-await-in-loop
                     await serviceHelper.delay(500);
                     // eslint-disable-next-line no-await-in-loop
@@ -13461,7 +9819,7 @@ async function syncthingApps() {
                 } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
                   const cache = receiveOnlySyncthingAppsCache.get(appId);
                   // eslint-disable-next-line no-await-in-loop
-                  const runningAppList = await appLocation(installedApp.name);
+                  const runningAppList = await appsAuxiliarService.appLocation(installedApp.name);
                   log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                   runningAppList.sort((a, b) => {
                     if (!a.runningSince && b.runningSince) {
@@ -13515,7 +9873,7 @@ async function syncthingApps() {
                       if (containerDataFlags.includes('r')) {
                         log.info(`SyncthingApps starting appIdentifier ${appId}`);
                         // eslint-disable-next-line no-await-in-loop
-                        await appDockerRestart(id);
+                        await appsDockerService.appDockerRestart(id);
                       }
                       cache.restarted = true;
                     }
@@ -13529,7 +9887,7 @@ async function syncthingApps() {
                   };
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                   // eslint-disable-next-line no-await-in-loop
-                  await appDockerStop(id);
+                  await appsDockerService.appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(500);
                   // eslint-disable-next-line no-await-in-loop
@@ -13766,7 +10124,7 @@ async function masterSlaveApps() {
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
               if (!runningAppsNames.includes(identifier)) {
                 // eslint-disable-next-line no-await-in-loop
-                const runningAppList = await appLocation(installedApp.name);
+                const runningAppList = await appsAuxiliarService.appLocation(installedApp.name);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
                     return -1;
@@ -13790,7 +10148,7 @@ async function masterSlaveApps() {
                 });
                 const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
-                  appDockerRestart(installedApp.name);
+                  appsDockerService.appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
                   const { CancelToken } = axios;
@@ -13815,7 +10173,7 @@ async function masterSlaveApps() {
                   }
                   // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
                   if (index === 0) {
-                    appDockerRestart(installedApp.name);
+                    appsDockerService.appDockerRestart(installedApp.name);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier).split(':')[0]);
@@ -13831,7 +10189,7 @@ async function masterSlaveApps() {
                       timetoStartApp += index * 3 * 60 * 1000;
                     }
                     if (timetoStartApp <= Date.now()) {
-                      appDockerRestart(installedApp.name);
+                      appsDockerService.appDockerRestart(installedApp.name);
                       log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                     } else {
                       log.info(`masterSlaveApps: will start docker app:${installedApp.name} at ${timetoStartApp.toString()}`);
@@ -13839,10 +10197,10 @@ async function masterSlaveApps() {
                     }
                   }
                 } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
-                  appDockerRestart(installedApp.name);
+                  appsDockerService.appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                 } else {
-                  appDockerRestart(installedApp.name);
+                  appsDockerService.appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: no previous information about primary, starting docker app:${installedApp.name}`);
                 }
               }
@@ -13853,10 +10211,10 @@ async function masterSlaveApps() {
                 timeTostartNewMasterApp.delete(identifier);
               }
               if (myIP !== ip && runningAppsNames.includes(identifier)) {
-                appDockerStop(installedApp.name);
+                appsDockerService.appDockerStop(installedApp.name);
                 log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and myIP is: ${myIP}`);
               } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
-                appDockerRestart(installedApp.name);
+                appsDockerService.appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
               }
             }
@@ -13920,7 +10278,6 @@ async function monitorSharedDBApps() {
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 let dosMountMessage = '';
-let dosDuplicateAppMessage = '';
 
 /**
  * To get DOS state.
@@ -14064,8 +10421,8 @@ async function checkMyAppsAvailability() {
     if (!currentHeight) {
       throw new Error('No scanned height found');
     }
-    if (dosMountMessage || dosDuplicateAppMessage) {
-      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    if (dosMountMessage) {
+      dosMessage = dosMountMessage;
       dosState = 100;
       return;
     }
@@ -14309,7 +10666,7 @@ async function checkMyAppsAvailability() {
     });
     if (!portTestFailed) {
       dosState = 0;
-      dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+      dosMessage = dosMountMessage || null;
       if (setPortToTest) {
         await serviceHelper.delay(1 * 60 * 1000);
       } else {
@@ -14321,7 +10678,7 @@ async function checkMyAppsAvailability() {
         portsNotWorking.push(failedPort);
         failedPort = null;
         dosState = 0;
-        dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+        dosMessage = dosMountMessage || null;
         await serviceHelper.delay(15 * 1000);
       } else {
         const randomIndex = Math.floor(Math.random() * portsNotWorking.length);
@@ -14332,8 +10689,8 @@ async function checkMyAppsAvailability() {
     }
     checkMyAppsAvailability();
   } catch (error) {
-    if (dosMountMessage || dosDuplicateAppMessage) {
-      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    if (dosMountMessage) {
+      dosMessage = dosMountMessage;
     }
     let firewallActive = true;
     firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
@@ -14496,8 +10853,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     });
     return portsStatus;
   } catch (error) {
-    if (dosMountMessage || dosDuplicateAppMessage) {
-      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    if (dosMountMessage) {
+      dosMessage = dosMountMessage;
     }
     let firewallActive = true;
     firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
@@ -14650,52 +11007,6 @@ async function testAppMount() {
     dosMountMessage = 'Unavailability to mount applications volumes. Impossible to run applications.';
     // run removal
     removeTestAppMount();
-  }
-}
-
-/**
- * Check on apps Logs if there is reported another instance of the app on the same network (public ip).
- * For start we will check for PresearchNodes, in the future we can add other masternode apps
- */
-async function checkForNonAllowedAppsOnLocalNetwork() {
-  try {
-    // get list of locally installed apps.
-    const installedAppsRes = await installedApps();
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('Failed to get installed Apps');
-    }
-    const appsInstalled = installedAppsRes.data;
-    dosDuplicateAppMessage = '';
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of appsInstalled) {
-      if (app.name.toLowerCase().startsWith('presearchnode')) {
-        let containerName = app.name;
-        if (app.version >= 4) {
-          containerName = `${app.compose[0].name}_${app.name}`;
-        }
-        // eslint-disable-next-line no-await-in-loop
-        const logs = await dockerService.dockerContainerLogs(containerName, 5);
-        if (logs.toLowerCase().includes('duplicate ip: this ip address is already running another node')) {
-          log.error('Another PresearchNode was detected running on your local network.');
-          // dosDuplicateAppMessage = 'Another PresearchNode was detected running on your local network.';
-          break;
-        }
-      }
-    }
-    if (dosDuplicateAppMessage) {
-      setTimeout(() => {
-        checkForNonAllowedAppsOnLocalNetwork();
-      }, 60 * 60 * 1000);
-    } else {
-      setTimeout(() => {
-        checkForNonAllowedAppsOnLocalNetwork();
-      }, 12 * 60 * 60 * 1000);
-    }
-  } catch (error) {
-    log.error(error);
-    setTimeout(() => {
-      checkForNonAllowedAppsOnLocalNetwork();
-    }, 60 * 60 * 1000);
   }
 }
 
@@ -14877,7 +11188,7 @@ async function appendBackupTask(req, res) {
       }
 
       await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
+      await appsDockerService.appDockerStop(appname);
       await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line no-restricted-syntax
       for (const component of backup) {
@@ -14908,13 +11219,13 @@ async function appendBackupTask(req, res) {
       await serviceHelper.delay(5 * 1000);
       await sendChunk(res, 'Starting application...\n');
       if (!syncthing) {
-        await appDockerStart(appname);
+        await appsDockerService.appDockerStart(appname);
       } else {
         const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
         // eslint-disable-next-line no-restricted-syntax
         for (const component of componentsWithoutGSyncthing) {
           // eslint-disable-next-line no-await-in-loop
-          await appDockerStart(`${component.name}_${appname}`);
+          await appsDockerService.appDockerStart(`${component.name}_${appname}`);
         }
       }
       await sendChunk(res, 'Finalizing...\n');
@@ -14993,7 +11304,7 @@ async function appendRestoreTask(req, res) {
         await stopSyncthingApp(appname, res, true);
       }
       await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
+      await appsDockerService.appDockerStop(appname);
       await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line no-restricted-syntax
       for (const component of restore) {
@@ -15063,7 +11374,7 @@ async function appendRestoreTask(req, res) {
       }
       await serviceHelper.delay(1 * 5 * 1000);
       await sendChunk(res, 'Starting application...\n');
-      await appDockerStart(appname);
+      await appsDockerService.appDockerStart(appname);
       if (syncthing) {
         await sendChunk(res, 'Redeploying other instances...\n');
         executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
@@ -15657,7 +11968,6 @@ module.exports = {
   appStats,
   appMonitor,
   appMonitorStream,
-  startMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
   appChanges,
@@ -15669,9 +11979,7 @@ module.exports = {
   createFluxNetworkAPI,
   removeAppLocallyApi,
   installedApps,
-  availableApps,
   appsResources,
-  checkAppMessageExistence,
   requestAppMessageAPI,
   checkAndRequestApp,
   checkAndRequestMultipleApps,
@@ -15681,24 +11989,15 @@ module.exports = {
   getAppsTemporaryMessages,
   getAppsPermanentMessages,
   getGlobalAppsSpecifications,
-  storeAppTemporaryMessage,
-  verifyRepository,
-  checkHWParameters,
-  verifyAppHash,
-  verifyAppMessageSignature,
   reindexGlobalAppsInformation,
   rescanGlobalAppsInformation,
   continuousFluxAppHashesCheck,
   getAppHashes,
   getAppsLocation,
   getAppsLocations,
-  storeAppRunningMessage,
-  storeIPChangedMessage,
-  storeAppRemovedMessage,
   reindexGlobalAppsLocation,
   getRunningAppIpList,
   trySpawningGlobalApplication,
-  getApplicationSpecifications,
   getStrictApplicationSpecifications,
   getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications,
@@ -15717,7 +12016,6 @@ module.exports = {
   getAppFiatAndFluxPrice,
   reinstallOldApplications,
   checkAndRemoveApplicationInstance,
-  checkAppTemporaryMessageExistence,
   softRegisterAppLocally,
   softRemoveAppLocally,
   softRedeploy,
@@ -15735,7 +12033,6 @@ module.exports = {
   getAllGlobalApplications,
   syncthingApps,
   getChainParamsPriceUpdates,
-  getChainTeamSupportddressUpdates,
   getAppsDOSState,
   checkMyAppsAvailability,
   checkApplicationsCompliance,
@@ -15752,13 +12049,7 @@ module.exports = {
   downloadAppsFile,
   encryptEnterpriseWithAes,
   getlatestApplicationSpecificationAPI,
-  // exports for testing purposes
-  setAppsMonitored,
-  getAppsMonitored,
-  clearAppsMonitored,
   getAppFolderSize,
-  startAppMonitoring,
-  stopMonitoringOfApps,
   getNodeSpecs,
   setNodeSpecs,
   returnNodeSpecs,
@@ -15773,7 +12064,6 @@ module.exports = {
   setRemovalInProgressToTrue,
   installationInProgressReset,
   setInstallationInProgressTrue,
-  checkForNonAllowedAppsOnLocalNetwork,
   triggerAppHashesCheckAPI,
   masterSlaveApps,
   getAppSpecsUSDPrice,
@@ -15783,10 +12073,8 @@ module.exports = {
   callOtherNodeToKeepUpnpPortsOpen,
   getPublicKey,
   getApplicationOriginalOwner,
-  storeAppInstallingMessage,
   getAppInstallingLocation,
   getAppsInstallingLocations,
-  storeAppInstallingErrorMessage,
   getAppInstallingErrorsLocation,
   getAppsInstallingErrorsLocations,
 };
