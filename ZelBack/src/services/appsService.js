@@ -14088,7 +14088,7 @@ let originalPortFailed = false;
 let lastUPNPMapFailed = false;
 let setPortToTest = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 async function checkMyAppsAvailability() {
-  const isUpnp = upnpService.isUpnp();
+  const isUpnp = upnpService.isUPNP();
 
   const setNextPort = () => {
     if (originalPortFailed && testingPort > originalPortFailed) {
