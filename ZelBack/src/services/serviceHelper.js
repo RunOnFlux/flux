@@ -13,7 +13,7 @@ const dbHelper = require('./dbHelper');
 const log = require('../lib/log');
 
 const fluxController = require('./utils/fluxController');
-const appsAvailableService = require('./appsAvailable');
+const appsAvailableService = require('./appsAvailableService');
 
 /**
  * The Service Helper controller

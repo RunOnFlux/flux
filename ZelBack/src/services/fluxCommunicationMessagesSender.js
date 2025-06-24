@@ -6,7 +6,7 @@ const serviceHelper = require('./serviceHelper');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
-const appsMessageExistenceService = require('./appsMessageExistence');
+const appsMessageExistenceService = require('./appsMessageExistenceService');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
