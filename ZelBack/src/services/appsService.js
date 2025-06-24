@@ -14051,7 +14051,10 @@ async function handleTestShutdown(testingPort, options = {}) {
 
   const updateFirewall = skipFirewall ? false : await fluxNetworkHelper
     .isFirewallActive()
-    .catch((e) => log.error(e));
+    .catch((e) => {
+      log.error(e);
+      return false;
+    });
 
   if (updateFirewall) {
     await fluxNetworkHelper
