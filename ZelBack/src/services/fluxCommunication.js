@@ -11,6 +11,7 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
+const storeWSMessagesService = require('./storeWSMessagesService');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -68,9 +69,7 @@ async function handleAppMessages(message, fromIP, port) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
+    const rebroadcastToPeers = await storeWSMessagesService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
@@ -179,9 +178,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
+    const rebroadcastToPeers = await storeWSMessagesService.storeAppRunningMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -230,9 +227,7 @@ async function handleAppInstallingMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeAppInstallingMessage(message.data);
+    const rebroadcastToPeers = await storeWSMessagesService.storeAppInstallingMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -281,9 +276,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeAppInstallingErrorMessage(message.data);
+    const rebroadcastToPeers = await storeWSMessagesService.storeAppInstallingErrorMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -331,9 +324,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, update information
     // rebroadcast message to the network if it's valid
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeIPChangedMessage(message.data);
+    const rebroadcastToPeers = await storeWSMessagesService.storeIPChangedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
@@ -381,9 +372,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, delete that information
     // rebroadcast message to the network if it's valid
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
-    const rebroadcastToPeers = await appsService.storeAppRemovedMessage(message.data);
+    const rebroadcastToPeers = await storeWSMessagesService.storeAppRemovedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
