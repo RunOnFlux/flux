@@ -20,6 +20,8 @@ const daemonServiceWalletRpcs = require('./daemonService/daemonServiceWalletRpcs
 const benchmarkService = require('./benchmarkService');
 const verificationHelper = require('./verificationHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const appsAuxiliarService = require('./appsAuxiliarService');
+const appsDockerService = require('./appsDockerService');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
@@ -779,11 +781,11 @@ async function ipChangesOverLimit() {
         maxNumberOfIpChanges = ipChangeData.count;
       }
       if (ipChangeData.count >= 2) {
-        // eslint-disable-next-line global-require
-        const appsService = require('./appsService');
-        let apps = await appsService.installedApps();
+        let apps = await appsAuxiliarService.installedApps();
         if (apps.status === 'success' && apps.data.length > 0) {
           apps = apps.data;
+          // eslint-disable-next-line global-require
+          const appsService = require('./appsService');
           // eslint-disable-next-line no-restricted-syntax
           for (const app of apps) {
             // eslint-disable-next-line no-await-in-loop
@@ -863,16 +865,16 @@ async function adjustExternalIP(ip) {
         setDosMessage('IP changes over the limit allowed, one in 20 hours');
         log.error(dosMessage);
       }
-      // eslint-disable-next-line global-require
-      const appsService = require('./appsService');
-      let apps = await appsService.installedApps();
+      let apps = await appsAuxiliarService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
         let appsRemoved = 0;
+        // eslint-disable-next-line global-require
+        const appsService = require('./appsService');
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
           // eslint-disable-next-line no-await-in-loop
-          const runningAppList = await appsService.appLocation(app.name);
+          const runningAppList = await appsAuxiliarService.appLocation(app.name);
           const findMyIP = runningAppList.find((instance) => instance.ip.split(':')[0] === ip);
           if (findMyIP) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
@@ -882,7 +884,7 @@ async function adjustExternalIP(ip) {
           } else {
             // once app specs v8 is done we check if app have specs that is using fluxnode service.
             // eslint-disable-next-line no-await-in-loop
-            await appsService.appDockerRestart(app.name);
+            await appsDockerService.appDockerRestart(app.name);
           }
         }
         if (apps.length > appsRemoved) {

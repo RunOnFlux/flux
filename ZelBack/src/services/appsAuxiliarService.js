@@ -16,6 +16,8 @@ const appsHashesCollection = config.database.daemon.collections.appsHashes;
 
 const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
+const localAppsInformation = config.database.appslocal.collections.appsInformation;
+const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const longCache = {
   max: 500,
@@ -2216,6 +2218,124 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   return true;
 }
 
+/**
+ * To get a list of installed apps. Where req can be equal to appname. Shall be identical to listAllApps but this is a database response.
+ * @param {object} req Request.
+ * @returns {array} return list of installed apps.
+ */
+async function installedApps(req) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    let appsQuery = {};
+    if (req && req.params && req.query) {
+      let { appname } = req.params; // we accept both help/command and help?command=getinfo
+      appname = appname || req.query.appname;
+      if (appname) {
+        appsQuery = {
+          name: appname,
+        };
+      }
+    } else if (req && typeof req === 'string') {
+      // consider it as appname
+      appsQuery = {
+        name: req,
+      };
+    }
+    const appsProjection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    return await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+/**
+ * To get app locations or a location of an app
+ * @param {string} appname Application Name.
+ */
+async function appLocation(appname) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  let query = {};
+  if (appname) {
+    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+  }
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
+      runningSince: 1,
+      osUptime: 1,
+      staticIp: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results;
+}
+
+/**
+ * To get app specifications for a specific app if global/local status is unkown. First searches global apps and if not found then searches local apps.
+ * @param {string} appName App name.
+ * @returns {object} Document with app info.
+ */
+async function getApplicationSpecifications(appName) {
+  // appSpecs: {
+  //   version: 2,
+  //   name: 'FoldingAtHomeB',
+  //   description: 'Folding @ Home is cool :)',
+  //   repotag: 'yurinnick/folding-at-home:latest',
+  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+  //   ports: '[30001]', // []
+  //   containerPorts: '[7396]', // []
+  //   domains: '[""]', // []
+  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
+  //   containerData: '/config',
+  //   cpu: 0.5,
+  //   ram: 500,
+  //   hdd: 5,
+  //   tiered: true,
+  //   cpubasic: 0.5,
+  //   rambasic: 500,
+  //   hddbasic: 5,
+  //   cpusuper: 1,
+  //   ramsuper: 1000,
+  //   hddsuper: 5,
+  //   cpubamf: 2,
+  //   rambamf: 2000,
+  //   hddbamf: 5,
+  //   hash: hash of message that has these paramenters,
+  //   height: height containing the message
+  // };
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (!appInfo) {
+    const allApps = await appsAvailableService.availableApps();
+    appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
+  }
+
+  appInfo = await appsEncryptDecryptService.checkAndDecryptAppSpecs(appInfo);
+  return appInfo;
+}
+
 module.exports = {
   checkHWParameters,
   verifyAppSpecifications,
@@ -2227,4 +2347,7 @@ module.exports = {
   verifyAppHash,
   verifyAppMessageSignature,
   verifyAppMessageUpdateSignature,
+  installedApps,
+  appLocation,
+  getApplicationSpecifications,
 };

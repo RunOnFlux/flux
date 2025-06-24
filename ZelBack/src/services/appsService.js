@@ -38,6 +38,7 @@ const geolocationService = require('./geolocationService');
 const appsMessageExistenceService = require('./appsMessageExistenceService');
 const appsAuxiliarService = require('./appsAuxiliarService');
 const appsEncryptDecryptService = require('./appsEncryptDecryptService');
+const appsDockerService = require('./appsDockerService');
 const storeWSMessagesService = require('./storeWSMessagesService');
 const appsAvailableService = require('./appsAvailableService');
 const syncthingService = require('./syncthingService');
@@ -152,26 +153,6 @@ const nodeSpecs = {
   ssdStorage: 0,
 };
 
-const appsMonitored = {
-  // appsMonitored Object Examples:
-  // component1_appname2: { // >= 4 or name for <= 3
-  //   oneMinuteInterval: null, // interval
-  //   fifteenMinInterval: null, // interval
-  //   oneMinuteStatsStore: [ // stores last hour of stats of app measured every minute
-  //     { // object of timestamp, data
-  //       timestamp: 0,
-  //       data: { },
-  //     },
-  //   ],
-  //   fifteenMinStatsStore: [ // stores last 24 hours of stats of app measured every 15 minutes
-  //     { // object of timestamp, data
-  //       timestamp: 0,
-  //       data: { },
-  //     },
-  //   ],
-  // },
-};
-
 /**
  * To get array of price specifications updates
  * @returns {(object|object[])} Returns an array of app objects.
@@ -229,31 +210,7 @@ async function getChainParamsPriceUpdates() {
  */
 async function installedApps(req, res) {
   try {
-    const dbopen = dbHelper.databaseConnection();
-
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-    let appsQuery = {};
-    if (req && req.params && req.query) {
-      let { appname } = req.params; // we accept both help/command and help?command=getinfo
-      appname = appname || req.query.appname;
-      if (appname) {
-        appsQuery = {
-          name: appname,
-        };
-      }
-    } else if (req && typeof req === 'string') {
-      // consider it as appname
-      appsQuery = {
-        name: req,
-      };
-    }
-    const appsProjection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const dataResponse = messageHelper.createDataMessage(apps);
+    const dataResponse = messageHelper.createDataMessage(await appsAuxiliarService.installedApps(req));
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
     log.error(error);
@@ -370,7 +327,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
   try {
     // get a list of the specific app locations
     // eslint-disable-next-line no-use-before-define
-    const locations = await appLocation(appname);
+    const locations = await appsAuxiliarService.appLocation(appname);
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     const myUrl = myIP.split(':')[0];
     const myUrlPort = myIP.split(':')[1] || 16127;
@@ -443,26 +400,25 @@ async function appStart(req, res) {
     let appRes;
     if (isComponent) {
       appRes = await dockerService.appDockerStart(appname);
-      // eslint-disable-next-line no-use-before-define
-      startAppMonitoring(appname);
+      appsDockerService.startAppMonitoring(appname);
     } else {
       // ask for starting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerStart(appname);
         // eslint-disable-next-line no-use-before-define
-        startAppMonitoring(appname);
+        appsDockerService.startAppMonitoring(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
           // eslint-disable-next-line no-use-before-define
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+          appsDockerService.startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -516,25 +472,21 @@ async function appStop(req, res) {
 
     let appRes;
     if (isComponent) {
-      // eslint-disable-next-line no-use-before-define
-      stopAppMonitoring(appname, false);
+      appsDockerService.stopAppMonitoring(appname, false);
       appRes = await dockerService.appDockerStop(appname);
     } else {
       // ask for stopping entire composed application
-      // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
-        // eslint-disable-next-line no-use-before-define
-        stopAppMonitoring(appname, false);
+        appsDockerService.stopAppMonitoring(appname, false);
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose.reverse()) {
-          // eslint-disable-next-line no-use-before-define
-          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
+          appsDockerService.stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
@@ -594,7 +546,7 @@ async function appRestart(req, res) {
     } else {
       // ask for restarting entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -654,7 +606,7 @@ async function appKill(req, res) {
     } else {
       // ask for killing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -722,7 +674,7 @@ async function appPause(req, res) {
     } else {
       // ask for pausing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -790,7 +742,7 @@ async function appUnpause(req, res) {
     } else {
       // ask for unpausing entire composed application
       // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
+      const appSpecs = await appsAuxiliarService.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -1061,7 +1013,7 @@ async function appStats(req, res) {
     if (authorized === true) {
       const response = await dockerService.dockerContainerStats(appname);
       // eslint-disable-next-line no-use-before-define
-      const containerStorageInfo = await getContainerStorage(appname);
+      const containerStorageInfo = await appsDockerService.getContainerStorage(appname);
       response.disk_stats = containerStorageInfo;
       const inspect = await dockerService.dockerContainerInspect(appname);
       response.nanoCpus = inspect.HostConfig.NanoCpus;
@@ -1108,6 +1060,7 @@ async function appMonitor(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
+      const appsMonitored = appsDockerService.getAppsMonitored();
       if (appsMonitored[appname]) {
         let appStatsMonitoring = appsMonitored[appname].statsStore;
         if (range) {
@@ -1191,211 +1144,6 @@ async function getAppFolderSize(appName) {
 }
 
 /**
- * Retrieves the storage usage of a specified Docker container, including bind mounts and volume mounts.
- * @param {string} appName The name of the Docker container to inspect.
- * @returns {Promise<object>} An object containing the sizes of bind mounts, volume mounts, root filesystem, total used storage, and status.
- *   - bind: Size of bind mounts in bytes.
- *   - volume: Size of volume mounts in bytes.
- *   - rootfs: Size of the container's root filesystem in bytes.
- *   - used: Total used size (sum of bind, volume, and rootfs sizes) in bytes.
- *   - status: 'success' if the operation succeeded, 'error' otherwise.
- *   - message: An error message if the operation failed.
- */
-async function getContainerStorage(appName) {
-  try {
-    const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
-    let bindMountsSize = 0;
-    let volumeMountsSize = 0;
-    const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
-    if (containerInfo?.Mounts?.length) {
-      await Promise.all(containerInfo.Mounts.map(async (mount) => {
-        let source = mount?.Source;
-        const mountType = mount?.Type;
-        if (source) {
-          if (mountType === 'bind') {
-            source = source.replace('/appdata', '');
-            const exec = `sudo du -sb ${source}`;
-            const mountInfo = await cmdAsync(exec);
-            if (mountInfo) {
-              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
-              bindMountsSize += sizeNum;
-            } else {
-              log.warn(`No mount info returned for source: ${source}`);
-            }
-          } else if (mountType === 'volume') {
-            const exec = `sudo du -sb ${source}`;
-            const mountInfo = await cmdAsync(exec);
-            if (mountInfo) {
-              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
-              volumeMountsSize += sizeNum;
-            } else {
-              log.warn(`No mount info returned for source: ${source}`);
-            }
-          } else {
-            log.warn(`Unsupported mount type or source: Type: ${mountType}, Source: ${source}`);
-          }
-        }
-      }));
-    }
-    const usedSize = bindMountsSize + volumeMountsSize + containerRootFsSize;
-    return {
-      bind: bindMountsSize,
-      volume: volumeMountsSize,
-      rootfs: containerRootFsSize,
-      used: usedSize,
-      status: 'success',
-    };
-  } catch (error) {
-    log.error(`Error fetching container storage: ${error.message}`);
-    return {
-      bind: 0,
-      volume: 0,
-      rootfs: 0,
-      used: 0,
-      status: 'error',
-      message: error.message,
-    };
-  }
-}
-
-/**
- * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
- * @param {object} appName monitored component name
- */
-function startAppMonitoring(appName) {
-  if (!appName) {
-    throw new Error('No App specified');
-  } else {
-    log.info('Initialize Monitoring...');
-    appsMonitored[appName] = {}; // Initialize the app's monitoring object
-    if (!appsMonitored[appName].statsStore) {
-      appsMonitored[appName].statsStore = [];
-    }
-    if (!appsMonitored[appName].lastHourstatsStore) {
-      appsMonitored[appName].lastHourstatsStore = [];
-    }
-    // Clear previous interval for this app to prevent multiple intervals
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
-    appsMonitored[appName].run = 0;
-    appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
-      try {
-        if (!appsMonitored[appName]) {
-          log.error(`Monitoring of ${appName} already stopped`);
-          clearInterval(appsMonitored[appName].oneMinuteInterval);
-          return;
-        }
-        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
-        if (!dockerContainer) {
-          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
-          // eslint-disable-next-line no-use-before-define
-          stopAppMonitoring(appName, true);
-          return;
-        }
-        appsMonitored[appName].run += 1;
-        const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerStorageInfo = await getContainerStorage(appName);
-        statsNow.disk_stats = containerStorageInfo;
-        const now = Date.now();
-        if (appsMonitored[appName].run % 3 === 0) {
-          const inspect = await dockerService.dockerContainerInspect(appName);
-          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
-          appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
-          const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
-          const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
-          log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
-          appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
-            (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
-          );
-        }
-        appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
-        appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
-          (stat) => now - stat.timestamp <= 60 * 60 * 1000,
-        );
-      } catch (error) {
-        log.error(error);
-      }
-    }, 1 * 60 * 1000);
-  }
-}
-
-/**
- * Stops app monitoring for a single app.
- * @param {object} appName App specifications.
- * @param {boolean} deleteData Delete monitored data
- */
-// At any stage after the monitoring is started, trigger stop on demand without loosing data (unless delete data is chosen)
-function stopAppMonitoring(appName, deleteData) {
-  if (appsMonitored[appName]) {
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
-  }
-  if (deleteData) {
-    delete appsMonitored[appName];
-  }
-}
-
-/**
- * Starts app monitoring for all apps.
- * @param {array} appSpecsToMonitor Array of application specs to be monitored
- */
-async function startMonitoringOfApps(appSpecsToMonitor) {
-  try {
-    let apps = appSpecsToMonitor;
-    if (!apps) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      apps = installedAppsRes.data;
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-      if (app.version <= 3) {
-        startAppMonitoring(app.name);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of app.compose) {
-          const monitoredName = `${component.name}_${app.name}`;
-          startAppMonitoring(monitoredName);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * Stops app monitoring for all apps.
- * @param {array} appSpecsToMonitor Array of application specs to be stopped for monitor
- */
-async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
-  try {
-    let apps = appSpecsToMonitor;
-    if (!apps) {
-      const installedAppsRes = await installedApps();
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      apps = installedAppsRes.data;
-    }
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of apps) {
-      if (app.version <= 3) {
-        stopAppMonitoring(app.name, deleteData);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of app.compose) {
-          const monitoredName = `${component.name}_${app.name}`;
-          stopAppMonitoring(monitoredName, deleteData);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
  * API call to start app monitoring and save monitoring data in-memory to the appsMonitored object. Monitors all apps or a single app if its name is specified in the API request.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1414,8 +1162,8 @@ async function startAppMonitoringAPI(req, res) {
         return;
       }
       // this should not be started if some monitoring is already running. Stop all monitoring before
-      await stopMonitoringOfApps();
-      await startMonitoringOfApps();
+      await appsDockerService.stopMonitoringOfApps();
+      await appsDockerService.startMonitoringOfApps();
       const monitoringResponse = messageHelper.createSuccessMessage('Application monitoring started for all apps');
       res.json(monitoringResponse);
     } else {
@@ -1436,11 +1184,11 @@ async function startAppMonitoringAPI(req, res) {
         throw new Error(`Application ${mainAppName} is not installed`);
       }
       if (mainAppName === appname) {
-        await stopMonitoringOfApps([appSpecs]);
-        await startMonitoringOfApps([appSpecs]);
+        await appsDockerService.stopMonitoringOfApps([appSpecs]);
+        await appsDockerService.startMonitoringOfApps([appSpecs]);
       } else { // component based or <= 3
-        stopAppMonitoring(appname);
-        startAppMonitoring(appname);
+        appsDockerService.stopAppMonitoring(appname);
+        appsDockerService.startAppMonitoring(appname);
       }
       const monitoringResponse = messageHelper.createSuccessMessage(`Application monitoring started for ${appSpecs.name}`);
       res.json(monitoringResponse);
@@ -1477,7 +1225,7 @@ async function stopAppMonitoringAPI(req, res) {
         res.json(errMessage);
         return;
       }
-      await stopMonitoringOfApps();
+      await appsDockerService.stopMonitoringOfApps();
       let successMessage = '';
       if (!deletedata) {
         successMessage = 'Application monitoring stopped for all apps. Existing monitoring data maintained.';
@@ -1507,9 +1255,9 @@ async function stopAppMonitoringAPI(req, res) {
         if (!appSpecs) {
           throw new Error(`Application ${mainAppName} is not installed`);
         }
-        await stopMonitoringOfApps([appSpecs], deletedata);
+        await appsDockerService.stopMonitoringOfApps([appSpecs], deletedata);
       } else { // component based or <= 3
-        stopAppMonitoring(appname, deletedata);
+        appsDockerService.stopAppMonitoring(appname, deletedata);
       }
       if (deletedata) {
         successMessage = `Application monitoring stopped and monitoring data deleted for ${appname}.`;
@@ -1527,36 +1275,6 @@ async function stopAppMonitoringAPI(req, res) {
       error.code,
     );
     res.json(errorResponse);
-  }
-}
-
-/**
- * Created for testing purposes - sets appMonitored
- *
- * @param {object} appData
- */
-
-function setAppsMonitored(appData) {
-  appsMonitored[appData.appName] = appData;
-}
-/**
- * Created for testing purposes - gets appMonitored
- */
-
-function getAppsMonitored() {
-  return appsMonitored;
-}
-
-/**
- * Created for testing purposes - clears appMonitored
- *
- * @param {object} appData
- */
-
-function clearAppsMonitored() {
-  // eslint-disable-next-line no-restricted-syntax
-  for (const prop of Object.getOwnPropertyNames(appsMonitored)) {
-    delete appsMonitored[prop];
   }
 }
 
@@ -2260,7 +1978,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   if (isComponent) {
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
-  stopAppMonitoring(monitoredName, true);
+  appsDockerService.stopAppMonitoring(monitoredName, true);
   await dockerService.appDockerStop(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
@@ -2786,7 +2504,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   if (isComponent) {
     monitoredName = `${appSpecifications.name}_${appName}`;
   }
-  stopAppMonitoring(monitoredName, false);
+  appsDockerService.stopAppMonitoring(monitoredName, false);
   await dockerService.appDockerStop(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
@@ -3466,7 +3184,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       return;
     }
     if (!test) {
-      startAppMonitoring(identifier);
+      appsDockerService.startAppMonitoring(identifier);
     }
     const appResponse = messageHelper.createDataMessage(app);
     log.info(appResponse);
@@ -4042,7 +3760,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     if (!app) {
       return;
     }
-    startAppMonitoring(identifier);
+    appsDockerService.startAppMonitoring(identifier);
     const appResponse = messageHelper.createDataMessage(app);
     log.info(appResponse);
     if (res) {
@@ -6497,41 +6215,13 @@ async function getAppHashes(req, res) {
 }
 
 /**
- * To get app locations or a location of an app
- * @param {string} appname Application Name.
- */
-async function appLocation(appname) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.appsglobal.database);
-  let query = {};
-  if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
-  }
-  const projection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      hash: 1,
-      ip: 1,
-      broadcastedAt: 1,
-      expireAt: 1,
-      runningSince: 1,
-      osUptime: 1,
-      staticIp: 1,
-    },
-  };
-  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-  return results;
-}
-
-/**
  * To get app locations.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function getAppsLocations(req, res) {
   try {
-    const results = await appLocation();
+    const results = await appsAuxiliarService.appLocation();
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -6650,7 +6340,7 @@ async function getAppsLocation(req, res) {
     if (!appname) {
       throw new Error('No Flux App name specified');
     }
-    const results = await appLocation(appname);
+    const results = await appsAuxiliarService.appLocation(appname);
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
@@ -6795,59 +6485,6 @@ async function getApplicationGlobalSpecifications(appName) {
 async function getApplicationLocalSpecifications(appName) {
   const allApps = await appsAvailableService.availableApps();
   const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
-  return appInfo;
-}
-
-/**
- * To get app specifications for a specific app if global/local status is unkown. First searches global apps and if not found then searches local apps.
- * @param {string} appName App name.
- * @returns {object} Document with app info.
- */
-async function getApplicationSpecifications(appName) {
-  // appSpecs: {
-  //   version: 2,
-  //   name: 'FoldingAtHomeB',
-  //   description: 'Folding @ Home is cool :)',
-  //   repotag: 'yurinnick/folding-at-home:latest',
-  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-  //   ports: '[30001]', // []
-  //   containerPorts: '[7396]', // []
-  //   domains: '[""]', // []
-  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
-  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
-  //   containerData: '/config',
-  //   cpu: 0.5,
-  //   ram: 500,
-  //   hdd: 5,
-  //   tiered: true,
-  //   cpubasic: 0.5,
-  //   rambasic: 500,
-  //   hddbasic: 5,
-  //   cpusuper: 1,
-  //   ramsuper: 1000,
-  //   hddsuper: 5,
-  //   cpubamf: 2,
-  //   rambamf: 2000,
-  //   hddbamf: 5,
-  //   hash: hash of message that has these paramenters,
-  //   height: height containing the message
-  // };
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (!appInfo) {
-    const allApps = await appsAvailableService.availableApps();
-    appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
-  }
-
-  appInfo = await appsEncryptDecryptService.checkAndDecryptAppSpecs(appInfo);
   return appInfo;
 }
 
@@ -7203,7 +6840,7 @@ async function getApplicationSpecificationAPI(req, res) {
     // query params take precedence over params (they were set explictly)
     decrypt = req.query.decrypt || decrypt;
 
-    const specifications = await getApplicationSpecifications(appname);
+    const specifications = await appsAuxiliarService.getApplicationSpecifications(appname);
     const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
@@ -7304,7 +6941,7 @@ async function updateApplicationSpecificationAPI(req, res) {
 
     const { data: { daemonHeight } } = syncStatus;
 
-    const specifications = await getApplicationSpecifications(appname);
+    const specifications = await appsAuxiliarService.getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
@@ -7701,7 +7338,7 @@ async function trySpawningGlobalApplication() {
       minInstances = appToRunAux.required;
 
       log.info(`trySpawningGlobalApplication - Application ${appToRun} selected to try to spawn. Reported as been running in ${appToRunAux.actual} instances and ${appToRunAux.required} are required.`);
-      runningAppList = await appLocation(appToRun);
+      runningAppList = await appsAuxiliarService.appLocation(appToRun);
       installingAppList = await appInstallingLocation(appToRun);
       if (runningAppList.length + installingAppList.length > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
@@ -7749,7 +7386,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - App ${appToRun} have failed previously to install on ${installingAppErrorsList.length} different nodes`);
     }
 
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
 
     const adjustedIP = myIP.split(':')[0]; // just IP address
     // check if app not running on this device
@@ -7846,7 +7483,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // double check if app is installed on the number of instances requested
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
     installingAppList = await appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
@@ -7998,7 +7635,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // triple check if app is installed on the number of instances requested
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
     installingAppList = await appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances.`);
@@ -8030,7 +7667,7 @@ async function trySpawningGlobalApplication() {
     await serviceHelper.delay(30 * 1000); // give it time so messages are propagated on the network
 
     // double check if app is installed in more of the instances requested
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
     installingAppList = await appInstallingLocation(appToRun);
     if (runningAppList.length + installingAppList.length > minInstances) {
       installingAppList.sort((a, b) => {
@@ -8069,7 +7706,7 @@ async function trySpawningGlobalApplication() {
 
     await serviceHelper.delay(1 * 60 * 1000); // await 1 minute to give time for messages to be propagated on the network
     // double check if app is installed in more of the instances requested
-    runningAppList = await appLocation(appToRun);
+    runningAppList = await appsAuxiliarService.appLocation(appToRun);
     if (runningAppList.length > minInstances) {
       runningAppList.sort((a, b) => {
         if (!a.runningSince && b.runningSince) {
@@ -8209,7 +7846,7 @@ async function checkAndNotifyPeersOfRunningApps() {
               } else {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerStart(stoppedApp);
-                startAppMonitoring(stoppedApp);
+                appsDockerService.startAppMonitoring(stoppedApp);
               }
             } else {
               log.warn(`Not starting ${stoppedApp} as application removal or installation or backup/restore is in progress`);
@@ -8496,6 +8133,7 @@ async function checkApplicationsCpuUSage() {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
       if (app.version <= 3) {
+        const appsMonitored = appsDockerService.getAppsMonitored();
         stats = appsMonitored[app.name].lastHourstatsStore;
         // eslint-disable-next-line no-await-in-loop
         const inspect = await dockerService.dockerContainerInspect(app.name);
@@ -8553,6 +8191,7 @@ async function checkApplicationsCpuUSage() {
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of app.compose) {
+          const appsMonitored = appsDockerService.getAppsMonitored();
           stats = appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore;
           // eslint-disable-next-line no-await-in-loop
           const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
@@ -8638,7 +8277,7 @@ async function checkAndRemoveApplicationInstance() {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
-      const runningAppList = await appLocation(installedApp.name);
+      const runningAppList = await appsAuxiliarService.appLocation(installedApp.name);
       const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
       if (runningAppList.length > minInstances) {
         // eslint-disable-next-line no-await-in-loop
@@ -8880,7 +8519,7 @@ async function reinstallOldApplications() {
             log.warn(`Composed application ${appSpecifications.name} updated.`);
             log.warn(`Restarting application ${appSpecifications.name}`);
             // eslint-disable-next-line no-await-in-loop, no-use-before-define
-            await appDockerRestart(appSpecifications.name);
+            await appsDockerService.appsDockerService.appDockerRestart(appSpecifications.name);
           } else if (appSpecifications.version <= 3) {
             if (appSpecifications.tiered) {
               const hddTier = `hdd${tier}`;
@@ -9011,7 +8650,7 @@ async function reinstallOldApplications() {
               log.warn(`Composed application ${appSpecifications.name} updated.`);
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
-              await appDockerRestart(appSpecifications.name);
+              await appsDockerService.appDockerRestart(appSpecifications.name);
             } catch (error) {
               log.error(error);
               removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
@@ -9390,7 +9029,7 @@ async function redeployAPI(req, res) {
       return;
     }
 
-    const specifications = await getApplicationSpecifications(appname);
+    const specifications = await appsAuxiliarService.getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
@@ -9823,113 +9462,6 @@ async function getDeviceID(fluxIP) {
 }
 
 /**
- * To restart an app. Restarts each component if the app is using Docker Compose.
- * Function to ba called after synthing database revert that can cause no data to show up inside container despite it exists on mountpoint.
- * @param {string} appname Request.
- */
-async function appDockerRestart(appname) {
-  try {
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
-    if (isComponent) {
-      await dockerService.appDockerRestart(appname);
-      startAppMonitoring(appname);
-    } else {
-      // ask for restarting entire composed application
-      // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      if (appSpecs.version <= 3) {
-        await dockerService.appDockerRestart(appname);
-        startAppMonitoring(appname);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * To start an app. Start each component if the app is using Docker Compose.
- * @param {string} appname Request.
- */
-async function appDockerStart(appname) {
-  try {
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
-    if (isComponent) {
-      await dockerService.appDockerStart(appname);
-      startAppMonitoring(appname);
-    } else {
-      // ask for restarting entire composed application
-      // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      if (appSpecs.version <= 3) {
-        await dockerService.appDockerStart(appname);
-        startAppMonitoring(appname);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
- * To stop an app. Stop each component if the app is using Docker Compose.
- * Function to ba called before starting synthing in r: mode.
- * @param {string} appname Request.
- */
-async function appDockerStop(appname) {
-  try {
-    const mainAppName = appname.split('_')[1] || appname;
-    const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
-    if (isComponent) {
-      await dockerService.appDockerStop(appname);
-      stopAppMonitoring(appname, false);
-    } else {
-      // ask for restarting entire composed application
-      // eslint-disable-next-line no-use-before-define
-      const appSpecs = await getApplicationSpecifications(mainAppName);
-      if (!appSpecs) {
-        throw new Error('Application not found');
-      }
-      if (appSpecs.version <= 3) {
-        await dockerService.appDockerStop(appname);
-        stopAppMonitoring(appname, false);
-      } else {
-        // eslint-disable-next-line no-restricted-syntax
-        for (const appComponent of appSpecs.compose) {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
-          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
-        }
-      }
-    }
-  } catch (error) {
-    log.error(error);
-  }
-}
-
-/**
  * To delete all data inside app mount point
  * Function to ba called before starting synthing in r: mode.
  * @param {string} appname Request.
@@ -9997,7 +9529,7 @@ async function syncthingApps() {
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execDIRst);
             // eslint-disable-next-line no-await-in-loop
-            const locations = await appLocation(installedApp.name);
+            const locations = await appsAuxiliarService.appLocation(installedApp.name);
             locations.sort((a, b) => {
               if (a.ip < b.ip) {
                 return -1;
@@ -10069,7 +9601,7 @@ async function syncthingApps() {
                   };
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                   // eslint-disable-next-line no-await-in-loop
-                  await appDockerStop(id);
+                  await appsDockerService.appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(500);
                   // eslint-disable-next-line no-await-in-loop
@@ -10091,7 +9623,7 @@ async function syncthingApps() {
                 const cache = receiveOnlySyncthingAppsCache.get(appId);
 
                 // eslint-disable-next-line no-await-in-loop
-                const runningAppList = await appLocation(installedApp.name);
+                const runningAppList = await appsAuxiliarService.appLocation(installedApp.name);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
                     return -1;
@@ -10142,7 +9674,7 @@ async function syncthingApps() {
                     if (containerDataFlags.includes('r')) {
                       log.info(`SyncthingApps starting appIdentifier ${appId}`);
                       // eslint-disable-next-line no-await-in-loop
-                      await appDockerRestart(id);
+                      await appsDockerService.appDockerRestart(id);
                     }
                     cache.restarted = true;
                   }
@@ -10156,7 +9688,7 @@ async function syncthingApps() {
                 };
                 receiveOnlySyncthingAppsCache.set(appId, cache);
                 // eslint-disable-next-line no-await-in-loop
-                await appDockerStop(id);
+                await appsDockerService.appDockerStop(id);
                 // eslint-disable-next-line no-await-in-loop
                 await serviceHelper.delay(500);
                 // eslint-disable-next-line no-await-in-loop
@@ -10194,7 +9726,7 @@ async function syncthingApps() {
               // eslint-disable-next-line no-await-in-loop
               await cmdAsync(execDIRst);
               // eslint-disable-next-line no-await-in-loop
-              const locations = await appLocation(installedApp.name);
+              const locations = await appsAuxiliarService.appLocation(installedApp.name);
               locations.sort((a, b) => {
                 if (a.ip < b.ip) {
                   return -1;
@@ -10266,7 +9798,7 @@ async function syncthingApps() {
                     };
                     receiveOnlySyncthingAppsCache.set(appId, cache);
                     // eslint-disable-next-line no-await-in-loop
-                    await appDockerStop(id);
+                    await appsDockerService.appDockerStop(id);
                     // eslint-disable-next-line no-await-in-loop
                     await serviceHelper.delay(500);
                     // eslint-disable-next-line no-await-in-loop
@@ -10287,7 +9819,7 @@ async function syncthingApps() {
                 } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
                   const cache = receiveOnlySyncthingAppsCache.get(appId);
                   // eslint-disable-next-line no-await-in-loop
-                  const runningAppList = await appLocation(installedApp.name);
+                  const runningAppList = await appsAuxiliarService.appLocation(installedApp.name);
                   log.info(`SyncthingApps appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                   runningAppList.sort((a, b) => {
                     if (!a.runningSince && b.runningSince) {
@@ -10341,7 +9873,7 @@ async function syncthingApps() {
                       if (containerDataFlags.includes('r')) {
                         log.info(`SyncthingApps starting appIdentifier ${appId}`);
                         // eslint-disable-next-line no-await-in-loop
-                        await appDockerRestart(id);
+                        await appsDockerService.appDockerRestart(id);
                       }
                       cache.restarted = true;
                     }
@@ -10355,7 +9887,7 @@ async function syncthingApps() {
                   };
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                   // eslint-disable-next-line no-await-in-loop
-                  await appDockerStop(id);
+                  await appsDockerService.appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(500);
                   // eslint-disable-next-line no-await-in-loop
@@ -10592,7 +10124,7 @@ async function masterSlaveApps() {
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
               if (!runningAppsNames.includes(identifier)) {
                 // eslint-disable-next-line no-await-in-loop
-                const runningAppList = await appLocation(installedApp.name);
+                const runningAppList = await appsAuxiliarService.appLocation(installedApp.name);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
                     return -1;
@@ -10616,7 +10148,7 @@ async function masterSlaveApps() {
                 });
                 const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
-                  appDockerRestart(installedApp.name);
+                  appsDockerService.appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
                   const { CancelToken } = axios;
@@ -10641,7 +10173,7 @@ async function masterSlaveApps() {
                   }
                   // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
                   if (index === 0) {
-                    appDockerRestart(installedApp.name);
+                    appsDockerService.appDockerRestart(installedApp.name);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier).split(':')[0]);
@@ -10657,7 +10189,7 @@ async function masterSlaveApps() {
                       timetoStartApp += index * 3 * 60 * 1000;
                     }
                     if (timetoStartApp <= Date.now()) {
-                      appDockerRestart(installedApp.name);
+                      appsDockerService.appDockerRestart(installedApp.name);
                       log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                     } else {
                       log.info(`masterSlaveApps: will start docker app:${installedApp.name} at ${timetoStartApp.toString()}`);
@@ -10665,10 +10197,10 @@ async function masterSlaveApps() {
                     }
                   }
                 } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
-                  appDockerRestart(installedApp.name);
+                  appsDockerService.appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                 } else {
-                  appDockerRestart(installedApp.name);
+                  appsDockerService.appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: no previous information about primary, starting docker app:${installedApp.name}`);
                 }
               }
@@ -10679,10 +10211,10 @@ async function masterSlaveApps() {
                 timeTostartNewMasterApp.delete(identifier);
               }
               if (myIP !== ip && runningAppsNames.includes(identifier)) {
-                appDockerStop(installedApp.name);
+                appsDockerService.appDockerStop(installedApp.name);
                 log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and myIP is: ${myIP}`);
               } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
-                appDockerRestart(installedApp.name);
+                appsDockerService.appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
               }
             }
@@ -11703,7 +11235,7 @@ async function appendBackupTask(req, res) {
       }
 
       await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
+      await appsDockerService.appDockerStop(appname);
       await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line no-restricted-syntax
       for (const component of backup) {
@@ -11734,13 +11266,13 @@ async function appendBackupTask(req, res) {
       await serviceHelper.delay(5 * 1000);
       await sendChunk(res, 'Starting application...\n');
       if (!syncthing) {
-        await appDockerStart(appname);
+        await appsDockerService.appDockerStart(appname);
       } else {
         const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
         // eslint-disable-next-line no-restricted-syntax
         for (const component of componentsWithoutGSyncthing) {
           // eslint-disable-next-line no-await-in-loop
-          await appDockerStart(`${component.name}_${appname}`);
+          await appsDockerService.appDockerStart(`${component.name}_${appname}`);
         }
       }
       await sendChunk(res, 'Finalizing...\n');
@@ -11819,7 +11351,7 @@ async function appendRestoreTask(req, res) {
         await stopSyncthingApp(appname, res, true);
       }
       await sendChunk(res, 'Stopping application...\n');
-      await appDockerStop(appname);
+      await appsDockerService.appDockerStop(appname);
       await serviceHelper.delay(5 * 1000);
       // eslint-disable-next-line no-restricted-syntax
       for (const component of restore) {
@@ -11889,7 +11421,7 @@ async function appendRestoreTask(req, res) {
       }
       await serviceHelper.delay(1 * 5 * 1000);
       await sendChunk(res, 'Starting application...\n');
-      await appDockerStart(appname);
+      await appsDockerService.appDockerStart(appname);
       if (syncthing) {
         await sendChunk(res, 'Redeploying other instances...\n');
         executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
@@ -12483,7 +12015,6 @@ module.exports = {
   appStats,
   appMonitor,
   appMonitorStream,
-  startMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
   appChanges,
@@ -12514,7 +12045,6 @@ module.exports = {
   reindexGlobalAppsLocation,
   getRunningAppIpList,
   trySpawningGlobalApplication,
-  getApplicationSpecifications,
   getStrictApplicationSpecifications,
   getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications,
@@ -12566,13 +12096,7 @@ module.exports = {
   downloadAppsFile,
   encryptEnterpriseWithAes,
   getlatestApplicationSpecificationAPI,
-  // exports for testing purposes
-  setAppsMonitored,
-  getAppsMonitored,
-  clearAppsMonitored,
   getAppFolderSize,
-  startAppMonitoring,
-  stopMonitoringOfApps,
   getNodeSpecs,
   setNodeSpecs,
   returnNodeSpecs,
