@@ -14053,7 +14053,9 @@ async function handleTestShutdown(testingPort, options = {}) {
     .isFirewallActive()
     .catch((e) => {
       log.error(e);
-      return false;
+      // if we can't determine if the firewall is active or not, we just try
+      // to remove it anyway
+      return true;
     });
 
   if (updateFirewall) {
