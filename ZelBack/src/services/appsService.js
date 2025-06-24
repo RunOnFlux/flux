@@ -10278,7 +10278,6 @@ async function monitorSharedDBApps() {
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 let dosMountMessage = '';
-let dosDuplicateAppMessage = '';
 
 /**
  * To get DOS state.
@@ -10422,8 +10421,8 @@ async function checkMyAppsAvailability() {
     if (!currentHeight) {
       throw new Error('No scanned height found');
     }
-    if (dosMountMessage || dosDuplicateAppMessage) {
-      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    if (dosMountMessage) {
+      dosMessage = dosMountMessage;
       dosState = 100;
       return;
     }
@@ -10667,7 +10666,7 @@ async function checkMyAppsAvailability() {
     });
     if (!portTestFailed) {
       dosState = 0;
-      dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+      dosMessage = dosMountMessage || null;
       if (setPortToTest) {
         await serviceHelper.delay(1 * 60 * 1000);
       } else {
@@ -10679,7 +10678,7 @@ async function checkMyAppsAvailability() {
         portsNotWorking.push(failedPort);
         failedPort = null;
         dosState = 0;
-        dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+        dosMessage = dosMountMessage || null;
         await serviceHelper.delay(15 * 1000);
       } else {
         const randomIndex = Math.floor(Math.random() * portsNotWorking.length);
@@ -10690,8 +10689,8 @@ async function checkMyAppsAvailability() {
     }
     checkMyAppsAvailability();
   } catch (error) {
-    if (dosMountMessage || dosDuplicateAppMessage) {
-      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    if (dosMountMessage) {
+      dosMessage = dosMountMessage;
     }
     let firewallActive = true;
     firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
@@ -10854,8 +10853,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     });
     return portsStatus;
   } catch (error) {
-    if (dosMountMessage || dosDuplicateAppMessage) {
-      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    if (dosMountMessage) {
+      dosMessage = dosMountMessage;
     }
     let firewallActive = true;
     firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
