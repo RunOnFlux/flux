@@ -11012,52 +11012,6 @@ async function testAppMount() {
 }
 
 /**
- * Check on apps Logs if there is reported another instance of the app on the same network (public ip).
- * For start we will check for PresearchNodes, in the future we can add other masternode apps
- */
-async function checkForNonAllowedAppsOnLocalNetwork() {
-  try {
-    // get list of locally installed apps.
-    const installedAppsRes = await installedApps();
-    if (installedAppsRes.status !== 'success') {
-      throw new Error('Failed to get installed Apps');
-    }
-    const appsInstalled = installedAppsRes.data;
-    dosDuplicateAppMessage = '';
-    // eslint-disable-next-line no-restricted-syntax
-    for (const app of appsInstalled) {
-      if (app.name.toLowerCase().startsWith('presearchnode')) {
-        let containerName = app.name;
-        if (app.version >= 4) {
-          containerName = `${app.compose[0].name}_${app.name}`;
-        }
-        // eslint-disable-next-line no-await-in-loop
-        const logs = await dockerService.dockerContainerLogs(containerName, 5);
-        if (logs.toLowerCase().includes('duplicate ip: this ip address is already running another node')) {
-          log.error('Another PresearchNode was detected running on your local network.');
-          // dosDuplicateAppMessage = 'Another PresearchNode was detected running on your local network.';
-          break;
-        }
-      }
-    }
-    if (dosDuplicateAppMessage) {
-      setTimeout(() => {
-        checkForNonAllowedAppsOnLocalNetwork();
-      }, 60 * 60 * 1000);
-    } else {
-      setTimeout(() => {
-        checkForNonAllowedAppsOnLocalNetwork();
-      }, 12 * 60 * 60 * 1000);
-    }
-  } catch (error) {
-    log.error(error);
-    setTimeout(() => {
-      checkForNonAllowedAppsOnLocalNetwork();
-    }, 60 * 60 * 1000);
-  }
-}
-
-/**
   * Check if the running application container, volumes are using less than maximum allowed space
   * If not, then softly redeploy the application, potentially remove
   * This is to prevent applications from using too much space
@@ -12111,7 +12065,6 @@ module.exports = {
   setRemovalInProgressToTrue,
   installationInProgressReset,
   setInstallationInProgressTrue,
-  checkForNonAllowedAppsOnLocalNetwork,
   triggerAppHashesCheckAPI,
   masterSlaveApps,
   getAppSpecsUSDPrice,
