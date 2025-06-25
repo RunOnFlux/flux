@@ -4872,7 +4872,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight);
       if (intervals) {
         const addressInfo = intervals[intervals.length - 1];
-        if (addressInfo && addressInfo.height && daemonHeight >= addressInfo.height) {
+        if (daemonHeight >= addressInfo.height) {
           fluxSupportTeamFluxID = addressInfo.address;
           const numbersOnAppName = appSpec.name.match(/\d+/g);
           if (numbersOnAppName && numbersOnAppName.length > 0) {
@@ -6831,12 +6831,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const fluxService = require('./fluxService');
       if (await fluxService.isSystemSecure()) {
         // eslint-disable-next-line no-use-before-define
-        const appSpecDecrypted = await checkAndDecryptAppSpecs(
+        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
           appSpecFormatted,
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
-        // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
         await verifyAppSpecifications(appSpecFormattedDecrypted, block);
         if (appRegistraiton) {
           await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
@@ -7785,10 +7783,9 @@ function specificationFormatter(appSpecification) {
     appSpecFormatted.staticip = staticip;
   }
 
-  if (version >= 8) {
-    if (enterprise) {
-      enterprise = serviceHelper.ensureString(enterprise);
-    }
+  if (version >= 8 && enterprise) {
+    enterprise = serviceHelper.ensureString(enterprise);
+
     appSpecFormatted.enterprise = enterprise;
   }
 
@@ -8251,7 +8248,7 @@ async function registerAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
-        arcaneSender: isArcane,
+        arcaneSender: isEnterprise,
       };
 
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
@@ -8424,7 +8421,7 @@ async function updateAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
-        arcaneSender: isArcane,
+        arcaneSender: isEnterprise,
       };
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
@@ -9961,7 +9958,6 @@ async function getApplicationGlobalSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   appInfo = await checkAndDecryptAppSpecs(appInfo);
-  appInfo = specificationFormatter(appInfo);
   return appInfo;
 }
 
@@ -10026,7 +10022,6 @@ async function getApplicationSpecifications(appName) {
   }
 
   appInfo = await checkAndDecryptAppSpecs(appInfo);
-  appInfo = specificationFormatter(appInfo);
   return appInfo;
 }
 
@@ -10051,7 +10046,6 @@ async function getStrictApplicationSpecifications(appName) {
     appInfo = allApps.find((app) => app.name === appName);
   }
   appInfo = await checkAndDecryptAppSpecs(appInfo);
-  appInfo = specificationFormatter(appInfo);
   return appInfo;
 }
 
@@ -10962,6 +10956,7 @@ async function trySpawningGlobalApplication() {
     if (!appSpecifications) {
       throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
     }
+    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
 
     // eslint-disable-next-line no-restricted-syntax
     const dbopen = dbHelper.databaseConnection();
@@ -14450,12 +14445,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // eslint-disable-next-line no-await-in-loop
       let askingIP = await fluxNetworkHelper.getRandomConnection();
       while (!askingIP || askingIP.split(':')[0] === myIP) {
-        // eslint-disable-next-line no-await-in-loop
+      // eslint-disable-next-line no-await-in-loop
         askingIP = await fluxNetworkHelper.getRandomConnection();
       }
       let askingIpPort = config.server.apiport;
       if (askingIP.includes(':')) { // has port specification
-        // it has port specification
+      // it has port specification
         const splittedIP = askingIP.split(':');
         askingIP = splittedIP[0];
         askingIpPort = splittedIP[1];
