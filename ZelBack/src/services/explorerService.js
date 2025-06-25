@@ -728,13 +728,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       return;
     }
     isInInitiationOfBP = true;
-    const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
-    let daemonHeight = 0;
-    if (daemonGetInfo.status === 'success') {
-      daemonHeight = daemonGetInfo.data.blocks;
-    } else {
-      throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
-    }
+    const daemonHeight = syncStatus.data.height;
     // get scanned height from our database;
     // get height from blockchain?
     if (scannedBlockHeight === 0) {
@@ -877,7 +871,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       } else if (scannedBlockHeight > config.daemon.chainValidHeight) {
         const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
         if (daemonGetChainTips.status !== 'success') {
-          throw new Error(daemonGetChainTips.data.message || daemonGetInfo.data);
+          throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
         }
         const reorganisations = daemonGetChainTips.data;
         // database can be off for up to 2 blocks compared to daemon
@@ -931,7 +925,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     isInInitiationOfBP = false;
     initBPfromErrorTimeout = setTimeout(() => {
       initiateBlockProcessor(true, true);
-    }, 15 * 60 * 1000);
+    }, 5 * 60 * 1000);
   }
 }
 
