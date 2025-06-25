@@ -7783,9 +7783,10 @@ function specificationFormatter(appSpecification) {
     appSpecFormatted.staticip = staticip;
   }
 
-  if (version >= 8 && enterprise) {
-    enterprise = serviceHelper.ensureString(enterprise);
-
+  if (version >= 8) {
+    if (enterprise) {
+      enterprise = serviceHelper.ensureString(enterprise);
+    }
     appSpecFormatted.enterprise = enterprise;
   }
 
