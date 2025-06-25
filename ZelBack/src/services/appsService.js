@@ -6831,10 +6831,12 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const fluxService = require('./fluxService');
       if (await fluxService.isSystemSecure()) {
         // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
+        const appSpecDecrypted = await checkAndDecryptAppSpecs(
           appSpecFormatted,
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
+        // eslint-disable-next-line no-use-before-define
+        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
         await verifyAppSpecifications(appSpecFormattedDecrypted, block);
         if (appRegistraiton) {
           await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
@@ -14446,12 +14448,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // eslint-disable-next-line no-await-in-loop
       let askingIP = await fluxNetworkHelper.getRandomConnection();
       while (!askingIP || askingIP.split(':')[0] === myIP) {
-      // eslint-disable-next-line no-await-in-loop
+        // eslint-disable-next-line no-await-in-loop
         askingIP = await fluxNetworkHelper.getRandomConnection();
       }
       let askingIpPort = config.server.apiport;
       if (askingIP.includes(':')) { // has port specification
-      // it has port specification
+        // it has port specification
         const splittedIP = askingIP.split(':');
         askingIP = splittedIP[0];
         askingIpPort = splittedIP[1];
