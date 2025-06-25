@@ -8248,7 +8248,7 @@ async function registerAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
-        arcaneSender: isEnterprise,
+        arcaneSender: isArcane,
       };
 
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
@@ -8421,7 +8421,7 @@ async function updateAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
-        arcaneSender: isEnterprise,
+        arcaneSender: isArcane,
       };
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
