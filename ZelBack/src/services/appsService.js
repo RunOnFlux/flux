@@ -9961,6 +9961,7 @@ async function getApplicationGlobalSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  appInfo = specificationFormatter(appInfo);
   return appInfo;
 }
 
@@ -10025,6 +10026,7 @@ async function getApplicationSpecifications(appName) {
   }
 
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  appInfo = specificationFormatter(appInfo);
   return appInfo;
 }
 
@@ -10049,6 +10051,7 @@ async function getStrictApplicationSpecifications(appName) {
     appInfo = allApps.find((app) => app.name === appName);
   }
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  appInfo = specificationFormatter(appInfo);
   return appInfo;
 }
 
@@ -10959,7 +10962,6 @@ async function trySpawningGlobalApplication() {
     if (!appSpecifications) {
       throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
     }
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
 
     // eslint-disable-next-line no-restricted-syntax
     const dbopen = dbHelper.databaseConnection();
