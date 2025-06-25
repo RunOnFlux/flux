@@ -7453,6 +7453,9 @@ export default {
         this.allowedGeolocations = {};
         this.forbiddenGeolocations = {};
       }
+      if (this.appRegistrationSpecification.version === 8 && value === false) {
+        this.appUpdateSpecification.enterprise = false;
+      }
       this.dataToSign = '';
       this.signature = '';
       this.timestamp = null;
