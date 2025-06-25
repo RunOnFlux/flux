@@ -363,7 +363,7 @@ async function respondWithAppMessage(msgObj, ws) {
           hash: appMessage.hash,
           timestamp: appMessage.timestamp,
           signature: appMessage.signature,
-          arcaneSender: appMessage.arcaneSender,
+          arcaneSender: appMessage.arcaneSender || false,
         };
         sendMessageToWS(temporaryAppMessage, ws);
       }
