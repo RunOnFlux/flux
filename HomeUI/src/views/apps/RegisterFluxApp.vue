@@ -2619,7 +2619,6 @@ export default {
         nodes: [],
         expire: 22000,
         staticip: false,
-        enterprise: false,
         compose: [
           {
             name: '',
@@ -2938,9 +2937,6 @@ export default {
         // remove any geolocation
         this.allowedGeolocations = {};
         this.forbiddenGeolocations = {};
-      }
-      if (this.appRegistrationSpecification.version === 8 && value === false) {
-        this.appRegistrationSpecification.enterprise = false;
       }
       this.dataToSign = '';
       this.signature = '';
@@ -3362,7 +3358,7 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      if (this.currentHeight < 1932380) {
+      if (this.currentHeight < 1934000) {
         this.specificationVersion = 7;
         this.composeTemplate = this.composeTemplatev7;
         this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
