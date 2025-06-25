@@ -14455,8 +14455,15 @@ async function checkMyAppsAvailability() {
         setPortToTest = null;
         originalPortFailed = null;
       }
+    } else {
+      // we shouldn't get here, but just in case we clean up and retry
+      await handleTestShutdown(testingPort, {
+        skipFirewall: !firewallActive,
+        skipUpnp: !isUpnp,
+      });
+      await serviceHelper.delay(2 * 60 * 1000);
+      checkMyAppsAvailability();
     }
-    // there is no else statement here, there should be
 
     if (dosState > 10) {
       dosMessage = `Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: ${JSON.stringify(
