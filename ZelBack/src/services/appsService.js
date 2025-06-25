@@ -4872,7 +4872,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight);
       if (intervals) {
         const addressInfo = intervals[intervals.length - 1];
-        if (daemonHeight >= addressInfo.height) {
+        if (addressInfo && addressInfo.height && daemonHeight >= addressInfo.height) {
           fluxSupportTeamFluxID = addressInfo.address;
           const numbersOnAppName = appSpec.name.match(/\d+/g);
           if (numbersOnAppName && numbersOnAppName.length > 0) {
