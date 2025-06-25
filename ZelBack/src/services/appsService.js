@@ -14295,11 +14295,10 @@ async function checkMyAppsAvailability() {
           skipUpnp: true,
           skipHttpServer: true,
         });
-        // set a longer delay here if we are DOS (from UPnP or any other reason).
-        // We don't want to sit there hammering the router every 15 seconds
-        // if mappings are failing, especially if there are 8 nodes going at it
-        const upnpDelay = dosMessage ? 2 * 60 * 1000 : 15 * 60 * 1000;
-        await serviceHelper.delay(upnpDelay);
+
+        // changed this to two minutes. If we are failing mappings, we still need
+        // to fail 25 times before we go DOS.
+        await serviceHelper.delay(2 * 60 * 1000);
         checkMyAppsAvailability();
         return;
       }
@@ -14349,7 +14348,7 @@ async function checkMyAppsAvailability() {
       });
       // safer just to wait here, no harm in waiiting 15 seconds in unlikely event
       // that we pull ourselves from the list (or we should just remove it first)
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
       return;
     }
@@ -14360,7 +14359,7 @@ async function checkMyAppsAvailability() {
         skipUpnp: !isUpnp,
       });
       // same as above. This is unlikley, just wait the 15 seconds
-      await serviceHelper.delay(15 * 60 * 1000);
+      await serviceHelper.delay(15 * 1000);
       checkMyAppsAvailability();
       return;
     }
