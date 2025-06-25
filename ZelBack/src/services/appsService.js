@@ -14296,9 +14296,10 @@ async function checkMyAppsAvailability() {
           skipHttpServer: true,
         });
 
-        // changed this to two minutes. If we are failing mappings, we still need
-        // to fail 25 times before we go DOS.
-        await serviceHelper.delay(2 * 60 * 1000);
+        // changed this to two minutes if we are not DOS (and 15 minutes otherwise).
+        // If we are failing mappings, we still need o fail 25 times before we go DOS.
+        const upnpDelay = dosMessage ? 15 * 60 * 1000 : 2 * 60 * 1000;
+        await serviceHelper.delay(upnpDelay);
         checkMyAppsAvailability();
         return;
       }
