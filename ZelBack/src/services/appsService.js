@@ -4953,7 +4953,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
 
     const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
     // we can just use the btc / eth verifier as v7 specs came out at 1688749251
-    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appSpec.owner, signature);
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appOwner, signature);
   }
   if (isValidSignature !== true) {
     log.debug(`${messageToVerify}, ${appOwner}, ${signature}`);
