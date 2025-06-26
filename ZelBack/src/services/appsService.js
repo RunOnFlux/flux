@@ -4842,7 +4842,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
   } else if (isValidSignature !== true && appSpec.version === 7) {
     const appSpecsClone = JSON.parse(JSON.stringify(appSpec));
 
-    appSpecsClone.forEach((component) => {
+    appSpecsClone.compose.forEach((component) => {
       // previously the order was secrets / repoauth. Now it's repoauth / secrets.
       const comp = component;
       const { secrets, repoauth } = comp;
@@ -4938,7 +4938,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   } else if (isValidSignature !== true && appSpec.version === 7) {
     const appSpecsClone = JSON.parse(JSON.stringify(appSpec));
 
-    appSpecsClone.forEach((component) => {
+    appSpecsClone.componse.forEach((component) => {
       // previously the order was secrets / repoauth. Now it's repoauth / secrets.
       const comp = component;
       const { secrets, repoauth } = comp;
