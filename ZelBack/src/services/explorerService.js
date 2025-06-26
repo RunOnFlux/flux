@@ -8,7 +8,6 @@ const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
-const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const appsService = require('./appsService');
 const benchmarkService = require('./benchmarkService');
@@ -518,7 +517,7 @@ async function processStandard(blockDataVerbose, database) {
  */
 async function processBlock(blockHeight, isInsightExplorer) {
   try {
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    let syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         processBlock(blockHeight, isInsightExplorer);
@@ -608,11 +607,8 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockDataVerbose.confirmations > 1) {
         processBlock(blockDataVerbose.height + 1, isInsightExplorer);
       } else {
-        const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
-        let daemonHeight = 0;
-        if (daemonGetInfo.status === 'success') {
-          daemonHeight = daemonGetInfo.data.blocks;
-        }
+        syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+        const daemonHeight = syncStatus.data.height;
         if (daemonHeight > blockDataVerbose.height) {
           processBlock(blockDataVerbose.height + 1, isInsightExplorer);
         } else {
@@ -728,13 +724,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       return;
     }
     isInInitiationOfBP = true;
-    const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
-    let daemonHeight = 0;
-    if (daemonGetInfo.status === 'success') {
-      daemonHeight = daemonGetInfo.data.blocks;
-    } else {
-      throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
-    }
+    const daemonHeight = syncStatus.data.height;
     // get scanned height from our database;
     // get height from blockchain?
     if (scannedBlockHeight === 0) {
@@ -877,7 +867,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       } else if (scannedBlockHeight > config.daemon.chainValidHeight) {
         const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
         if (daemonGetChainTips.status !== 'success') {
-          throw new Error(daemonGetChainTips.data.message || daemonGetInfo.data);
+          throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
         }
         const reorganisations = daemonGetChainTips.data;
         // database can be off for up to 2 blocks compared to daemon
