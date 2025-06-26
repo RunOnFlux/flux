@@ -4853,11 +4853,11 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
       // try the old secrets / repoauth
       comp.secrets = secrets;
       comp.repoauth = repoauth;
-
-      const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
-      // we can just use the btc / eth verifier as v7 specs came out at 1688749251
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appSpec.owner, signature);
     });
+
+    const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
+    // we can just use the btc / eth verifier as v7 specs came out at 1688749251
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appSpec.owner, signature);
   }
   if (isValidSignature !== true) {
     log.debug(`${messageToVerify}, ${appSpec.owner}, ${signature}`);
