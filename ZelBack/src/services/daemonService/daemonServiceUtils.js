@@ -102,6 +102,11 @@ async function executeCall(rpc, params) {
 
   try {
     let data;
+    if (rpc === 'getChainTips') {
+      fluxdClient.timeout = 40_000;
+    } else {
+      fluxdClient.timeout = 10_000;
+    }
 
     if (rpc === 'getBlock') {
       data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
