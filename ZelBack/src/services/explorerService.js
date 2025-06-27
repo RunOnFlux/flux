@@ -615,8 +615,10 @@ async function processBlock(blockHeight, isInsightExplorer) {
         if (daemonHeight > blockDataVerbose.height) {
           processBlock(blockDataVerbose.height + 1, isInsightExplorer);
         } else {
-          // eslint-disable-next-line no-use-before-define
-          initiateBlockProcessor(false, false);
+          initBPfromNoBlockTimeout = setTimeout(() => {
+            // eslint-disable-next-line no-use-before-define
+            initiateBlockProcessor(false, false);
+          }, 30 * 1000);
         }
       }
     }
