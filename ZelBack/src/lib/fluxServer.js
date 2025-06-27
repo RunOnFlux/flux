@@ -12,6 +12,19 @@ const socketIoHandlers = require('./socketIoHandlers');
 const { FluxWebsocketServer } = require('./socketServer');
 const { FluxSocketIoServer } = require('./socketIoServer');
 
+const jsonOptions = {
+  type: (req) => {
+    const { headers } = req;
+    const contentType = headers['content-type'];
+
+    if (!contentType || contentType.toLowerCase() === 'application/json') {
+      return true;
+    }
+
+    return false;
+  },
+};
+
 /**
  * Combines an http(s) server, classic websocket server, and socket.io server
  */
@@ -25,7 +38,8 @@ class FluxServer {
   static defaultMiddlewares = [
     compression(),
     morgan('combined'),
-    express.json(),
+    express.json(jsonOptions),
+    express.urlencoded({ extended: true }),
     cors(),
   ];
 
