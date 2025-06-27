@@ -222,7 +222,7 @@ async function getChainParamsPriceUpdates() {
  * To get array of team support address updates
  * @returns {(object|object[])} Returns an array of team support addresses with height.
  */
-function getChainTeamSupportddressUpdates() {
+function getChainTeamSupportAddressUpdates() {
   try {
     /* to be adjusted in the future to check database
     const db = dbHelper.databaseConnection();
@@ -1313,7 +1313,6 @@ function startAppMonitoring(appName) {
       try {
         if (!appsMonitored[appName]) {
           log.error(`Monitoring of ${appName} already stopped`);
-          clearInterval(appsMonitored[appName].oneMinuteInterval);
           return;
         }
         const dockerContainer = await dockerService.getDockerContainerOnly(appName);
@@ -2428,16 +2427,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     if (res.flush) res.flush();
   }
   const execUnmount = `sudo umount ${appsFolder + appId}`;
-  await cmdAsync(execUnmount).then(() => {
-    const unmuontStatus2 = {
-      status: isComponent ? `Volume of component ${appSpecifications.name} unmounted` : `Volume of ${appName} unmounted`,
-    };
-    log.info(unmuontStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(unmuontStatus2));
-      if (res.flush) res.flush();
-    }
-  }).catch((e) => {
+  const execSuccess = await cmdAsync(execUnmount).catch((e) => {
     log.error(e);
     const unmuontStatus3 = {
       status: isComponent ? `An error occured while unmounting component ${appSpecifications.name} storage. Continuing...` : `An error occured while unmounting ${appName} storage. Continuing...`,
@@ -2448,6 +2438,16 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
       if (res.flush) res.flush();
     }
   });
+  if (execSuccess) {
+    const unmuontStatus2 = {
+      status: isComponent ? `Volume of component ${appSpecifications.name} unmounted` : `Volume of ${appName} unmounted`,
+    };
+    log.info(unmuontStatus2);
+    if (res) {
+      res.write(serviceHelper.ensureString(unmuontStatus2));
+      if (res.flush) res.flush();
+    }
+  }
 
   const cleaningStatus = {
     status: isComponent ? `Cleaning up component ${appSpecifications.name} data...` : `Cleaning up ${appName} data...`,
@@ -4838,6 +4838,26 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     if (timestamp > 1688947200000) {
       isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appSpec.owner, signature); // btc, eth
     }
+    // fix for repoauth / secrets order change for apps created after 1750273721000
+  } else if (isValidSignature !== true && appSpec.version === 7) {
+    const appSpecsClone = JSON.parse(JSON.stringify(appSpec));
+
+    appSpecsClone.compose.forEach((component) => {
+      // previously the order was secrets / repoauth. Now it's repoauth / secrets.
+      const comp = component;
+      const { secrets, repoauth } = comp;
+
+      delete comp.secrets;
+      delete comp.repoauth;
+
+      // try the old secrets / repoauth
+      comp.secrets = secrets;
+      comp.repoauth = repoauth;
+    });
+
+    const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
+    // we can just use the btc / eth verifier as v7 specs came out at 1688749251
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appSpec.owner, signature);
   }
   if (isValidSignature !== true) {
     log.debug(`${messageToVerify}, ${appSpec.owner}, ${signature}`);
@@ -4867,12 +4887,12 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
   let isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
   if (isValidSignature !== true) {
-    const teamSupportAddresses = getChainTeamSupportddressUpdates();
+    const teamSupportAddresses = getChainTeamSupportAddressUpdates();
     if (teamSupportAddresses.length > 0) {
-      const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight);
-      if (intervals) {
-        const addressInfo = intervals[intervals.length - 1];
-        if (addressInfo && addressInfo.height && daemonHeight >= addressInfo.height) {
+      const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight); // if an app message was sent on block before the team support address was activated, will be empty array
+      if (intervals && intervals.length) {
+        const addressInfo = intervals[intervals.length - 1]; // always defined
+        if (addressInfo && addressInfo.height && daemonHeight >= addressInfo.height) { // unneeded check for safety
           fluxSupportTeamFluxID = addressInfo.address;
           const numbersOnAppName = appSpec.name.match(/\d+/g);
           if (numbersOnAppName && numbersOnAppName.length > 0) {
@@ -4914,6 +4934,26 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     if (isValidSignature !== true && marketplaceApp) {
       isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, fluxSupportTeamFluxID, signature); // btc, eth
     }
+    // fix for repoauth / secrets order change for apps created after 1750273721000
+  } else if (isValidSignature !== true && appSpec.version === 7) {
+    const appSpecsClone = JSON.parse(JSON.stringify(appSpec));
+
+    appSpecsClone.compose.forEach((component) => {
+      // previously the order was secrets / repoauth. Now it's repoauth / secrets.
+      const comp = component;
+      const { secrets, repoauth } = comp;
+
+      delete comp.secrets;
+      delete comp.repoauth;
+
+      // try the old secrets / repoauth
+      comp.secrets = secrets;
+      comp.repoauth = repoauth;
+    });
+
+    const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
+    // we can just use the btc / eth verifier as v7 specs came out at 1688749251
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appOwner, signature);
   }
   if (isValidSignature !== true) {
     log.debug(`${messageToVerify}, ${appOwner}, ${signature}`);
@@ -14445,12 +14485,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       // eslint-disable-next-line no-await-in-loop
       let askingIP = await fluxNetworkHelper.getRandomConnection();
       while (!askingIP || askingIP.split(':')[0] === myIP) {
-      // eslint-disable-next-line no-await-in-loop
+        // eslint-disable-next-line no-await-in-loop
         askingIP = await fluxNetworkHelper.getRandomConnection();
       }
       let askingIpPort = config.server.apiport;
       if (askingIP.includes(':')) { // has port specification
-      // it has port specification
+        // it has port specification
         const splittedIP = askingIP.split(':');
         askingIP = splittedIP[0];
         askingIpPort = splittedIP[1];
@@ -15735,7 +15775,7 @@ module.exports = {
   getAllGlobalApplications,
   syncthingApps,
   getChainParamsPriceUpdates,
-  getChainTeamSupportddressUpdates,
+  getChainTeamSupportAddressUpdates,
   getAppsDOSState,
   checkMyAppsAvailability,
   checkApplicationsCompliance,
