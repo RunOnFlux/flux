@@ -14364,8 +14364,15 @@ async function checkMyAppsAvailability() {
     }
 
     const timeout = 30000;
+    // We have to set an emtpy content type here. As we've updated all the api endpoints to respect content
+    // type headers, when on the old version they need the data as a string (which by default sets the urlencoded
+    // header. However the new version has both json/urlencoded so we need to set the content-type header to emtpy
+    // so neither of the middlewares pick it up. We can remove this once all nodes are on the latest version)
     const axiosConfig = {
       timeout,
+      headers: {
+        'content-type': '',
+      },
     };
 
     const data = {
@@ -14380,7 +14387,7 @@ async function checkMyAppsAvailability() {
     data.signature = signature;
     // first check against our IP address
     // eslint-disable-next-line no-await-in-loop
-    const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, data, axiosConfig).catch(async (error) => {
+    const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch(async (error) => {
       log.error(`checkMyAppsAvailability - ${askingIP} for app availability is not reachable`);
       log.error(error);
       setPortToTest = testingPort;
