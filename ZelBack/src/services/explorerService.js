@@ -921,7 +921,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       isInInitiationOfBP = false;
       initBPfromNoBlockTimeout = setTimeout(() => {
         initiateBlockProcessor(false, false);
-      }, 5000);
+      }, 30 * 1000);
     }
   } catch (error) {
     log.error(error);
