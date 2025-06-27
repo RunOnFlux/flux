@@ -919,7 +919,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           // eslint-disable-next-line no-use-before-define
           await restoreDatabaseToBlockheightState(blockToRescan, reindexOrRescanGlobalApps);
           const queryHeight = { generalScannedHeight: { $gte: 0 } };
-          const updateAux = { $set: { generalScannedHeight: scannedBlockHeight } };
+          const updateAux = { $set: { generalScannedHeight: blockToRescan } };
           const optionsAux = {
             upsert: true,
           };
