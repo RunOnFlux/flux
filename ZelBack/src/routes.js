@@ -373,19 +373,23 @@ module.exports = (app) => {
   app.get('/apps/installingerrorslocations', cache('30 seconds'), (req, res) => {
     appsService.getAppsInstallingErrorsLocations(req, res);
   });
-  app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
+  // returns price in flux for both new registration of app and update of app
+  app.post('/apps/calculateprice', (req, res) => {
     appsService.getAppPrice(req, res);
   });
-  app.post('/apps/calculatefiatandfluxprice', (req, res) => { // returns price in usd and flux for both new registration of app and update of app
+  // returns price in usd and flux for both new registration of app and update of app
+  app.post('/apps/calculatefiatandfluxprice', (req, res) => {
     appsService.getAppFiatAndFluxPrice(req, res);
   });
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
     generalService.whitelistedRepositories(req, res);
   });
-  app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
+  // returns formatted app specifications
+  app.post('/apps/verifyappregistrationspecifications', (req, res) => {
     appsService.verifyAppRegistrationParameters(req, res);
   });
-  app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
+  // returns formatted app specifications
+  app.post('/apps/verifyappupdatespecifications', (req, res) => {
     appsService.verifyAppUpdateParameters(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {

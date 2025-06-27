@@ -67,7 +67,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/flux/broadcastmessage', JSON.stringify(data), axiosConfig);
+    return Api().post('/flux/broadcastmessage', data, axiosConfig);
   },
   connectedPeers() {
     return Api().get(`/flux/connectedpeers?timestamp=${Date.now()}`);

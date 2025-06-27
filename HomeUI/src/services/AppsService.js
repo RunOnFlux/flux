@@ -89,7 +89,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/apps/appregister', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/appregister', data, axiosConfig);
   },
   updateApp(zelidauthHeader, data) {
     const axiosConfig = {
@@ -97,7 +97,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/apps/appupdate', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/appupdate', data, axiosConfig);
   },
   checkCommunication() {
     return Api().get('/flux/checkcommunication');
@@ -108,7 +108,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/apps/checkdockerexistance', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/checkdockerexistance', data, axiosConfig);
   },
   appsRegInformation() {
     return Api().get('/apps/registrationinformation');
@@ -197,7 +197,7 @@ export default {
       cmd,
       env: JSON.parse(env),
     };
-    return Api().post('/apps/appexec', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/appexec', data, axiosConfig);
   },
   reindexGlobalApps(zelidauthHeader) {
     return Api().get('/apps/reindexglobalappsinformation', {
@@ -291,13 +291,13 @@ export default {
     });
   },
   appPrice(data) {
-    return Api().post('/apps/calculateprice', JSON.stringify(data));
+    return Api().post('/apps/calculateprice', data);
   },
   appPriceUSDandFlux(data) {
-    return Api().post('/apps/calculatefiatandfluxprice', JSON.stringify(data));
+    return Api().post('/apps/calculatefiatandfluxprice', data);
   },
   appRegistrationVerificaiton(data) {
-    return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data));
+    return Api().post('/apps/verifyappregistrationspecifications', data);
   },
   getAppPublicKey(zelidauthHeader, data) {
     const axiosConfig = {
@@ -305,13 +305,13 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/apps/getpublickey', JSON.stringify(data), axiosConfig);
+    return Api().post('/apps/getpublickey', data, axiosConfig);
   },
   getAppOriginalOwner(app) {
     return Api().get(`/apps/apporiginalowner/${app}`);
   },
   appUpdateVerification(data) {
-    return Api().post('/apps/verifyappupdatespecifications', JSON.stringify(data));
+    return Api().post('/apps/verifyappupdatespecifications', data);
   },
   getAppMonitoring(zelidauthHeader, app) {
     const axiosConfig = {
