@@ -2619,6 +2619,7 @@ export default {
         nodes: [],
         expire: 22000,
         staticip: false,
+        enterprise: false,
         compose: [
           {
             name: '',
@@ -2937,6 +2938,9 @@ export default {
         // remove any geolocation
         this.allowedGeolocations = {};
         this.forbiddenGeolocations = {};
+      }
+      if (this.appRegistrationSpecification.version === 8 && value === false) {
+        this.appRegistrationSpecification.enterprise = false;
       }
       this.dataToSign = '';
       this.signature = '';
