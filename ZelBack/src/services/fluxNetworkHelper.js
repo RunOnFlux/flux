@@ -1453,6 +1453,9 @@ async function adjustFirewall() {
       const execAllowC = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 8080';
       await cmdAsync(execAllowB);
       await cmdAsync(execAllowC);
+      // remove inbound DNS traffic
+      const removeInboundDns = 'LANG="en_US.UTF-8" && sudo ufw delete allow in proto udp to any port 53 > /dev/null 2>&1';
+      await cmdAsync(removeInboundDns);
       // allow outgoing DNS traffic
       const execAllowE = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to any port 53';
       const execAllowF = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to any port 53';
