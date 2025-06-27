@@ -607,8 +607,11 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockDataVerbose.confirmations > 1) {
         processBlock(blockDataVerbose.height + 1, isInsightExplorer);
       } else {
-        syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-        const daemonHeight = syncStatus.data.height;
+        const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
+        if (daemonBlockCount.status !== 'success') {
+          throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
+        }
+        const daemonHeight = daemonBlockCount.data;
         if (daemonHeight > blockDataVerbose.height) {
           processBlock(blockDataVerbose.height + 1, isInsightExplorer);
         } else {
@@ -724,7 +727,11 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       return;
     }
     isInInitiationOfBP = true;
-    const daemonHeight = syncStatus.data.height;
+    const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
+    if (daemonBlockCount.status !== 'success') {
+      throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
+    }
+    const daemonHeight = daemonBlockCount.data;
     // get scanned height from our database;
     // get height from blockchain?
     if (scannedBlockHeight === 0) {
