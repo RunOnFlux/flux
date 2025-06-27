@@ -4838,6 +4838,26 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     if (timestamp > 1688947200000) {
       isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appSpec.owner, signature); // btc, eth
     }
+    // fix for repoauth / secrets order change for apps created after 1750273721000
+  } else if (isValidSignature !== true && appSpec.version === 7) {
+    const appSpecsClone = JSON.parse(JSON.stringify(appSpec));
+
+    appSpecsClone.compose.forEach((component) => {
+      // previously the order was secrets / repoauth. Now it's repoauth / secrets.
+      const comp = component;
+      const { secrets, repoauth } = comp;
+
+      delete comp.secrets;
+      delete comp.repoauth;
+
+      // try the old secrets / repoauth
+      comp.secrets = secrets;
+      comp.repoauth = repoauth;
+    });
+
+    const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
+    // we can just use the btc / eth verifier as v7 specs came out at 1688749251
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appSpec.owner, signature);
   }
   if (isValidSignature !== true) {
     log.debug(`${messageToVerify}, ${appSpec.owner}, ${signature}`);
@@ -4914,6 +4934,26 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     if (isValidSignature !== true && marketplaceApp) {
       isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, fluxSupportTeamFluxID, signature); // btc, eth
     }
+    // fix for repoauth / secrets order change for apps created after 1750273721000
+  } else if (isValidSignature !== true && appSpec.version === 7) {
+    const appSpecsClone = JSON.parse(JSON.stringify(appSpec));
+
+    appSpecsClone.compose.forEach((component) => {
+      // previously the order was secrets / repoauth. Now it's repoauth / secrets.
+      const comp = component;
+      const { secrets, repoauth } = comp;
+
+      delete comp.secrets;
+      delete comp.repoauth;
+
+      // try the old secrets / repoauth
+      comp.secrets = secrets;
+      comp.repoauth = repoauth;
+    });
+
+    const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
+    // we can just use the btc / eth verifier as v7 specs came out at 1688749251
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appOwner, signature);
   }
   if (isValidSignature !== true) {
     log.debug(`${messageToVerify}, ${appOwner}, ${signature}`);
