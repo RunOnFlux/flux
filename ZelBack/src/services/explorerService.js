@@ -517,7 +517,7 @@ async function processStandard(blockDataVerbose, database) {
  */
 async function processBlock(blockHeight, isInsightExplorer) {
   try {
-    let syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       setTimeout(() => {
         processBlock(blockHeight, isInsightExplorer);
