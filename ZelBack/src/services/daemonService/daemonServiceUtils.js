@@ -60,7 +60,7 @@ async function buildFluxdClient() {
   const rpcPort = fluxdConfig.rpcport || config.daemon[portId];
 
   const client = new fluxRpc.FluxRpc(`http://127.0.0.1:${rpcPort}`, {
-    auth: { username, password }, timeout: 10_000,
+    auth: { username, password }, timeout: 40_000,
   });
 
   fluxdClient = client;
@@ -102,11 +102,6 @@ async function executeCall(rpc, params) {
 
   try {
     let data;
-    if (rpc === 'getChainTips') {
-      fluxdClient.timeout = 40_000;
-    } else {
-      fluxdClient.timeout = 10_000;
-    }
 
     if (rpc === 'getBlock') {
       data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
