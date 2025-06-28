@@ -453,33 +453,27 @@ async function zSendMany(req, res) {
  * @returns {object} Message.
  */
 async function zSendManyPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const { fromaddress } = processedBody;
-    let { amounts, minconf, fee } = processedBody;
-    minconf = minconf || 1;
-    fee = fee || 0.0001;
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      response = messageHelper.errUnauthorizedMessage();
-      return res.json(response);
-    }
-    const rpccall = 'z_sendmany';
-    let rpcparameters = [];
-    if (fromaddress && amounts) {
-      amounts = serviceHelper.ensureObject(amounts);
-      minconf = serviceHelper.ensureNumber(minconf);
-      fee = serviceHelper.ensureNumber(fee);
-      rpcparameters = [fromaddress, amounts, minconf, fee];
-    }
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
+  const processedBody = serviceHelper.ensureObject(req.body);
+  const { fromaddress } = processedBody;
+  let { amounts, minconf, fee } = processedBody;
+  minconf = minconf || 1;
+  fee = fee || 0.0001;
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
-  });
+  }
+  const rpccall = 'z_sendmany';
+  let rpcparameters = [];
+  if (fromaddress && amounts) {
+    amounts = serviceHelper.ensureObject(amounts);
+    minconf = serviceHelper.ensureNumber(minconf);
+    fee = serviceHelper.ensureNumber(fee);
+    rpcparameters = [fromaddress, amounts, minconf, fee];
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
+  return res.json(response);
 }
 
 /**
@@ -603,31 +597,25 @@ async function zcRawJoinSplit(req, res) {
  * @returns {object} Message.
  */
 async function zcRawJoinSplitPost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const { rawtx, vpubold, vpubnew } = processedBody;
-    let { inputs, outputs } = processedBody;
+  const processedBody = serviceHelper.ensureObject(req.body);
+  const { rawtx, vpubold, vpubnew } = processedBody;
+  let { inputs, outputs } = processedBody;
 
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      response = messageHelper.errUnauthorizedMessage();
-      return res.json(response);
-    }
-    const rpccall = 'zcrawjoinsplit';
-    let rpcparameters = [];
-    if (rawtx && inputs && outputs && vpubold && vpubnew) {
-      inputs = serviceHelper.ensureObject(inputs);
-      outputs = serviceHelper.ensureObject(outputs);
-      rpcparameters = [rawtx, inputs, outputs, vpubold, vpubnew];
-    }
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
-  });
+  }
+  const rpccall = 'zcrawjoinsplit';
+  let rpcparameters = [];
+  if (rawtx && inputs && outputs && vpubold && vpubnew) {
+    inputs = serviceHelper.ensureObject(inputs);
+    outputs = serviceHelper.ensureObject(outputs);
+    rpcparameters = [rawtx, inputs, outputs, vpubold, vpubnew];
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
+  return res.json(response);
 }
 
 /**
@@ -680,29 +668,23 @@ async function zcRawReceive(req, res) {
  * @returns {object} Message.
  */
 async function zcRawReceivePost(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    const processedBody = serviceHelper.ensureObject(body);
-    const { zcsecretkey } = processedBody;
-    const { encryptednote } = processedBody;
+  const processedBody = serviceHelper.ensureObject(req.body);
+  const { zcsecretkey } = processedBody;
+  const { encryptednote } = processedBody;
 
-    const authorized = await verificationHelper.verifyPrivilege('admin', req);
-    if (authorized !== true) {
-      response = messageHelper.errUnauthorizedMessage();
-      return res.json(response);
-    }
-    const rpccall = 'zcrawreceive';
-    let rpcparameters = [];
-    if (zcsecretkey && encryptednote) {
-      rpcparameters = [zcsecretkey, encryptednote];
-    }
-    response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
-
+  const authorized = await verificationHelper.verifyPrivilege('admin', req);
+  if (authorized !== true) {
+    response = messageHelper.errUnauthorizedMessage();
     return res.json(response);
-  });
+  }
+  const rpccall = 'zcrawreceive';
+  let rpcparameters = [];
+  if (zcsecretkey && encryptednote) {
+    rpcparameters = [zcsecretkey, encryptednote];
+  }
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
+
+  return res.json(response);
 }
 
 /**
