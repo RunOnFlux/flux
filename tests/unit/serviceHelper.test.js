@@ -678,4 +678,44 @@ describe('serviceHelper tests', () => {
       }
     });
   });
+
+  describe('parseInterval tests', () => {
+    it('should parse all time intervals', () => {
+      const intervals = [
+        [-3600, 0],
+        ['-3600', 0],
+        ['bad timer', 0],
+        ['3 minutes 30', 0],
+        ['0 minutes 0 seconds', 0],
+        ['3600', 3600],
+        ['15s', 15_000],
+        ['15sec', 15_000],
+        ['15secs', 15_000],
+        ['15second', 15_000],
+        ['15seconds', 15_000],
+        ['15 seconds', 15_000],
+        [' 15    seconds ', 15_000],
+        ['3 minutes 30 seconds', 210_000],
+        ['3m30s', 210_000],
+        ['3M30S', 210_000],
+        ['3M30s', 210_000],
+        ['3 minute 30 sec', 210_000],
+        ['3minute 30 sec', 210_000],
+        ['3minute 30 seconds', 210_000],
+        ['3MINUTES 30 SECONDS', 210_000],
+        ['3 hours 3 minutes 30 seconds', 11_010_000],
+        ['1 day 3 hours 3 minutes 30 seconds', 97_410_000],
+        ['1 days 3 hours 3 minutes 30 seconds', 97_410_000],
+        ['1day', 86_400_000],
+        ['6hrs', 21_600_000],
+        ['6hours', 21_600_000],
+        ['3days 3 hours', 270_000_000],
+      ];
+
+      for (let index = 0; index < intervals.length; index += 1) {
+        const interval = serviceHelper.parseInterval(intervals[index][0]);
+        expect(interval).to.equal(intervals[index][1]);
+      }
+    });
+  });
 });
