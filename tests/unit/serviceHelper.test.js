@@ -710,6 +710,7 @@ describe('serviceHelper tests', () => {
         ['6hrs', 21_600_000],
         ['6hours', 21_600_000],
         ['3days 3 hours', 270_000_000],
+        ['30000 days', 2_147_483_647],
       ];
 
       for (let index = 0; index < intervals.length; index += 1) {

@@ -102,6 +102,8 @@ function parseInterval(userInterval) {
       default:
       // do nothing
     }
+
+    if (ms >= 2_147_483_647) return 2_147_483_647;
   }
   return ms;
 }
