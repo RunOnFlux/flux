@@ -6876,18 +6876,22 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
         await verifyAppSpecifications(appSpecFormattedDecrypted, block);
-        if (appRegistraiton) {
-          await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
-        } else {
-          await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
+        if (!isAppRequested || (daemonHeight - block + (appSpecFormatted.expire || 22000)) >= 0) {
+          if (appRegistraiton) {
+            await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
+          } else {
+            await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
+          }
         }
       }
     } else {
       await verifyAppSpecifications(appSpecFormatted, block);
-      if (appRegistraiton) {
-        await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
-      } else {
-        await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
+      if (!isAppRequested || (daemonHeight - block + (appSpecFormatted.expire || 22000)) >= 0) {
+        if (appRegistraiton) {
+          await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+        } else {
+          await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
+        }
       }
     }
 
