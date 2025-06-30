@@ -1170,7 +1170,7 @@
           v-if="appRegistrationSpecification.version >= 8 && isPrivateApp"
           title="Priority Nodes"
         >
-          Priority Nodes will be priority to run your app, the app can still deploy on other nodes on the network.<br>
+          Select if needed Priority Nodes to run your app, the app can still deploy on other nodes on the network.<br>
           <b-row>
             <b-col
               md="4"
