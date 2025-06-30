@@ -3358,7 +3358,7 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      if (this.currentHeight < 1934000) {
+      if (this.currentHeight < 1944000) {
         this.specificationVersion = 7;
         this.composeTemplate = this.composeTemplatev7;
         this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
