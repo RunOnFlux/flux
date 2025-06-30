@@ -6858,7 +6858,7 @@ async function storeAppTemporaryMessage(message) {
     block = result.height;
   }
 
-  const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
+  const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
   
   if (daemonHeight - block + (appSpecFormatted.expire || 22000) >= 0) {
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
@@ -6874,7 +6874,7 @@ async function storeAppTemporaryMessage(message) {
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
         await verifyAppSpecifications(appSpecFormattedDecrypted, block);
-        if (appRegistraiton) {
+        if (appRegistration) {
           await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
         } else {
           await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
@@ -6882,7 +6882,7 @@ async function storeAppTemporaryMessage(message) {
       }
     } else {
       await verifyAppSpecifications(appSpecFormatted, block);
-      if (appRegistraiton) {
+      if (appRegistration) {
         await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
         await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
@@ -6891,7 +6891,7 @@ async function storeAppTemporaryMessage(message) {
   }
 
   await verifyAppHash(message);
-  if (appRegistraiton) {
+  if (appRegistration) {
     await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
   } else {
     // get previousAppSpecifications as we need previous owner
