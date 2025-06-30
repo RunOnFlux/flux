@@ -14424,7 +14424,7 @@ async function checkMyAppsAvailability() {
       // no broken ports have been found)
       if (!originalPortFailed) {
         originalPortFailed = testingPort;
-        setPortToTest = testingPort + 1;
+        setPortToTest = testingPort < 65535 ? testingPort + 1 : testingPort - 1;
       } else if (
         testingPort >= originalPortFailed
         && testingPort + 1 <= 65535
