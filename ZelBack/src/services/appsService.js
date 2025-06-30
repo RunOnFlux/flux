@@ -6800,10 +6800,9 @@ async function checkAppTemporaryMessageExistence(hash) {
 /**
  * To store a temporary message for an app.
  * @param {object} message Message.
- * @param {boolean} furtherVerification Defaults to false.
  * @returns {boolean} True if message is successfully stored and rebroadcasted. Returns false if message is already in cache or has already been broadcast. Otherwise an error is thrown.
  */
-async function storeAppTemporaryMessage(message, furtherVerification = false) {
+async function storeAppTemporaryMessage(message) {
   /* message object
   * @param type string
   * @param version number
@@ -6861,7 +6860,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
-  if (furtherVerification) {
+  if (!isAppRequested || (daemonHeight - block + (appSpecFormatted.expire || 22000)) >= 0) {
     const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
       if (!message.arcaneSender) {
@@ -6876,22 +6875,18 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
         await verifyAppSpecifications(appSpecFormattedDecrypted, block);
-        if (!isAppRequested || (daemonHeight - block + (appSpecFormatted.expire || 22000)) >= 0) {
-          if (appRegistraiton) {
-            await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
-          } else {
-            await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
-          }
+        if (appRegistraiton) {
+          await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
+        } else {
+          await checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
         }
       }
     } else {
       await verifyAppSpecifications(appSpecFormatted, block);
-      if (!isAppRequested || (daemonHeight - block + (appSpecFormatted.expire || 22000)) >= 0) {
-        if (appRegistraiton) {
-          await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
-        } else {
-          await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
-        }
+      if (appRegistraiton) {
+        await checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+      } else {
+        await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       }
     }
 
@@ -9509,7 +9504,7 @@ async function checkAndSyncAppHashes() {
           y += 1;
           try {
             // eslint-disable-next-line no-await-in-loop
-            await storeAppTemporaryMessage(appMessage, true);
+            await storeAppTemporaryMessage(appMessage);
             // eslint-disable-next-line no-await-in-loop
             await checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.value, 2);
             // eslint-disable-next-line no-await-in-loop
