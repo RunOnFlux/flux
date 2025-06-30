@@ -2435,7 +2435,7 @@ export default {
       registrationHash: '',
       registrationtype: 'fluxappregister',
       currentHeight: 1350000,
-      specificationVersion: 7,
+      specificationVersion: 8,
       appRegistrationSpecification: {},
       appRegistrationSpecificationV3Template: {
         version: 3,
