@@ -3362,29 +3362,6 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      if (this.currentHeight < 1934000) {
-        this.specificationVersion = 7;
-        this.composeTemplate = this.composeTemplatev7;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-          // eslint-disable-next-line no-param-reassign
-          component.domains = '[""]';
-        });
-      } else {
-        this.specificationVersion = 8;
-        this.composeTemplate = this.composeTemplatev8;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV8Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-          // eslint-disable-next-line no-param-reassign
-          component.domains = '[""]';
-        });
-      }
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       this.appRegistrationSpecification.owner = auth.zelid;
