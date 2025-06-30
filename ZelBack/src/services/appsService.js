@@ -6871,10 +6871,12 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const fluxService = require('./fluxService');
       if (await fluxService.isSystemSecure()) {
         // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
+        const appSpecDecrypted = await checkAndDecryptAppSpecs(
           appSpecFormatted,
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
+        // eslint-disable-next-line no-use-before-define
+        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
         await verifyAppSpecifications(appSpecFormattedDecrypted, block);
         if (appRegistraiton) {
           await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
@@ -8290,7 +8292,7 @@ async function registerAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
-        arcaneSender: isEnterprise,
+        arcaneSender: isArcane,
       };
 
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
@@ -8463,7 +8465,7 @@ async function updateAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
-        arcaneSender: isEnterprise,
+        arcaneSender: isArcane,
       };
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
@@ -10000,6 +10002,9 @@ async function getApplicationGlobalSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    appInfo = specificationFormatter(appInfo);
+  }
   return appInfo;
 }
 
@@ -10064,6 +10069,9 @@ async function getApplicationSpecifications(appName) {
   }
 
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    appInfo = specificationFormatter(appInfo);
+  }
   return appInfo;
 }
 
@@ -10088,6 +10096,9 @@ async function getStrictApplicationSpecifications(appName) {
     appInfo = allApps.find((app) => app.name === appName);
   }
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    appInfo = specificationFormatter(appInfo);
+  }
   return appInfo;
 }
 
@@ -10998,7 +11009,6 @@ async function trySpawningGlobalApplication() {
     if (!appSpecifications) {
       throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
     }
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
 
     // eslint-disable-next-line no-restricted-syntax
     const dbopen = dbHelper.databaseConnection();
