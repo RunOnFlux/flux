@@ -6858,10 +6858,9 @@ async function storeAppTemporaryMessage(message) {
     block = result.height;
   }
 
-  // data shall already be verified by the broadcasting node. But verify all again.
-  // this takes roughly at least 1 second
+  const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
+  
   if (daemonHeight - block + (appSpecFormatted.expire || 22000) >= 0) {
-    const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
       if (!message.arcaneSender) {
         return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
@@ -6889,17 +6888,17 @@ async function storeAppTemporaryMessage(message) {
         await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       }
     }
+  }
 
-    await verifyAppHash(message);
-    if (appRegistraiton) {
-      await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
-    } else {
-      // get previousAppSpecifications as we need previous owner
-      const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
-      const { owner } = previousAppSpecs;
-      // here signature is checked against PREVIOUS app owner
-      await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block);
-    }
+  await verifyAppHash(message);
+  if (appRegistraiton) {
+    await verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
+  } else {
+    // get previousAppSpecifications as we need previous owner
+    const previousAppSpecs = await getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
+    const { owner } = previousAppSpecs;
+    // here signature is checked against PREVIOUS app owner
+    await verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block);
   }
 
   const receivedAt = Date.now();
