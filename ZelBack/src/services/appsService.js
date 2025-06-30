@@ -6860,7 +6860,7 @@ async function storeAppTemporaryMessage(message) {
 
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
-  if (!isAppRequested || (daemonHeight - block + (appSpecFormatted.expire || 22000)) >= 0) {
+  if (daemonHeight - block + (appSpecFormatted.expire || 22000) >= 0) {
     const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
       if (!message.arcaneSender) {
