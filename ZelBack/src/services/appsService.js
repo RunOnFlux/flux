@@ -10775,7 +10775,7 @@ async function trySpawningGlobalApplication() {
     }
 
     let isNodeConfirmed = false;
-    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Global applications will not be installed');
       fluxNodeWasNotConfirmedOnLastCheck = true;
@@ -11005,7 +11005,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // get app specifications
-    let appSpecifications = await getApplicationGlobalSpecifications(appToRun);
+    const appSpecifications = await getApplicationGlobalSpecifications(appToRun);
     if (!appSpecifications) {
       throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
     }
@@ -11338,7 +11338,7 @@ let checkAndNotifyPeersOfRunningAppsFirstRun = true;
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     let isNodeConfirmed = false;
-    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
       log.info('checkAndNotifyPeersOfRunningApps - FluxNode is not Confirmed');
       return;
@@ -14129,7 +14129,7 @@ async function checkMyAppsAvailability() {
       return;
     }
     let isNodeConfirmed = false;
-    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Application checks are disabled');
       await serviceHelper.delay(4 * 60 * 1000);
@@ -15527,7 +15527,7 @@ async function monitorNodeStatus() {
       if (installedAppsRes.status !== 'success') {
         throw new Error('monitorNodeStatus - Failed to get installed Apps');
       }
-      isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
+      isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
       const appsInstalled = installedAppsRes.data;
       // eslint-disable-next-line no-restricted-syntax
       for (const installedApp of appsInstalled) {
@@ -15591,7 +15591,7 @@ async function monitorNodeStatus() {
           }
         }, timeout * 2);
         // eslint-disable-next-line no-await-in-loop
-        const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
+        const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch(() => null);
         isResolved = true;
         if (response && response.data && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
           log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
