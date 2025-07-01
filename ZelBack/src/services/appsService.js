@@ -14698,7 +14698,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         if (resMyAppAvailability.data.data && resMyAppAvailability.data.data.message && resMyAppAvailability.data.data.message.includes('Failed port: ')) {
           const portToRetest = serviceHelper.ensureNumber(resMyAppAvailability.data.data.message.split('Failed port: ')[1]);
           if (portToRetest > 0) {
-            failedPort = portsNotWorking.push(portToRetest);
+            portsNotWorking.add(portToRetest);
+            // if we aren't already testing ports, we set it here, otherwise, just continue
+            if (!originalPortFailed) {
+              originalPortFailed = portToRetest;
+              setPortToTest = portToRetest < 65535 ? testingPort + 1 : testingPort - 1;
+            }
           }
         }
         portsStatus = false;
