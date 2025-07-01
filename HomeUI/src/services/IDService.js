@@ -1,7 +1,5 @@
 import Api from '@/services/Api';
 
-const qs = require('qs');
-
 export default {
   loginPhrase() {
     return Api().get('/id/loginphrase');
@@ -12,7 +10,7 @@ export default {
   },
 
   verifyLogin(loginInfo) {
-    return Api().post('/id/verifylogin', qs.stringify(loginInfo));
+    return Api().post('/id/verifylogin', loginInfo);
   },
 
   loggedSessions(zelidauthHeader) {
@@ -56,7 +54,7 @@ export default {
         zelidauth: zelidauthHeader,
       },
     };
-    return Api().post('/id/logoutspecificsession', qs.stringify(data), axiosConfig);
+    return Api().post('/id/logoutspecificsession', data, axiosConfig);
   },
 
   logoutAllSessions(zelidauthHeader) {
@@ -80,6 +78,6 @@ export default {
       signature,
       loginPhrase,
     };
-    return Api().post('/id/checkprivilege', qs.stringify(data));
+    return Api().post('/id/checkprivilege', data);
   },
 };
