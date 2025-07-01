@@ -121,6 +121,12 @@ const spawnErrorsLongerLRUoptions = {
   maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
 };
 
+const appsHashesRegistrationsFromhisNodeLRUoptions = {
+  max: 5000,
+  ttl: 1000 * 60 * 60 * 1, // 1 hours
+  maxAge: 1000 * 60 * 60 * 1, // 1 hours
+};
+
 const spawnErrorsLongerAppCache = new LRUCache(spawnErrorsLongerLRUoptions);
 const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
 const myShortCache = new LRUCache(shortCache);
@@ -129,6 +135,7 @@ const failedNodesTestPortsCache = new LRUCache(testPortsCache);
 const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
 const appsStopedCache = new LRUCache(stopedAppsCache);
 const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
+const appsHashesRegistrationsFromThisNodeCache = new LRUCache(appsHashesRegistrationsFromhisNodeLRUoptions);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -6864,7 +6871,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   if (furtherVerification) {
     const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-      if (!message.arcaneSender && !isAppRequested) {
+      if (!appsHashesRegistrationsFromThisNodeCache.has(message.hash) && !message.arcaneSender && !isAppRequested) {
         return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
       }
       // eslint-disable-next-line global-require
@@ -8294,7 +8301,7 @@ async function registerAppGlobalyApi(req, res) {
         signature,
         arcaneSender: isArcane,
       };
-
+      appsHashesRegistrationsFromThisNodeCache.set(messageHASH, messageHASH);
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
@@ -8467,6 +8474,7 @@ async function updateAppGlobalyApi(req, res) {
         signature,
         arcaneSender: isArcane,
       };
+      appsHashesRegistrationsFromThisNodeCache.set(messageHASH, messageHASH);
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
