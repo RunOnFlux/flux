@@ -2822,13 +2822,14 @@ export default {
       return expTime;
     },
     subscribedTill() {
-      if (this.appRegistrationSpecification.expire) {
-        const timeFound = this.expireOptions.find((option) => option.value === this.appRegistrationSpecification.expire);
+      const expire = this.convertExpire();
+      if (expire) {
+        const timeFound = this.expireOptions.find((option) => option.value === expire);
         if (timeFound) {
           const expTime = this.timestamp + timeFound.time;
           return expTime;
         }
-        const blocks = this.appRegistrationSpecification.expire;
+        const blocks = expire;
         const blockTime = 2 * 60 * 1000;
         const validTime = blocks * blockTime;
         const expTime = this.timestamp + validTime;
