@@ -2112,4 +2112,5 @@ module.exports = {
   tailFluxLog,
   unlockStreamLock,
   isArcaneOs,
+  isSystemSecure,
 };
