@@ -6864,7 +6864,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   if (furtherVerification) {
     const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
-      if (!message.arcaneSender) {
+      if (!message.arcaneSender && !isAppRequested) {
         return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
       }
       // eslint-disable-next-line global-require
