@@ -701,6 +701,8 @@ describe('serviceHelper tests', () => {
         ['5 years', failureValue],
         ['-5 minutes', failureValue],
         ['-123.55', failureValue],
+        ['123..55', failureValue],
+        ['12.3.55', failureValue],
         [123.55, 123],
         ['123.55', 123],
         [300, 300],
