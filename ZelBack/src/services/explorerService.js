@@ -883,7 +883,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         }
       }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
-    } else if (scannedBlockHeight >= config.daemon.chainValidHeight && lastchainTipCheck + 100 < scannedBlockHeight) {
+    } else if (scannedBlockHeight >= config.daemon.chainValidHeight && lastchainTipCheck !== 0 && lastchainTipCheck + 100 < scannedBlockHeight) {
       const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
       if (daemonGetChainTips.status !== 'success') {
         throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
