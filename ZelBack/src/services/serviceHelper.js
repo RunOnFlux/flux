@@ -52,17 +52,24 @@ const locks = new Map();
  * @returns {number} milliseconds
  */
 function parseInterval(userInterval) {
+  // we use a default interval here of 1 second, instead of 0. This is case of
+  // user error where there is a function in a loop, this will prevent cpu @ 100%
+  const defaultInterval = 1_000;
+
   if (typeof userInterval !== 'string' && typeof userInterval !== 'number') {
-    return 0;
+    return defaultInterval;
   }
 
-  // if only numbers are provided, we assume they are ms
-  if (/^-?\d+$/.test(userInterval)) return Math.max(Number(userInterval), 0);
+  // if only numbers are provided, we assume they are ms and return those
+  if (/^-?\d+$/.test(userInterval)) {
+    const asNumber = Number(userInterval);
+    return asNumber >= 0 ? asNumber : defaultInterval;
+  }
 
   const formattedInterval = userInterval.replace(/\s/g, '').toLowerCase();
   // this will ensure we only get time pairs. I.e. 1 minute
   const timePattern = /^(?:[0-9]+(?:[s|S|m|M|h|H|d|D]|secs?|seconds?|mins?|minutes?|hrs?|hours?|days?))+$/;
-  if (!timePattern.test(formattedInterval)) return 0;
+  if (!timePattern.test(formattedInterval)) return defaultInterval;
 
   const intervalAsArray = formattedInterval.match(/[0-9]+|[a-zA-Z]+/g);
 

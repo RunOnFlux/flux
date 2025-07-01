@@ -681,12 +681,26 @@ describe('serviceHelper tests', () => {
 
   describe('parseInterval tests', () => {
     it('should parse all time intervals', () => {
+      const failureValue = 1_000;
+
       const intervals = [
-        [-3600, 0],
-        ['-3600', 0],
-        ['bad timer', 0],
-        ['3 minutes 30', 0],
+        [{ bad: 'input' }, failureValue],
+        [['bad', 'input'], failureValue],
+        [new Error('Bad input'), failureValue],
+        ['', failureValue],
+        [-3600, failureValue],
+        ['-3600', failureValue],
+        ['bad timer', failureValue],
+        ['3 minutes 30', failureValue],
         ['0 minutes 0 seconds', 0],
+        ['0sec', 0],
+        ['0', 0],
+        [0, 0],
+        [null, failureValue],
+        [undefined, failureValue],
+        ['5 years', failureValue],
+        ['-5 minutes', failureValue],
+        [300, 300],
         ['3600', 3600],
         ['15s', 15_000],
         ['15sec', 15_000],
