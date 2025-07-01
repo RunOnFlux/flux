@@ -62,8 +62,8 @@ function parseInterval(userInterval) {
   }
 
   // if only numbers are provided, we assume they are ms and return those
-  if (/^-?\d+$/.test(userInterval)) {
-    const asNumber = Number(userInterval);
+  if (/^[-+]?[0-9]*\.?[0-9]+$/.test(userInterval)) {
+    const asNumber = Math.floor(Number(userInterval));
 
     if (asNumber < 0) {
       log.warn(`Negative time value received: ${userInterval}, returning 1000ms`);
