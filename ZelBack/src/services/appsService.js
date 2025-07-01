@@ -14539,7 +14539,7 @@ async function checkMyAppsAvailability() {
     if (portsNotWorking.size < 100) {
       portsNotWorking.add(testingPort);
       // we just append this so the error logging is correct
-      ports.append(testingPort);
+      ports.push(testingPort);
       dosState = 0;
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
       await serviceHelper.delay(15 * 1000);
