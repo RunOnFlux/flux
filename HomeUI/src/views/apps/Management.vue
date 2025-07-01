@@ -4631,7 +4631,7 @@
               v-if="appUpdateSpecification.version >= 8 && isPrivateApp"
               title="Priority Nodes"
             >
-              Priority Nodes will be priority to run your app, the app can still deploy on other nodes on the network.<br>
+              Select if needed Priority Nodes to run your app, the app can still deploy on other nodes on the network.<br>
               <b-row>
                 <b-col
                   md="4"
@@ -7452,6 +7452,9 @@ export default {
         // remove any geolocation
         this.allowedGeolocations = {};
         this.forbiddenGeolocations = {};
+      }
+      if (this.appRegistrationSpecification.version === 8 && value === false) {
+        this.appUpdateSpecification.enterprise = false;
       }
       this.dataToSign = '';
       this.signature = '';

@@ -6871,10 +6871,12 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       const fluxService = require('./fluxService');
       if (await fluxService.isSystemSecure()) {
         // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = await checkAndDecryptAppSpecs(
+        const appSpecDecrypted = await checkAndDecryptAppSpecs(
           appSpecFormatted,
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
+        // eslint-disable-next-line no-use-before-define
+        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
         await verifyAppSpecifications(appSpecFormattedDecrypted, block);
         if (appRegistraiton) {
           await checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
@@ -7823,8 +7825,10 @@ function specificationFormatter(appSpecification) {
     appSpecFormatted.staticip = staticip;
   }
 
-  if (version >= 8 && enterprise) {
-    enterprise = serviceHelper.ensureString(enterprise);
+  if (version >= 8) {
+    if (enterprise) {
+      enterprise = serviceHelper.ensureString(enterprise);
+    }
 
     appSpecFormatted.enterprise = enterprise;
   }
@@ -8288,7 +8292,7 @@ async function registerAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
-        arcaneSender: isEnterprise,
+        arcaneSender: isArcane,
       };
 
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
@@ -8461,7 +8465,7 @@ async function updateAppGlobalyApi(req, res) {
         hash: messageHASH,
         timestamp,
         signature,
-        arcaneSender: isEnterprise,
+        arcaneSender: isArcane,
       };
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
@@ -9998,6 +10002,9 @@ async function getApplicationGlobalSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    appInfo = specificationFormatter(appInfo);
+  }
   return appInfo;
 }
 
@@ -10062,6 +10069,9 @@ async function getApplicationSpecifications(appName) {
   }
 
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    appInfo = specificationFormatter(appInfo);
+  }
   return appInfo;
 }
 
@@ -10086,6 +10096,9 @@ async function getStrictApplicationSpecifications(appName) {
     appInfo = allApps.find((app) => app.name === appName);
   }
   appInfo = await checkAndDecryptAppSpecs(appInfo);
+  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    appInfo = specificationFormatter(appInfo);
+  }
   return appInfo;
 }
 
@@ -10762,7 +10775,7 @@ async function trySpawningGlobalApplication() {
     }
 
     let isNodeConfirmed = false;
-    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Global applications will not be installed');
       fluxNodeWasNotConfirmedOnLastCheck = true;
@@ -10992,11 +11005,10 @@ async function trySpawningGlobalApplication() {
     }
 
     // get app specifications
-    let appSpecifications = await getApplicationGlobalSpecifications(appToRun);
+    const appSpecifications = await getApplicationGlobalSpecifications(appToRun);
     if (!appSpecifications) {
       throw new Error(`trySpawningGlobalApplication - Specifications for application ${appToRun} were not found!`);
     }
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
 
     // eslint-disable-next-line no-restricted-syntax
     const dbopen = dbHelper.databaseConnection();
@@ -11326,7 +11338,7 @@ let checkAndNotifyPeersOfRunningAppsFirstRun = true;
 async function checkAndNotifyPeersOfRunningApps() {
   try {
     let isNodeConfirmed = false;
-    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
       log.info('checkAndNotifyPeersOfRunningApps - FluxNode is not Confirmed');
       return;
@@ -14188,9 +14200,9 @@ async function checkMyAppsAvailability() {
       return;
     }
 
-    const isNodeConfirmed = await generalService
-      .isNodeStatusConfirmed()
-      .catch(() => false);
+    let isNodeConfirmed = false;
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
+
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Application checks are disabled');
       await serviceHelper.delay(4 * 60 * 1000);
@@ -15696,7 +15708,7 @@ async function monitorNodeStatus() {
       if (installedAppsRes.status !== 'success') {
         throw new Error('monitorNodeStatus - Failed to get installed Apps');
       }
-      isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch();
+      isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
       const appsInstalled = installedAppsRes.data;
       // eslint-disable-next-line no-restricted-syntax
       for (const installedApp of appsInstalled) {
@@ -15760,7 +15772,7 @@ async function monitorNodeStatus() {
           }
         }, timeout * 2);
         // eslint-disable-next-line no-await-in-loop
-        const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch();
+        const response = await axios.get(`http://${ip}:${port}/daemon/getfluxnodestatus`, { timeout, cancelToken: source.token }).catch(() => null);
         isResolved = true;
         if (response && response.data && response.data.status === 'success' && response.data.data.status === 'CONFIRMED') {
           log.info(`monitorNodeStatus - IP ${location} is available and confirmed, awaiting for a new confirmation transaction`);
