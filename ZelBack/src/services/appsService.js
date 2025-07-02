@@ -14082,8 +14082,8 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     log.info(logMsg);
 
     const url = `http://${askingIP}:${askingIpPort}/flux/keepupnpportsopen`;
-    axios.post(url, dataUPNP, axiosConfig).catch(() => {
-      // callOtherNodeToKeepUpnpPortsOpen();
+    await axios.post(url, dataUPNP, axiosConfig).catch(() => {
+      callOtherNodeToKeepUpnpPortsOpen();
     });
   } catch (error) {
     log.error(error);
