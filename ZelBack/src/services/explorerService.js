@@ -884,6 +884,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
     } else if (scannedBlockHeight >= config.daemon.chainValidHeight && lastchainTipCheck !== 0 && lastchainTipCheck + 100 < scannedBlockHeight) {
+      log.info(`Explorer - Checking for chain reorganisations - lastchainTipCheck: ${lastchainTipCheck} scannedBlockHeight: ${scannedBlockHeight}`);
       const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
       if (daemonGetChainTips.status !== 'success') {
         throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
@@ -930,6 +931,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           throw e;
         }
       }
+      isInInitiationOfBP = false;
       lastchainTipCheck = scannedBlockHeight;
       initBPfromNoBlockTimeout = setTimeout(() => {
         // eslint-disable-next-line no-use-before-define
