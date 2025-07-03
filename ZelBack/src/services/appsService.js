@@ -14140,6 +14140,42 @@ const portsNotWorking = new Set();
  * @returns {Promise<void>}
  */
 async function checkMyAppsAvailability() {
+  /**
+   * default timeout = 1h     - Normal state  \
+   * error timeout = 60s      - Something unexpected happened  \
+   * failure timeout = 15s    - Our port testing failed  \
+   * dos timeout = 5m         - We're DOS  \
+   * app error = 4m           - Something on the fluxNode is broken
+   */
+  const timeouts = {
+    default: 60_000_000,
+    error: 60_000,
+    failure: 15_000,
+    dos: 300_000,
+    appError: 240_000,
+  };
+
+  /**
+   * dos              - Dos is a number between 0-100. The threshold is the upper limit
+   * ports high edge  - The upper limit after which the dos counter will increment
+   * ports low edge   - The lower limit after which the node can resume normal state
+   */
+  const thresholds = {
+    dos: 100,
+    portsHighEdge: 100,
+    portsLowEdge: 80,
+  };
+
+  if (dosMountMessage || dosDuplicateAppMessage) {
+    dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    dosState = thresholds.dos;
+    // added a sleep and recurse here, I assume it's possible for the DOS level to get
+    // remove elsewhere, so we should check this again.
+    await serviceHelper.delay(timeouts.appError);
+    checkMyAppsAvailability();
+    return;
+  }
+
   const isUpnp = upnpService.isUPNP();
   const testingAppserver = httpShutdown(http.createServer(express()));
 
@@ -14155,6 +14191,11 @@ async function checkMyAppsAvailability() {
     }
   };
 
+  /**
+   * Picks a random port from the existing set of not working ports
+   * @returns {Array} The array of not working ports. Just so any caller
+   * doesn't have to convert to an Array
+   */
   const setRandomPort = () => {
     const ports = Array.from(portsNotWorking);
     const randomIndex = Math.floor(Math.random() * ports.length);
@@ -14164,45 +14205,10 @@ async function checkMyAppsAvailability() {
   };
 
   try {
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.daemon.database);
-    const query = { generalScannedHeight: { $gte: 0 } };
-    const projection = {
-      projection: {
-        _id: 0,
-        generalScannedHeight: 1,
-      },
-    };
-
-    const currentHeight = await dbHelper.findOneInDatabase(
-      database,
-      scannedHeightCollection,
-      query,
-      projection,
-    );
-
-    if (!currentHeight) {
-      // removed the throw here. Just keep the control flow in the loop
-      log.error('No scanned height found');
-      await serviceHelper.delay(4 * 60 * 1000);
-      checkMyAppsAvailability();
-      return;
-    }
-
-    if (dosMountMessage || dosDuplicateAppMessage) {
-      dosMessage = dosMountMessage || dosDuplicateAppMessage;
-      dosState = 100;
-      // added a sleep and recurse here, I assume it's possible for the DOS level to get
-      // remove elsewhere, so we should check this again.
-      await serviceHelper.delay(4 * 60 * 1000);
-      checkMyAppsAvailability();
-      return;
-    }
-
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     if (!syncStatus.data.synced) {
       log.info('Flux Node daemon not synced. Application checks are disabled');
-      await serviceHelper.delay(4 * 60 * 1000);
+      await serviceHelper.delay(timeouts.appError);
       checkMyAppsAvailability();
       return;
     }
@@ -14212,27 +14218,24 @@ async function checkMyAppsAvailability() {
 
     if (!isNodeConfirmed) {
       log.info('Flux Node not Confirmed. Application checks are disabled');
-      await serviceHelper.delay(4 * 60 * 1000);
+      await serviceHelper.delay(timeouts.appError);
       checkMyAppsAvailability();
       return;
     }
 
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
       log.info('No Public IP found. Application checks are disabled');
-      await serviceHelper.delay(4 * 60 * 1000);
+      await serviceHelper.delay(timeouts.appError);
       checkMyAppsAvailability();
       return;
     }
-
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
 
     const installedAppsRes = await installedApps();
     if (installedAppsRes.status !== 'success') {
       // removed the throw here. Keep the control flow local.
       log.error('Failed to get installed Apps');
-      await serviceHelper.delay(4 * 60 * 1000);
+      await serviceHelper.delay(timeouts.appError);
       checkMyAppsAvailability();
       return;
     }
@@ -14260,17 +14263,9 @@ async function checkMyAppsAvailability() {
     if (nextTestingPort) {
       testingPort = nextTestingPort;
     } else {
-      const minPort = currentHeight.generalScannedHeight
-        >= config.fluxapps.portBlockheightChange
-        ? config.fluxapps.portMinNew
-        : config.fluxapps.portMin - 1000;
+      const { fluxapps: { portMin, portMax } } = config; y
 
-      const maxPort = currentHeight.generalScannedHeight
-        >= config.fluxapps.portBlockheightChange
-        ? config.fluxapps.portMaxNew
-        : config.fluxapps.portMax;
-
-      testingPort = Math.floor(Math.random() * (maxPort - minPort) + minPort);
+      testingPort = Math.floor(Math.random() * (portMax - portMin) + portMin);
     }
 
     log.info(`checkMyAppsAvailability - Testing port ${testingPort}`);
@@ -14282,7 +14277,7 @@ async function checkMyAppsAvailability() {
       );
 
       setNextPort();
-      await serviceHelper.delay(15 * 1000);
+      await serviceHelper.delay(timeouts.failure);
       checkMyAppsAvailability();
       return;
     }
@@ -14295,7 +14290,7 @@ async function checkMyAppsAvailability() {
         );
 
         setNextPort();
-        await serviceHelper.delay(15 * 1000);
+        await serviceHelper.delay(timeouts.failure);
         checkMyAppsAvailability();
         return;
       }
@@ -14308,7 +14303,7 @@ async function checkMyAppsAvailability() {
       );
 
       setNextPort();
-      await serviceHelper.delay(15 * 1000);
+      await serviceHelper.delay(timeouts.failure);
       checkMyAppsAvailability();
       return;
     }
@@ -14319,7 +14314,32 @@ async function checkMyAppsAvailability() {
       );
 
       setNextPort();
-      await serviceHelper.delay(15 * 1000);
+      await serviceHelper.delay(timeouts.failure);
+      checkMyAppsAvailability();
+      return;
+    }
+
+    const remoteSocketAddress = await fluxNetworkHelper.getRandomConnection();
+
+    if (!remoteSocketAddress) {
+      // changed this to 4 minutes. If we can't get a random connection, we have
+      // other problems. (i.e. it's an error state, or node just started)
+      await serviceHelper.delay(timeouts.appError);
+      checkMyAppsAvailability();
+      return;
+    }
+
+    if (localSocketAddress === remoteSocketAddress) {
+      // safer just to wait here, no harm in waiiting 15 seconds in unlikely event
+      // that we pull ourselves from the list (or we should just remove it first)
+      await serviceHelper.delay(timeouts.failure);
+      checkMyAppsAvailability();
+      return;
+    }
+
+    if (failedNodesTestPortsCache.has(remoteSocketAddress)) {
+      // same as above. This is unlikley, just wait the 15 seconds
+      await serviceHelper.delay(timeouts.failure);
       checkMyAppsAvailability();
       return;
     }
@@ -14335,16 +14355,19 @@ async function checkMyAppsAvailability() {
         'Flux_Test_App',
       );
 
+      // upnp dos takes precedence over both port dos and others
       if (!upnpMapResult) {
         if (lastUPNPMapFailed) {
           dosState += 4;
-          if (dosState >= 100) {
-            dosMessage = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
+          if (dosState >= thresholds.dos) {
+            dosMessage = 'Not possible to run applications on the node, '
+              + 'router returning exceptions when creating UPNP ports mappings';
           }
         }
         lastUPNPMapFailed = true;
         log.info(
-          `checkMyAppsAvailability - Testing port ${testingPort} failed to create UPnP mapping`,
+          `checkMyAppsAvailability - Testing port ${testingPort} `
+          + 'failed to create UPnP mapping',
         );
 
         setNextPort();
@@ -14355,9 +14378,8 @@ async function checkMyAppsAvailability() {
           skipHttpServer: true,
         });
 
-        // changed this to two minutes if we are not DOS (and 15 minutes otherwise).
         // If we are failing mappings, we still need o fail 25 times before we go DOS.
-        const upnpDelay = dosMessage ? 15 * 60 * 1000 : 2 * 60 * 1000;
+        const upnpDelay = dosMessage ? timeouts.dos : timeouts.error;
         await serviceHelper.delay(upnpDelay);
         checkMyAppsAvailability();
         return;
@@ -14372,10 +14394,11 @@ async function checkMyAppsAvailability() {
     const listening = new Promise((resolve, reject) => {
       testingAppserver
         .once('error', (err) => {
-          testingAppserver.removeAllListeners();
+          testingAppserver.removeAllListeners('listening');
           reject(err.message);
         })
         .once('listening', () => {
+          testingAppserver.removeAllListeners('error');
           resolve(null);
         });
       testingAppserver.listen(testingPort);
@@ -14384,7 +14407,7 @@ async function checkMyAppsAvailability() {
     const error = await listening.catch((err) => err);
 
     if (error) {
-      log.warn(`Unable to listen on port: ${testingPort}. Error: ${error}`);
+      log.warn(`Unable to listen on port: ${testingPort}.Error: ${error} `);
 
       setNextPort();
 
@@ -14394,51 +14417,7 @@ async function checkMyAppsAvailability() {
         skipHttpServer: true,
       });
 
-      await serviceHelper.delay(60 * 1000);
-      checkMyAppsAvailability();
-      return;
-    }
-
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
-
-    if (!askingIP) {
-      await handleTestShutdown(testingPort, testingAppserver, {
-        skipFirewall: !firewallActive,
-        skipUpnp: !isUpnp,
-      });
-      // changed this to 4 minutes. If we can't get a random connection, we have
-      // other problems. (i.e. it's an error state, or node just started)
-      await serviceHelper.delay(4 * 60 * 1000);
-      checkMyAppsAvailability();
-      return;
-    }
-
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) {
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
-
-    if (myIP === askingIP) {
-      await handleTestShutdown(testingPort, testingAppserver, {
-        skipFirewall: !firewallActive,
-        skipUpnp: !isUpnp,
-      });
-      // safer just to wait here, no harm in waiiting 15 seconds in unlikely event
-      // that we pull ourselves from the list (or we should just remove it first)
-      await serviceHelper.delay(15 * 1000);
-      checkMyAppsAvailability();
-      return;
-    }
-
-    if (failedNodesTestPortsCache.has(askingIP)) {
-      await handleTestShutdown(testingPort, testingAppserver, {
-        skipFirewall: !firewallActive,
-        skipUpnp: !isUpnp,
-      });
-      // same as above. This is unlikley, just wait the 15 seconds
-      await serviceHelper.delay(15 * 1000);
+      await serviceHelper.delay(timeouts.error);
       checkMyAppsAvailability();
       return;
     }
@@ -14455,9 +14434,12 @@ async function checkMyAppsAvailability() {
       },
     };
 
+    const [localIp, localPort = '16127'] = localSocketAddress.split(':');
+    const [remoteIp, remotePort = '16127'] = remoteSocketAddress.split(':');
+
     const data = {
-      ip: myIP,
-      port: myPort,
+      ip: localIp,
+      port: localPort,
       appname: 'appPortsTest',
       ports: [testingPort],
       pubKey,
@@ -14469,16 +14451,17 @@ async function checkMyAppsAvailability() {
 
     const resMyAppAvailability = await axios
       .post(
-        `http://${askingIP}:${askingIpPort}/flux/checkappavailability`,
+        `http://${remoteIp}:${remotePort}/flux/checkappavailability`,
         JSON.stringify(data),
         axiosConfig,
       )
       .catch(() => {
         log.error(
-          `checkMyAppsAvailability - ${askingIP} for app availability is not reachable`,
+          `checkMyAppsAvailability - ${remoteSocketAddress} `
+          + 'for app availability is not reachable',
         );
         nextTestingPort = testingPort;
-        failedNodesTestPortsCache.set(askingIP, askingIP);
+        failedNodesTestPortsCache.set(remoteSocketAddress, '');
         return null;
       });
 
@@ -14488,7 +14471,7 @@ async function checkMyAppsAvailability() {
     });
 
     if (!resMyAppAvailability) {
-      await serviceHelper.delay(15 * 1000);
+      await serviceHelper.delay(timeouts.failure);
       checkMyAppsAvailability();
       return;
     }
@@ -14496,13 +14479,21 @@ async function checkMyAppsAvailability() {
     // at this point - testing is complete. Analyze the result and set up the
     // next test (if applicable)
 
-    const { data: { status: responseStatus = null } } = resMyAppAvailability;
+    const {
+      data: {
+        status: responseStatus = null,
+        data: { message: responseMessasge = 'No response' } = {
+          message: 'No response',
+        },
+      },
+    } = resMyAppAvailability;
 
     if (!['success', 'error'].includes(responseStatus)) {
       // we retry the same port but with another node
-      log.warning(`checkMyAppsAvailability - Unexpected response status: ${responseStatus}`);
+      log.warning('checkMyAppsAvailability - Unexpected response '
+        + `status: ${responseStatus}`);
 
-      await serviceHelper.delay(2 * 60 * 1000);
+      await serviceHelper.delay(timeouts.error);
       checkMyAppsAvailability();
       return;
     }
@@ -14517,7 +14508,7 @@ async function checkMyAppsAvailability() {
      *   also be considered normal, and could take many many hours to cross the threshold
      * Failed - Rising edge
      *   Threshold crossed. There are 100 ports in portsNotWorking. At this time the
-     *   dosState starts rising 0.4 per fail. (takes 25 ports once in this state to DOS)
+     *   dosState starts rising 4 per fail. (takes 25 ports once in this state to DOS)
      * Failed - DOS
      *    There are 100 ports in the portsNotWorking array. 25 of those ports
      *   have failed a second time. Node is in DOS state.
@@ -14528,15 +14519,11 @@ async function checkMyAppsAvailability() {
      *   is then considered in the "normal" state - and the portsNotWorking array is cleared
      */
 
-    const dosThreshold = 100;
-    const portsThreshold = 100;
-    const portsHysteresis = 80;
-
     const portTestFailed = responseStatus === 'error';
     let waitMs = 0;
 
     // Normal - Rising edge
-    if (portTestFailed && portsNotWorking.size < portsThreshold) {
+    if (portTestFailed && portsNotWorking.size < thresholds.portsHighEdge) {
       portsNotWorking.add(testingPort);
 
       if (!originalPortFailed) {
@@ -14554,33 +14541,34 @@ async function checkMyAppsAvailability() {
         originalPortFailed = null;
       }
 
-      waitMs = 15 * 1000;
+      waitMs = timeouts.failure;
 
       // Failed - Rising edge (by default takes 25 of these to get to 100)
-    } else if (portTestFailed && dosState < dosThreshold) {
+    } else if (portTestFailed && dosState < thresholds.dos) {
       dosState += 4;
       setRandomPort();
 
-      waitMs = 15 * 1000;
+      waitMs = timeouts.failure;
 
       // Failed - DOS
-    } else if (portTestFailed && dosState >= dosThreshold) {
+    } else if (portTestFailed && dosState >= thresholds.dos) {
       // at this point - all apps will be removed off node by monitorNodeStatus
       const failedPorts = setRandomPort();
 
       // this dosMessage takes priority over dosMountMessage or dosDuplicateAppMessage
-      dosMessage = `Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: ${JSON.stringify(
-        failedPorts,
-      )}`;
+      dosMessage = 'Ports tested not reachable from outside, DMZ or UPNP '
+        + `required! All ports that have failed: ${JSON.stringify(
+          failedPorts,
+        )}`;
 
-      waitMs = 2 * 60 * 1000;
+      waitMs = timeouts.dos;
 
       // Failed - Lowering edge, the hysteresis stops bouncing between states
-    } else if (!portTestFailed && portsNotWorking.size >= portsHysteresis) {
+    } else if (!portTestFailed && portsNotWorking.size > thresholds.portsLowEdge) {
       portsNotWorking.delete(testingPort);
       setRandomPort();
 
-      waitMs = 15 * 1000;
+      waitMs = timeouts.failure;
 
       // Normal
     } else {
@@ -14592,24 +14580,27 @@ async function checkMyAppsAvailability() {
       // we have to set this here. As the mount or duplicate messages could be set
       // in between when we last checked and now
       dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
-      dosState = dosMessage ? 100 : 0;
+      dosState = dosMessage ? thresholds.dos : 0;
 
-      waitMs = 60 * 60 * 1000;
+      waitMs = timeouts.default;
     }
 
     if (portTestFailed) {
       log.error(
-        `checkMyAppsAvailability - Port ${testingPort} unreachable. Detected from ${askingIP}:${askingIpPort}. DosState: ${dosState}`,
+        `checkMyAppsAvailability - Port ${testingPort} unreachable. `
+        + `Detected from ${remoteIp}:${remotePort}. DosState: ${dosState}`,
       );
     } else {
       log.info(
-        `${resMyAppAvailability.data.data.message} Detected from ${askingIP}:${askingIpPort} on port ${testingPort}`,
+        `${responseMessasge} Detected from ${remoteIp}:${remotePort} on `
+        + `port ${testingPort}. DosState: ${dosState}`,
       );
     }
 
     if (portsNotWorking.size) {
       log.error(
-        `checkMyAppsAvailability - Count: ${portsNotWorking.size}. portsNotWorking: ${JSON.stringify(
+        `checkMyAppsAvailability - Count: ${portsNotWorking.size}. `
+        + `portsNotWorking: ${JSON.stringify(
           Array.from(portsNotWorking),
         )}`,
       );
@@ -14623,14 +14614,14 @@ async function checkMyAppsAvailability() {
     // started. While all of these are then caught, we're logging errors that
     // aren't necessary. We should only remove stuff if it's been added. (and just
     // catch the errors as they are happening instead of using a catch all block)
-    if (dosMountMessage || dosDuplicateAppMessage) {
+    if (!dosMessage && (dosMountMessage || dosDuplicateAppMessage)) {
       dosMessage = dosMountMessage || dosDuplicateAppMessage;
     }
 
     await handleTestShutdown(testingPort, testingAppserver, { skipUpnp: !isUpnp });
 
     log.error(`checkMyAppsAvailability - Error: ${error}`);
-    await serviceHelper.delay(4 * 60 * 1000);
+    await serviceHelper.delay(timeouts.appError);
     checkMyAppsAvailability();
   }
 }

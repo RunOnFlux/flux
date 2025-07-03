@@ -551,7 +551,7 @@ async function getFluxNodePublicKey(privatekey) {
 
 /**
  * To get a random connection.
- * @returns {string} IP:Port or just IP if default.
+ * @returns {Promise<string>} IP:Port or just IP if default.
  */
 async function getRandomConnection() {
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
@@ -1431,7 +1431,7 @@ async function allowPortApi(req, res) {
 
 /**
  * To check if a firewall is active.
- * @returns {boolean} True if a firewall is active. Otherwise false.
+ * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   try {
