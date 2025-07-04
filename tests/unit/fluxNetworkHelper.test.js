@@ -19,6 +19,8 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
+const net = require('node:net');
+
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
@@ -74,7 +76,9 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+        callback();
+      });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
       const expectedMessage = {
@@ -107,7 +111,9 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((port, ip, callback) => {
+        callback();
+      });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
       const expectedMessage = {
@@ -262,7 +268,9 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+        callback();
+      });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
 
@@ -286,7 +294,9 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+        callback();
+      });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
       const expectedAddressHome = 'http://127.0.0.1:16126';
 
