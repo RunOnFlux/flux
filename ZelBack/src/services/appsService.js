@@ -10095,7 +10095,9 @@ async function getApplicationSpecifications(appName) {
 
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    const { height } = appInfo;
     appInfo = specificationFormatter(appInfo);
+    appInfo.height = height;
   }
   return appInfo;
 }
