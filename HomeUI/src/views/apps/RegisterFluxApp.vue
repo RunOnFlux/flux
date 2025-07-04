@@ -3363,9 +3363,9 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      this.specificationVersion = 8;
-      this.composeTemplate = this.composeTemplatev8;
-      this.appRegistrationSpecification = this.appRegistrationSpecificationV8Template;
+      this.specificationVersion = 7;
+      this.composeTemplate = this.composeTemplatev7;
+      this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
       this.appRegistrationSpecification.compose.forEach((component) => {
         const ports = this.getRandomPort();
         // eslint-disable-next-line no-param-reassign
