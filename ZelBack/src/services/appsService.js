@@ -12794,8 +12794,7 @@ async function deploymentInformation(req, res) {
     }
     // search in chainparams db for chainmessages of p version
     const appPrices = await getChainParamsPriceUpdates();
-    const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMin : config.fluxapps.portMinLegacy;
-    const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMax : config.fluxapps.portMaxLegacy;
+    const { fluxapps: { minPort, maxPort } } = config;
     const information = {
       price: appPrices,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
