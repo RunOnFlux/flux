@@ -301,10 +301,8 @@ async function checkAppAvailability(req, res) {
         throw new Error('Unable to verify request authenticity');
       }
 
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height;
-      const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
-      const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
+      const { fluxapps: { minPort, maxPort } } = config;
+
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const iBP = isPortBanned(+port);
@@ -1288,7 +1286,7 @@ async function denyPort(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1322,7 +1320,7 @@ async function deleteAllowPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1353,7 +1351,7 @@ async function deleteDenyPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1384,7 +1382,7 @@ async function deleteAllowOutPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
