@@ -3782,12 +3782,14 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         appSpecifications.version >= 8 && appSpecifications.enterprise,
       );
 
+      const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
       if (isEnterprise) {
-        appSpecifications.compose = [];
-        appSpecifications.contacts = [];
+        dbSpecs.compose = [];
+        dbSpecs.contacts = [];
       }
 
-      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -4249,12 +4251,14 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         appSpecifications.version >= 8 && appSpecifications.enterprise,
       );
 
+      const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
       if (isEnterprise) {
-        appSpecifications.compose = [];
-        appSpecifications.contacts = [];
+        dbSpecs.compose = [];
+        dbSpecs.contacts = [];
       }
 
-      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -10461,7 +10465,7 @@ async function getApplicationSpecificationAPI(req, res) {
     const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
-      throw new Error('Application not found');
+      throw new Error(`Application not found: ${appname}`);
     }
 
     const isEnterprise = Boolean(
@@ -12138,13 +12142,15 @@ async function reinstallOldApplications() {
               appSpecifications.version >= 8 && appSpecifications.enterprise,
             );
 
+            const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
             if (isEnterprise) {
-              appSpecifications.compose = [];
-              appSpecifications.contacts = [];
+              dbSpecs.compose = [];
+              dbSpecs.contacts = [];
             }
 
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+            await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
             log.warn(`Composed application ${appSpecifications.name} updated.`);
             log.warn(`Restarting application ${appSpecifications.name}`);
             // eslint-disable-next-line no-await-in-loop, no-use-before-define
@@ -12279,13 +12285,15 @@ async function reinstallOldApplications() {
                 appSpecifications.version >= 8 && appSpecifications.enterprise,
               );
 
+              const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
               if (isEnterprise) {
-                appSpecifications.compose = [];
-                appSpecifications.contacts = [];
+                dbSpecs.compose = [];
+                dbSpecs.contacts = [];
               }
 
               // eslint-disable-next-line no-await-in-loop
-              await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+              await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
               log.warn(`Composed application ${appSpecifications.name} updated.`);
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
