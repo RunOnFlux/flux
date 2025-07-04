@@ -24,6 +24,8 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 let dosState = 0; // we can start at bigger number later
 let dosMessage = null;
 
@@ -1453,14 +1455,25 @@ async function adjustFirewall() {
       const execAllowC = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out 8080';
       await cmdAsync(execAllowB);
       await cmdAsync(execAllowC);
-      // allow incoming and outgoing DNS traffic
-      const execAllowD = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow in proto udp to any port 53';
+      // remove inbound DNS traffic
+      const removeInboundDns = 'LANG="en_US.UTF-8" && sudo ufw delete allow in proto udp to any port 53 > /dev/null 2>&1';
+      await cmdAsync(removeInboundDns);
+      // allow outgoing DNS traffic
       const execAllowE = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto udp to any port 53';
       const execAllowF = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow out proto tcp to any port 53';
-      await cmdAsync(execAllowD);
       await cmdAsync(execAllowE);
       await cmdAsync(execAllowF);
       log.info('Firewall adjusted for DNS traffic');
+
+      // fix up for ssh being misteriously removed (needs tracing)
+      if (isArcane) {
+        // this should also be limit, but existing nodes use allow (needs to be updated)
+        const execAllowFluxadmSsh = 'LANG="en_US.UTF-8" && sudo ufw insert 1 allow to any app FluxadmSSH > /dev/null 2>&1';
+        await cmdAsync(execAllowFluxadmSsh);
+      }
+
+      const execAllowOpenSsh = 'LANG="en_US.UTF-8" && sudo ufw insert 1 limit to any app OpenSSH > /dev/null 2>&1';
+      await cmdAsync(execAllowOpenSsh);
 
       const commandGetRouterIP = 'ip rout | head -n1 | awk \'{print $3}\'';
       let routerIP = await cmdAsync(commandGetRouterIP);

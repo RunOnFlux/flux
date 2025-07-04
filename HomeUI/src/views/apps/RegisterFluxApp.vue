@@ -1170,7 +1170,7 @@
           v-if="appRegistrationSpecification.version >= 8 && isPrivateApp"
           title="Priority Nodes"
         >
-          Priority Nodes will be priority to run your app, the app can still deploy on other nodes on the network.<br>
+          Select if needed Priority Nodes to run your app, the app can still deploy on other nodes on the network.<br>
           <b-row>
             <b-col
               md="4"
@@ -2435,7 +2435,7 @@ export default {
       registrationHash: '',
       registrationtype: 'fluxappregister',
       currentHeight: 1350000,
-      specificationVersion: 7,
+      specificationVersion: 8,
       appRegistrationSpecification: {},
       appRegistrationSpecificationV3Template: {
         version: 3,
@@ -2619,6 +2619,7 @@ export default {
         nodes: [],
         expire: 22000,
         staticip: false,
+        enterprise: false,
         compose: [
           {
             name: '',
@@ -2821,13 +2822,14 @@ export default {
       return expTime;
     },
     subscribedTill() {
-      if (this.appRegistrationSpecification.expire) {
-        const timeFound = this.expireOptions.find((option) => option.value === this.appRegistrationSpecification.expire);
+      const expire = this.convertExpire();
+      if (expire) {
+        const timeFound = this.expireOptions.find((option) => option.value === expire);
         if (timeFound) {
           const expTime = this.timestamp + timeFound.time;
           return expTime;
         }
-        const blocks = this.appRegistrationSpecification.expire;
+        const blocks = expire;
         const blockTime = 2 * 60 * 1000;
         const validTime = blocks * blockTime;
         const expTime = this.timestamp + validTime;
@@ -2937,6 +2939,9 @@ export default {
         // remove any geolocation
         this.allowedGeolocations = {};
         this.forbiddenGeolocations = {};
+      }
+      if (this.appRegistrationSpecification.version === 8 && value === false) {
+        this.appRegistrationSpecification.enterprise = false;
       }
       this.dataToSign = '';
       this.signature = '';
@@ -3358,29 +3363,16 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      if (this.currentHeight < 1944000) {
-        this.specificationVersion = 7;
-        this.composeTemplate = this.composeTemplatev7;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-          // eslint-disable-next-line no-param-reassign
-          component.domains = '[""]';
-        });
-      } else {
-        this.specificationVersion = 8;
-        this.composeTemplate = this.composeTemplatev8;
-        this.appRegistrationSpecification = this.appRegistrationSpecificationV8Template;
-        this.appRegistrationSpecification.compose.forEach((component) => {
-          const ports = this.getRandomPort();
-          // eslint-disable-next-line no-param-reassign
-          component.ports = ports;
-          // eslint-disable-next-line no-param-reassign
-          component.domains = '[""]';
-        });
-      }
+      this.specificationVersion = 8;
+      this.composeTemplate = this.composeTemplatev8;
+      this.appRegistrationSpecification = this.appRegistrationSpecificationV8Template;
+      this.appRegistrationSpecification.compose.forEach((component) => {
+        const ports = this.getRandomPort();
+        // eslint-disable-next-line no-param-reassign
+        component.ports = ports;
+        // eslint-disable-next-line no-param-reassign
+        component.domains = '[""]';
+      });
       const zelidauth = localStorage.getItem('zelidauth');
       const auth = qs.parse(zelidauth);
       this.appRegistrationSpecification.owner = auth.zelid;

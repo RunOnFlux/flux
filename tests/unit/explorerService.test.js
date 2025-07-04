@@ -5,7 +5,6 @@ const appsService = require('../../ZelBack/src/services/appsService');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceAddressRpcs');
-const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
@@ -1677,7 +1676,7 @@ describe('explorerService tests', () => {
 
   describe('initiateBlockProcessor tests', () => {
     let findInDatabaseStub;
-    let getInfoStub;
+    let getBlockCountStub;
     let dropCollectionStub;
     let logErrorSpy;
     let logInfoSpy;
@@ -1693,7 +1692,7 @@ describe('explorerService tests', () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findOneInDatabase');
       dropCollectionStub = sinon.stub(dbHelper, 'dropCollection');
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
-      getInfoStub = sinon.stub(daemonServiceControlRpcs, 'getInfo');
+      getBlockCountStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logErrorSpy = sinon.spy(log, 'error');
@@ -1761,8 +1760,8 @@ describe('explorerService tests', () => {
       sinon.assert.calledOnce(findInDatabaseStub);
     });
 
-    it('should return error if daemon service getInfo does not return success message', async () => {
-      getInfoStub.returns({
+    it('should return error if daemon service getBlockCountStub does not return success message', async () => {
+      getBlockCountStub.returns({
         status: 'error',
         data: {
           message: 'message',
@@ -1792,11 +1791,9 @@ describe('explorerService tests', () => {
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
-      getInfoStub.returns({
+      getBlockCountStub.returns({
         status: 'success',
-        data: {
-          blocks: 200000,
-        },
+        data: 200000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       explorerService.setBlockProccessingCanContinue(false);
@@ -1820,11 +1817,9 @@ describe('explorerService tests', () => {
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
-      getInfoStub.returns({
+      getBlockCountStub.returns({
         status: 'success',
-        data: {
-          blocks: 200000,
-        },
+        data: 200000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       explorerService.setBlockProccessingCanContinue(false);
@@ -1850,11 +1845,9 @@ describe('explorerService tests', () => {
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
-      getInfoStub.returns({
+      getBlockCountStub.returns({
         status: 'success',
-        data: {
-          blocks: 200000,
-        },
+        data: 200000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       explorerService.setBlockProccessingCanContinue(false);
@@ -1880,11 +1873,9 @@ describe('explorerService tests', () => {
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
       sinon.stub(dbHelper, 'databaseConnection').returns({ db: dbFake });
-      getInfoStub.returns({
+      getBlockCountStub.returns({
         status: 'success',
-        data: {
-          blocks: 200000,
-        },
+        data: 200000,
       });
       sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer').returns(true);
       explorerService.setBlockProccessingCanContinue(false);

@@ -4631,7 +4631,7 @@
               v-if="appUpdateSpecification.version >= 8 && isPrivateApp"
               title="Priority Nodes"
             >
-              Priority Nodes will be priority to run your app, the app can still deploy on other nodes on the network.<br>
+              Select if needed Priority Nodes to run your app, the app can still deploy on other nodes on the network.<br>
               <b-row>
                 <b-col
                   md="4"
@@ -7216,13 +7216,14 @@ export default {
       return expTime;
     },
     subscribedTill() {
-      if (this.appUpdateSpecification.expire) {
-        const timeFound = this.expireOptions.find((option) => option.value === this.appUpdateSpecification.expire);
+      const expire = this.convertExpire();
+      if (expire) {
+        const timeFound = this.expireOptions.find((option) => option.value === expire);
         if (timeFound) {
           const expTime = Math.floor((this.timestamp + timeFound.time) / 1000000) * 1000000;
           return expTime;
         }
-        const blocks = this.appUpdateSpecification.expire;
+        const blocks = expire;
         const blockTime = 2 * 60 * 1000;
         const validTime = blocks * blockTime;
         const expTime = Math.floor((this.timestamp + validTime) / 1000000) * 1000000;
@@ -7452,6 +7453,9 @@ export default {
         // remove any geolocation
         this.allowedGeolocations = {};
         this.forbiddenGeolocations = {};
+      }
+      if (this.appRegistrationSpecification.version === 8 && value === false) {
+        this.appUpdateSpecification.enterprise = false;
       }
       this.dataToSign = '';
       this.signature = '';

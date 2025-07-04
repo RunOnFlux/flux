@@ -8,7 +8,6 @@ const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
-const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const appsService = require('./appsService');
 const benchmarkService = require('./benchmarkService');
@@ -608,11 +607,11 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockDataVerbose.confirmations > 1) {
         processBlock(blockDataVerbose.height + 1, isInsightExplorer);
       } else {
-        const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
-        let daemonHeight = 0;
-        if (daemonGetInfo.status === 'success') {
-          daemonHeight = daemonGetInfo.data.blocks;
+        const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
+        if (daemonBlockCount.status !== 'success') {
+          throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
         }
+        const daemonHeight = daemonBlockCount.data;
         if (daemonHeight > blockDataVerbose.height) {
           processBlock(blockDataVerbose.height + 1, isInsightExplorer);
         } else {
@@ -680,6 +679,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   return true;
 }
 
+let lastchainTipCheck = 0;
 /**
  * To start the block processor.
  * @param {boolean} restoreDatabase True if database is to be restored.
@@ -728,13 +728,11 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       return;
     }
     isInInitiationOfBP = true;
-    const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
-    let daemonHeight = 0;
-    if (daemonGetInfo.status === 'success') {
-      daemonHeight = daemonGetInfo.data.blocks;
-    } else {
-      throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
+    const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
+    if (daemonBlockCount.status !== 'success') {
+      throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
     }
+    const daemonHeight = daemonBlockCount.data;
     // get scanned height from our database;
     // get height from blockchain?
     if (scannedBlockHeight === 0) {
@@ -874,41 +872,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           log.error('Error restoring database!');
           throw e;
         }
-      } else if (scannedBlockHeight > config.daemon.chainValidHeight) {
-        const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
-        if (daemonGetChainTips.status !== 'success') {
-          throw new Error(daemonGetChainTips.data.message || daemonGetInfo.data);
-        }
-        const reorganisations = daemonGetChainTips.data;
-        // database can be off for up to 2 blocks compared to daemon
-        const reorgDepth = scannedBlockHeight - 2;
-        const reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height === reorgDepth);
-        let rescanDepth = 0;
-        // if more valid forks on the same height. Restore from the longest one
-        reorgs.forEach((reorg) => {
-          if (reorg.branchlen > rescanDepth) {
-            rescanDepth = reorg.branchlen;
-          }
-        });
-        if (rescanDepth > 0) {
-          try {
-            // restore rescanDepth + 2 more blocks back
-            rescanDepth += 2;
-            log.warn(`Potential chain reorganisation spotted at height ${reorgDepth}. Rescanning last ${rescanDepth} blocks...`);
-            scannedBlockHeight = Math.max(scannedBlockHeight - rescanDepth, 0);
-            await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
-            const queryHeight = { generalScannedHeight: { $gte: 0 } };
-            const update = { $set: { generalScannedHeight: scannedBlockHeight } };
-            const options = {
-              upsert: true,
-            };
-            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
-            log.info('Database restored OK');
-          } catch (e) {
-            log.error('Error restoring database!');
-            throw e;
-          }
-        }
       }
       isInInitiationOfBP = false;
       const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
@@ -920,11 +883,68 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         }
       }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
+    } else if (scannedBlockHeight >= config.daemon.chainValidHeight && lastchainTipCheck !== 0 && lastchainTipCheck + 100 < scannedBlockHeight) {
+      log.info(`Explorer - Checking for chain reorganisations - lastchainTipCheck: ${lastchainTipCheck} scannedBlockHeight: ${scannedBlockHeight}`);
+      const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+      if (daemonGetChainTips.status !== 'success') {
+        throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
+      }
+
+      const reorganisations = daemonGetChainTips.data;
+      let reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height >= lastchainTipCheck + 1);
+      let rescanDepth = 0;
+      if (reorgs.length > 1) {
+        reorgs = reorgs.sort((a, b) => a.height - b.height);
+      }
+
+      let reorgBlockHeight;
+      let finished = false;
+      let index = 0;
+      // if more valid forks on the same height. Restore from the longest one
+      while (!finished && index < reorgs.length) {
+        const reorg = reorgs[index];
+        if (!reorgBlockHeight || (reorg.height === reorgBlockHeight && reorg.branchlen > rescanDepth)) {
+          rescanDepth = reorg.branchlen;
+          reorgBlockHeight = reorg.height;
+        } else {
+          finished = true;
+        }
+        index += 1;
+      }
+      if (rescanDepth > 0) {
+        try {
+          // restore rescanDepth + 2 more blocks back
+          rescanDepth += 2;
+          log.warn(`Potential chain reorganisation spotted at height ${reorgBlockHeight}. Rescanning last ${rescanDepth} blocks...`);
+          const blockToRescan = Math.max(reorgBlockHeight - rescanDepth, 0);
+          // eslint-disable-next-line no-use-before-define
+          await restoreDatabaseToBlockheightState(blockToRescan, reindexOrRescanGlobalApps);
+          const queryHeight = { generalScannedHeight: { $gte: 0 } };
+          const updateAux = { $set: { generalScannedHeight: blockToRescan } };
+          const optionsAux = {
+            upsert: true,
+          };
+          await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, updateAux, optionsAux);
+          log.info('Database restored OK');
+        } catch (e) {
+          log.error('Error restoring database!');
+          throw e;
+        }
+      }
+      isInInitiationOfBP = false;
+      lastchainTipCheck = scannedBlockHeight;
+      initBPfromNoBlockTimeout = setTimeout(() => {
+        // eslint-disable-next-line no-use-before-define
+        initiateBlockProcessor(false, false);
+      }, 5 * 1000);
     } else {
+      if (lastchainTipCheck === 0) {
+        lastchainTipCheck = scannedBlockHeight - 1;
+      }
       isInInitiationOfBP = false;
       initBPfromNoBlockTimeout = setTimeout(() => {
         initiateBlockProcessor(false, false);
-      }, 5000);
+      }, 5 * 1000);
     }
   } catch (error) {
     log.error(error);
