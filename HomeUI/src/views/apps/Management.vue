@@ -3967,7 +3967,6 @@
                         v-model="isPrivateApp"
                         switch
                         class="custom-control-primary inline"
-                        :disabled="true"
                       />
                     </div>
                   </div>
