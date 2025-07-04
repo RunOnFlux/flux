@@ -6,8 +6,7 @@ const crypto = require('node:crypto');
 
 const https = require('https');
 const axios = require('axios');
-const express = require('express');
-const http = require('http');
+
 // eslint-disable-next-line import/no-extraneous-dependencies
 const nodecmd = require('node-cmd');
 const archiver = require('archiver');
@@ -18,7 +17,6 @@ const systemcrontab = require('crontab');
 const util = require('util');
 const fs = require('fs').promises;
 const execShell = util.promisify(require('child_process').exec);
-const httpShutdown = require('http-shutdown');
 const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -47,6 +45,8 @@ const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+
+const fluxHttpTestServer = require('./utils/fluxHttpTestServer');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -14088,11 +14088,11 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 /**
  *
  * @param {Number} testingPort The target port
- * @param {http.Server} testingAppserver The test http server
+ * @param {http.Server} testHttpServer The test http server
  * @param {{skipFirewall?: Boolean, skipUpnp?: Boolean, skipHttpServer?: Boolean}} options Options
  * @returns {Promise<void>}
  */
-async function handleTestShutdown(testingPort, testingAppserver, options = {}) {
+async function handleTestShutdown(testingPort, testHttpServer, options = {}) {
   const skipFirewall = options.skipFirewall || false;
   const skipUpnp = options.skipUpnp || false;
   const skipHttpServer = options.skipHttpServer || false;
@@ -14116,10 +14116,9 @@ async function handleTestShutdown(testingPort, testingAppserver, options = {}) {
   }
 
   if (!skipHttpServer) {
-    testingAppserver.removeAllListeners();
-    testingAppserver.shutdown((err) => {
+    testHttpServer.close((err) => {
       if (err) {
-        log.error(`testingAppserver shutdown failed: ${err.message}`);
+        log.error(`testHttpServer shutdown failed: ${err.message}`);
       }
     });
   }
@@ -14132,7 +14131,10 @@ let nextTestingPort = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 const portsNotWorking = new Set();
 
 /**
- * Periodically check for our applications port range is available
+ * Periodically check that our applications port range is usable. I.e, we open
+ * the firewall, map the port (if UPnP) and set up a TCP listener on the port.
+ * We then request another node validate that we respond with a SYN-ACK when
+ * they send a SYN.
  * @returns {Promise<void>}
  */
 async function checkMyAppsAvailability() {
@@ -14172,7 +14174,7 @@ async function checkMyAppsAvailability() {
   }
 
   const isUpnp = upnpService.isUPNP();
-  const testingAppserver = httpShutdown(http.createServer(express()));
+  const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
 
   /**
    * Sets the next port if we come across a port that is banned or excluded etc
@@ -14373,7 +14375,7 @@ async function checkMyAppsAvailability() {
 
         setNextPort();
 
-        await handleTestShutdown(testingPort, testingAppserver, {
+        await handleTestShutdown(testingPort, testHttpServer, {
           skipFirewall: !firewallActive,
           skipUpnp: true,
           skipHttpServer: true,
@@ -14394,16 +14396,16 @@ async function checkMyAppsAvailability() {
     //    ss --kill state listening src :<the port>
     // nodeJS does not raise an error.
     const listening = new Promise((resolve, reject) => {
-      testingAppserver
+      testHttpServer
         .once('error', (err) => {
-          testingAppserver.removeAllListeners('listening');
+          testHttpServer.removeAllListeners('listening');
           reject(err.message);
         })
         .once('listening', () => {
-          testingAppserver.removeAllListeners('error');
+          testHttpServer.removeAllListeners('error');
           resolve(null);
         });
-      testingAppserver.listen(testingPort);
+      testHttpServer.listen(testingPort);
     });
 
     const error = await listening.catch((err) => err);
@@ -14413,7 +14415,7 @@ async function checkMyAppsAvailability() {
 
       setNextPort();
 
-      await handleTestShutdown(testingPort, testingAppserver, {
+      await handleTestShutdown(testingPort, testHttpServer, {
         skipFirewall: !firewallActive,
         skipUpnp: !isUpnp,
         skipHttpServer: true,
@@ -14467,7 +14469,7 @@ async function checkMyAppsAvailability() {
         return null;
       });
 
-    await handleTestShutdown(testingPort, testingAppserver, {
+    await handleTestShutdown(testingPort, testHttpServer, {
       skipFirewall: !firewallActive,
       skipUpnp: !isUpnp,
     });
@@ -14544,14 +14546,12 @@ async function checkMyAppsAvailability() {
       }
 
       waitMs = timeouts.failure;
-
     } else if (portTestFailed && dosState < thresholds.dos) {
       // Failed - Rising edge (by default takes 25 of these to get to 100)
       dosState += 4;
       setRandomPort();
 
       waitMs = timeouts.failure;
-
     } else if (portTestFailed && dosState >= thresholds.dos) {
       // Failed - DOS. At this point - all apps will be removed off node
       // by monitorNodeStatus
@@ -14564,14 +14564,12 @@ async function checkMyAppsAvailability() {
         )}`;
 
       waitMs = timeouts.dos;
-
     } else if (!portTestFailed && portsNotWorking.size > thresholds.portsLowEdge) {
       // Failed - Lowering edge, the hysteresis stops bouncing between states
       portsNotWorking.delete(testingPort);
       setRandomPort();
 
       waitMs = timeouts.failure;
-
     } else {
       // Normal. This means that if we have less than 80 ports failed
       // (and we haven't gone DOS), and we get a good port, it will reset
@@ -14620,7 +14618,7 @@ async function checkMyAppsAvailability() {
       dosMessage = dosMountMessage || dosDuplicateAppMessage;
     }
 
-    await handleTestShutdown(testingPort, testingAppserver, { skipUpnp: !isUpnp });
+    await handleTestShutdown(testingPort, testHttpServer, { skipUpnp: !isUpnp });
 
     log.error(`checkMyAppsAvailability - Error: ${error}`);
     await serviceHelper.delay(timeouts.appError);
@@ -14682,18 +14680,36 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
           throw new Error('Failed to create map UPNP port');
         }
       }
-      const beforeAppInstallTestingServer = httpShutdown(http.createServer(express()));
+      const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
 
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(5 * 1000);
 
-      beforeAppInstallTestingServers.push(beforeAppInstallTestingServer);
-      beforeAppInstallTestingServer.listen(portToTest).on('error', (err) => {
-        throw err.message;
-      }).on('uncaughtException', (err) => {
-        throw err.message;
+      beforeAppInstallTestingServers.push(testHttpServer);
+
+      // Tested: This catches EADDRINUSE. Previously, this was crashing the entire app
+      // note - if you kill the port with:
+      //    ss --kill state listening src :<the port>
+      // nodeJS does not raise an error.
+      const listening = new Promise((resolve, reject) => {
+        testHttpServer
+          .once('error', (err) => {
+            testHttpServer.removeAllListeners('listening');
+            reject(err.message);
+          })
+          .once('listening', () => {
+            testHttpServer.removeAllListeners('error');
+            resolve(null);
+          });
+        testHttpServer.listen(portToTest);
       });
+
+      // eslint-disable-next-line no-await-in-loop
+      const error = await listening.catch((err) => err);
+
+      if (error) throw error;
     }
+
     await serviceHelper.delay(10 * 1000);
     const timeout = 30000;
     const axiosConfig = {
@@ -14765,7 +14781,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
     }
     beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
-      beforeAppInstallTestingServer.shutdown((err) => {
+      beforeAppInstallTestingServer.close((err) => {
         if (err) {
           log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
         }
