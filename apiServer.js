@@ -265,15 +265,21 @@ async function initiate() {
     mode: 'https', key, cert, expressApp: httpServer.app,
   });
 
-  await httpServer.listen(apiPort).catch((err) => {
-    // if shutting down clean, nodemon won't restart
-    logErrorAndExit(`Flux api server unable to start. Error: ${err}`);
-  });
+  const httpError = await httpServer.listen(apiPort).catch((err) => err);
 
-  await httpsServer.listen(apiPortHttps).catch((err) => {
+  if (httpError) {
     // if shutting down clean, nodemon won't restart
-    logErrorAndExit(`Flux api server unable to start. Error: ${err}`);
-  });
+    logErrorAndExit(`Flux api server unable to start. Error: ${httpError}`);
+    return '';
+  }
+
+  const httpsError = await httpsServer.listen(apiPortHttps).catch((err) => err);
+
+  if (httpsError) {
+    // if shutting down clean, nodemon won't restart
+    logErrorAndExit(`Flux api server unable to start. Error: ${httpsError}`);
+    return '';
+  }
 
   log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
