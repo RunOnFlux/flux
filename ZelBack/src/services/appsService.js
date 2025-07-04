@@ -10028,11 +10028,14 @@ async function getApplicationGlobalSpecifications(appName) {
     },
   };
   const dbAppSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+
+  // fix this
   let appSpec = await checkAndDecryptAppSpecs(dbAppSpec);
   if (appSpec && appSpec.version >= 8 && appSpec.enterprise) {
-    const { height } = appSpec;
+    const { height, hash } = appSpec;
     appSpec = specificationFormatter(appSpec);
     appSpec.height = height;
+    appSpec.hash = hash;
   }
   return appSpec;
 }
@@ -10097,11 +10100,13 @@ async function getApplicationSpecifications(appName) {
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
 
+  // fix this
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
-    const { height } = appInfo;
+    const { height, hash } = appInfo;
     appInfo = specificationFormatter(appInfo);
     appInfo.height = height;
+    appInfo.hash = hash;
   }
   return appInfo;
 }
