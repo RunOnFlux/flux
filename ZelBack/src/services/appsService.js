@@ -10427,7 +10427,7 @@ async function getApplicationSpecificationAPI(req, res) {
     }
 
     // query params take precedence over params (they were set explictly)
-    decrypt = req.query.decrypt || decrypt;
+    decrypt = req.query.decrypt || decrypt || false;
 
     const specifications = await getApplicationSpecifications(appname);
     const mainAppName = appname.split('_')[1] || appname;
@@ -10437,6 +10437,8 @@ async function getApplicationSpecificationAPI(req, res) {
     }
 
     if (!decrypt) {
+      specifications.contacts = [];
+      specifications.compose = [];
       const specResponse = messageHelper.createDataMessage(specifications);
       res.json(specResponse);
       return null;
