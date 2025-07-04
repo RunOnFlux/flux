@@ -3777,6 +3777,16 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     }
     if (!isComponent) {
       // register the app
+
+      const isEnterprise = Boolean(
+        appSpecifications.version >= 8 && appSpecifications.enterprise,
+      );
+
+      if (isEnterprise) {
+        appSpecifications.compose = [];
+        appSpecifications.contacts = [];
+      }
+
       await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
@@ -4234,6 +4244,16 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     if (!isComponent) {
       // register the app
+
+      const isEnterprise = Boolean(
+        appSpecifications.version >= 8 && appSpecifications.enterprise,
+      );
+
+      if (isEnterprise) {
+        appSpecifications.compose = [];
+        appSpecifications.contacts = [];
+      }
+
       await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
@@ -8006,6 +8026,10 @@ async function decryptEnterpriseFromSession(base64Encrypted, appName, daemonHeig
 
   const decryptedEnterprise = JSON.parse(jsonEnterprise);
 
+  // this is kind of broken. The frontend passes the specs with the compose
+  // properties as strings. It should parse them up front and just pass us the
+  // entire object
+
   if (decryptedEnterprise) {
     return decryptedEnterprise;
   }
@@ -9999,12 +10023,14 @@ async function getApplicationGlobalSpecifications(appName) {
       _id: 0,
     },
   };
-  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  appInfo = await checkAndDecryptAppSpecs(appInfo);
-  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
-    appInfo = specificationFormatter(appInfo);
+  const dbAppSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  let appSpec = await checkAndDecryptAppSpecs(dbAppSpec);
+  if (appSpec && appSpec.version >= 8 && appSpec.enterprise) {
+    const { height } = appSpec;
+    appSpec = specificationFormatter(appSpec);
+    appSpec.height = height;
   }
-  return appInfo;
+  return appSpec;
 }
 
 /**
@@ -10436,15 +10462,20 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Application not found');
     }
 
+    const isEnterprise = Boolean(
+      specifications.version >= 8 && specifications.enterprise,
+    );
+
     if (!decrypt) {
+      if (isEnterprise) {
+        specifications.compose = [];
+        specifications.contacts = [];
+      }
+
       const specResponse = messageHelper.createDataMessage(specifications);
       res.json(specResponse);
       return null;
     }
-
-    const isEnterprise = Boolean(
-      specifications.version >= 8 && specifications.enterprise,
-    );
 
     if (!isEnterprise) {
       throw new Error('App spec decryption is only possible for version 8+ Apps.');
@@ -12100,6 +12131,16 @@ async function reinstallOldApplications() {
               await registerAppLocally(appSpecifications, appComponent); // component
             }
             // register the app
+
+            const isEnterprise = Boolean(
+              appSpecifications.version >= 8 && appSpecifications.enterprise,
+            );
+
+            if (isEnterprise) {
+              appSpecifications.compose = [];
+              appSpecifications.contacts = [];
+            }
+
             // eslint-disable-next-line no-await-in-loop
             await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
             log.warn(`Composed application ${appSpecifications.name} updated.`);
@@ -12231,6 +12272,16 @@ async function reinstallOldApplications() {
                 }
               }
               // register the app
+
+              const isEnterprise = Boolean(
+                appSpecifications.version >= 8 && appSpecifications.enterprise,
+              );
+
+              if (isEnterprise) {
+                appSpecifications.compose = [];
+                appSpecifications.contacts = [];
+              }
+
               // eslint-disable-next-line no-await-in-loop
               await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
               log.warn(`Composed application ${appSpecifications.name} updated.`);
