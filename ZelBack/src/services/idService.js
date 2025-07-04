@@ -149,7 +149,7 @@ async function loginPhrase(req, res) {
     const dosAppsState = appsService.getAppsDOSState();
     if (dosAppsState.status === 'success') {
       // nodeHardwareSpecsGood is not part of response yet
-      if (dosAppsState.data.dosState > 10) {
+      if (dosAppsState.data.dosState >= 100) {
         const errMessage = messageHelper.createErrorMessage(dosAppsState.data.dosMessage, 'DOS', dosAppsState.data.dosState);
         log.error(errMessage);
         res.json(errMessage);
