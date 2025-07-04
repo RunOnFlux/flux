@@ -269,7 +269,7 @@ async function initiate() {
 
   if (httpError) {
     // if shutting down clean, nodemon won't restart
-    logErrorAndExit(`Flux api server unable to start. Error: ${httpError}`);
+    logErrorAndExit(`Flux api server unable to start. ${httpError}`);
     return '';
   }
 
@@ -277,7 +277,7 @@ async function initiate() {
 
   if (httpsError) {
     // if shutting down clean, nodemon won't restart
-    logErrorAndExit(`Flux api server unable to start. Error: ${httpsError}`);
+    logErrorAndExit(`Flux api server unable to start. ${httpsError}`);
     return '';
   }
 
