@@ -1210,8 +1210,8 @@ async function appMonitorStream(req, res) {
  */
 async function getAppFolderSize(appName) {
   try {
-    const dirpath = path.join(__dirname, '../../../');
-    const directoryPath = `${dirpath}ZelApps/${appName}`;
+    const appsDirPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+    const directoryPath = path.join(appsDirPath, appName);
     const exec = `sudo du -s --block-size=1 ${directoryPath}`;
     const cmdres = await cmdAsync(exec);
     const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
