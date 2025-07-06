@@ -966,7 +966,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   };
   const apiPort = userconfig.initial.apiport || config.server.apiport;
   const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
-    log.error(`${askingIP} is not reachable`);
+    log.error(`${askingIP}:${askingIpPort} is not reachable`);
     log.error(error);
     availabilityError = true;
   });
