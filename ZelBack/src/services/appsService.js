@@ -8030,10 +8030,6 @@ async function decryptEnterpriseFromSession(base64Encrypted, appName, daemonHeig
 
   const decryptedEnterprise = JSON.parse(jsonEnterprise);
 
-  // this is kind of broken. The frontend passes the specs with the compose
-  // properties as strings. It should parse them up front and just pass us the
-  // entire object
-
   if (decryptedEnterprise) {
     return decryptedEnterprise;
   }
@@ -10029,7 +10025,13 @@ async function getApplicationGlobalSpecifications(appName) {
   };
   const dbAppSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
 
-  // fix this
+  // This is abusing the spec formatter. It's not meant for this. This whole thing
+  // is kind of broken. The reason we have to use the spec formatter here is the
+  // frontend is passing properties as strings (then stringify the whole object)
+  // the frontend should parse the strings up front, and just pass an encrypted,
+  // stringified object.
+  //
+  // Will fix this in v9 specs. Move to model based specs with pre sorted keys.
   let appSpec = await checkAndDecryptAppSpecs(dbAppSpec);
   if (appSpec && appSpec.version >= 8 && appSpec.enterprise) {
     const { height, hash } = appSpec;
@@ -10100,7 +10102,13 @@ async function getApplicationSpecifications(appName) {
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
 
-  // fix this
+  // This is abusing the spec formatter. It's not meant for this. This whole thing
+  // is kind of broken. The reason we have to use the spec formatter here is the
+  // frontend is passing properties as strings (then stringify the whole object)
+  // the frontend should parse the strings up front, and just pass an encrypted,
+  // stringified object.
+  //
+  // Will fix this in v9 specs. Move to model based specs with pre sorted keys.
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
     const { height, hash } = appInfo;
@@ -10470,7 +10478,7 @@ async function getApplicationSpecificationAPI(req, res) {
     const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
-      throw new Error(`Application not found: ${appname}`);
+      throw new Error('Application not found');
     }
 
     const isEnterprise = Boolean(
