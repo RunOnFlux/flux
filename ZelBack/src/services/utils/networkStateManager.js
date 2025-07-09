@@ -207,8 +207,9 @@ class NetworkStateManager extends EventEmitter {
         return [];
       });
 
-      const elapsed = Number(process.hrtime.bigint() - fetchStart) / 1000000;
-      log.info(`Network state fetch finished:, elapsed ms ${elapsed}`);
+      const elapsed = Number(process.hrtime.bigint() - fetchStart) / 1_000_000;
+      const rounded = Math.round((elapsed + Number.EPSILON) * 100) / 100;
+      log.info(`Network state fetch finished, elapsed: ${rounded} ms`);
 
       // eslint-disable-next-line no-await-in-loop
       if (!state.length) await this.#controller.sleep(15_000);
@@ -223,12 +224,13 @@ class NetworkStateManager extends EventEmitter {
 
       await this.#buildIndexes(this.#state);
 
-      const elapsed = Number(process.hrtime.bigint() - this.#indexStart) / 1000000;
+      const elapsed = Number(process.hrtime.bigint() - this.#indexStart) / 1_000_000;
+      const rounded = Math.round((elapsed + Number.EPSILON) * 100) / 100;
       const pubkeySize = this.#pubkeyIndex.size;
       const socketAddressSize = this.#socketAddressIndex.size;
 
       log.info('Network State Indexes created, nodes found: '
-        + `${state.length}, elapsed ms: ${elapsed}`);
+        + `${state.length}, elapsed: ${rounded} ms`);
 
       log.info(`pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`);
 

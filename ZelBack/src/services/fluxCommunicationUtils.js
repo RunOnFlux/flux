@@ -83,12 +83,12 @@ async function verifyFluxBroadcast(broadcast) {
   counter += 1;
   if (!lastUpdate) lastUpdate = process.hrtime.bigint();
 
-  // log message rate every 400 messages. As of 090725 - approx 1.3 MSG/s
-  if (counter % 400 === 0) {
+  // log message rate every 1000 messages. As of 090725 - approx 1-2 MSG/s
+  if (counter % 1000 === 0) {
     counter = 0;
     const nowHrtime = process.hrtime.bigint();
     const elapsed = Number(nowHrtime - lastUpdate) / 1000_000_000;
-    const rate = 400 / elapsed;
+    const rate = 1000 / elapsed;
     // rounds to 2dp
     const rounded = Math.round((rate + Number.EPSILON) * 100) / 100;
     lastUpdate = nowHrtime;
