@@ -4,12 +4,24 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
+const networkStateService = require('./networkStateService');
+
 // default cache
 const LRUoptions = {
   max: 20000, // currently 20000 nodes
   ttl: 1000 * 240, // 240 seconds, allow up to 2 blocks
   maxAge: 1000 * 240, // 240 seconds, allow up to 2 blocks
 };
+
+/**
+ * @typedef {{
+ *   version: number,
+ *   timestamp: number,
+ *   pubKey: string,
+ *   signature: string,
+ *   data : object,
+ * }} FluxNetworkMessage
+ */
 
 const myCache = new LRUCache(LRUoptions);
 
@@ -100,106 +112,92 @@ async function deterministicFluxList(filter) {
 }
 
 /**
- * To verify Flux broadcast.
- * @param {object} data Data containing public key, timestamp, signature and version.
- * @param {object[]} obtainedFluxNodesList List of FluxNodes.
- * @param {number} currentTimeStamp Current timestamp.
- * @returns {boolean} False unless message is successfully verified.
+ * To verify a Flux broadcast message.
+ * @param {FluxNetworkMessage} broadcast Flux network layer message containing public key, timestamp, signature and version.
+ * @returns {Promise<boolean>} False unless message is successfully verified.
  */
-async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp) {
-  const dataObj = serviceHelper.ensureObject(data);
-  const { pubKey } = dataObj;
-  const { timestamp } = dataObj; // ms
-  const { signature } = dataObj;
-  const { version } = dataObj;
-  // only version 1 is active
-  if (version !== 1) {
-    return false;
-  }
-  const message = serviceHelper.ensureString(dataObj.data);
-  // is timestamp valid ?
-  // eslint-disable-next-line no-param-reassign
-  currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp < (timestamp - 120000)) { // message was broadcasted in the future. Allow 120 sec clock sync
-    log.error('Message from future');
+async function verifyFluxBroadcast(broadcast) {
+  const {
+    pubKey, timestamp, signature, version, data: payload,
+  } = broadcast;
+
+  if (version !== 1) return false;
+
+  const message = serviceHelper.ensureString(payload);
+
+  if (!message) return false;
+
+  const { type: msgType } = payload;
+
+  if (!msgType) return false;
+
+  const now = Date.now();
+
+  // message was broadcasted in the future. Allow 120 sec clock sync
+  if (now < timestamp - 120_000) {
+    log.error('VerifyBroadcast: Message from future, rejecting');
     return false;
   }
 
-  let node = null;
-  if (obtainedFluxNodesList) { // for test purposes.
-    node = obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
-    if (!node) {
-      return false;
-    }
+  const nodes = await networkStateService.getFluxnodesByPubkey(pubKey);
+
+  let error = '';
+  let target = '';
+
+  switch (msgType) {
+    case 'fluxapprunning':
+      target = payload.ip;
+      // most of invalids are caused because our deterministic list is cached for couple of minutes
+      error = `Invalid fluxapprunning message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
+    case 'fluxappinstalling':
+      target = payload.ip;
+      error = `Invalid fluxappinstalling message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
+    case 'fluxappinstallingerror':
+      target = payload.ip;
+      error = `Invalid fluxappinstallingerror message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
+    case 'fluxipchanged':
+      target = payload.oldIP;
+      error = `Invalid fluxipchanged message, oldIP: ${payload.oldIP} pubkey: ${pubKey}`;
+      break;
+
+    case 'fluxappremoved':
+      target = payload.ip;
+      error = `Invalid fluxappremoved message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
+    // zelappregister zelappupdate fluxappregister fluxappupdate
+    default:
+      // we take the first node. I.e. this used to be :
+      //   node = zl.find((key) => key.pubkey === pubKey);
+      //
+      // Why??? What does this validate?
+      target = nodes.size ? nodes.keys().next().value : null;
+      error = `No node belonging to ${pubKey} found`;
   }
+
+  // why not skip the entire pubkey index... and just match straight for endpoint?
+  const node = nodes.get(target)
+  || (await networkStateService.getFluxnodeBySocketAddress(target));
+
   if (!node) {
-    // node that broadcasted the message has to be on list
-    // pubkey of the broadcast has to be on the list
-    let zl = await deterministicFluxList(pubKey);
-    if (dataObj.data && dataObj.data.type === 'fluxapprunning') {
-      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-      if (!node) {
-        zl = await deterministicFluxList();
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          log.warn(`Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
-          return false;
-        }
-      }
-    } else if (dataObj.data && dataObj.data.type === 'fluxappinstalling') {
-      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-      if (!node) {
-        zl = await deterministicFluxList();
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          log.warn(`Invalid fluxappinstalling message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
-          return false;
-        }
-      }
-    } else if (dataObj.data && dataObj.data.type === 'fluxappinstallingerror') {
-      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-      if (!node) {
-        zl = await deterministicFluxList();
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          log.warn(`Invalid fluxappinstallingerror message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
-          return false;
-        }
-      }
-    } else if (dataObj.data && dataObj.data.type === 'fluxipchanged') {
-      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.oldIP && dataObj.data.oldIP === key.ip); // check ip is on the network and belongs to broadcasted public key
-      if (!node) {
-        zl = await deterministicFluxList();
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.oldIP === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          log.warn(`Invalid fluxipchanged message, oldIP: ${dataObj.data.oldIP} pubkey: ${pubKey}`);
-          return false;
-        }
-      }
-    } else if (dataObj.data && dataObj.data.type === 'fluxappremoved') {
-      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-      if (!node) {
-        zl = await deterministicFluxList();
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          log.warn(`Invalid fluxappremoved message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
-          return false;
-        }
-      }
-    } else {
-      node = zl.find((key) => key.pubkey === pubKey);
-    }
-  }
-  if (!node) {
-    log.warn(`No node belonging to ${pubKey} found`);
+    log.warn(error);
     return false;
   }
+
   const messageToVerify = version + message + timestamp;
-  const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-  if (verified === true) {
-    return true;
-  }
-  return false;
+  const verified = verificationHelper.verifyMessage(
+    messageToVerify,
+    pubKey,
+    signature,
+  );
+
+  return verified;
 }
 
 /**
