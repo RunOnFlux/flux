@@ -612,7 +612,7 @@ function handleIncomingConnection(websocket, optionalPort) {
     };
     ws.onclose = (msg) => {
       const { ip } = ws;
-      log.info(`Incoming connection to ${ip}:${port} closed with code ${msg.code}`);
+      log.info(`Incoming connection from ${ip}:${port} closed with code ${msg.code}`);
       const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon.ip && port === incomingCon.port);
       if (ocIndex > -1) {
         log.info(`Connection to ${ip}:${port} removed from incomingConnections`);
@@ -626,7 +626,7 @@ function handleIncomingConnection(websocket, optionalPort) {
     };
     ws.onerror = (msg) => {
       const { ip } = ws;
-      log.info(`Incoming connection to ${ip}:${port} errord with code ${msg.code}`);
+      log.info(`Incoming connection from ${ip}:${port} errord with code ${msg.code}`);
       const ocIndex = incomingConnections.findIndex((incomingCon) => ip === incomingCon.ip && port === incomingCon.port);
       if (ocIndex > -1) {
         log.info(`Connection to ${ip}:${port} removed from incomingConnections`);
