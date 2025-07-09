@@ -31,11 +31,7 @@ let isSynced = false;
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
 const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 
-const blockEmitter = new EventEmitter();
-
-function getBlockEmitter() {
-  return blockEmitter;
-}
+globalThis.blockEmitter = new EventEmitter();
 
 /**
  * To return the sender's transaction info from the daemon service.
@@ -572,7 +568,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // this should run only when node is synced
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
-      blockEmitter.emit('blockReceived', scannedHeight);
+      globalThis.blockEmitter.emit('blockReceived', scannedHeight);
 
       if (blockHeight % 2 === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
