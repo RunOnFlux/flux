@@ -48,7 +48,8 @@ async function sendToAllPeers(data, wsList) {
           throw new Error(`Connection to ${client.ip} is not open`);
         }
       } catch (e) {
-        log.error(e);
+        // removed this, we log anyway when the websocket is shut, no need to spam here
+        // log.error(e);
         removals.push(client);
         try {
           const { ip } = client;
