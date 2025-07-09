@@ -77,7 +77,7 @@ async function verifyFluxBroadcast(broadcast) {
     return false;
   }
 
-  const nodes = await networkStateService.getFluxnodesByPubkey(pubKey);
+  // const nodes = await networkStateService.getFluxnodesByPubkey(pubKey);
 
   let error = '';
   let target = '';
@@ -115,13 +115,16 @@ async function verifyFluxBroadcast(broadcast) {
       //   node = zl.find((key) => key.pubkey === pubKey);
       //
       // Why??? What does this validate?
-      target = nodes.size ? nodes.keys().next().value : null;
-      error = `No node belonging to ${pubKey} found`;
+      // target = nodes.size ? nodes.keys().next().value : null;
+      target = payload.ip;
+      // error = `No node belonging to ${pubKey} found`;
+      error = `No node belonging to ${target} found for ${msgType}`;
   }
 
   // why not skip the entire pubkey index... and just match straight for endpoint?
-  const node = nodes.get(target)
-  || (await networkStateService.getFluxnodeBySocketAddress(target));
+  // const node = nodes.get(target)
+  // || (await networkStateService.getFluxnodeBySocketAddress(target));
+  const node = await networkStateService.getFluxnodeBySocketAddress(target);
 
   if (!node) {
     log.warn(error);
