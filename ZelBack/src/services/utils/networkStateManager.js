@@ -124,7 +124,7 @@ class NetworkStateManager extends EventEmitter {
    * the reference.
    */
   get #indexes() {
-    return { pubkey: this.#pubkeyIndex, endpoint: this.#socketAddressIndex };
+    return { pubkey: this.#pubkeyIndex, socketAddress: this.#socketAddressIndex };
   }
 
   #setIndexes(pubkeyIndex, socketAddressIndex) {
@@ -325,11 +325,11 @@ async function main() {
   });
   network.on('populated', async () => {
     console.log('received populated event');
-    console.log('Search result populated:', await network.search('212.71.244.159:16137', 'endpoint'));
+    console.log('Search result populated:', await network.search('212.71.244.159:16137', 'socketAddress'));
   });
   network.start();
   setInterval(async () => {
-    // await network.search('212.71.244.159:16137', 'endpoint');
+    // await network.search('212.71.244.159:16137', 'socketAddress');
     console.log('Search pubkey:', await network.search('045ae66321cfc172086d79252323b6cd4b83460e580e88f220582affda8a83b3ec68078ad80f7e465c42c3ef9bc01b912b3663e2ba09057bc43fbedf0afa9f3864', 'pubkey'));
   }, 5_000);
 }
