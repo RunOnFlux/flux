@@ -273,7 +273,7 @@ class NetworkStateManager extends EventEmitter {
       ? this.#startEventEmitter
       : this.#startPolling;
 
-    updater();
+    updater.bind(this)();
   }
 
   async stop() {
