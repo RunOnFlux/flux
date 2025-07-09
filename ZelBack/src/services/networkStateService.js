@@ -1,6 +1,6 @@
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateManager = require('./utils/networkStateManager');
-const explorerService = require('../explorerService');
+const explorerService = require('./explorerService');
 
 /**
  * @typedef {import('./utils/networkStateManager').Fluxnode} Fluxnode
