@@ -1606,7 +1606,6 @@ module.exports = {
   getAddressTransactions,
   getAddressBalance,
   getScannedHeight,
-  getBlockEmitter,
   getAllFusionCoinbase,
   getAddressFusionCoinbase,
 
