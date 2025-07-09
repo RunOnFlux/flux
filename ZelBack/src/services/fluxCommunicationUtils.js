@@ -1,17 +1,7 @@
-/* eslint-disable no-underscore-dangle */
-const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateService = require('./networkStateService');
-
-// default cache
-const LRUoptions = {
-  max: 20000, // currently 20000 nodes
-  ttl: 1000 * 240, // 240 seconds, allow up to 2 blocks
-  maxAge: 1000 * 240, // 240 seconds, allow up to 2 blocks
-};
 
 /**
  * @typedef {{
@@ -23,92 +13,19 @@ const LRUoptions = {
  * }} FluxNetworkMessage
  */
 
-const myCache = new LRUCache(LRUoptions);
-
-let addingNodesToCache = false;
-
-/**
- * To constantly update deterministic Flux list every 2 minutes so we always trigger cache and have up to date value
- */
-async function constantlyUpdateDeterministicFluxList() {
-  try {
-    while (addingNodesToCache) {
-      // prevent several instances filling the cache at the same time.
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(100);
-    }
-    addingNodesToCache = true;
-    const request = {
-      params: {},
-      query: {},
-    };
-    const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(request);
-    if (daemonFluxNodesList.status === 'success') {
-      const generalFluxList = daemonFluxNodesList.data || [];
-      myCache.set('fluxList', generalFluxList);
-    }
-    addingNodesToCache = false;
-    await serviceHelper.delay(2 * 60 * 1000); // 2 minutes
-    constantlyUpdateDeterministicFluxList();
-  } catch (error) {
-    addingNodesToCache = false;
-    log.error(error);
-    await serviceHelper.delay(2 * 60 * 1000); // 2 minutes
-    constantlyUpdateDeterministicFluxList();
-  }
-}
-
 /**
  * To get deterministc Flux list from cache.
  * @param {string} filter Filter. Can only be a publicKey.
  * @returns {(*|*)} Value of any type or an empty array of any type.
  */
 async function deterministicFluxList(filter) {
-  try {
-    while (addingNodesToCache) {
-      // prevent several instances filling the cache at the same time.
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(100);
-    }
-    let fluxList;
-    if (filter) {
-      fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
-    } else {
-      fluxList = myCache.get('fluxList');
-    }
-    if (!fluxList) {
-      let generalFluxList = myCache.get('fluxList');
-      addingNodesToCache = true;
-      if (!generalFluxList) {
-        const request = {
-          params: {},
-          query: {},
-        };
-        const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(request);
-        if (daemonFluxNodesList.status === 'success') {
-          generalFluxList = daemonFluxNodesList.data || [];
-          myCache.set('fluxList', generalFluxList);
-          if (filter) {
-            const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
-            myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
-          }
-        }
-      } else { // surely in filtered branch too
-        const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
-        myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
-      }
-      addingNodesToCache = false;
-      if (filter) {
-        fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
-      } else {
-        fluxList = myCache.get('fluxList');
-      }
-    }
-    return fluxList || [];
-  } catch (error) {
-    log.error(error);
-    return [];
-  }
+  await networkStateService.waitStarted();
+
+  if (!filter) return networkStateService.networkState();
+
+  const filtered = networkStateService.getFluxnodesByPubkey(filter);
+
+  return filtered;
 }
 
 /**

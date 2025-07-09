@@ -36,6 +36,16 @@ class NetworkStateManager extends EventEmitter {
   #indexStart = null;
 
   /**
+   * @type {() => {}}
+   */
+  #startComplete;
+
+  /**
+   * @type {Promise<void>}
+   */
+  started;
+
+  /**
    * @type { "polling" | "subscription" }
    */
   #updateTrigger = 'subscription';
@@ -80,6 +90,13 @@ class NetworkStateManager extends EventEmitter {
     this.intervalMs = options.intervalMs || 120_000;
 
     this.stateFetcher = stateFetcher;
+
+    this.started = new Promise((resolve) => {
+      this.#startComplete = () => {
+        resolve();
+        this.#startComplete = () => {};
+      };
+    });
   }
 
   get state() {
@@ -207,7 +224,11 @@ class NetworkStateManager extends EventEmitter {
       console.log('Indexes created, elapsed ms:', Number(process.hrtime.bigint() - this.#indexStart) / 1000000);
       this.#indexStart = null;
 
-      if (!populated) this.emit('populated');
+      if (!populated) {
+        this.emit('populated');
+        this.#startComplete();
+      }
+
       this.emit('updated');
     }
 
