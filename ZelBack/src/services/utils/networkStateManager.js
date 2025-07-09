@@ -286,7 +286,7 @@ class NetworkStateManager extends EventEmitter {
    *
    * @param {string} filter pubkey or socketAddress (ip:port)
    * @param {"pubkey"|"socketAddress"} type
-   * @returns {Promise<Map<string, Map<string, Fluxnode>>, Fluxnode>} Clone of the state
+   * @returns {Promise<Map<string, Fluxnode>> | Fluxnode | null>} Clone of the state
    */
   async search(filter, type) {
     if (!filter) return null;

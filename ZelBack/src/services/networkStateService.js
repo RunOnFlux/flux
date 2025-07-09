@@ -68,12 +68,26 @@ async function stop() {
 
 /**
  * Returns the entire fluxnode network state
+ * @param {{sort?: boolean}} options
  * @returns {Array<Fluxnode>}
  */
-function networkState() {
+function networkState(options = {}) {
   if (!stateManager) return [];
 
-  return stateManager.state;
+  const sort = options.sort || false;
+
+  const { state } = stateManager;
+
+  if (sort) {
+    state.sort((a, b) => {
+      if (a.added_height > b.added_height) return 1;
+      if (b.added_height > a.added_height) return -1;
+      if (b.txhash > a.txhash) return 1;
+      return 0;
+    });
+  }
+
+  return state;
 }
 
 async function waitStarted() {
@@ -83,7 +97,7 @@ async function waitStarted() {
 /**
  *
  * @param {string} pubkey
- * @returns {Promise<Map<string, Map<string, Fluxnode>> | null>} Clone of state
+ * @returns {Promise<Map<string, Fluxnode>> | null>} Clone of state
  */
 async function getFluxnodesByPubkey(pubkey) {
   const nodes = await stateManager.search(pubkey, 'pubkey');

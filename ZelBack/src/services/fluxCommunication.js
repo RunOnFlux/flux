@@ -23,14 +23,6 @@ const LRUoptions = {
   maxAge: 1000 * 360, // 360 seconds, 3 blocks
 };
 
-const LRUNodeListSortedoptions = {
-  max: 1, // NodeListSorted
-  ttl: 10 * 60 * 1000, // 10m , 5 blocks
-  maxAge: 10 * 60 * 1000, // 10m , 5 blocks
-};
-
-const sortedNodeListCache = new LRUCache(LRUNodeListSortedoptions);
-
 // cache for temporary messages
 const LRUoptionsTemp = { // cache for temporary messages
   max: 20000, // store max 20000 values
@@ -1098,33 +1090,21 @@ async function fluxDiscovery() {
       throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
     }
 
-    let nodeList = [];
+    let sortedNodeList = [];
     const currentIpsConnTried = [];
 
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (myIP) {
-      nodeList = await fluxCommunicationUtils.deterministicFluxList();
-      numberOfFluxNodes = nodeList.length;
-      const fluxNode = nodeList.find((node) => node.ip === myIP);
+      sortedNodeList = await fluxCommunicationUtils.deterministicFluxList({ sort: true });
+      numberOfFluxNodes = sortedNodeList.length;
+      const fluxNode = await fluxCommunicationUtils.getFluxnodeFromFluxList(myIP);
       if (!fluxNode) {
         throw new Error('Node not confirmed. Flux discovery is awaiting.');
       }
     } else {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
-    let sortedNodeList = sortedNodeListCache.get('sortedNodeList');
-    if (!sortedNodeList) {
-      log.info('sortedNodeList not found in cache');
-      sortedNodeList = nodeList;
-      sortedNodeList.sort((a, b) => {
-        if (a.added_height > b.added_height) return 1;
-        if (b.added_height > a.added_height) return -1;
-        if (b.txhash > a.txhash) return 1;
-        return 0;
-      });
-      sortedNodeListCache.set('sortedNodeList', sortedNodeList);
-      log.info('sortedNodeList stored to cache');
-    }
+
     log.info('Searching for my node on sortedNodeList');
     const fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === myIP);
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);

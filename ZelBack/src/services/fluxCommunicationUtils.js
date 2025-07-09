@@ -14,18 +14,35 @@ const networkStateService = require('./networkStateService');
  */
 
 /**
- * To get deterministc Flux list from cache.
+ * To get deterministc Flux list from network state manager
  * @param {string} filter Filter. Can only be a publicKey.
- * @returns {(*|*)} Value of any type or an empty array of any type.
+ * @param {{filter?: string, sort?: boolean}} options
+ * @returns {Promise<Array<Fluxnode>}
  */
-async function deterministicFluxList(filter) {
+async function deterministicFluxList(options = {}) {
+  const filter = options.filter || '';
+  const sort = options.sort || false;
+
   await networkStateService.waitStarted();
 
-  if (!filter) return networkStateService.networkState();
+  if (!filter) return networkStateService.networkState({ sort });
 
-  const filtered = networkStateService.getFluxnodesByPubkey(filter);
+  const filtered = await networkStateService.getFluxnodesByPubkey(filter);
 
   return filtered;
+}
+
+/**
+ *
+ * @param {string} socketAddress
+ * @returns {Proimse<Fluxnode | null}
+ */
+async function getFluxnodeFromFluxList(socketAddress) {
+  await networkStateService.waitStarted();
+
+  const node = await networkStateService.getFluxnodeBySocketAddress(socketAddress);
+
+  return node;
 }
 
 /**
@@ -156,5 +173,6 @@ module.exports = {
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,
+  getFluxnodeFromFluxList,
   verifyFluxBroadcast,
 };
