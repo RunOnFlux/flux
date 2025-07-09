@@ -1120,7 +1120,7 @@ async function fluxDiscovery() {
       const fixedIndex = fluxNodeIndex + i < sortedNodeList.length ? fluxNodeIndex + i : fluxNodeIndex + i - sortedNodeList.length;
       const { ip } = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
-      if (ipInc === myIP.split(':')[0]) {
+      if (!ipInc || ipInc === myIP.split(':')[0]) {
         // eslint-disable-next-line no-continue
         continue;
       }
