@@ -51,7 +51,6 @@ async function getFluxnodeFromFluxList(socketAddress) {
 
 let counter = 0;
 let lastUpdate = 0;
-const lastMessage = 0;
 
 /**
  * To verify a Flux broadcast message.
@@ -81,16 +80,15 @@ async function verifyFluxBroadcast(broadcast) {
     return false;
   }
 
-  // const nodes = await networkStateService.getFluxnodesByPubkey(pubKey);
-
   counter += 1;
   if (!lastUpdate) lastUpdate = process.hrtime.bigint();
 
   if (counter % 100 === 0) {
     counter = 0;
     const nowHrtime = process.hrtime.bigint();
-    const elapsed = Number(nowHrtime - lastUpdate) / 1000000;
+    const elapsed = Number(nowHrtime - lastUpdate) / 1000_000_000;
     const rate = 100 / elapsed;
+    // rounds to 2dp
     const rounded = Math.round((rate + Number.EPSILON) * 100) / 100;
     lastUpdate = nowHrtime;
 
@@ -129,23 +127,27 @@ async function verifyFluxBroadcast(broadcast) {
 
     // zelappregister zelappupdate fluxappregister fluxappupdate fluxapprequest
     default: {
-      // we take the first node. I.e. this used to be :
+      // this used to just take the first node. I.e:
       //   node = zl.find((key) => key.pubkey === pubKey);
-
-      const nodes = await networkStateService.getFluxnodesByPubkey(pubKey);
-      target = nodes.size ? nodes.keys().next().value : null;
-      target = payload.ip;
-      // error = `No node belonging to ${pubKey} found`;
-      error = `No node belonging to ${target} found for ${msgType}`;
+      // however, that doesn't prove anything. So if we find the pubkey, good enough
+      // ideally - every message should also have the source ip
+      target = await networkStateService.getFluxnodesByPubkey(pubKey);
+      error = `No node belonging to ${pubKey} found for ${msgType}`;
     }
   }
 
-  // why not skip the entire pubkey index... and just match straight for endpoint?
-  // const node = nodes.get(target)
-  // || (await networkStateService.getFluxnodeBySocketAddress(target));
-  const node = await networkStateService.getFluxnodeBySocketAddress(target);
+  // no public key found in cache
+  if (target === null) {
+    log.warn(error);
+    return false;
+  }
 
-  if (!node) {
+  // if we get a map, we have hit the default case and searched for pubkeys
+  const found = target instanceof Map
+    ? true
+    : Boolean(await networkStateService.getFluxnodeBySocketAddress(target));
+
+  if (!found) {
     log.warn(error);
     return false;
   }
