@@ -168,7 +168,7 @@ async function verifyFluxBroadcast(broadcast) {
  * @param {number} currentTimeStamp Current timestamp.
  * @returns {boolean} False unless current timestamp is within 5 minutes of the data object's timestamp.
  */
-function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300000) {
+function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300_000) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
@@ -177,7 +177,8 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300000)
   if (currentTimeStamp < (timestamp + maxOld)) { // not older than 5 mins
     return true;
   }
-  log.warn(`Timestamp ${timestamp} of message is too old ${currentTimeStamp}}`);
+  const age = Math.round((timestamp - currentTimeStamp) / 1_000);
+  log.warn(`Timestamp ${timestamp} of message is too old: ${age}s`);
   return false;
 }
 
