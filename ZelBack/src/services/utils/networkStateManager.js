@@ -228,8 +228,9 @@ class NetworkStateManager extends EventEmitter {
       const socketAddressSize = this.#socketAddressIndex.size;
 
       log.info('Network State Indexes created, nodes found: '
-        + `${state.length}, elapsed ms: ${elapsed}, `
-        + `pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`);
+        + `${state.length}, elapsed ms: ${elapsed}`);
+
+      log.info(`pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`);
 
       this.#indexStart = null;
 

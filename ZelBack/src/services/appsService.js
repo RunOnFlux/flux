@@ -399,12 +399,12 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
     const locations = await appLocation(appname);
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     const myUrl = myIP.split(':')[0];
-    const myUrlPort = myIP.split(':')[1] || 16127;
+    const myUrlPort = myIP.split(':')[1] || '16127';
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
       const ip = appInstance.ip.split(':')[0];
-      const port = appInstance.ip.split(':')[1] || 16127;
+      const port = appInstance.ip.split(':')[1] || '16127';
       if (bypassMyIp && myUrl === ip && myUrlPort === port) {
         // eslint-disable-next-line no-continue
         continue;
@@ -11159,7 +11159,7 @@ async function trySpawningGlobalApplication() {
         // eslint-disable-next-line no-restricted-syntax
         for (const node of runningAppList) {
           const ip = node.ip.split(':')[0];
-          const port = node.ip.split(':')[1] || 16127;
+          const port = node.ip.split(':')[1] || '16127';
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
@@ -13315,7 +13315,7 @@ async function syncthingApps() {
             // eslint-disable-next-line no-restricted-syntax
             for (const appInstance of locations) {
               const ip = appInstance.ip.split(':')[0];
-              const port = appInstance.ip.split(':')[1] || 16127;
+              const port = appInstance.ip.split(':')[1] || '16127';
               const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
               const name = `${ip}:${port}`;
               let deviceID;
@@ -13512,7 +13512,7 @@ async function syncthingApps() {
               // eslint-disable-next-line no-restricted-syntax
               for (const appInstance of locations) {
                 const ip = appInstance.ip.split(':')[0];
-                const port = appInstance.ip.split(':')[1] || 16127;
+                const port = appInstance.ip.split(':')[1] || '16127';
                 const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
                 const name = `${ip}:${port}`;
                 let deviceID;
@@ -13935,7 +13935,7 @@ async function masterSlaveApps() {
                   }, timeout * 2);
                   const url = mastersRunningGSyncthingApps.get(identifier);
                   const ipToCheckAppRunning = url.split(':')[0];
-                  const portToCheckAppRunning = url.split(':')[1] || 16127;
+                  const portToCheckAppRunning = url.split(':')[1] || '16127';
                   // eslint-disable-next-line no-await-in-loop
                   const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
                   isResolved = true;
@@ -14298,7 +14298,7 @@ async function checkMyAppsAvailability() {
     }
 
     myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
+    const myPort = myIP.split(':')[1] || '16127';
 
     const installedAppsRes = await installedApps();
     if (installedAppsRes.status !== 'success') {
@@ -14683,7 +14683,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       throw new Error('Failed to detect Public IP');
     }
     myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
+    const myPort = myIP.split(':')[1] || '16127';
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
     let somePortBanned = false;
     portsToTest.forEach((portToTest) => {
@@ -15845,7 +15845,7 @@ async function monitorNodeStatus() {
       for (const location of appsLocationsNotOnNodelist) {
         log.info(`monitorNodeStatus - Checking IP ${location}.`);
         const ip = location.split(':')[0];
-        const port = location.split(':')[1] || 16127;
+        const port = location.split(':')[1] || '16127';
         const { CancelToken } = axios;
         const source = CancelToken.source();
         let isResolved = false;

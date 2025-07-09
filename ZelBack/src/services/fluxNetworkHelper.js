@@ -848,7 +848,7 @@ async function adjustExternalIP(ip) {
     await fs.writeFile(fluxDirPath, dataToWrite);
 
     if (oldUserConfigIp && v4exact.test(oldUserConfigIp) && !myCache.has(ip)) {
-      myCache.set(ip, ip);
+      myCache.set(ip, '');
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
       const oldIP = userconfig.initial.apiport !== 16127 ? `${oldUserConfigIp}:${userconfig.initial.apiport}` : oldUserConfigIp;
       log.info(`New public Ip detected: ${newIP}, old Ip: ${oldIP} , updating the FluxNode info on the network`);

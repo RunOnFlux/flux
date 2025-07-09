@@ -1456,7 +1456,7 @@ async function adjustAPIPort(req, res) {
       apiport = apiport || req.query.apiport || '';
 
       const allowedAPIPorts = [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197];
-      if (!allowedAPIPorts.includes(apiport)) {
+      if (!allowedAPIPorts.includes(+apiport)) {
         const errMessage = messageHelper.createErrorMessage('API Port not valid');
         res.json(errMessage);
         return;
