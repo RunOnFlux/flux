@@ -1140,7 +1140,7 @@ async function fluxDiscovery() {
       const fixedIndex = fluxNodeIndex - i > 0 ? fluxNodeIndex - i : sortedNodeList.length - fluxNodeIndex - i;
       const { ip } = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
-      if (ipInc === myIP.split(':')[0]) {
+      if (!ipInc || ipInc === myIP.split(':')[0]) {
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -1151,7 +1151,9 @@ async function fluxDiscovery() {
       if (!clientExists && !clientIncomingExists) {
         deterministicPeerConnections = true;
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
+        await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => {
+          if (error.code !== 'ECONNREFUSED') log.error(error);
+        });
       }
     }
     if (deterministicPeerConnections) {
