@@ -422,7 +422,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
 function handleIncomingConnection(websocket, optionalPort) {
   try {
     const ws = websocket;
-    const port = optionalPort || 16127;
+    const port = optionalPort || '16127';
     // now we are in connections state. push the websocket to our incomingconnections
     const maxPeers = 4 * config.fluxapps.minIncoming;
     const maxNumberOfConnections = numberOfFluxNodes / 160 < 9 * config.fluxapps.minIncoming ? numberOfFluxNodes / 160 : 9 * config.fluxapps.minIncoming;
@@ -586,12 +586,12 @@ function handleIncomingConnection(websocket, optionalPort) {
         try {
           // check if message comes from IP belonging to the public Key
           let zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
-          let nodeFound = zl.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || 16127) === peer.port);
+          let nodeFound = zl.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || '16127') === peer.port);
           if (!nodeFound) {
             // check if message comes from IP belonging to the public Key
             zl = await fluxCommunicationUtils.deterministicFluxList(); // this itself is sufficient.
             const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-            nodeFound = possibleNodes.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || 16127) === peer.port);
+            nodeFound = possibleNodes.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || '16127') === peer.port);
             if (!nodeFound) {
               log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
               ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
@@ -695,7 +695,7 @@ async function removePeer(req, res) {
       return res.json(errMessage);
     }
     const justIP = ip.split(':')[0];
-    const port = ip.split(':')[1] || 16127;
+    const port = ip.split(':')[1] || '16127';
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
@@ -732,7 +732,7 @@ async function removeIncomingPeer(req, res) {
       return res.json(errMessage);
     }
     const justIP = ip.split(':')[0];
-    const port = ip.split(':')[1] || 16127;
+    const port = ip.split(':')[1] || '16127';
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
     if (authorized === true) {
@@ -771,7 +771,7 @@ async function initiateAndHandleConnection(connection) {
       if (!myIP) {
         return;
       }
-      myPort = myIP.split(':')[1] || 16127;
+      myPort = myIP.split(':')[1] || '16127';
     }
     const options = {
       perMessageDeflate: {
@@ -999,7 +999,7 @@ async function addPeer(req, res) {
       return res.json(errMessage);
     }
     const justIP = ip.split(':')[0];
-    const port = ip.split(':')[1] || 16127;
+    const port = ip.split(':')[1] || '16127';
     const wsObj = outgoingConnections.find((client) => client.ip === justIP && client.port === port);
     if (wsObj) {
       const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}:${port}`);
@@ -1049,7 +1049,7 @@ async function addOutgoingPeer(req, res) {
       const errMessage = messageHelper.createErrorMessage(`Request ip ${remoteIP4} of ${remoteIP} doesn't match the ip: ${justIP} to connect.`);
       return res.json(errMessage);
     }
-    const port = ip.split(':')[1] || 16127;
+    const port = ip.split(':')[1] || '16127';
 
     const wsObj = outgoingConnections.find((client) => client.ip === justIP && client.port === port);
     if (wsObj) {
@@ -1058,7 +1058,7 @@ async function addOutgoingPeer(req, res) {
     }
 
     const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    const fluxNode = nodeList.find((node) => node.ip.split(':')[0] === ip.split(':')[0] && (node.ip.split(':')[1] || 16127) === port);
+    const fluxNode = nodeList.find((node) => node.ip.split(':')[0] === ip.split(':')[0] && (node.ip.split(':')[1] || '16127') === port);
     if (!fluxNode) {
       const errMessage = messageHelper.createErrorMessage(`FluxNode ${ip.split(':')[0]}:${port} is not confirmed on the network.`);
       return res.json(errMessage);
