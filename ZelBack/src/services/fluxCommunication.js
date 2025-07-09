@@ -760,7 +760,7 @@ async function removeIncomingPeer(req, res) {
 let myPort = null;
 async function initiateAndHandleConnection(connection) {
   let ip = connection;
-  let port = config.server.apiport;
+  let port = config.server.apiport.toString();
   try {
     if (connection.includes(':')) {
       ip = connection.split(':')[0];
