@@ -1,4 +1,4 @@
-const { LRUCache } = require('lru-cache');
+const TTLCache = require('@isaacs/ttlcache');
 
 const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
@@ -20,29 +20,27 @@ let fluxdClient = null;
 const lock = new asyncLock.AsyncLock();
 
 // default cache
-const LRUoptions = {
+const TtlOptions = {
   max: 500, // store 500 values for up to 20 seconds of other daemon calls
   ttl: 1000 * 20, // 20 seconds
-  maxAge: 1000 * 20, // 20 seconds
 };
 
-const cache = new LRUCache(LRUoptions);
+const cache = new TTLCache(TtlOptions);
 
-const LRUoptionsTxs = {
-  max: 30000, // store 30000 values for up to 1 hour of other daemon calls
+const TtlOptionsTxs = {
+  max: 3000, // store 3000 values for up to 1 hour of other daemon calls
+  ttl: 1000 * 60 * 60, // 1 hour
+};
+
+const rawTxCache = new TTLCache(TtlOptionsTxs); // store 30k txs in cache
+
+const TtlOptionsBlocks = {
+  max: 150, // store 150 values for up to 1 hour of other daemon calls
   ttl: 1000 * 60 * 60, // 1 hour
   maxAge: 1000 * 60 * 60, // 1 hour
 };
 
-const rawTxCache = new LRUCache(LRUoptionsTxs); // store 30k txs in cache
-
-const LRUoptionsBlocks = {
-  max: 1500, // store 1500 values for up to 1 hour of other daemon calls
-  ttl: 1000 * 60 * 60, // 1 hour
-  maxAge: 1000 * 60 * 60, // 1 hour
-};
-
-const blockCache = new LRUCache(LRUoptionsBlocks); // store 1.5k blocks in cache
+const blockCache = new TTLCache(TtlOptionsBlocks); // store 1.5k blocks in cache
 
 async function readDaemonConfig() {
   fluxdConfig = new daemonConfig.DaemonConfig();

@@ -83,6 +83,7 @@
     "docs": "jsdoc -d docs --configure jsconf.json -r"
   },
   "dependencies": {
+    "@isaacs/ttlcache": "~1.4.1",
     "@runonflux/nat-upnp": "~1.0.2",
     "apicache": "~1.6.3",
     "archiver": "~6.0.1",

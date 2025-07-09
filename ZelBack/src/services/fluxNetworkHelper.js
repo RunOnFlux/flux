@@ -9,7 +9,7 @@ const dgram = require('dgram');
 const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
-const { LRUCache } = require('lru-cache');
+const TTLCache = require('@isaacs/ttlcache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -34,14 +34,8 @@ let ipChangeData = null;
 let dosTooManyIpChanges = false;
 let maxNumberOfIpChanges = 0;
 
-// default cache
-const LRUoptions = {
-  max: 1,
-  ttl: 24 * 60 * 60 * 1000, // 1 day
-  maxAge: 24 * 60 * 60 * 1000, // 1 day
-};
-
-const myCache = new LRUCache(LRUoptions);
+// 1 day
+const myCache = new TTLCache({ max: 1, ttl: 24 * 60 * 60 * 1000 });
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
@@ -1739,12 +1733,11 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   return true;
 }
 
-const lruRateOptions = {
+const TtlRateOptions = {
   max: 500,
   ttl: 1000 * 15, // 15 seconds
-  maxAge: 1000 * 15, // 15 seconds
 };
-const lruRateCache = new LRUCache(lruRateOptions);
+const lruRateCache = new TTLCache(TtlRateOptions);
 /**
  * To check rate limit.
  * @param {string} ip IP address.

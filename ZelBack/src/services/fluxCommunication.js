@@ -1,6 +1,6 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const { LRUCache } = require('lru-cache');
+const TTLCache = require('@isaacs/ttlcache');
 const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
@@ -17,20 +17,18 @@ const {
 
 let response = messageHelper.createErrorMessage();
 // default cache
-const LRUoptions = {
+const TtlOptions = {
   max: 20000, // currently 20000 nodes
   ttl: 1000 * 360, // 360 seconds, 3 blocks
-  maxAge: 1000 * 360, // 360 seconds, 3 blocks
 };
 
 // cache for temporary messages
-const LRUoptionsTemp = { // cache for temporary messages
-  max: 20000, // store max 20000 values
+const TtlOptionsTemp = { // cache for temporary messages
+  max: 2000, // store max 2000 values
   ttl: 1000 * 60 * 70, // 70 minutes
-  maxAge: 1000 * 60 * 70, // 70 minutes
 };
 
-const myCacheTemp = new LRUCache(LRUoptionsTemp);
+const myCacheTemp = new TTLCache(TtlOptionsTemp);
 
 /* const LRUTest = {
   max: 25000000, // 25M
@@ -42,7 +40,7 @@ const testListCache = new LRUCache(LRUTest); */
 
 let numberOfFluxNodes = 0;
 
-const blockedPubKeysCache = new LRUCache(LRUoptions);
+const blockedPubKeysCache = new TTLCache(TtlOptions);
 
 const privateIpsList = [
   '192.168.', '10.',
@@ -598,12 +596,12 @@ function handleIncomingConnection(websocket, optionalPort) {
               log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
               ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
             } else {
-              blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+              blockedPubKeysCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
               log.warn(`closing incoming connection, adding peers ${pubKey}:${peer.port} to the blockedList. Originated from ${peer.ip}.`);
               ws.close(4005, 'invalid message, blocked'); // close as of policy violation?
             }
           } else {
-            blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+            blockedPubKeysCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
             log.warn(`closing incoming connection, adding peers ${pubKey}:${peer.port} to the blockedList. Originated from ${peer.ip}.`);
             ws.close(4005, 'invalid message, blocked'); // close as of policy violation?
           }
@@ -958,7 +956,7 @@ async function initiateAndHandleConnection(connection) {
             log.warn(`Invalid message received from outgoing peer ${connection} which is not an originating node of ${pubKey}.`);
             websocket.close(4007, 'invalid message, disconnect'); // close as of policy violation
           } else {
-            blockedPubKeysCache.set(pubKey, pubKey); // blocks ALL the nodes corresponding to the pubKey
+            blockedPubKeysCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
             log.warn(`closing outgoing connection, adding peers ${pubKey} to the blockedList. Originated from ${connection}.`);
             websocket.close(4008, 'invalid message, blocked'); // close as of policy violation?
           }

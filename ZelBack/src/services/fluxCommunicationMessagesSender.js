@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-const { LRUCache } = require('lru-cache');
+const TTLCache = require('@isaacs/ttlcache');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -10,14 +10,11 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 
-// default cache
-const LRUoptions = {
+const TtlOptions = {
   max: 1000,
   ttl: 1000 * 60 * 20, // 20 minutes
-  maxAge: 1000 * 60 * 20, // 20 minutes
 };
-
-const myMessageCache = new LRUCache(LRUoptions);
+const myMessageCache = new TTLCache(TtlOptions);
 
 let response = messageHelper.createErrorMessage();
 

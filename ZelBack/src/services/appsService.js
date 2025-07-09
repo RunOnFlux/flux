@@ -12,7 +12,7 @@ const http = require('http');
 const nodecmd = require('node-cmd');
 const archiver = require('archiver');
 const df = require('node-df');
-const { LRUCache } = require('lru-cache');
+const TTLCache = require('@isaacs/ttlcache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -78,57 +78,51 @@ let testingAppserver = http.createServer(testingAppExpress);
 testingAppserver = httpShutdown(testingAppserver);
 
 const GlobalAppsSpawnLRUoptions = {
-  max: 2000,
+  max: 500,
   ttl: 1000 * 60 * 60 * 12, // 12 hours
-  maxAge: 1000 * 60 * 60 * 12, // 12 hours
 };
 const shortCache = {
   max: 500,
   ttl: 1000 * 60 * 5, // 5 minutes
-  maxAge: 1000 * 60 * 5, // 5 minutes
 };
 const longCache = {
   max: 500,
   ttl: 1000 * 60 * 60 * 3, // 3 hours
-  maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
 
 const testPortsCache = {
   max: 60,
   ttl: 1000 * 60 * 60 * 3, // 3 hours
-  maxAge: 1000 * 60 * 60 * 3, // 3 hours
 };
 
 const syncthingAppsCache = {
   max: 500,
+  ttl: 1000 * 60 * 60 * 3, // 3hours
 };
 
 const stopedAppsCache = {
   max: 40,
   ttl: 1000 * 60 * 60 * 1.5, // 1.5 hours
-  maxAge: 1000 * 60 * 60 * 1.5, // 1.5 hours
 };
 
 const syncthingDevicesCache = {
-  max: 5000,
+  max: 500,
   ttl: 1000 * 60 * 60 * 24, // 24 hours
-  maxAge: 1000 * 60 * 60 * 24, // 24 hours
 };
 
 const spawnErrorsLongerLRUoptions = {
-  max: 2000,
+  max: 500,
   ttl: 1000 * 60 * 60 * 24 * 7, // 7 days
-  maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
 };
 
-const spawnErrorsLongerAppCache = new LRUCache(spawnErrorsLongerLRUoptions);
-const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
-const myShortCache = new LRUCache(shortCache);
-const myLongCache = new LRUCache(longCache);
-const failedNodesTestPortsCache = new LRUCache(testPortsCache);
-const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
-const appsStopedCache = new LRUCache(stopedAppsCache);
-const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
+const spawnErrorsLongerAppCache = new TTLCache(spawnErrorsLongerLRUoptions);
+const trySpawningGlobalAppCache = new TTLCache(GlobalAppsSpawnLRUoptions);
+const myShortCache = new TTLCache(shortCache);
+const myLongCache = new TTLCache(longCache);
+const failedNodesTestPortsCache = new TTLCache(testPortsCache);
+const receiveOnlySyncthingAppsCache = new TTLCache(syncthingAppsCache);
+const appsStopedCache = new TTLCache(stopedAppsCache);
+const syncthingDevicesIDCache = new TTLCache(syncthingDevicesCache);
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -10999,7 +10993,7 @@ async function trySpawningGlobalApplication() {
       }
       if (appToRunAux.enterprise && !isArcane) {
         log.info('trySpawningGlobalApplication - app can only install on ArcaneOS');
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
         await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
@@ -11025,12 +11019,12 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    trySpawningGlobalAppCache.set(appHash, appHash);
+    trySpawningGlobalAppCache.set(appHash, '');
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
     const installingAppErrorsList = await appInstallingErrorsLocation(appToRun);
     /* if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
-      spawnErrorsLongerAppCache.set(appHash, appHash);
+      spawnErrorsLongerAppCache.set(appHash, '');
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
     } */
     if (installingAppErrorsList.length > 0) {
@@ -11096,7 +11090,7 @@ async function trySpawningGlobalApplication() {
     // verify app compliance
     await checkApplicationImagesComplience(appSpecifications).catch((error) => {
       if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
       }
       throw error;
     });
@@ -11119,7 +11113,7 @@ async function trySpawningGlobalApplication() {
     appPorts.forEach((port) => {
       const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
       if (isUserBlocked) {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
         throw new Error(`trySpawningGlobalApplication - Port ${port} is blocked by user. Installation aborted.`);
       }
     });
@@ -11279,7 +11273,7 @@ async function trySpawningGlobalApplication() {
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
         throw error;
       });
     }
@@ -11492,7 +11486,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
               if (!appsStopedCache.has(stoppedApp)) {
-                appsStopedCache.set(stoppedApp, stoppedApp);
+                appsStopedCache.set(stoppedApp, '');
               } else {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerStart(stoppedApp);
@@ -14532,7 +14526,7 @@ async function checkMyAppsAvailability() {
           `checkMyAppsAvailability - ${askingIP} for app availability is not reachable`,
         );
         setPortToTest = testingPort;
-        failedNodesTestPortsCache.set(askingIP, askingIP);
+        failedNodesTestPortsCache.set(askingIP, '');
         return null;
       });
 
