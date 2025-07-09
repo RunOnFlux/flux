@@ -178,8 +178,8 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300_000
   if (currentTimeStamp < (timestamp + maxOld)) { // not older than 5 mins
     return true;
   }
-  const age = Math.round((timestamp - currentTimeStamp) / 1_000);
-  log.warn(`Timestamp ${timestamp} of message is too old: ${age}s`);
+  const age = Math.round((currentTimeStamp - timestamp) / 1_000);
+  log.warn(`Unable to verify mesage. Timestamp ${timestamp} is too old: ${age}s`);
   return false;
 }
 
