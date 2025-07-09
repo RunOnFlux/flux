@@ -75,9 +75,8 @@ async function buildFluxdClient() {
  * @param {{useCache?: boolean}} options
  * @returns {object} Message.
  */
-async function executeCall(rpc, params, options = {}) {
+async function executeCall(rpc, params) {
   const rpcparameters = params || [];
-  const useCache = options.useCache ?? true;
 
   if (!fluxdClient) await buildFluxdClient();
 
@@ -105,11 +104,11 @@ async function executeCall(rpc, params, options = {}) {
   try {
     let data;
 
-    if (useCache && rpc === 'getBlock') {
+    if (rpc === 'getBlock') {
       data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    } else if (useCache && rpc === 'getRawTransaction') {
+    } else if (rpc === 'getRawTransaction') {
       data = rawTxCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    } else if (useCache) {
+    } else {
       data = cache.get(rpc + serviceHelper.ensureString(rpcparameters));
     }
 

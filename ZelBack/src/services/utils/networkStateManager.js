@@ -1,6 +1,7 @@
 const { EventEmitter } = require('node:events');
-
 const { FluxController } = require('./fluxController');
+
+const log = require('../../lib/log');
 
 /**
  * The Fluxnode as returned by fluxd
@@ -29,7 +30,7 @@ class NetworkStateManager extends EventEmitter {
 
   #pubkeyIndex = new Map();
 
-  #endpointIndex = new Map();
+  #socketAddressIndex = new Map();
 
   #controller = new FluxController();
 
@@ -111,12 +112,12 @@ class NetworkStateManager extends EventEmitter {
    * the reference.
    */
   get #indexes() {
-    return { pubkey: this.#pubkeyIndex, endpoint: this.#endpointIndex };
+    return { pubkey: this.#pubkeyIndex, endpoint: this.#socketAddressIndex };
   }
 
-  #setIndexes(pubkeyIndex, endpointIndex) {
+  #setIndexes(pubkeyIndex, socketAddressIndex) {
     this.#pubkeyIndex = pubkeyIndex;
-    this.#endpointIndex = endpointIndex;
+    this.#socketAddressIndex = socketAddressIndex;
   }
 
   async #buildIndexes(nodes) {
@@ -125,7 +126,7 @@ class NetworkStateManager extends EventEmitter {
     //     this.#pubkeyIndex.set(node.pubkey, new Map());
     //   }
     //   this.#pubkeyIndex.get(node.pubkey).set(node.ip, node);
-    //   this.#endpointIndex.set(node.ip, node);
+    //   this.#socketAddressIndex.set(node.ip, node);
     // });
 
     // if we are building an index already, just wait for it to finish.
@@ -135,7 +136,7 @@ class NetworkStateManager extends EventEmitter {
     const nodeCount = nodes.length;
 
     const pubkeyIndex = new Map();
-    const endpointIndex = new Map();
+    const socketAddressIndex = new Map();
 
     function iterIndexes(startIndex, callback) {
       const endIndex = startIndex + 1000;
@@ -146,7 +147,7 @@ class NetworkStateManager extends EventEmitter {
           || pubkeyIndex.set(node.pubkey, new Map()).get(node.pubkey);
 
         nodesByPubkey.set(node.ip, node);
-        endpointIndex.set(node.ip, node);
+        socketAddressIndex.set(node.ip, node);
       });
 
       if (endIndex >= nodeCount) {
@@ -164,9 +165,7 @@ class NetworkStateManager extends EventEmitter {
 
     return new Promise((resolve) => {
       iterIndexes(0, () => {
-        this.#setIndexes(pubkeyIndex, endpointIndex);
-        console.log('pubkeyIndexSize:', pubkeyIndex.size);
-        console.log('endpointIndexSize:', endpointIndex.size);
+        this.#setIndexes(pubkeyIndex, socketAddressIndex);
         this.#controller.lock.disable();
         resolve();
       });
@@ -176,13 +175,11 @@ class NetworkStateManager extends EventEmitter {
   reset() {
     // recreate objects so they can't be mutated externally
     this.#pubkeyIndex = new Map();
-    this.#endpointIndex = new Map();
+    this.#socketAddressIndex = new Map();
     this.#state = [];
   }
 
   async fetchNetworkState() {
-    console.log('Fetching network state')
-    ;
     // always use monotonic clock for any elapsed times
     const start = process.hrtime.bigint();
 
@@ -193,12 +190,13 @@ class NetworkStateManager extends EventEmitter {
 
       const fetchStart = process.hrtime.bigint();
       // eslint-disable-next-line no-await-in-loop
-      state = await this.stateFetcher().catch(() => {
-        console.log('Network state fetcher error');
+      state = await this.stateFetcher().catch((err) => {
+        log.warning(`Network state fetcher error: ${err.message}`);
         return [];
       });
 
-      console.log('Network state fetch finished, elapsed ms:', Number(process.hrtime.bigint() - fetchStart) / 1000000);
+      const elapsed = Number(process.hrtime.bigint() - fetchStart) / 1000000;
+      log.info(`Network state fetch finished:, elapsed ms ${elapsed}`);
 
       // eslint-disable-next-line no-await-in-loop
       if (!state.length) await this.#controller.sleep(15_000);
@@ -207,15 +205,20 @@ class NetworkStateManager extends EventEmitter {
     const populated = Boolean(this.#state.length);
 
     if (state.length) {
-      console.log('Nodes found:', state.length);
-
       this.#state = state;
 
-      console.log('Setting state and indexes');
       this.#indexStart = process.hrtime.bigint();
 
       await this.#buildIndexes(this.#state);
-      console.log('Indexes created, elapsed ms:', Number(process.hrtime.bigint() - this.#indexStart) / 1000000);
+
+      const elapsed = Number(process.hrtime.bigint() - this.#indexStart) / 1000000;
+      const pubkeySize = this.#pubkeyIndex.size;
+      const socketAddressSize = this.#socketAddressIndex.size;
+
+      log.info('Network State Indexes created, nodes found: '
+        + `${state.length}, elapsed ms: ${elapsed}, `
+        + `pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`);
+
       this.#indexStart = null;
 
       if (!populated) {
@@ -333,6 +336,6 @@ module.exports = { NetworkStateManager };
 // Nodes found: 13047
 // Setting state and indexes
 // pubkeyIndexSize: 3011
-// endpointIndexSize: 13041
+// socketAddressIndexSize: 13041
 // Indexes created, elapsed ms: 18.25089
 // New Flux App Removed message received.
