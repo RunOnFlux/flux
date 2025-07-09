@@ -38,7 +38,7 @@ class NetworkStateManager extends EventEmitter {
   /**
    * @type {() => {}}
    */
-  #startComplete;
+  #startComplete = Promise.resolve();
 
   /**
    * @type {Promise<void>}
@@ -90,13 +90,6 @@ class NetworkStateManager extends EventEmitter {
     this.intervalMs = options.intervalMs || 120_000;
 
     this.stateFetcher = stateFetcher;
-
-    this.started = new Promise((resolve) => {
-      this.#startComplete = () => {
-        resolve();
-        this.#startComplete = () => {};
-      };
-    });
   }
 
   get state() {
@@ -188,7 +181,8 @@ class NetworkStateManager extends EventEmitter {
   }
 
   async fetchNetworkState() {
-    console.log('fetching state');
+    console.log('Fetching network state')
+    ;
     // always use monotonic clock for any elapsed times
     const start = process.hrtime.bigint();
 
@@ -199,15 +193,15 @@ class NetworkStateManager extends EventEmitter {
 
       const fetchStart = process.hrtime.bigint();
       // eslint-disable-next-line no-await-in-loop
-      const res = await this.stateFetcher().catch(() => {
-        console.log('state fetcher error');
+      state = await this.stateFetcher().catch(() => {
+        console.log('Network state fetcher error');
         return [];
       });
 
-      console.log('Fetch finished, elapsed ms:', Number(process.hrtime.bigint() - fetchStart) / 1000000);
+      console.log('Network state fetch finished, elapsed ms:', Number(process.hrtime.bigint() - fetchStart) / 1000000);
 
       // eslint-disable-next-line no-await-in-loop
-      state = res || await this.#controller.sleep(15_000);
+      if (!state.length) await this.#controller.sleep(15_000);
     }
 
     const populated = Boolean(this.#state.length);
@@ -244,7 +238,16 @@ class NetworkStateManager extends EventEmitter {
   }
 
   async start() {
+    this.started = new Promise((resolve) => {
+      this.#startComplete = () => {
+        resolve();
+        this.#startComplete = Promise.resolve();
+      };
+    });
+
     this.#startPolling();
+
+    await this.started;
   }
 
   async stop() {
