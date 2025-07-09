@@ -587,7 +587,7 @@ function handleIncomingConnection(websocket, optionalPort) {
         // and add him to blocklist
         try {
           // check if message comes from IP belonging to the public Key
-          let zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+          let zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
           let nodeFound = zl.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || 16127) === peer.port);
           if (!nodeFound) {
             // check if message comes from IP belonging to the public Key
@@ -951,7 +951,7 @@ async function initiateAndHandleConnection(connection) {
         // and add him to blocklist
         try {
           // check if message comes from IP belonging to the public Key
-          const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+          const zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
           const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
           const nodeFound = possibleNodes.find((n) => n.ip === connection); // connection is either ip or ip:port (if port is not 16127)
           if (!nodeFound) {

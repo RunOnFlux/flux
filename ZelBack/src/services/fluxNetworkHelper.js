@@ -274,7 +274,7 @@ async function checkAppAvailability(req, res) {
       const ipPort = processedBody.port;
 
       // pubkey of the message has to be on the list
-      const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+      const zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
       const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
       const dataToVerify = processedBody;
       delete dataToVerify.signature;
@@ -394,7 +394,7 @@ async function keepUPNPPortsOpen(req, res) {
     }
 
     // pubkey of the message has to be on the list
-    const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
+    const zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
     const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
     const dataToVerify = processedBody;
     delete dataToVerify.signature;
