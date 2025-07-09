@@ -28,8 +28,9 @@ async function deterministicFluxList(options = {}) {
   if (!filter) return networkStateService.networkState({ sort });
 
   const filtered = await networkStateService.getFluxnodesByPubkey(filter);
+  const asArray = Array.from(filtered.values());
 
-  return filtered;
+  return asArray;
 }
 
 /**
