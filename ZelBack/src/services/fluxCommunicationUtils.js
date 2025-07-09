@@ -49,6 +49,10 @@ async function getFluxnodeFromFluxList(socketAddress) {
   return node;
 }
 
+let counter = 0;
+let lastUpdate = 0;
+const lastMessage = 0;
+
 /**
  * To verify a Flux broadcast message.
  * @param {FluxNetworkMessage} broadcast Flux network layer message containing public key, timestamp, signature and version.
@@ -78,6 +82,20 @@ async function verifyFluxBroadcast(broadcast) {
   }
 
   // const nodes = await networkStateService.getFluxnodesByPubkey(pubKey);
+
+  counter += 1;
+  if (!lastUpdate) lastUpdate = process.hrtime.bigint();
+
+  if (counter % 100 === 0) {
+    counter = 0;
+    const nowHrtime = process.hrtime.bigint();
+    const elapsed = Number(nowHrtime - lastUpdate) / 1000000;
+    const rate = 100 / elapsed;
+    const rounded = Math.round((rate + Number.EPSILON) * 100) / 100;
+    lastUpdate = nowHrtime;
+
+    log.info(`Receiving broadcast message rate: ${rounded} MSG/s`);
+  }
 
   let error = '';
   let target = '';
