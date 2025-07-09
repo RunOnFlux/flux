@@ -49,6 +49,19 @@ async function getFluxnodeFromFluxList(socketAddress) {
   return node;
 }
 
+/**
+ *
+ * @param {string} socketAddress
+ * @returns {Proimse<boolean>}
+ */
+async function socketAddressInFluxList(socketAddress) {
+  await networkStateService.waitStarted();
+
+  const found = await networkStateService.socketAddressInNetworkState(socketAddress);
+
+  return found;
+}
+
 let counter = 0;
 let lastUpdate = 0;
 
@@ -203,6 +216,7 @@ module.exports = {
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,
+  socketAddressInFluxList,
   getFluxnodeFromFluxList,
   verifyFluxBroadcast,
 };

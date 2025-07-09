@@ -105,6 +105,18 @@ async function getFluxnodesByPubkey(pubkey) {
   return nodes;
 }
 
+async function socketAddressInNetworkState(socketAddress) {
+  const found = await stateManager.includes(socketAddress, 'socketAddress');
+
+  return found;
+}
+
+async function pubkeyInNetworkState(pubkey) {
+  const found = await stateManager.includes(pubkey, 'pubkey');
+
+  return found;
+}
+
 /**
  *
  * @param {string} socketAddress
@@ -137,6 +149,8 @@ module.exports = {
   getFluxnodesByPubkey,
   getFluxnodeBySocketAddress,
   networkState,
+  pubkeyInNetworkState,
+  socketAddressInNetworkState,
   start,
   stop,
 };

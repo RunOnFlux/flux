@@ -216,7 +216,7 @@ class NetworkStateManager extends EventEmitter {
       const rounded = Math.round((elapsed + Number.EPSILON) * 100) / 100;
       const elapsedMsg = `Network state fetch finished, elapsed: ${rounded} ms`;
       // We run first time without a blockheight, only on events do we get the height
-      const blockMsg = blockHeight ? `. block height: ${blockHeight}` : '';
+      const blockMsg = blockHeight ? `. Block height: ${blockHeight}` : '';
       log.info(elapsedMsg + blockMsg);
 
       // eslint-disable-next-line no-await-in-loop
@@ -296,7 +296,7 @@ class NetworkStateManager extends EventEmitter {
    * Find node(s) in the fluxnode network state by either pubkey or socketAddress
    *
    * @param {string} filter pubkey or socketAddress (ip:port)
-   * @param {"pubkey"|"socketAddress"} type
+   * @param {"pubkey" | "socketAddress"} type
    * @returns {Promise<Map<string, Fluxnode>> | Fluxnode | null>} Clone of the state
    */
   async search(filter, type) {
@@ -311,6 +311,26 @@ class NetworkStateManager extends EventEmitter {
     const clone = cached ? NetworkStateManager.deepClone(cached) : null;
 
     return clone;
+  }
+
+  /**
+   * Verify if node is in network state. Filter by either pubkey or socketAddress
+   *
+   * @param {string} filter pubkey or socketAddress (ip:port)
+   * @param {"pubkey" | "socketAddress"} type
+   * @returns {Promise<Map<string, Fluxnode>> | Fluxnode | null>} Clone of the state
+   */
+  async includes(filter, type) {
+    if (!filter) return false;
+    if (!Object.keys(this.#indexes).includes(type)) return false;
+
+    // if we are mid stroke indexing, may as well wait the 10ms (max) and get the
+    // latest block
+    await this.indexesReady;
+
+    const found = this.#indexes[type].has(filter);
+
+    return found;
   }
 }
 
