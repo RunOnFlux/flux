@@ -15837,9 +15837,16 @@ async function monitorNodeStatus() {
       // we already have the exact same data
       const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
       log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
-      const appsLocationsNotOnNodelist = appslocations.filter(
-        (location) => !fluxCommunicationUtils.socketAddressInFluxList(location),
-      );
+
+      const appsLocationsNotOnNodelist = (
+        await Promise.all(
+          appslocations.map(async (location) => {
+            const found = await fluxCommunicationUtils.socketAddressInFluxList(location);
+            return found ? null : location;
+          }),
+        )
+      ).filter((location) => location !== null);
+
       log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
       // eslint-disable-next-line no-restricted-syntax
       for (const location of appsLocationsNotOnNodelist) {
