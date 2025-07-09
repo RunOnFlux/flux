@@ -1,5 +1,6 @@
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateManager = require('./utils/networkStateManager');
+const explorerService = require('../explorerService');
 
 /**
  * @typedef {import('./utils/networkStateManager').Fluxnode} Fluxnode
@@ -36,8 +37,11 @@ async function start(waitTimeoutMs = 0) {
       return nodes;
     };
 
+    const blockEmitter = explorerService.getBlockEmitter();
+
     stateManager = new networkStateManager.NetworkStateManager(fetcher, {
-      intervalMs: 120_000,
+      stateEmitter: blockEmitter,
+      stateEvent: 'blockReceived',
     });
 
     const timeout = waitTimeoutMs ? setTimeout(

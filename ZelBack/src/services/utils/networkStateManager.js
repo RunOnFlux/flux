@@ -52,6 +52,16 @@ class NetworkStateManager extends EventEmitter {
   #updateTrigger = 'subscription';
 
   /**
+   * @type {()=>Promise<Array<Fluxnode>>}
+   */
+  #stateFetcher;
+
+  /**
+   * @type {EventEmitter | nulll}
+   */
+  #stateEmitter;
+
+  /**
    * Until we get onto NodeJS > 17.0.0 - we need this. I.e. we have no
    * structured clone
    */
@@ -89,8 +99,10 @@ class NetworkStateManager extends EventEmitter {
     super();
 
     this.intervalMs = options.intervalMs || 120_000;
+    this.stateEvent = options.stateEvent || null;
 
-    this.stateFetcher = stateFetcher;
+    this.#stateEmitter = options.stateEmitter || null;
+    this.#stateFetcher = stateFetcher;
   }
 
   get state() {
@@ -190,7 +202,7 @@ class NetworkStateManager extends EventEmitter {
 
       const fetchStart = process.hrtime.bigint();
       // eslint-disable-next-line no-await-in-loop
-      state = await this.stateFetcher().catch((err) => {
+      state = await this.#stateFetcher().catch((err) => {
         log.warning(`Network state fetcher error: ${err.message}`);
         return [];
       });
@@ -240,6 +252,12 @@ class NetworkStateManager extends EventEmitter {
     this.#controller.startLoop(this.fetchNetworkState.bind(this));
   }
 
+  #startEventEmitter() {
+    this.#stateEmitter.on(this.stateEvent, () => {
+      this.fetchNetworkState();
+    });
+  }
+
   async start() {
     this.started = new Promise((resolve) => {
       this.#startComplete = () => {
@@ -248,9 +266,14 @@ class NetworkStateManager extends EventEmitter {
       };
     });
 
-    this.#startPolling();
-
+    await this.fetchNetworkState();
     await this.started;
+
+    const updater = this.#stateEmitter && this.stateEvent
+      ? this.#startEventEmitter
+      : this.#startPolling;
+
+    updater();
   }
 
   async stop() {
