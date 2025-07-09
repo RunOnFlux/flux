@@ -127,16 +127,17 @@ async function verifyFluxBroadcast(broadcast) {
       error = `Invalid fluxappremoved message, ip: ${payload.ip} pubkey: ${pubKey}`;
       break;
 
-    // zelappregister zelappupdate fluxappregister fluxappupdate
-    default:
+    // zelappregister zelappupdate fluxappregister fluxappupdate fluxapprequest
+    default: {
       // we take the first node. I.e. this used to be :
       //   node = zl.find((key) => key.pubkey === pubKey);
-      //
-      // Why??? What does this validate?
-      // target = nodes.size ? nodes.keys().next().value : null;
+
+      const nodes = await networkStateService.getFluxnodesByPubkey(pubKey);
+      target = nodes.size ? nodes.keys().next().value : null;
       target = payload.ip;
       // error = `No node belonging to ${pubKey} found`;
       error = `No node belonging to ${target} found for ${msgType}`;
+    }
   }
 
   // why not skip the entire pubkey index... and just match straight for endpoint?
