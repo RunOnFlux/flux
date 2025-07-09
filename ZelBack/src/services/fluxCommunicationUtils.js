@@ -153,7 +153,6 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
 }
 
 module.exports = {
-  constantlyUpdateDeterministicFluxList,
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,
