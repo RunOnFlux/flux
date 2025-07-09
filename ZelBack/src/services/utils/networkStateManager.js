@@ -191,7 +191,12 @@ class NetworkStateManager extends EventEmitter {
     this.#state = [];
   }
 
-  async fetchNetworkState() {
+  /**
+   *
+   * @param {number?} blockHeight Just for logging (from event emitter)
+   * @returns
+   */
+  async fetchNetworkState(blockHeight = null) {
     // always use monotonic clock for any elapsed times
     const start = process.hrtime.bigint();
 
@@ -209,7 +214,10 @@ class NetworkStateManager extends EventEmitter {
 
       const elapsed = Number(process.hrtime.bigint() - fetchStart) / 1_000_000;
       const rounded = Math.round((elapsed + Number.EPSILON) * 100) / 100;
-      log.info(`Network state fetch finished, elapsed: ${rounded} ms`);
+      const elapsedMsg = `Network state fetch finished, elapsed: ${rounded} ms`;
+      // We run first time without a blockheight, only on events do we get the height
+      const blockMsg = blockHeight ? `. block height: ${blockHeight}` : '';
+      log.info(elapsedMsg + blockMsg);
 
       // eslint-disable-next-line no-await-in-loop
       if (!state.length) await this.#controller.sleep(15_000);
@@ -256,8 +264,8 @@ class NetworkStateManager extends EventEmitter {
   }
 
   #startEventEmitter() {
-    this.#stateEmitter.on(this.stateEvent, () => {
-      this.fetchNetworkState();
+    this.#stateEmitter.on(this.stateEvent, (blockHeight) => {
+      this.fetchNetworkState(blockHeight);
     });
   }
 
