@@ -15797,17 +15797,30 @@ async function monitorNodeStatus() {
       const variable = 'ip';
       // we already have the exact same data
       const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
-      log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
+      const appsLocationCount = appslocations.length;
+      log.info(`monitorNodeStatus - Found ${appsLocationCount} distinct IP's on appslocations`);
 
-      // break this into chunks
-      const appsLocationsNotOnNodelist = (
-        await Promise.all(
-          appslocations.map(async (location) => {
-            const found = await fluxCommunicationUtils.socketAddressInFluxList(location);
-            return found ? null : location;
-          }),
-        )
-      ).filter((location) => location !== null);
+      const appsLocationsNotOnNodelist = [];
+
+      const iterChunk = async (chunk) => {
+        const promises = chunk.map(async (location) => {
+          const found = await fluxCommunicationUtils.socketAddressInFluxList(location);
+          if (!found) appsLocationsNotOnNodelist.push(location);
+        });
+        await Promise.all(promises);
+      };
+
+      const chunkSize = 250;
+      let startIndex = 0;
+      let endIndex = chunkSize;
+
+      while (endIndex < appsLocationCount) {
+        const chunk = appslocations.slice(startIndex, endIndex);
+        // eslint-disable-next-line no-await-in-loop
+        await iterChunk(chunk);
+        startIndex = endIndex;
+        endIndex += chunkSize;
+      }
 
       log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
       // eslint-disable-next-line no-restricted-syntax
