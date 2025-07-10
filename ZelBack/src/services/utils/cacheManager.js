@@ -69,7 +69,7 @@ class FluxCacheManager {
       max: 2000,
       ttl: 70 * FluxCacheManager.oneMinute,
     },
-    blockedPubKeysCache: {
+    blockedPubkeysCache: {
       max: 2000,
       ttl: 6 * FluxCacheManager.oneMinute,
     },
@@ -91,7 +91,7 @@ class FluxCacheManager {
   constructor() {
     Object.entries(FluxCacheManager.cacheConfigs).forEach(
       (cacheName, cacheConfig) => {
-        this[cacheName] = TTLCache(cacheConfig);
+        this[cacheName] = new TTLCache(cacheConfig);
       },
     );
   }
