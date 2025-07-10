@@ -794,6 +794,7 @@ async function initiateAndHandleConnection(connection) {
     websocket.port = port;
     websocket.ip = ip;
     websocket.onopen = () => {
+      websocket.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
       outgoingConnections.push(websocket);
       const peer = {
         ip, // can represent just one ip address, multiport
@@ -868,6 +869,8 @@ async function initiateAndHandleConnection(connection) {
           }
           return;
         }
+        const counter = ws.msgMap.get('newHash');
+        ws.msgMap.set('newhash', counter + 1);
         handleCheckMessageHashPresent(messageHashPresent, ip, port, true);
         return;
       }
@@ -881,6 +884,8 @@ async function initiateAndHandleConnection(connection) {
           }
           return;
         }
+        const counter = ws.msgMap.get('requestHash');
+        ws.msgMap.set('requestHash', counter + 1);
         handleRequestMessageHash(requestMessageHash, ip, port, true);
         return;
       }
@@ -1224,25 +1229,37 @@ function getNumberOfPeers() {
   return incomingConnections.length + outgoingConnections.length;
 }
 
-function logIncomingSockets() {
-  const messages = { requestHash: 0, newHash: 0 };
+function logSockets() {
+  const inboundMessages = { requestHash: 0, newHash: 0 };
+  const outboundMessages = { requestHash: 0, newHash: 0 };
 
-  incomingConnections.forEach((websocket) => {
-    const ws = websocket;
+  const aggregator = (connections, collector) => {
+    connections.forEach((websocket) => {
+      const ws = websocket;
+      const store = collector;
 
-    messages.requestHash += ws.msgMap.get('requestHash');
-    messages.newHash += ws.msgMap.get('newHash');
-    ws.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
-  });
+      store.requestHash += ws.msgMap.get('requestHash');
+      store.newHash += ws.msgMap.get('newHash');
+      ws.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
+    });
+  };
 
-  const { requestHash, newHash } = messages;
+  aggregator(incomingConnections, inboundMessages);
+  aggregator(outgoingConnections, outboundMessages);
 
-  log.info(`Socket info. Hash Requests: ${requestHash}, New Hashes: ${newHash}`);
+  const { requestHash: inboundRequest, newHash: inboundNew } = inboundMessages;
+  const { requestHash: outboundRequest, newHash: outboundNew } = outboundMessages;
+
+  log.info('Inbound socket info. Hash Requests: '
+    + `${inboundRequest}, New Hashes: ${inboundNew}`);
+
+  log.info('Outbound socket info. Hash Requests: '
+    + `${outboundRequest}, New Hashes: ${outboundNew}`);
 }
 
-function logIncomingSocketsEvery(intervalMs) {
+function logSocketsEvery(intervalMs) {
   // do this properly
-  setInterval(logIncomingSockets, intervalMs);
+  setInterval(logSockets, intervalMs);
 }
 
 module.exports = {
@@ -1255,7 +1272,7 @@ module.exports = {
   fluxDiscovery,
   handleAppMessages,
   addPeer,
-  logIncomingSocketsEvery,
+  logSocketsEvery,
   handleAppRunningMessage,
   handleIPChangedMessage,
   handleAppRemovedMessage,
