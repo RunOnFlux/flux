@@ -1870,6 +1870,13 @@ async function addFluxNodeServiceIpToLoopback() {
   }
 }
 
+/**
+ * Return the number of peers this node is connected to
+ */
+function getNumberOfPeers() {
+  return incomingConnections.length + outgoingConnections.length;
+}
+
 module.exports = {
   isFluxAvailable,
   checkFluxAvailability,
@@ -1881,6 +1888,7 @@ module.exports = {
   getIncomingConnections,
   getIncomingConnectionsInfo,
   getDOSState,
+  getNumberOfPeers,
   denyPort,
   deleteAllowPortRule,
   deleteAllowOutPortRule,

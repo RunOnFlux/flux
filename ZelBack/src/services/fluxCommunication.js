@@ -4,6 +4,7 @@ const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
+const appsService = require('./appsService');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -45,8 +46,6 @@ async function handleAppMessages(message, fromIP, port) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -1222,13 +1221,6 @@ async function fluxDiscovery() {
   }
 }
 
-/**
- * Return the number of peers this node is connected to
- */
-function getNumberOfPeers() {
-  return incomingConnections.length + outgoingConnections.length;
-}
-
 function logSockets() {
   const inboundMessages = { requestHash: 0, newHash: 0 };
   const outboundMessages = { requestHash: 0, newHash: 0 };
@@ -1277,6 +1269,5 @@ module.exports = {
   handleIPChangedMessage,
   handleAppRemovedMessage,
   initiateAndHandleConnection,
-  getNumberOfPeers,
   addOutgoingPeer,
 };
