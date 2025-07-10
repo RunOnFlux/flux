@@ -55,7 +55,7 @@ class FluxTTLCache extends TTLCache {
   }
 
   clearHistory() {
-    this.#history.clear();
+    this.#history = new Map([['get', 0], ['has', 0]]);
   }
 
   getHistory() {
@@ -117,8 +117,7 @@ class FluxCacheManager {
       max: 250,
       ttl: 20 * FluxCacheManager.oneMinute,
     },
-    // fluxNetwork Helper. This should just be an object with
-    // a setTimeout to delete the value
+    // fluxNetwork Helper
     ipCache: {
       max: 1,
       ttl: FluxCacheManager.oneDay,
@@ -129,7 +128,7 @@ class FluxCacheManager {
     },
     // fluxCommunication
     messageCache: {
-      max: 2000,
+      max: 5_000,
       ttl: 70 * FluxCacheManager.oneMinute,
     },
     blockedPubkeysCache: {
