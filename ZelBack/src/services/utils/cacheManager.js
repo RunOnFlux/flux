@@ -5,6 +5,8 @@ const { FluxController } = require('./fluxController');
 class FluxCacheManager {
   #controller = new FluxController();
 
+  static oneSecond = 1_000;
+
   static oneMinute = 60_000;
 
   static oneHour = 3_600_000;
