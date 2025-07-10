@@ -5,7 +5,7 @@ const log = require('../../lib/log');
 const { FluxController } = require('./fluxController');
 
 class FluxTTLCache extends TTLCache {
-  #history = new Map([['get', 0], ['has', 0]]);
+  #history = new Map([['get', 0], ['has', 0], ['set', 0]]);
 
   /**
    * Until we get onto NodeJS > 17.0.0 - we need this. I.e. we have no
@@ -54,12 +54,23 @@ class FluxTTLCache extends TTLCache {
     return value;
   }
 
+  set(key, value, options) {
+    super.set(key, value, options);
+
+    const counter = this.#history.get('set');
+    this.#history.set('set', counter + 1);
+  }
+
   clearHistory() {
-    this.#history = new Map([['get', 0], ['has', 0]]);
+    this.#history = new Map([['get', 0], ['has', 0], ['set', 0]]);
   }
 
   getHistory() {
-    return { get: this.#history.get('get'), has: this.#history.get('has') };
+    return {
+      get: this.#history.get('get'),
+      has: this.#history.get('has'),
+      set: this.#history.get('set'),
+    };
   }
 }
 
@@ -127,9 +138,14 @@ class FluxCacheManager {
       ttl: 15 * FluxCacheManager.oneSecond,
     },
     // fluxCommunication
+    // this is basically all messageHashPresent and requestMessageHash messages
+    // They receive around 2.4k messages a minute (26 peers). Of those 2.4k, there are about
+    // 135 unique messages. Every node doesn't need to broadcast to every other node
+    // it causes huge volumes of traffic and uses quite a bit of horsepower to hash
+    // every message, and check if it's in the cache. We should come up with a better algo here.
     messageCache: {
-      max: 5_000,
-      ttl: 70 * FluxCacheManager.oneMinute,
+      max: 1_000,
+      ttl: FluxCacheManager.oneMinute,
     },
     blockedPubkeysCache: {
       max: 200,
@@ -161,10 +177,10 @@ class FluxCacheManager {
   logCacheSizes() {
     Object.keys(FluxCacheManager.cacheConfigs).forEach(
       (cacheName) => {
-        const { get, has } = this[cacheName].getHistory();
+        const { get, has, set } = this[cacheName].getHistory();
         this[cacheName].clearHistory();
         log.info(`Cache: ${cacheName}, Size: ${this[cacheName].size}, `
-          + `getCount: ${get}, hasCount: ${has}`);
+          + `getCount: ${get}, hasCount: ${has}, setCount: ${set}`);
       },
     );
   }
