@@ -869,8 +869,8 @@ async function initiateAndHandleConnection(connection) {
           }
           return;
         }
-        const counter = ws.msgMap.get('newHash');
-        ws.msgMap.set('newhash', counter + 1);
+        const counter = websocket.msgMap.get('newHash');
+        websocket.msgMap.set('newhash', counter + 1);
         handleCheckMessageHashPresent(messageHashPresent, ip, port, true);
         return;
       }
@@ -884,8 +884,8 @@ async function initiateAndHandleConnection(connection) {
           }
           return;
         }
-        const counter = ws.msgMap.get('requestHash');
-        ws.msgMap.set('requestHash', counter + 1);
+        const counter = websocket.msgMap.get('requestHash');
+        websocket.msgMap.set('requestHash', counter + 1);
         handleRequestMessageHash(requestMessageHash, ip, port, true);
         return;
       }
