@@ -489,7 +489,7 @@ function handleIncomingConnection(websocket, optionalPort) {
           return;
         }
         const counter = ws.msgMap.get('newHash');
-        ws.msgMap.set('newhash', counter + 1);
+        ws.msgMap.set('newHash', counter + 1);
         handleCheckMessageHashPresent(messageHashPresent, peer.ip, peer.port, false);
         return;
       }
@@ -859,7 +859,7 @@ async function initiateAndHandleConnection(connection) {
           return;
         }
         const counter = websocket.msgMap.get('newHash');
-        websocket.msgMap.set('newhash', counter + 1);
+        websocket.msgMap.set('newHash', counter + 1);
         handleCheckMessageHashPresent(messageHashPresent, ip, port, true);
         return;
       }
