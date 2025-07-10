@@ -89,11 +89,11 @@ class FluxCacheManager {
   };
 
   constructor() {
-    Object.entries(FluxCacheManager.cacheConfigs).forEach(
-      (cacheName, cacheConfig) => {
-        this[cacheName] = new TTLCache(cacheConfig);
-      },
-    );
+    const entries = Object.entries(FluxCacheManager.cacheConfigs);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const [cacheName, cacheConfig] of entries) {
+      this[cacheName] = new TTLCache(cacheConfig);
+    }
   }
 
   logCacheSizes() {
