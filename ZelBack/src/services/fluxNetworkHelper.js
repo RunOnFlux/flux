@@ -9,7 +9,6 @@ const dgram = require('dgram');
 const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
-const TTLCache = require('@isaacs/ttlcache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -23,6 +22,7 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
+const cacheManager = require('./utils/cacheManager');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -34,8 +34,8 @@ let ipChangeData = null;
 let dosTooManyIpChanges = false;
 let maxNumberOfIpChanges = 0;
 
-// 1 day
-const myCache = new TTLCache({ max: 1, ttl: 24 * 60 * 60 * 1000 });
+const myCache = cacheManager.ipCache;
+const lruRateCache = cacheManager.rateLimitCache;
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
@@ -1733,11 +1733,6 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   return true;
 }
 
-const TtlRateOptions = {
-  max: 500,
-  ttl: 1000 * 15, // 15 seconds
-};
-const lruRateCache = new TTLCache(TtlRateOptions);
 /**
  * To check rate limit.
  * @param {string} ip IP address.

@@ -3,7 +3,6 @@ const config = require('config');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-
 const https = require('https');
 const axios = require('axios');
 const express = require('express');
@@ -12,7 +11,6 @@ const http = require('http');
 const nodecmd = require('node-cmd');
 const archiver = require('archiver');
 const df = require('node-df');
-const TTLCache = require('@isaacs/ttlcache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -47,6 +45,7 @@ const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const cacheManager = require('./utils/cacheManager');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -77,52 +76,14 @@ const testingAppExpress = express();
 let testingAppserver = http.createServer(testingAppExpress);
 testingAppserver = httpShutdown(testingAppserver);
 
-const GlobalAppsSpawnLRUoptions = {
-  max: 500,
-  ttl: 1000 * 60 * 60 * 12, // 12 hours
-};
-const shortCache = {
-  max: 500,
-  ttl: 1000 * 60 * 5, // 5 minutes
-};
-const longCache = {
-  max: 500,
-  ttl: 1000 * 60 * 60 * 3, // 3 hours
-};
-
-const testPortsCache = {
-  max: 60,
-  ttl: 1000 * 60 * 60 * 3, // 3 hours
-};
-
-const syncthingAppsCache = {
-  max: 500,
-  ttl: 1000 * 60 * 60 * 3, // 3hours
-};
-
-const stopedAppsCache = {
-  max: 40,
-  ttl: 1000 * 60 * 60 * 1.5, // 1.5 hours
-};
-
-const syncthingDevicesCache = {
-  max: 500,
-  ttl: 1000 * 60 * 60 * 24, // 24 hours
-};
-
-const spawnErrorsLongerLRUoptions = {
-  max: 500,
-  ttl: 1000 * 60 * 60 * 24 * 7, // 7 days
-};
-
-const spawnErrorsLongerAppCache = new TTLCache(spawnErrorsLongerLRUoptions);
-const trySpawningGlobalAppCache = new TTLCache(GlobalAppsSpawnLRUoptions);
-const myShortCache = new TTLCache(shortCache);
-const myLongCache = new TTLCache(longCache);
-const failedNodesTestPortsCache = new TTLCache(testPortsCache);
-const receiveOnlySyncthingAppsCache = new TTLCache(syncthingAppsCache);
-const appsStopedCache = new TTLCache(stopedAppsCache);
-const syncthingDevicesIDCache = new TTLCache(syncthingDevicesCache);
+const spawnErrorsLongerAppCache = cacheManager.appSpawnErrorCache;
+const trySpawningGlobalAppCache = cacheManager.appSpawnCache;
+const myShortCache = cacheManager.fluxRatesCache;
+const myLongCache = cacheManager.appPriceBlockedRepoCache;
+const failedNodesTestPortsCache = cacheManager.testPortsCache;
+const receiveOnlySyncthingAppsCache = cacheManager.syncthingAppsCache;
+const appsStopedCache = cacheManager.stoppedAppsCache;
+const syncthingDevicesIDCache = cacheManager.syncthingDevicesCache;
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -15838,6 +15799,7 @@ async function monitorNodeStatus() {
       const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
       log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
 
+      // break this into chunks
       const appsLocationsNotOnNodelist = (
         await Promise.all(
           appslocations.map(async (location) => {

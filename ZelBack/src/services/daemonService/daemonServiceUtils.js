@@ -1,5 +1,3 @@
-const TTLCache = require('@isaacs/ttlcache');
-
 const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
 const daemonConfig = require('../utils/daemonConfig');
@@ -8,6 +6,7 @@ const messageHelper = require('../messageHelper');
 
 const config = require('config');
 const userconfig = require('../../../../config/userconfig');
+const cacheManager = require('../utils/cacheManager');
 
 const { initial: { testnet: isTestnet } } = userconfig;
 
@@ -19,28 +18,9 @@ let fluxdClient = null;
  */
 const lock = new asyncLock.AsyncLock();
 
-// default cache
-const TtlOptions = {
-  max: 500, // store 500 values for up to 20 seconds of other daemon calls
-  ttl: 1000 * 20, // 20 seconds
-};
-
-const cache = new TTLCache(TtlOptions);
-
-const TtlOptionsTxs = {
-  max: 3000, // store 3000 values for up to 1 hour of other daemon calls
-  ttl: 1000 * 60 * 60, // 1 hour
-};
-
-const rawTxCache = new TTLCache(TtlOptionsTxs); // store 30k txs in cache
-
-const TtlOptionsBlocks = {
-  max: 150, // store 150 values for up to 1 hour of other daemon calls
-  ttl: 1000 * 60 * 60, // 1 hour
-  maxAge: 1000 * 60 * 60, // 1 hour
-};
-
-const blockCache = new TTLCache(TtlOptionsBlocks); // store 1.5k blocks in cache
+const cache = cacheManager.daemonGenericCache;
+const rawTxCache = cacheManager.daemonTxCache;
+const blockCache = cacheManager.daemonBlockCache;
 
 async function readDaemonConfig() {
   fluxdConfig = new daemonConfig.DaemonConfig();

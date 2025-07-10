@@ -1,5 +1,4 @@
 /* eslint-disable no-underscore-dangle */
-const TTLCache = require('@isaacs/ttlcache');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -9,12 +8,9 @@ const messageHelper = require('./messageHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
+const cacheManager = require('./utils/cacheManager');
 
-const TtlOptions = {
-  max: 1000,
-  ttl: 1000 * 60 * 20, // 20 minutes
-};
-const myMessageCache = new TTLCache(TtlOptions);
+const myMessageCache = cacheManager.tempMessageCache();
 
 let response = messageHelper.createErrorMessage();
 

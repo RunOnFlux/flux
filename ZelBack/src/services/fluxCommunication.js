@@ -1,6 +1,5 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const TTLCache = require('@isaacs/ttlcache');
 const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
@@ -14,22 +13,12 @@ const messageHelper = require('./messageHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
+const cacheManager = require('./utils/cacheManager');
 
 let response = messageHelper.createErrorMessage();
-// default cache
-const TtlOptions = {
-  max: 20000, // currently 20000 nodes
-  ttl: 1000 * 360, // 360 seconds, 3 blocks
-};
 
-// cache for temporary messages
-const TtlOptionsTemp = { // cache for temporary messages
-  max: 2000, // store max 2000 values
-  ttl: 1000 * 60 * 70, // 70 minutes
-};
-
-const myCacheTemp = new TTLCache(TtlOptionsTemp);
-
+const myCacheTemp = cacheManager.messageCache;
+const blockedPubKeysCache = cacheManager.blockedPubkeysCache;
 /* const LRUTest = {
   max: 25000000, // 25M
   ttl: 60 * 60 * 1000, // 1h
@@ -39,8 +28,6 @@ const myCacheTemp = new TTLCache(TtlOptionsTemp);
 const testListCache = new LRUCache(LRUTest); */
 
 let numberOfFluxNodes = 0;
-
-const blockedPubKeysCache = new TTLCache(TtlOptions);
 
 const privateIpsList = [
   '192.168.', '10.',
