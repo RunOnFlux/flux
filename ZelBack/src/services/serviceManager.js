@@ -135,6 +135,7 @@ async function startFluxFunctions() {
 
     networkStateService.start();
     cacheManager.logCacheSizesEvery(600_000);
+    fluxCommunication.logIncomingSocketsEvery(600_000);
 
     setTimeout(async () => {
       const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();

@@ -455,6 +455,9 @@ function handleIncomingConnection(websocket, optionalPort) {
       }, 1000);
       return;
     }
+
+    ws.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
+
     incomingConnections.push(ws);
     incomingPeers.push(peer);
 
@@ -496,6 +499,8 @@ function handleIncomingConnection(websocket, optionalPort) {
           }
           return;
         }
+        const counter = ws.msgMap.get('newHash');
+        ws.msgMap.set('newhash', counter + 1);
         handleCheckMessageHashPresent(messageHashPresent, peer.ip, peer.port, false);
         return;
       }
@@ -509,6 +514,8 @@ function handleIncomingConnection(websocket, optionalPort) {
           }
           return;
         }
+        const counter = ws.msgMap.get('requestHash');
+        ws.msgMap.set('requestHash', counter + 1);
         handleRequestMessageHash(requestMessageHash, peer.ip, peer.port, false);
         return;
       }
@@ -1217,6 +1224,27 @@ function getNumberOfPeers() {
   return incomingConnections.length + outgoingConnections.length;
 }
 
+function logIncomingSockets() {
+  const messages = { requestHash: 0, newHash: 0 };
+
+  incomingConnections.forEach((websocket) => {
+    const ws = websocket;
+
+    messages.requestHash += ws.msgMap.get('requestHash');
+    messages.newHash += ws.msgMap.get('newHash');
+    ws.msgMap = new Map([['requestHash', 0], ['newHash', 0]]);
+  });
+
+  const { requestHash, newHash } = messages;
+
+  log.info(`Socket info. Hash Requests: ${requestHash}, New Hashes: ${newHash}`);
+}
+
+function logIncomingSocketsEvery(intervalMs) {
+  // do this properly
+  setInterval(logIncomingSockets, intervalMs);
+}
+
 module.exports = {
   handleIncomingConnection,
   connectedPeers,
@@ -1227,6 +1255,7 @@ module.exports = {
   fluxDiscovery,
   handleAppMessages,
   addPeer,
+  logIncomingSocketsEvery,
   handleAppRunningMessage,
   handleIPChangedMessage,
   handleAppRemovedMessage,
