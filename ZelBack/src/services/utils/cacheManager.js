@@ -1,6 +1,67 @@
+/* eslint max-classes-per-file: ["error", 2] */
+
 const TTLCache = require('@isaacs/ttlcache');
 const log = require('../../lib/log');
 const { FluxController } = require('./fluxController');
+
+class FluxTTLCache extends TTLCache {
+  #history = new Map([['get', 0], ['has', 0]]);
+
+  /**
+   * Until we get onto NodeJS > 17.0.0 - we need this. I.e. we have no
+   * structured clone
+   */
+  static deepClone(target) {
+    function replacer(_key, value) {
+      if (value instanceof Map) {
+        return {
+          dataType: 'Map',
+          payload: Array.from(value.entries()),
+        };
+      }
+      return value;
+    }
+    function reviver(_key, value) {
+      if (typeof value === 'object' && value !== null) {
+        if (value.dataType === 'Map') {
+          return new Map(value.payload);
+        }
+      }
+      return value;
+    }
+
+    const asString = JSON.stringify(target, replacer);
+    const clone = JSON.parse(asString, reviver);
+
+    return clone;
+  }
+
+  get(key, options) {
+    const value = super.get(key, options);
+
+    const counter = this.#history.get('get');
+    this.#history.set('get', counter + 1);
+
+    return value;
+  }
+
+  has(key) {
+    const value = super.has(key);
+
+    const counter = this.#history.get('has');
+    this.#history.set('has', counter + 1);
+
+    return value;
+  }
+
+  clearHistory() {
+    this.#history.clear();
+  }
+
+  getHistory() {
+    return { get: this.#history.get('get'), has: this.#history.get('has') };
+  }
+}
 
 class FluxCacheManager {
   #controller = new FluxController();
@@ -20,19 +81,19 @@ class FluxCacheManager {
   static cacheConfigs = {
     // appsService
     appSpawnErrorCache: {
-      max: 500,
+      max: 250,
       ttl: 7 * FluxCacheManager.oneDay,
     },
     appSpawnCache: {
-      max: 500,
+      max: 250,
       ttl: 12 * FluxCacheManager.oneHour,
     },
     syncthingDevicesCache: {
-      max: 500,
+      max: 50,
       ttl: FluxCacheManager.oneDay,
     },
     syncthingAppsCache: {
-      max: 500,
+      max: 50,
       ttl: 3 * FluxCacheManager.oneHour,
     },
     stoppedAppsCache: {
@@ -44,16 +105,16 @@ class FluxCacheManager {
       ttl: 3 * FluxCacheManager.oneHour,
     },
     appPriceBlockedRepoCache: {
-      max: 500,
+      max: 50,
       ttl: 3 * FluxCacheManager.oneHour,
     },
     fluxRatesCache: {
-      max: 500,
+      max: 50,
       ttl: 5 * FluxCacheManager.oneMinute,
     },
     // fluxCommunicationMessageSender
     tempMessageCache: {
-      max: 1000,
+      max: 250,
       ttl: 20 * FluxCacheManager.oneMinute,
     },
     // fluxNetwork Helper. This should just be an object with
@@ -63,7 +124,7 @@ class FluxCacheManager {
       ttl: FluxCacheManager.oneDay,
     },
     rateLimitCache: {
-      max: 500,
+      max: 150,
       ttl: 15 * FluxCacheManager.oneSecond,
     },
     // fluxCommunication
@@ -72,16 +133,16 @@ class FluxCacheManager {
       ttl: 70 * FluxCacheManager.oneMinute,
     },
     blockedPubkeysCache: {
-      max: 2000,
+      max: 200,
       ttl: 6 * FluxCacheManager.oneMinute,
     },
     // daemonServiceUtils
     daemonGenericCache: {
-      max: 500,
+      max: 50,
       ttl: 20 * FluxCacheManager.oneSecond,
     },
     daemonTxCache: {
-      max: 3000,
+      max: 300,
       ttl: FluxCacheManager.oneHour,
     },
     daemonBlockCache: {
@@ -94,14 +155,17 @@ class FluxCacheManager {
     const entries = Object.entries(FluxCacheManager.cacheConfigs);
     // eslint-disable-next-line no-restricted-syntax
     for (const [cacheName, cacheConfig] of entries) {
-      this[cacheName] = new TTLCache(cacheConfig);
+      this[cacheName] = new FluxTTLCache(cacheConfig);
     }
   }
 
   logCacheSizes() {
     Object.keys(FluxCacheManager.cacheConfigs).forEach(
       (cacheName) => {
-        log.info(`Cache: ${cacheName}, Size: ${this[cacheName].size}`);
+        const { get, has } = this[cacheName].getHistory();
+        this[cacheName].clearHistory();
+        log.info(`Cache: ${cacheName}, Size: ${this[cacheName].size}, `
+          + `getCount: ${get}, hasCount: ${has}`);
       },
     );
   }
