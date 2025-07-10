@@ -155,8 +155,6 @@ async function handleAppRunningMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -206,8 +204,6 @@ async function handleAppInstallingMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppInstallingMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
@@ -257,8 +253,6 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppInstallingErrorMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
@@ -307,8 +301,6 @@ async function handleIPChangedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, update information
     // rebroadcast message to the network if it's valid
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeIPChangedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
@@ -357,8 +349,6 @@ async function handleAppRemovedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, delete that information
     // rebroadcast message to the network if it's valid
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
     const rebroadcastToPeers = await appsService.storeAppRemovedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
