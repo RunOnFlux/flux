@@ -10,7 +10,7 @@ const {
 } = require('./utils/establishedConnections');
 const cacheManager = require('./utils/cacheManager');
 
-const myMessageCache = cacheManager.tempMessageCache();
+const myMessageCache = cacheManager.tempMessageCache;
 
 let response = messageHelper.createErrorMessage();
 
