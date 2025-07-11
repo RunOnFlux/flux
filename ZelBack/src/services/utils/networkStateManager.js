@@ -198,7 +198,7 @@ class NetworkStateManager extends EventEmitter {
     if (!indexSize) return null;
 
     let stepsRemaining = Math.floor(Math.random() * indexSize);
-    const iterator = this.socketAddressIndex.values();
+    const iterator = this.#socketAddressIndex.values();
 
     let previous = null;
 
