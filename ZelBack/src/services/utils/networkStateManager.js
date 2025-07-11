@@ -184,19 +184,37 @@ class NetworkStateManager extends EventEmitter {
     });
   }
 
-  async getRandomSocketAddress() {
+  /**
+   * Gets a random node from the network state. Ensures that the connection is
+   * not to this node
+   * @param {string} localSocketAddress The ip:port of this node
+   * @returns {string | null} A random socketAddress from the map
+   */
+  async getRandomSocketAddress(localSocketAddress) {
     await this.indexesReady;
 
     const indexSize = this.#socketAddressIndex.size;
-    let index = Math.floor(Math.random() * indexSize);
+
+    if (!indexSize) return null;
+
+    let stepsRemaining = Math.floor(Math.random() * indexSize);
+    const iterator = this.socketAddressIndex.values();
+
+    let previous = null;
 
     // eslint-disable-next-line no-restricted-syntax
-    for (const socketAddress of this.socketAddressIndex.values()) {
-      if (index === 0) {
+    for (const socketAddress of iterator) {
+      if (!stepsRemaining) {
+        const match = localSocketAddress === socketAddress;
+        // if we've been unlucky (or lucky however you look at it) enough to hit
+        // this node, we just take the value before, or if it's the initial index,
+        // the next value from the iterator
+        if (match) return previous || iterator.next().value;
         return socketAddress;
       }
 
-      index -= 1;
+      previous = socketAddress;
+      stepsRemaining -= 1;
     }
 
     // this should never happen
