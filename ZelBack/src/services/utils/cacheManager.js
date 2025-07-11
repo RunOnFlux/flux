@@ -136,6 +136,7 @@ class FluxCacheManager {
     rateLimitCache: {
       max: 150,
       ttl: 15 * FluxCacheManager.oneSecond,
+      updateAgeOnGet: true,
     },
     // fluxCommunication
     // this is basically all messageHashPresent and requestMessageHash messages

@@ -330,7 +330,6 @@ class NetworkStateManager extends EventEmitter {
   }
 
   async stop() {
-    // is this right?
     await this.#controller.abort();
   }
 
@@ -345,7 +344,7 @@ class NetworkStateManager extends EventEmitter {
     if (!filter) return null;
     if (!Object.keys(this.#indexes).includes(type)) return null;
 
-    // if we are mid stroke indexing, may as well wait the 10ms (max) and get the
+    // if we are mid stroke indexing, may as well wait the ~10ms and get the
     // latest block
     await this.indexesReady;
 
@@ -360,7 +359,7 @@ class NetworkStateManager extends EventEmitter {
    *
    * @param {string} filter pubkey or socketAddress (ip:port)
    * @param {"pubkey" | "socketAddress"} type
-   * @returns {Promise<Map<string, Fluxnode>> | Fluxnode | null>} Clone of the state
+   * @returns {Promise<boolean>} If the target exists in the state
    */
   async includes(filter, type) {
     if (!filter) return false;
