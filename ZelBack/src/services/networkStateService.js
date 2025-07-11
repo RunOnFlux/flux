@@ -118,9 +118,9 @@ async function pubkeyInNetworkState(pubkey) {
 }
 
 async function getRandomSocketAddress(socketAddress) {
-  const socketAddress = await stateManager.getRandomSocketAddress(socketAddress);
+  const random = await stateManager.getRandomSocketAddress(socketAddress);
 
-  return socketAddress;
+  return random;
 }
 
 /**
