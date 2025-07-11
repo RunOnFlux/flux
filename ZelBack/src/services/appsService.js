@@ -14146,7 +14146,7 @@ async function checkMyAppsAvailability() {
    * app error = 4m           - Something on the fluxNode is broken
    */
   const timeouts = {
-    default: 60_000_000,
+    default: 3_600_000,
     error: 60_000,
     failure: 15_000,
     dos: 300_000,
