@@ -14184,7 +14184,7 @@ async function checkMyAppsAvailability() {
   const setNextPort = () => {
     if (originalPortFailed && testingPort > originalPortFailed) {
       nextTestingPort = originalPortFailed - 1;
-    } else if (originalPortFailed) {
+    } else {
       nextTestingPort = null;
       originalPortFailed = null;
     }
