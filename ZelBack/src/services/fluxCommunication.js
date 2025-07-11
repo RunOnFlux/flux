@@ -569,21 +569,11 @@ function handleIncomingConnection(websocket, optionalPort) {
         // and add him to blocklist
         try {
           // check if message comes from IP belonging to the public Key
-          let zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
-          let nodeFound = zl.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || '16127') === peer.port);
+          const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
+          const nodeFound = nodes.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || '16127') === peer.port);
           if (!nodeFound) {
-            // check if message comes from IP belonging to the public Key
-            zl = await fluxCommunicationUtils.deterministicFluxList(); // this itself is sufficient.
-            const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-            nodeFound = possibleNodes.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || '16127') === peer.port);
-            if (!nodeFound) {
-              log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
-              ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
-            } else {
-              blockedPubKeysCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
-              log.warn(`closing incoming connection, adding peers ${pubKey}:${peer.port} to the blockedList. Originated from ${peer.ip}.`);
-              ws.close(4005, 'invalid message, blocked'); // close as of policy violation?
-            }
+            log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
+            ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
           } else {
             blockedPubKeysCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
             log.warn(`closing incoming connection, adding peers ${pubKey}:${peer.port} to the blockedList. Originated from ${peer.ip}.`);
@@ -938,9 +928,8 @@ async function initiateAndHandleConnection(connection) {
         // and add him to blocklist
         try {
           // check if message comes from IP belonging to the public Key
-          const zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
-          const possibleNodes = zl.filter((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
-          const nodeFound = possibleNodes.find((n) => n.ip === connection); // connection is either ip or ip:port (if port is not 16127)
+          const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
+          const nodeFound = nodes.find((n) => n.ip === connection);
           if (!nodeFound) {
             log.warn(`Invalid message received from outgoing peer ${connection} which is not an originating node of ${pubKey}.`);
             websocket.close(4007, 'invalid message, disconnect'); // close as of policy violation

@@ -186,7 +186,10 @@ class NetworkStateManager extends EventEmitter {
 
   /**
    * Gets a random node from the network state. Ensures that the connection is
-   * not to this node
+   * not to this node. When we build the indexes, we could also store the node
+   * keys in an array, however, that is another array we have to keep in memory.
+   * It may pay to do that though, as this is O(n), vs O(1) for array index. CPU
+   * tradeoff for memory is probably good though.
    * @param {string} localSocketAddress The ip:port of this node
    * @returns {Promise<string | null>} A random socketAddress from the map
    */

@@ -269,13 +269,12 @@ async function checkAppAvailability(req, res) {
       const ipPort = processedBody.port;
 
       // pubkey of the message has to be on the list
-      const zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
-      const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+      const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
       const dataToVerify = processedBody;
       delete dataToVerify.signature;
       const messageToVerify = JSON.stringify(dataToVerify);
       const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-      if ((verified !== true || !node) && authorized !== true) {
+      if ((verified !== true || !nodes.length) && authorized !== true) {
         throw new Error('Unable to verify request authenticity');
       }
 
@@ -389,13 +388,12 @@ async function keepUPNPPortsOpen(req, res) {
     }
 
     // pubkey of the message has to be on the list
-    const zl = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey }); // this itself is sufficient.
-    const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+    const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
     const dataToVerify = processedBody;
     delete dataToVerify.signature;
     const messageToVerify = JSON.stringify(dataToVerify);
     const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-    if ((verified !== true || !node) && authorized !== true) {
+    if ((verified !== true || !nodes.length) && authorized !== true) {
       res.status(401).end();
       throw new Error('Unable to verify request authenticity');
     }
