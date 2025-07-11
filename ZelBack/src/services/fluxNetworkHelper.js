@@ -1728,7 +1728,6 @@ function lruRateLimit(ip, limitPerSecond = 20) {
       lastUpdate: now,
       tokenBucket: limitPerSecond,
     };
-    console.log('Setting node in cache');
     lruRateCache.set(ip, limit);
 
     return true;
@@ -1761,8 +1760,6 @@ function lruRateLimit(ip, limitPerSecond = 20) {
   }
 
   rateLimit.tokenBucket -= 1;
-
-  console.log(rateLimit);
 
   return true;
 }
