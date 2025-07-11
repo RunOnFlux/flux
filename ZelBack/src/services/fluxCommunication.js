@@ -15,6 +15,7 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 const cacheManager = require('./utils/cacheManager');
+const networkStateService = require('./networkStateService');
 
 let response = messageHelper.createErrorMessage();
 
@@ -1153,14 +1154,16 @@ async function fluxDiscovery() {
     while ((outgoingConnections.length < 14 || [...new Set(outgoingConnections.map((client) => client.ip))].length < 9) && index < 100) { // Max of 14 outgoing connections - 8 possible deterministic + min. 6 random
       index += 1;
       // eslint-disable-next-line no-await-in-loop
-      const connection = await fluxNetworkHelper.getRandomConnection();
+      const connection = await networkStateService.getRandomSocketAddress(myIP);
+
       if (connection) {
-        const ipInc = connection.split(':')[0];
+        const [ipInc, portInc = '16127'] = connection.split(':');
+        // we don't connect to any other nodes on the same ip
         if (ipInc === myIP.split(':')[0]) {
           // eslint-disable-next-line no-continue
           continue;
         }
-        const portInc = connection.split(':')[1] || '16127';
+
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
         const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
@@ -1178,14 +1181,15 @@ async function fluxDiscovery() {
     while ((incomingConnections.length < 12 || [...new Set(incomingConnections.map((client) => client.ip))].length < 5) && index < 100) { // Max of 12 incoming connections - 8 possible deterministic + min. 4 random (we will get more random as others nodes have more random outgoing connections)
       index += 1;
       // eslint-disable-next-line no-await-in-loop
-      const connection = await fluxNetworkHelper.getRandomConnection();
+      const connection = await networkStateService.getRandomSocketAddress(myIP);
       if (connection) {
-        const ipInc = connection.split(':')[0];
+        const [ipInc, portInc = '16127'] = connection.split(':');
+        // we don't connect to any other nodes on the same ip
         if (ipInc === myIP.split(':')[0]) {
           // eslint-disable-next-line no-continue
           continue;
         }
-        const portInc = connection.split(':')[1] || '16127';
+
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
         const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);

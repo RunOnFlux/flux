@@ -23,6 +23,7 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 const cacheManager = require('./utils/cacheManager');
+const networkStateService = require('./networkStateService');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -527,26 +528,6 @@ async function getFluxNodePublicKey(privatekey) {
 }
 
 /**
- * To get a random connection.
- * @returns {string} IP:Port or just IP if default.
- */
-async function getRandomConnection() {
-  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-  const zlLength = nodeList.length;
-  if (zlLength === 0) {
-    return null;
-  }
-  const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
-
-  if (!ip || !myFluxIP || ip === userconfig.initial.ipaddress || ip === myFluxIP || ip === `${userconfig.initial.ipaddress}:${apiPort}` || ip.split(':')[0] === myFluxIP.split(':')[0]) {
-    return null;
-  }
-  return ip;
-}
-
-/**
  * To close an outgoing connection.
  * @param {string} ip IP address.
  * @param {string} port node API port.
@@ -939,17 +920,16 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (!fluxBenchVersionAllowed) {
     return false;
   }
-  let askingIP = await getRandomConnection();
-  if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
-    return false;
-  }
-  let askingIpPort = config.server.apiport;
-  if (askingIP.includes(':')) { // has port specification
-    // it has port specification
-    const splittedIP = askingIP.split(':');
-    askingIP = splittedIP[0];
-    askingIpPort = splittedIP[1];
-  }
+
+  if (typeof myFluxIP !== 'string') return false;
+
+  const randomSocketAddress = await networkStateService.getRandomSocketAddress(myFluxIP);
+
+  if (!randomSocketAddress) return false;
+
+  const apiPortDefault = config.server.apiport.toString();
+  const [askingIP, askingIpPort = apiPortDefault] = randomSocketAddress.split(':');
+
   let myIP = myFluxIP;
   if (myIP.includes(':')) { // has port specification
     myIP = myIP.split(':')[0];
@@ -1881,7 +1861,6 @@ module.exports = {
   isFluxAvailable,
   checkFluxAvailability,
   getMyFluxIPandPort,
-  getRandomConnection,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
   checkDeterministicNodesCollisions,

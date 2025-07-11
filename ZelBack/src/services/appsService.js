@@ -45,6 +45,7 @@ const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const cacheManager = require('./utils/cacheManager');
+const networkStateService = require('./networkStateService');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -14044,19 +14045,15 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     if (!myIP) {
       return;
     }
+
+    const randomSocketAddress = await networkStateService.getRandomSocketAddress(myIP);
+
+    if (!randomSocketAddress) return;
+
+    const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
+
     myIP = myIP.split(':')[0];
 
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
-    if (!askingIP) {
-      return;
-    }
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) { // has port specification
-      // it has port specification
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
     if (myIP === askingIP) {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
@@ -14092,11 +14089,12 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 
     // We don't add the api port, as the remote node will callback to our
     // api port to make sure it can connect before testing any other ports
-    // this is so that we know the remote end can reach us.
+    // this is so that we know the remote end can reach us. I also removed
+    // -2,-3,-4 as they are currently not used.
     ports.push(apiPort - 1);
-    ports.push(apiPort - 2);
-    ports.push(apiPort - 3);
-    ports.push(apiPort - 4);
+    // ports.push(apiPort - 2);
+    // ports.push(apiPort - 3);
+    // ports.push(apiPort - 4);
     ports.push(apiPort - 5);
     ports.push(apiPort + 1);
     ports.push(apiPort + 2);
@@ -14249,16 +14247,15 @@ async function checkMyAppsAvailability() {
       return;
     }
 
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
       log.info('No Public IP found. Application checks are disabled');
       await serviceHelper.delay(4 * 60 * 1000);
       checkMyAppsAvailability();
       return;
     }
 
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || '16127';
+    const [myIP, myPort = '16127'] = localSocketAddress.split(':');
 
     const installedAppsRes = await installedApps();
     if (installedAppsRes.status !== 'success') {
@@ -14412,9 +14409,9 @@ async function checkMyAppsAvailability() {
 
     await serviceHelper.delay(10 * 1000);
 
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
+    const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddress);
 
-    if (!askingIP) {
+    if (!randomSocketAddress) {
       await handleTestShutdown(testingPort, {
         skipFirewall: !firewallActive,
         skipUpnp: !isUpnp,
@@ -14426,12 +14423,7 @@ async function checkMyAppsAvailability() {
       return;
     }
 
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) {
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
+    const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
 
     if (myIP === askingIP) {
       await handleTestShutdown(testingPort, {
@@ -14638,12 +14630,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
   try {
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
       throw new Error('Failed to detect Public IP');
     }
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || '16127';
+    const [myIP, myPort = '16127'] = localSocketAddress.split(':');
+
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
     let somePortBanned = false;
     portsToTest.forEach((portToTest) => {
@@ -14715,18 +14707,15 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     while (!finished && i < 5) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
-      let askingIP = await fluxNetworkHelper.getRandomConnection();
-      while (!askingIP || askingIP.split(':')[0] === myIP) {
-        // eslint-disable-next-line no-await-in-loop
-        askingIP = await fluxNetworkHelper.getRandomConnection();
+      const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddress);
+
+      // this should never happen as the list should be populated here
+      if (!randomSocketAddress) {
+        throw new Error('Unable to get random test connection');
       }
-      let askingIpPort = config.server.apiport;
-      if (askingIP.includes(':')) { // has port specification
-        // it has port specification
-        const splittedIP = askingIP.split(':');
-        askingIP = splittedIP[0];
-        askingIpPort = splittedIP[1];
-      }
+
+      const [askingIP, askingIpPort = '16127'] = randomSocketAddress;
+
       // first check against our IP address
       // eslint-disable-next-line no-await-in-loop
       const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {

@@ -188,7 +188,7 @@ class NetworkStateManager extends EventEmitter {
    * Gets a random node from the network state. Ensures that the connection is
    * not to this node
    * @param {string} localSocketAddress The ip:port of this node
-   * @returns {string | null} A random socketAddress from the map
+   * @returns {Promise<string | null>} A random socketAddress from the map
    */
   async getRandomSocketAddress(localSocketAddress) {
     await this.indexesReady;

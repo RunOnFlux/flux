@@ -117,6 +117,12 @@ async function pubkeyInNetworkState(pubkey) {
   return found;
 }
 
+async function getRandomSocketAddress(socketAddress) {
+  const socketAddress = await stateManager.getRandomSocketAddress(socketAddress);
+
+  return socketAddress;
+}
+
 /**
  *
  * @param {string} socketAddress
@@ -148,6 +154,7 @@ module.exports = {
   waitStarted,
   getFluxnodesByPubkey,
   getFluxnodeBySocketAddress,
+  getRandomSocketAddress,
   networkState,
   pubkeyInNetworkState,
   socketAddressInNetworkState,
