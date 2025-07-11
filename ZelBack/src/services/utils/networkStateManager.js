@@ -203,13 +203,15 @@ class NetworkStateManager extends EventEmitter {
     let previous = null;
 
     // eslint-disable-next-line no-restricted-syntax
-    for (const socketAddress of iterator) {
+    for (const node of iterator) {
+      const { ip: socketAddress } = node;
+
       if (!stepsRemaining) {
         const match = localSocketAddress === socketAddress;
         // if we've been unlucky (or lucky however you look at it) enough to hit
         // this node, we just take the value before, or if it's the initial index,
         // the next value from the iterator
-        if (match) return previous || iterator.next().value;
+        if (match) return previous || iterator.next().value.ip;
         return socketAddress;
       }
 
@@ -217,8 +219,8 @@ class NetworkStateManager extends EventEmitter {
       stepsRemaining -= 1;
     }
 
-    // this should never happen
-    return this.socketAddressIndex.values().next().value;
+    // this should never happen, should probably log it
+    return this.socketAddressIndex.values().next().value.ip;
   }
 
   reset() {
