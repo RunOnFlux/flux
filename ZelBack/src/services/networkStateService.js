@@ -68,7 +68,7 @@ async function stop() {
 
 /**
  * Returns the entire fluxnode network state
- * @param {{sort?: boolean}} options
+ * @param {{sort?: boolean}} options Sort by added height, then txid
  * @returns {Array<Fluxnode>}
  */
 function networkState(options = {}) {
@@ -76,16 +76,7 @@ function networkState(options = {}) {
 
   const sort = options.sort || false;
 
-  const { state } = stateManager;
-
-  if (sort) {
-    state.sort((a, b) => {
-      if (a.added_height > b.added_height) return 1;
-      if (b.added_height > a.added_height) return -1;
-      if (b.txhash > a.txhash) return 1;
-      return 0;
-    });
-  }
+  const state = stateManager.state({ sort });
 
   return state;
 }

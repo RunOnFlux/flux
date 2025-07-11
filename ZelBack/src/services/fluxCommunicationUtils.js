@@ -16,16 +16,27 @@ const networkStateService = require('./networkStateService');
 /**
  * To get deterministc Flux list from network state manager
  * @param {string} filter Filter. Can only be a publicKey.
- * @param {{filter?: string, sort?: boolean}} options
+ * @param {{filter?: string, sort?: boolean, addressOnly?: boolean}} options
  * @returns {Promise<Array<Fluxnode>}
  */
 async function deterministicFluxList(options = {}) {
   const filter = options.filter || '';
   const sort = options.sort || false;
+  const addressOnly = options.addressOnly || false;
 
   await networkStateService.waitStarted();
 
-  if (!filter) return networkStateService.networkState({ sort });
+  if (!filter) {
+    const state = networkStateService.networkState({ sort });
+
+    if (!addressOnly) return state;
+
+    return state.reduce((filtered, node) => {
+      if (node.ip) filtered.push(node.ip);
+
+      return filtered;
+    }, []);
+  }
 
   const filtered = await networkStateService.getFluxnodesByPubkey(filter);
 

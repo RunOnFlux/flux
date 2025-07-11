@@ -26,6 +26,9 @@ const log = require('../../lib/log');
  */
 
 class NetworkStateManager extends EventEmitter {
+  /**
+   * @type {Array<Fluxnode>}
+   */
   #state = [];
 
   #pubkeyIndex = new Map();
@@ -103,12 +106,6 @@ class NetworkStateManager extends EventEmitter {
 
     this.#stateEmitter = options.stateEmitter || null;
     this.#stateFetcher = stateFetcher;
-  }
-
-  get state() {
-    const clone = NetworkStateManager.deepClone(this.#state);
-
-    return clone;
   }
 
   get updateTrigger() {
@@ -224,6 +221,27 @@ class NetworkStateManager extends EventEmitter {
 
     // this should never happen, should probably log it
     return this.socketAddressIndex.values().next().value.ip;
+  }
+
+  /**
+   *
+   * @param {{sort?: boolean}} options
+   */
+  state(options = {}) {
+    const sort = options.sort || false;
+
+    const clone = Array.from(this.#state);
+
+    if (!sort) return clone;
+
+    clone.sort((a, b) => {
+      if (a.added_height > b.added_height) return 1;
+      if (b.added_height > a.added_height) return -1;
+      if (b.txhash > a.txhash) return 1;
+      return 0;
+    });
+
+    return clone;
   }
 
   reset() {

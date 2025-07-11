@@ -1071,7 +1071,11 @@ async function fluxDiscovery() {
 
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (myIP) {
-      sortedNodeList = await fluxCommunicationUtils.deterministicFluxList({ sort: true });
+      sortedNodeList = await fluxCommunicationUtils.deterministicFluxList({
+        sort: true,
+        addressOnly: true,
+      });
+
       numberOfFluxNodes = sortedNodeList.length;
       const fluxNode = await fluxCommunicationUtils.getFluxnodeFromFluxList(myIP);
       if (!fluxNode) {
@@ -1082,7 +1086,7 @@ async function fluxDiscovery() {
     }
 
     log.info('Searching for my node on sortedNodeList');
-    const fluxNodeIndex = sortedNodeList.findIndex((node) => node.ip === myIP);
+    const fluxNodeIndex = sortedNodeList.findIndex((ip) => ip === myIP);
     log.info(`My node was found on index: ${fluxNodeIndex} of ${sortedNodeList.length} nodes`);
     const minDeterministicOutPeers = Math.min(sortedNodeList.length, config.fluxapps.minOutgoing);
     // const minIncomingPeers = Math.min(sortedNodeList.length, 1.5 * config.fluxapps.minIncoming);
@@ -1096,7 +1100,7 @@ async function fluxDiscovery() {
     // established deterministic 8 outgoing connections
     for (let i = 1; i <= minDeterministicOutPeers; i += 1) {
       const fixedIndex = fluxNodeIndex + i < sortedNodeList.length ? fluxNodeIndex + i : fluxNodeIndex + i - sortedNodeList.length;
-      const { ip } = sortedNodeList[fixedIndex];
+      const ip = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
       if (!ipInc || ipInc === myIP.split(':')[0]) {
         // eslint-disable-next-line no-continue
@@ -1116,7 +1120,7 @@ async function fluxDiscovery() {
     // established deterministic 8 incoming connections
     for (let i = 1; i <= minDeterministicOutPeers; i += 1) {
       const fixedIndex = fluxNodeIndex - i > 0 ? fluxNodeIndex - i : sortedNodeList.length - fluxNodeIndex - i;
-      const { ip } = sortedNodeList[fixedIndex];
+      const ip = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
       if (!ipInc || ipInc === myIP.split(':')[0]) {
         // eslint-disable-next-line no-continue
