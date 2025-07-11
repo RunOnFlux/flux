@@ -184,6 +184,25 @@ class NetworkStateManager extends EventEmitter {
     });
   }
 
+  async getRandomSocketAddress() {
+    await this.indexesReady;
+
+    const indexSize = this.#socketAddressIndex.size;
+    let index = Math.floor(Math.random() * indexSize);
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const socketAddress of this.socketAddressIndex.values()) {
+      if (index === 0) {
+        return socketAddress;
+      }
+
+      index -= 1;
+    }
+
+    // this should never happen
+    return this.socketAddressIndex.values().next().value;
+  }
+
   reset() {
     // recreate objects so they can't be mutated externally
     this.#pubkeyIndex = new Map();
