@@ -865,17 +865,17 @@ async function checkMyFluxAvailability(retryNumber = 0) {
 
   if (typeof myFluxIP !== 'string') return false;
 
+  const randomSocketAddress = await networkStateService.getRandomSocketAddress(
+    myFluxIP,
+  );
+
   const localSocketAddress = myFluxIP.includes(':')
     ? myFluxIP
     : `${myFluxIP}:16127`;
 
-  const randomSocketAddress = await networkStateService.getRandomSocketAddress(
-    localSocketAddress,
-  );
-
   if (!randomSocketAddress) return false;
 
-  const [remoteIp, remotePort = '16127'] = randomSocketAddress;
+  const [remoteIp, remotePort = '16127'] = randomSocketAddress.split(':');
 
   const axiosConfig = {
     timeout: 7000,
