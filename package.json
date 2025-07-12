@@ -101,7 +101,6 @@
     "http-shutdown": "~1.2.2",
     "inquirer": "~8.2.6",
     "js-yaml": "~4.1.0",
-    "lru-cache": "~10.1.0",
     "mongodb": "~4.17.2",
     "morgan": "~1.10.0",
     "nano-ethereum-signer": "~0.1.2",

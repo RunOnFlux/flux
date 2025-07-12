@@ -840,6 +840,10 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     setDosMessage('IP changes over the limit allowed, one in 20 hours');
     return false;
   }
+
+  // fail open here
+  if (myFluxIP === null) return true;
+
   let userBlockedPorts = userconfig.initial.blockedPorts || [];
   userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
   if (Array.isArray(userBlockedPorts)) {
@@ -863,15 +867,9 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
 
-  if (typeof myFluxIP !== 'string') return false;
-
   const randomSocketAddress = await networkStateService.getRandomSocketAddress(
     myFluxIP,
   );
-
-  const localSocketAddress = myFluxIP.includes(':')
-    ? myFluxIP
-    : `${myFluxIP}:16127`;
 
   if (!randomSocketAddress) return false;
 
@@ -881,7 +879,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     timeout: 7000,
   };
 
-  const [localIp, localApiPort] = localSocketAddress.split(':');
+  const [localIp, localApiPort = '16127'] = myFluxIP.split(':');
 
   const url = `http://${remoteIp}:${remotePort}/flux/checkfluxavailability?ip=${localIp}&port=${localApiPort}`;
 
@@ -951,7 +949,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   const measuredUptime = fluxUptime();
   if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
-    const found = await fluxCommunicationUtils.getFluxnodeFromFluxList(localSocketAddress);
+    const found = await fluxCommunicationUtils.getFluxnodeFromFluxList(myFluxIP);
     const nodeCount = await fluxCommunicationUtils.getNodeCount();
 
     if (nodeCount > config.fluxapps.minIncoming + config.fluxapps.minOutgoing && found) { // our node MUST be in confirmed list in order to have some peers
