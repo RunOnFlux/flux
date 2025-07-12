@@ -31,7 +31,7 @@ async function start(waitTimeoutMs = 0) {
         options,
       );
 
-      const nodes = res.status === 'success' ? res.data : null;
+      const nodes = res.status === 'success' ? res.data : [];
 
       return nodes;
     };

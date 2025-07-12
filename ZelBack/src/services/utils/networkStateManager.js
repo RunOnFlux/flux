@@ -263,10 +263,14 @@ class NetworkStateManager extends EventEmitter {
   async fetchNetworkState(blockHeight = null) {
     // always use monotonic clock for any elapsed times
     const start = process.hrtime.bigint();
+    const populated = Boolean(this.#state.length);
 
     let state = [];
 
-    while (!state.length) {
+    // on start, we loop until we have started. Then we only try fetch
+    // once - if it fails, we give up (and let it retry on the next block)
+
+    do {
       if (this.#controller.aborted) break;
 
       const fetchStart = process.hrtime.bigint();
@@ -276,8 +280,14 @@ class NetworkStateManager extends EventEmitter {
         return [];
       });
 
-      const elapsed = Number(process.hrtime.bigint() - fetchStart) / 1_000_000;
-      const rounded = Math.round((elapsed + Number.EPSILON) * 100) / 100;
+      const fetchElapsed = Number(
+        process.hrtime.bigint() - fetchStart,
+      ) / 1_000_000;
+
+      const rounded = Math.round(
+        (fetchElapsed + Number.EPSILON) * 100,
+      ) / 100;
+
       const elapsedMsg = `Network state fetch finished, elapsed: ${rounded} ms`;
       // We run first time without a blockheight, only on events do we get the height
       const blockMsg = blockHeight ? `. Block height: ${blockHeight}` : '';
@@ -285,9 +295,7 @@ class NetworkStateManager extends EventEmitter {
 
       // eslint-disable-next-line no-await-in-loop
       if (!state.length) await this.#controller.sleep(15_000);
-    }
-
-    const populated = Boolean(this.#state.length);
+    } while (!populated && !state.length);
 
     if (state.length) {
       this.#state = state;
@@ -296,8 +304,14 @@ class NetworkStateManager extends EventEmitter {
 
       await this.#buildIndexes(this.#state);
 
-      const elapsed = Number(process.hrtime.bigint() - this.#indexStart) / 1_000_000;
-      const rounded = Math.round((elapsed + Number.EPSILON) * 100) / 100;
+      const indexElapsed = Number(
+        process.hrtime.bigint() - this.#indexStart,
+      ) / 1_000_000;
+
+      const rounded = Math.round(
+        (indexElapsed + Number.EPSILON) * 100,
+      ) / 100;
+
       const pubkeySize = this.#pubkeyIndex.size;
       const socketAddressSize = this.#socketAddressIndex.size;
 
