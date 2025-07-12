@@ -101,7 +101,7 @@ class InterfaceLogger {
       transmitKbps: this.transmit.throughputKbps,
       receiveMb: this.receive.totalMb,
       transmitMb: this.transmit.totalMb,
-      elapsedTotal: this.elapsedTotalSec,
+      elapsedTotalSec: this.elapsedTotalSec,
     };
 
     return payload;

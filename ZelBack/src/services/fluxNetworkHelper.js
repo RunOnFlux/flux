@@ -875,16 +875,18 @@ async function checkMyFluxAvailability(retryNumber = 0) {
 
   if (!randomSocketAddress) return false;
 
+  const [remoteIp, remotePort = '16127'] = randomSocketAddress;
+
   const axiosConfig = {
     timeout: 7000,
   };
 
   const [localIp, localApiPort] = localSocketAddress.split(':');
 
-  const url = `http://${randomSocketAddress}/flux/checkfluxavailability?ip=${localIp}&port=${localApiPort}`;
+  const url = `http://${remoteIp}:${remotePort}/flux/checkfluxavailability?ip=${localIp}&port=${localApiPort}`;
 
   const resMyAvailability = await serviceHelper.axiosGet(url, axiosConfig).catch((error) => {
-    log.error(`${randomSocketAddress} is not reachable`);
+    log.error(`${remoteIp}:${remotePort} is not reachable`);
     log.error(error);
 
     return null;
@@ -904,7 +906,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
   if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
-    log.error(`My Flux unavailability detected from: ${randomSocketAddress}`);
+    log.error(`My Flux unavailability detected from: ${remoteIp}:${remotePort}`);
     // Asked Flux cannot reach me lets check if ip changed
     if (retryNumber === 4 || dosState > 10) {
       log.info('Getting publicIp from FluxBench');
