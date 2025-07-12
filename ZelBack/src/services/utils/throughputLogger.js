@@ -37,6 +37,11 @@ class InterfaceInfo {
     return process.hrtime.bigint();
   }
 
+  get totalMb() {
+    const usedMb = (this.bytes - this.startBytes) / 1024 / 1024;
+    return Math.round(usedMb + Number.EPSILON * 100) / 100;
+  }
+
   calculateThroughput() {
     const bytesUsed = this.bytes - this.lastBytes;
     const elapsed = InterfaceInfo.now() - this.lastTimestamp;
@@ -74,8 +79,10 @@ class InterfaceInfo {
 class InterfaceLogger {
   get asObject() {
     const payload = {
-      receive: this.receive.throughputKbps,
-      transmit: this.transmit.throughputKbps,
+      receiveKbps: this.receive.throughputKbps,
+      receiveMb: this.receive.totalMb,
+      transmitMbps: this.transmit.throughputKbps,
+      transmitMb: this.transmit.totalMb,
     };
 
     return payload;
