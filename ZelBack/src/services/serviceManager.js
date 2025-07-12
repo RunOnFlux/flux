@@ -21,6 +21,7 @@ const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
 const fluxNodeService = require('./fluxNodeService');
+const throughputLogger = require('./utils/throughputLogger');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
@@ -136,6 +137,13 @@ async function startFluxFunctions() {
     networkStateService.start();
     cacheManager.logCacheSizesEvery(600_000);
     fluxCommunication.logSocketsEvery(600_000);
+
+    const throughput = new throughputLogger.ThroughputLogger(
+      (result) => console.log(result),
+      { intervalMs: 60_000, matchInterfaces: ['ens18'] },
+    );
+
+    await throughput.start();
 
     setTimeout(async () => {
       const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
