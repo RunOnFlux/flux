@@ -116,6 +116,10 @@ class NetworkStateManager extends EventEmitter {
     return this.#controller.lock.ready;
   }
 
+  get nodeCount() {
+    return this.#state.length;
+  }
+
   /**
    * Index map. Has to be a getter and not a field, as the field doesn't update
    * the reference.

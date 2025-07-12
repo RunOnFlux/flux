@@ -85,6 +85,12 @@ async function waitStarted() {
   await stateManager.started;
 }
 
+function nodeCount() {
+  if (!stateManager) return 0;
+
+  return stateManager.nodeCount;
+}
+
 /**
  *
  * @param {string} pubkey
@@ -142,13 +148,14 @@ if (require.main === module) {
 }
 
 module.exports = {
-  waitStarted,
-  getFluxnodesByPubkey,
   getFluxnodeBySocketAddress,
+  getFluxnodesByPubkey,
   getRandomSocketAddress,
   networkState,
+  nodeCount,
   pubkeyInNetworkState,
   socketAddressInNetworkState,
   start,
   stop,
+  waitStarted,
 };

@@ -47,6 +47,14 @@ async function deterministicFluxList(options = {}) {
   return asArray;
 }
 
+async function getNodeCount() {
+  await networkStateService.waitStarted();
+
+  const count = networkStateService.nodeCount();
+
+  return count;
+}
+
 /**
  *
  * @param {string} socketAddress
@@ -224,6 +232,7 @@ async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTi
 }
 
 module.exports = {
+  getNodeCount,
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,
