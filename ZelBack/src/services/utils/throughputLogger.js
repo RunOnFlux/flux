@@ -17,6 +17,8 @@ const { createInterface } = require('node:readline');
  */
 
 class InterfaceInfo {
+  startTimestamp = 0;
+
   startBytes = 0;
 
   lastBytes = 0;
@@ -39,20 +41,24 @@ class InterfaceInfo {
 
   get totalMb() {
     const usedMb = (this.bytes - this.startBytes) / 1024 / 1024;
-    return Math.round(usedMb + Number.EPSILON * 100) / 100;
+    return Math.round((usedMb + Number.EPSILON) * 100) / 100;
+  }
+
+  get elapsedSinceLast() {
+    return InterfaceInfo.now() - this.lastTimestamp;
   }
 
   calculateThroughput() {
     const bytesUsed = this.bytes - this.lastBytes;
-    const elapsed = InterfaceInfo.now() - this.lastTimestamp;
+    const elapsed = this.elapsedSinceLast;
     const elapsedSec = Number(elapsed) / 1_000_000_000;
-    const bytesPerSec = bytesUsed / elapsedSec;
+    const bitsPerSec = (bytesUsed * 8) / elapsedSec;
 
-    const formatted = Math.round(
-      ((bytesPerSec / 1024) + Number.EPSILON) * 1_000,
+    const kbps = Math.round(
+      ((bitsPerSec / 1000) + Number.EPSILON) * 1_000,
     ) / 1_000;
 
-    return formatted;
+    return kbps;
   }
 
   /**
@@ -60,9 +66,12 @@ class InterfaceInfo {
     * @param {Array<string>} data
     */
   update(data) {
+    const now = InterfaceInfo.now();
+
     if (!this.startBytes) {
       this.startBytes = data[0];
       this.startPackets = data[1];
+      this.startTimestamp = now;
     }
 
     this.lastBytes = this.bytes;
@@ -72,17 +81,28 @@ class InterfaceInfo {
     this.packets = data[1];
 
     this.throughputKbps = this.lastTimestamp ? this.calculateThroughput() : 0;
-    this.lastTimestamp = InterfaceInfo.now();
+    this.lastTimestamp = now;
   }
 }
 
 class InterfaceLogger {
+  startTimestamp = 0;
+
+  get elapsedTotalSec() {
+    const elapsed = InterfaceInfo.now() - this.startTimestamp;
+    const asSec = Number(elapsed) / 1_000_000_000;
+    const rounded = Math.round((asSec + Number.EPSILON) * 100) / 100;
+
+    return rounded;
+  }
+
   get asObject() {
     const payload = {
       receiveKbps: this.receive.throughputKbps,
       receiveMb: this.receive.totalMb,
       transmitMbps: this.transmit.throughputKbps,
       transmitMb: this.transmit.totalMb,
+      elapsedTotal: this.elapsedTotalSec,
     };
 
     return payload;
@@ -93,6 +113,7 @@ class InterfaceLogger {
 
     this.receive = new InterfaceInfo();
     this.transmit = new InterfaceInfo();
+    this.startTimestamp = InterfaceInfo.now();
   }
 
   static pairwise(arr, func) {
@@ -196,3 +217,12 @@ class ThroughputLogger {
 }
 
 module.exports = { ThroughputLogger };
+
+async function main() {
+  const logger = new ThroughputLogger((result) => console.log(result), { intervalMs: 2_000, matchInterfaces: ['ens18'] });
+  await logger.start();
+}
+
+if (require.main === module) {
+  main();
+}
