@@ -91,16 +91,15 @@ class InterfaceLogger {
   get elapsedTotalSec() {
     const elapsed = InterfaceInfo.now() - this.startTimestamp;
     const asSec = Number(elapsed) / 1_000_000_000;
-    const rounded = Math.round((asSec + Number.EPSILON) * 100) / 100;
 
-    return rounded;
+    return Math.round(asSec);
   }
 
   get asObject() {
     const payload = {
       receiveKbps: this.receive.throughputKbps,
+      transmitKbps: this.transmit.throughputKbps,
       receiveMb: this.receive.totalMb,
-      transmitMbps: this.transmit.throughputKbps,
       transmitMb: this.transmit.totalMb,
       elapsedTotal: this.elapsedTotalSec,
     };
