@@ -58,10 +58,10 @@ class InterfaceInfo {
     if (!this.startBytes) {
       this.startBytes = data[0];
       this.startPackets = data[1];
-
-      this.lastBytes = this.bytes;
-      this.lastPackets = this.packets;
     }
+
+    this.lastBytes = this.bytes;
+    this.lastPackets = this.packets;
 
     this.bytes = data[0];
     this.packets = data[1];
