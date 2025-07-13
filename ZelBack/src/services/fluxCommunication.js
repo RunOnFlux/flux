@@ -14,13 +14,9 @@ const messageHelper = require('./messageHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
-const cacheManager = require('./utils/cacheManager');
+const { myCacheTemp, blockedPubKeysCache } = require('./utils/cacheManager');
 const networkStateService = require('./networkStateService');
 
-let response = messageHelper.createErrorMessage();
-
-const myCacheTemp = cacheManager.messageCache;
-const blockedPubKeysCache = cacheManager.blockedPubkeysCache;
 /* const LRUTest = {
   max: 25000000, // 25M
   ttl: 60 * 60 * 1000, // 1h
@@ -628,8 +624,7 @@ function connectedPeers(req, res) {
     connections.push(client.ip);
   });
   const message = messageHelper.createDataMessage(connections);
-  response = message;
-  return res ? res.json(response) : response;
+  return res ? res.json(message) : message;
 }
 
 /**
@@ -640,8 +635,7 @@ function connectedPeers(req, res) {
 function connectedPeersInfo(req, res) {
   const connections = outgoingPeers;
   const message = messageHelper.createDataMessage(connections);
-  response = message;
-  return res ? res.json(response) : response;
+  return res ? res.json(message) : message;
 }
 
 /**
@@ -672,9 +666,10 @@ async function removePeer(req, res) {
     const port = ip.split(':')[1] || '16127';
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
+    let response;
+
     if (authorized === true) {
-      const closeResponse = await fluxNetworkHelper.closeConnection(justIP, port);
-      response = closeResponse;
+      response = await fluxNetworkHelper.closeConnection(justIP, port);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
@@ -709,9 +704,9 @@ async function removeIncomingPeer(req, res) {
     const port = ip.split(':')[1] || '16127';
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
+    let response;
     if (authorized === true) {
-      const closeResponse = await fluxNetworkHelper.closeIncomingConnection(justIP, port);
-      response = closeResponse;
+      response = await fluxNetworkHelper.closeIncomingConnection(justIP, port);
     } else {
       response = messageHelper.errUnauthorizedMessage();
     }
