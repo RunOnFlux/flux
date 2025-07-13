@@ -14,8 +14,10 @@ const messageHelper = require('./messageHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
-const { myCacheTemp, blockedPubKeysCache } = require('./utils/cacheManager');
+const cacheManager = require('./utils/cacheManager');
 const networkStateService = require('./networkStateService');
+
+const { myCacheTemp, blockedPubKeysCache } = cacheManager;
 
 /* const LRUTest = {
   max: 25000000, // 25M
