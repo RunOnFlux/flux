@@ -1129,7 +1129,10 @@ async function fluxDiscovery() {
       const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       if (!clientExists && !clientIncomingExists && !wsPeerCache.has(`${ipInc}:${portInc}`)) {
         // eslint-disable-next-line no-await-in-loop
-        const result = await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => {
+        const result = await serviceHelper.axiosGet(
+          `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
+          { timeout: 5_000 },
+        ).catch((error) => {
           if (error.code !== 'ECONNREFUSED') log.error(error);
           wsPeerCache.set(`${ipInc}:${portInc}`, '');
 
@@ -1192,7 +1195,10 @@ async function fluxDiscovery() {
           log.info(`Asking random Flux ${connection} to add us as a peer`);
           currentIpsConnTried.push(connection);
           // eslint-disable-next-line no-await-in-loop
-          await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => log.error(error));
+          await serviceHelper.axiosGet(
+            `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
+            { timeout: 5_000 },
+          ).catch((error) => log.error(error));
         }
       }
       // eslint-disable-next-line no-await-in-loop
