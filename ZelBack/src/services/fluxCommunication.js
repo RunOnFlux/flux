@@ -17,7 +17,8 @@ const {
 const cacheManager = require('./utils/cacheManager');
 const networkStateService = require('./networkStateService');
 
-const { messageCache: myCacheTemp, blockedPubkeysCache: blockedPubKeysCache } = cacheManager;
+const { messageCache, wsPeerCache } = cacheManager;
+
 /* const LRUTest = {
   max: 25000000, // 25M
   ttl: 60 * 60 * 1000, // 1h
@@ -89,7 +90,7 @@ async function handleAppMessages(message, fromIP, port) {
  */
 async function handleCheckMessageHashPresent(messageHash, fromIP, port, outgoingConnection) {
   try {
-    if (!myCacheTemp.has(messageHash)) {
+    if (!messageCache.has(messageHash)) {
       const dataObj = {
         requestMessageHash: messageHash,
       };
@@ -120,8 +121,8 @@ async function handleCheckMessageHashPresent(messageHash, fromIP, port, outgoing
  */
 async function handleRequestMessageHash(messageHash, fromIP, port, outgoingConnection) {
   try {
-    if (myCacheTemp.has(messageHash)) {
-      const message = myCacheTemp.get(messageHash);
+    if (messageCache.has(messageHash)) {
+      const message = messageCache.get(messageHash);
       if (message) {
         const messageString = serviceHelper.ensureString(message);
         if (outgoingConnection) {
@@ -519,13 +520,13 @@ function handleIncomingConnection(websocket, optionalPort) {
       // check if we have the message in cache. If yes, return false. If not, store it and continue
       await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should jelp on processing duplicated messages received at same timestamp
       const messageHash = hash(msgObj.data);
-      if (myCacheTemp.has(messageHash)) {
+      if (messageCache.has(messageHash)) {
         return;
       }
-      myCacheTemp.set(messageHash, msgObj);
+      messageCache.set(messageHash, msgObj);
 
       // check blocked list
-      if (blockedPubKeysCache.has(pubKey)) {
+      if (wsPeerCache.has(pubKey)) {
         try {
           log.info('Closing incoming connection, peer is on blockedList');
           ws.close(4003, 'blocked list'); // close as of policy violation?
@@ -572,7 +573,7 @@ function handleIncomingConnection(websocket, optionalPort) {
             log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
             ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
           } else {
-            blockedPubKeysCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
+            wsPeerCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
             log.warn(`closing incoming connection, adding peers ${pubKey}:${peer.port} to the blockedList. Originated from ${peer.ip}.`);
             ws.close(4005, 'invalid message, blocked'); // close as of policy violation?
           }
@@ -877,14 +878,14 @@ async function initiateAndHandleConnection(connection) {
       // check if we have the message in cache. If yes, return false. If not, store it and continue
       await serviceHelper.delay(Math.floor(Math.random() * 75 + 1)); // await max 75 miliseconds random, should help processing duplicated messages received at same timestamp
       const messageHash = hash(msgObj.data);
-      if (myCacheTemp.has(messageHash)) {
+      if (messageCache.has(messageHash)) {
         return;
       }
-      myCacheTemp.set(messageHash, msgObj);
+      messageCache.set(messageHash, msgObj);
       // incoming messages from outgoing connections
       const currentTimeStamp = Date.now(); // ms
       // check blocked list
-      if (blockedPubKeysCache.has(pubKey)) {
+      if (wsPeerCache.has(pubKey)) {
         try {
           log.info('Closing outgoing connection, peer is on blockedList');
           websocket.close(4006, 'blocked list'); // close as of policy violation?
@@ -930,7 +931,7 @@ async function initiateAndHandleConnection(connection) {
             log.warn(`Invalid message received from outgoing peer ${connection} which is not an originating node of ${pubKey}.`);
             websocket.close(4007, 'invalid message, disconnect'); // close as of policy violation
           } else {
-            blockedPubKeysCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
+            wsPeerCache.set(pubKey, ''); // blocks ALL the nodes corresponding to the pubKey
             log.warn(`closing outgoing connection, adding peers ${pubKey} to the blockedList. Originated from ${connection}.`);
             websocket.close(4008, 'invalid message, blocked'); // close as of policy violation?
           }
@@ -1126,12 +1127,16 @@ async function fluxDiscovery() {
       // additional precaution
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
-      if (!clientExists && !clientIncomingExists) {
-        deterministicPeerConnections = true;
+      if (!clientExists && !clientIncomingExists && !wsPeerCache.has(`${ipInc}:${portInc}`)) {
         // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => {
+        const result = await serviceHelper.axiosGet(`http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`).catch((error) => {
           if (error.code !== 'ECONNREFUSED') log.error(error);
+          wsPeerCache.set(`${ipInc}:${portInc}`, '');
+
+          return null;
         });
+
+        if (result) deterministicPeerConnections = true;
       }
     }
     if (deterministicPeerConnections) {

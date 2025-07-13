@@ -148,9 +148,9 @@ class FluxCacheManager {
       max: 1_000,
       ttl: FluxCacheManager.oneMinute,
     },
-    blockedPubkeysCache: {
-      max: 200,
-      ttl: 6 * FluxCacheManager.oneMinute,
+    wsPeerCache: {
+      max: 100,
+      ttl: 15 * FluxCacheManager.oneMinute,
     },
     // daemonServiceUtils
     daemonGenericCache: {

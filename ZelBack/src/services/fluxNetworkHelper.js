@@ -881,14 +881,17 @@ async function checkMyFluxAvailability(retryNumber = 0) {
 
   const [localIp, localApiPort = '16127'] = myFluxIP.split(':');
 
-  const url = `http://${remoteIp}:${remotePort}/flux/checkfluxavailability?ip=${localIp}&port=${localApiPort}`;
+  const url = `http://${remoteIp}:${remotePort}/flux/`
+    + `checkfluxavailability?ip=${localIp}&port=${localApiPort}`;
 
-  const resMyAvailability = await serviceHelper.axiosGet(url, axiosConfig).catch((error) => {
-    log.error(`${remoteIp}:${remotePort} is not reachable`);
-    log.error(error);
+  const resMyAvailability = await serviceHelper.axiosGet(url, axiosConfig).catch(
+    (error) => {
+      log.error(`checkMyFluxAvailability - ${remoteIp}:${remotePort}`
+      + `is not reachable. ${error.message}`);
 
-    return null;
-  });
+      return null;
+    },
+  );
 
   if (!resMyAvailability) {
     dosState += 2;
