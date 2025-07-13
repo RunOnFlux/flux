@@ -17,8 +17,7 @@ const {
 const cacheManager = require('./utils/cacheManager');
 const networkStateService = require('./networkStateService');
 
-const { myCacheTemp, blockedPubKeysCache } = cacheManager;
-
+const { messageCache: myCacheTemp, blockedPubkeysCache: blockedPubKeysCache } = cacheManager;
 /* const LRUTest = {
   max: 25000000, // 25M
   ttl: 60 * 60 * 1000, // 1h
