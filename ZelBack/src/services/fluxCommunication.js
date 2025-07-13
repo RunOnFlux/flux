@@ -1128,13 +1128,18 @@ async function fluxDiscovery() {
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       if (!clientExists && !clientIncomingExists && !wsPeerCache.has(`${ipInc}:${portInc}`)) {
+        // we add to the cache immediately, instead of waiting for an error; The reason
+        // for this is that we don't have heartbeats set up, so quite often, the other
+        // end will think it's connected to us when it's not - and cut the connection.
+        // This just adds a 15 minute cooldown between retries, until we implement
+        // heartbeats (and rework the ws module)
+        wsPeerCache.set(`${ipInc}:${portInc}`, '');
         // eslint-disable-next-line no-await-in-loop
         const result = await serviceHelper.axiosGet(
           `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
           { timeout: 5_000 },
         ).catch((error) => {
           if (error.code !== 'ECONNREFUSED') log.error(error);
-          wsPeerCache.set(`${ipInc}:${portInc}`, '');
 
           return null;
         });
