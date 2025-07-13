@@ -246,9 +246,7 @@ async function initiate() {
 
   await loadUpnpIfRequired();
 
-  setInterval(async () => {
-    configReload();
-  }, 2 * 1000);
+  setImmediate(configReload);
 
   const appRoot = process.cwd();
   // ToDo: move this to async
