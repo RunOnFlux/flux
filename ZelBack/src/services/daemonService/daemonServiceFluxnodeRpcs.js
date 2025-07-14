@@ -223,7 +223,7 @@ async function startFluxNode(req, res) {
 async function viewDeterministicFluxNodeList(req, res) {
   let { filter, useCache } = req.params;
   filter = filter || req.query.filter;
-  useCache = useCache || req.query.useCache;
+  useCache = (useCache || req.query.useCache) ?? false;
 
   const rpccall = 'viewdeterministiczelnodelist'; // viewdeterministicfluxnodelist
   const rpcparameters = [];

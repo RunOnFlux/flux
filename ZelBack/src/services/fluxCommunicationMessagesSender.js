@@ -8,7 +8,7 @@ const messageHelper = require('./messageHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
-const cacheManager = require('./utils/cacheManager');
+const cacheManager = require('./utils/cacheManager').default;
 
 const myMessageCache = cacheManager.tempMessageCache;
 

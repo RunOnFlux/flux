@@ -44,7 +44,7 @@ const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const cacheManager = require('./utils/cacheManager');
+const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 
 const fluxDirPath = path.join(__dirname, '../../../');

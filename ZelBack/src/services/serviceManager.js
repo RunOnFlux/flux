@@ -2,7 +2,7 @@ const config = require('config');
 
 // we import this first so the caches are instantiated before any other modules
 // are imported
-const cacheManager = require('./utils/cacheManager');
+const cacheManager = require('./utils/cacheManager').default;
 const log = require('../lib/log');
 const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');

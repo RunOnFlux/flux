@@ -198,4 +198,4 @@ class FluxCacheManager {
 
 const fluxCaching = new FluxCacheManager();
 
-module.exports = fluxCaching;
+module.exports = { default: fluxCaching, FluxTTLCache };

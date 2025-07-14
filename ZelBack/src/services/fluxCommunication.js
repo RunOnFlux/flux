@@ -14,7 +14,7 @@ const messageHelper = require('./messageHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
-const cacheManager = require('./utils/cacheManager');
+const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
 
 const { messageCache, wsPeerCache } = cacheManager;

@@ -6,7 +6,7 @@ const messageHelper = require('../messageHelper');
 
 const config = require('config');
 const userconfig = require('../../../../config/userconfig');
-const cacheManager = require('../utils/cacheManager');
+const cacheManager = require('../utils/cacheManager').default;
 
 const { initial: { testnet: isTestnet } } = userconfig;
 
