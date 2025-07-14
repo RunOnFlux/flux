@@ -571,7 +571,17 @@ function handleIncomingConnection(websocket, optionalPort) {
         try {
           // check if message comes from IP belonging to the public Key
           const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
-          const nodeFound = nodes.find((n) => n.ip.split(':')[0] === peer.ip && (n.ip.split(':')[1] || '16127') === peer.port);
+
+          const nodeFound = nodes.find((node) => {
+            const normalized = serviceHelper.normalizeNodeIpApiPort(node.ip);
+
+            if (!normalized) return false;
+
+            const [targetIp, targetPort] = normalized;
+
+            return targetIp === peer.ip && targetPort === peer.port;
+          });
+
           if (!nodeFound) {
             log.warn(`Invalid message received from incoming peer ${peer.ip}:${peer.port} which is not an originating node of ${pubKey}.`);
             ws.close(4004, 'invalid message, disconnect'); // close as of policy violation
