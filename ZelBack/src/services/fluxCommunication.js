@@ -470,13 +470,16 @@ function handleIncomingConnection(websocket, optionalPort) {
         return; // do not react to the message
       }
       const msgObj = serviceHelper.ensureObject(msg.data);
-      const { pubKey } = msgObj;
-      const { timestamp } = msgObj;
-      const { signature } = msgObj;
-      const { version } = msgObj;
-      const { data } = msgObj;
-      const { messageHashPresent } = msgObj;
-      const { requestMessageHash } = msgObj;
+      const {
+        pubKey,
+        timestamp,
+        signature,
+        version,
+        data,
+        messageHashPresent,
+        requestMessageHash,
+      } = msgObj;
+
       if (messageHashPresent) {
         if (typeof messageHashPresent !== 'string' || messageHashPresent.length !== 40) {
           try {
@@ -489,7 +492,9 @@ function handleIncomingConnection(websocket, optionalPort) {
         }
         const counter = ws.msgMap.get('newHash');
         ws.msgMap.set('newHash', counter + 1);
-        handleCheckMessageHashPresent(messageHashPresent, peer.ip, peer.port, false);
+        setImmediate(
+          handleCheckMessageHashPresent(messageHashPresent, peer.ip, peer.port, false),
+        );
         return;
       }
       if (requestMessageHash) {
@@ -504,7 +509,9 @@ function handleIncomingConnection(websocket, optionalPort) {
         }
         const counter = ws.msgMap.get('requestHash');
         ws.msgMap.set('requestHash', counter + 1);
-        handleRequestMessageHash(requestMessageHash, peer.ip, peer.port, false);
+        setImmediate(
+          handleRequestMessageHash(requestMessageHash, peer.ip, peer.port, false),
+        );
         return;
       }
       if (!pubKey || !timestamp || !signature || !version || !data) {
@@ -542,19 +549,19 @@ function handleIncomingConnection(websocket, optionalPort) {
         if (timestampOK === true) {
           try {
             if (msgObj.data.type === 'zelappregister' || msgObj.data.type === 'zelappupdate' || msgObj.data.type === 'fluxappregister' || msgObj.data.type === 'fluxappupdate') {
-              handleAppMessages(msgObj, peer.ip, peer.port);
+              setImmediate(handleAppMessages(msgObj, peer.ip, peer.port));
             } else if (msgObj.data.type === 'fluxapprequest') {
-              fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, ws);
+              setImmediate(fluxCommunicationMessagesSender.respondWithAppMessage(msgObj, ws));
             } else if (msgObj.data.type === 'fluxapprunning') {
-              handleAppRunningMessage(msgObj, peer.ip, peer.port);
+              setImmediate(handleAppRunningMessage(msgObj, peer.ip, peer.port));
             } else if (msgObj.data.type === 'fluxipchanged') {
-              handleIPChangedMessage(msgObj, peer.ip, peer.port);
+              setImmediate(handleIPChangedMessage(msgObj, peer.ip, peer.port));
             } else if (msgObj.data.type === 'fluxappremoved') {
-              handleAppRemovedMessage(msgObj, peer.ip, peer.port);
+              setImmediate(handleAppRemovedMessage(msgObj, peer.ip, peer.port));
             } else if (msgObj.data.type === 'fluxappinstalling') {
-              handleAppInstallingMessage(msgObj, peer.ip, peer.port);
+              setImmediate(handleAppInstallingMessage(msgObj, peer.ip, peer.port));
             } else if (msgObj.data.type === 'fluxappinstallingerror') {
-              handleAppInstallingErrorMessage(msgObj, peer.ip, peer.port);
+              setImmediate(handleAppInstallingErrorMessage(msgObj, peer.ip, peer.port));
             } else {
               log.warn(`Unrecognised message type of ${msgObj.data.type}`);
             }
