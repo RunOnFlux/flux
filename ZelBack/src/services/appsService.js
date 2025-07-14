@@ -1210,8 +1210,8 @@ async function appMonitorStream(req, res) {
  */
 async function getAppFolderSize(appName) {
   try {
-    const dirpath = path.join(__dirname, '../../../');
-    const directoryPath = `${dirpath}ZelApps/${appName}`;
+    const appsDirPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+    const directoryPath = path.join(appsDirPath, appName);
     const exec = `sudo du -s --block-size=1 ${directoryPath}`;
     const cmdres = await cmdAsync(exec);
     const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
@@ -3777,7 +3777,19 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     }
     if (!isComponent) {
       // register the app
-      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+
+      const isEnterprise = Boolean(
+        appSpecifications.version >= 8 && appSpecifications.enterprise,
+      );
+
+      const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+      if (isEnterprise) {
+        dbSpecs.compose = [];
+        dbSpecs.contacts = [];
+      }
+
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -4234,7 +4246,19 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     if (!isComponent) {
       // register the app
-      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+
+      const isEnterprise = Boolean(
+        appSpecifications.version >= 8 && appSpecifications.enterprise,
+      );
+
+      const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+      if (isEnterprise) {
+        dbSpecs.compose = [];
+        dbSpecs.contacts = [];
+      }
+
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -9999,12 +10023,23 @@ async function getApplicationGlobalSpecifications(appName) {
       _id: 0,
     },
   };
-  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  appInfo = await checkAndDecryptAppSpecs(appInfo);
-  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
-    appInfo = specificationFormatter(appInfo);
+  const dbAppSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+
+  // This is abusing the spec formatter. It's not meant for this. This whole thing
+  // is kind of broken. The reason we have to use the spec formatter here is the
+  // frontend is passing properties as strings (then stringify the whole object)
+  // the frontend should parse the strings up front, and just pass an encrypted,
+  // stringified object.
+  //
+  // Will fix this in v9 specs. Move to model based specs with pre sorted keys.
+  let appSpec = await checkAndDecryptAppSpecs(dbAppSpec);
+  if (appSpec && appSpec.version >= 8 && appSpec.enterprise) {
+    const { height, hash } = appSpec;
+    appSpec = specificationFormatter(appSpec);
+    appSpec.height = height;
+    appSpec.hash = hash;
   }
-  return appInfo;
+  return appSpec;
 }
 
 /**
@@ -10067,9 +10102,19 @@ async function getApplicationSpecifications(appName) {
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
 
+  // This is abusing the spec formatter. It's not meant for this. This whole thing
+  // is kind of broken. The reason we have to use the spec formatter here is the
+  // frontend is passing properties as strings (then stringify the whole object)
+  // the frontend should parse the strings up front, and just pass an encrypted,
+  // stringified object.
+  //
+  // Will fix this in v9 specs. Move to model based specs with pre sorted keys.
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    const { height, hash } = appInfo;
     appInfo = specificationFormatter(appInfo);
+    appInfo.height = height;
+    appInfo.hash = hash;
   }
   return appInfo;
 }
@@ -10436,15 +10481,20 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Application not found');
     }
 
+    const isEnterprise = Boolean(
+      specifications.version >= 8 && specifications.enterprise,
+    );
+
     if (!decrypt) {
+      if (isEnterprise) {
+        specifications.compose = [];
+        specifications.contacts = [];
+      }
+
       const specResponse = messageHelper.createDataMessage(specifications);
       res.json(specResponse);
       return null;
     }
-
-    const isEnterprise = Boolean(
-      specifications.version >= 8 && specifications.enterprise,
-    );
 
     if (!isEnterprise) {
       throw new Error('App spec decryption is only possible for version 8+ Apps.');
@@ -12100,8 +12150,20 @@ async function reinstallOldApplications() {
               await registerAppLocally(appSpecifications, appComponent); // component
             }
             // register the app
+
+            const isEnterprise = Boolean(
+              appSpecifications.version >= 8 && appSpecifications.enterprise,
+            );
+
+            const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+            if (isEnterprise) {
+              dbSpecs.compose = [];
+              dbSpecs.contacts = [];
+            }
+
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+            await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
             log.warn(`Composed application ${appSpecifications.name} updated.`);
             log.warn(`Restarting application ${appSpecifications.name}`);
             // eslint-disable-next-line no-await-in-loop, no-use-before-define
@@ -12231,8 +12293,20 @@ async function reinstallOldApplications() {
                 }
               }
               // register the app
+
+              const isEnterprise = Boolean(
+                appSpecifications.version >= 8 && appSpecifications.enterprise,
+              );
+
+              const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+              if (isEnterprise) {
+                dbSpecs.compose = [];
+                dbSpecs.contacts = [];
+              }
+
               // eslint-disable-next-line no-await-in-loop
-              await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appSpecifications);
+              await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
               log.warn(`Composed application ${appSpecifications.name} updated.`);
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
