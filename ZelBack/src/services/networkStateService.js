@@ -24,7 +24,7 @@ async function start(waitTimeoutMs = 0) {
 
     const fetcher = async (filter = null) => {
       // this is not how the function is supposed to be used, but it shouldn't take
-      // an express req, res pair either. There should be an api function in front o fit
+      // an express req, res pair either. There should be an api function in front of it
       const options = { params: { useCache: false, filter }, query: { filter: null } };
 
       const res = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(
@@ -82,6 +82,8 @@ function networkState(options = {}) {
 }
 
 async function waitStarted() {
+  if (!stateManager) return;
+
   await stateManager.started;
 }
 

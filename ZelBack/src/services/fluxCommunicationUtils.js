@@ -220,12 +220,12 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300_000
  * @param {object} data Data.
  * @param {object[]} obtainedFluxNodeList List of FluxNodes.
  * @param {number} currentTimeStamp Current timestamp.
- * @returns {boolean} False unless message is successfully verified.
+ * @returns {Promise<boolean>} False unless message is successfully verified.
  */
-async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
+async function verifyOriginalFluxBroadcast(data, currentTimeStamp) {
   const timeStampOK = verifyTimestampInFluxBroadcast(data, currentTimeStamp);
   if (timeStampOK) {
-    const broadcastOK = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+    const broadcastOK = await verifyFluxBroadcast(data);
     return broadcastOK;
   }
   return false;

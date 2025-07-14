@@ -194,6 +194,14 @@ class FluxCacheManager {
       this.logCacheSizes();
     }
   }
+
+  resetCaches() {
+    Object.keys(FluxCacheManager.cacheConfigs).forEach(
+      (cacheName) => {
+        this[cacheName].clear();
+      },
+    );
+  }
 }
 
 const fluxCaching = new FluxCacheManager();

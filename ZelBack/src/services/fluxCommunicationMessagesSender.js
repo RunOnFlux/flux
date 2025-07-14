@@ -239,7 +239,7 @@ async function sendToRandomIncomingConnections(data) {
  * To get Flux message signature.
  * @param {object} message Message.
  * @param {string} privatekey Private key.
- * @returns {string} Signature.
+ * @returns {Promise<string>} Signature.
  */
 async function getFluxMessageSignature(message, privatekey) {
   const privKey = await fluxNetworkHelper.getFluxNodePrivateKey(privatekey);
