@@ -672,7 +672,10 @@ async function removePeer(req, res) {
       return;
     }
 
-    const normalized = serviceHelper.normalizeNodeIpApiPort(ip);
+    const normalized = serviceHelper.normalizeNodeIpApiPort(
+      ip,
+      { portAsNumber: true },
+    );
 
     if (!normalized) {
       const unparsableError = messageHelper.createErrorMessage(
@@ -716,7 +719,10 @@ async function removeIncomingPeer(req, res) {
       return;
     }
 
-    const normalized = serviceHelper.normalizeNodeIpApiPort(ip);
+    const normalized = serviceHelper.normalizeNodeIpApiPort(
+      ip,
+      { portAsNumber: true },
+    );
 
     if (!normalized) {
       const unparsableError = messageHelper.createErrorMessage(
@@ -996,7 +1002,10 @@ async function addPeer(req, res) {
       return;
     }
 
-    const normalized = serviceHelper.normalizeNodeIpApiPort(ip);
+    const normalized = serviceHelper.normalizeNodeIpApiPort(
+      ip,
+      { portAsNumber: true },
+    );
 
     if (!normalized) {
       const unparsableError = messageHelper.createErrorMessage(

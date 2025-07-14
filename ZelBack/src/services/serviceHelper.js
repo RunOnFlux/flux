@@ -390,9 +390,12 @@ async function runCommand(userCmd, options = {}) {
 /**
  *
  * @param {string} raw A possible Fluxnode socket address. I.e. 1.2.3.4:16147
- * @returns {Array<string, number> | null} The ip as a string, and the port as a number
+ * @param {{portAsNumber? boolean}} options
+ * @returns {Array<string, number | string> | null} The ip as a string, and the port as a number
  */
-function normalizeNodeIpApiPort(raw) {
+function normalizeNodeIpApiPort(raw, options = {}) {
+  const portAsNumber = options.portAsNumber || false;
+
   if (typeof raw !== 'string') return null;
 
   const ipPattern = /^(?!0)(?!.*\.$)(?:(?:1?\d?\d|25[0-5]|2[0-4]\d)(?:\.|$)){4}$/;
@@ -401,7 +404,9 @@ function normalizeNodeIpApiPort(raw) {
 
   if (!ipPattern.test(ip) || !portPattern.test(port)) return null;
 
-  return [ip, Number(port)];
+  const castPort = portAsNumber ? Number(port) : port;
+
+  return [ip, castPort];
 }
 
 /**
