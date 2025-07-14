@@ -47,7 +47,12 @@ class NetworkStateManager extends EventEmitter {
   /**
    * @type {Promise<void>}
    */
-  started;
+  started = new Promise((resolve) => {
+    this.#startComplete = () => {
+      resolve();
+      this.#startComplete = Promise.resolve();
+    };
+  });
 
   /**
    * @type { "polling" | "subscription" }
@@ -348,13 +353,6 @@ class NetworkStateManager extends EventEmitter {
   }
 
   async start() {
-    this.started = new Promise((resolve) => {
-      this.#startComplete = () => {
-        resolve();
-        this.#startComplete = Promise.resolve();
-      };
-    });
-
     await this.fetchNetworkState();
     await this.started;
 

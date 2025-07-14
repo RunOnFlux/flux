@@ -657,28 +657,34 @@ function keepConnectionsAlive() {
  * To remove an outgoing peer by specifying the IP address. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<void>}
  */
 async function removePeer(req, res) {
   try {
     let { ip } = req.params;
     ip = ip || req.query.ip;
-    if (ip === undefined || ip === null) {
-      const errMessage = messageHelper.createErrorMessage('No IP address specified.');
-      return res.json(errMessage);
-    }
-    const justIP = ip.split(':')[0];
-    const port = ip.split(':')[1] || '16127';
+
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-    let response;
-
-    if (authorized === true) {
-      response = await fluxNetworkHelper.closeConnection(justIP, port);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
+    if (authorized !== true) {
+      const message = messageHelper.errUnauthorizedMessage();
+      res.json(message);
+      return;
     }
-    return res.json(response);
+
+    const normalized = serviceHelper.normalizeNodeIpApiPort(ip);
+
+    if (!normalized) {
+      const unparsableError = messageHelper.createErrorMessage(
+        'Unparsable `ip` parameter',
+      );
+      res.json(unparsableError);
+      return;
+    }
+
+    const response = await fluxNetworkHelper.closeConnection(...normalized);
+
+    res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -686,7 +692,7 @@ async function removePeer(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    res.json(errorResponse);
   }
 }
 
@@ -695,27 +701,33 @@ async function removePeer(req, res) {
  * @param {object} req Request.
  * @param {object} res Response.
  * @param {object} expressWS Express web socket.
- * @returns {object} Message.
+ * @returns {Promise<void>}
  */
 async function removeIncomingPeer(req, res) {
   try {
     let { ip } = req.params;
     ip = ip || req.query.ip;
-    if (ip === undefined || ip === null) {
-      const errMessage = messageHelper.createErrorMessage('No IP address specified.');
-      return res.json(errMessage);
-    }
-    const justIP = ip.split(':')[0];
-    const port = ip.split(':')[1] || '16127';
+
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
-    let response;
-    if (authorized === true) {
-      response = await fluxNetworkHelper.closeIncomingConnection(justIP, port);
-    } else {
-      response = messageHelper.errUnauthorizedMessage();
+    if (authorized !== true) {
+      const message = messageHelper.errUnauthorizedMessage();
+      res.json(message);
+      return;
     }
-    return res.json(response);
+
+    const normalized = serviceHelper.normalizeNodeIpApiPort(ip);
+
+    if (!normalized) {
+      const unparsableError = messageHelper.createErrorMessage(
+        'Unparsable `ip` parameter',
+      );
+      res.json(unparsableError);
+      return;
+    }
+
+    const response = await fluxNetworkHelper.closeIncomingConnection(...normalized);
+    res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -723,7 +735,7 @@ async function removeIncomingPeer(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    res.json(errorResponse);
   }
 }
 
@@ -966,32 +978,50 @@ async function initiateAndHandleConnection(connection) {
  * To add a peer by specifying the IP address. Only accessible by admins and Flux team members.
  * @param {object} req Request.
  * @param {object} res Response.
- * @returns {object} Message.
+ * @returns {Promise<void>}
  */
 async function addPeer(req, res) {
   try {
     let { ip } = req.params;
     ip = ip || req.query.ip;
-    if (ip === undefined || ip === null) {
-      const errMessage = messageHelper.createErrorMessage('No IP address specified.');
-      return res.json(errMessage);
-    }
-    const justIP = ip.split(':')[0];
-    const port = ip.split(':')[1] || '16127';
-    const wsObj = outgoingConnections.find((client) => client.ip === justIP && client.port === port);
-    if (wsObj) {
-      const errMessage = messageHelper.createErrorMessage(`Already connected to ${justIP}:${port}`);
-      return res.json(errMessage);
-    }
-    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+
+    const authorized = await verificationHelper.verifyPrivilege(
+      'adminandfluxteam',
+      req,
+    );
 
     if (authorized !== true) {
       const message = messageHelper.errUnauthorizedMessage();
-      return res.json(message);
+      res.json(message);
+      return;
     }
-    initiateAndHandleConnection(ip);
-    const message = messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} initiated`);
-    return res.json(message);
+
+    const normalized = serviceHelper.normalizeNodeIpApiPort(ip);
+
+    if (!normalized) {
+      const unparsableError = messageHelper.createErrorMessage(
+        'Unparsable `ip` parameter',
+      );
+      res.json(unparsableError);
+      return;
+    }
+
+    const [peerIp, peerPort] = normalized;
+
+    const wsObj = outgoingConnections.find((client) => client.ip === peerIp && client.port === peerPort);
+    if (wsObj) {
+      const errMessage = messageHelper.createErrorMessage(`Already connected to ${peerIp}:${peerPort}`);
+      res.json(errMessage);
+      return;
+    }
+
+    setImmediate(() => initiateAndHandleConnection(ip));
+
+    const message = messageHelper.createSuccessMessage(
+      `Outgoing connection to ${peerIp}:${peerPort} initiated`,
+    );
+
+    res.json(message);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -999,7 +1029,7 @@ async function addPeer(req, res) {
       error.name,
       error.code,
     );
-    return res ? res.json(errorResponse) : errorResponse;
+    res.json(errorResponse);
   }
 }
 
@@ -1066,24 +1096,26 @@ async function fluxDiscovery() {
       throw new Error('Daemon not yet synced. Flux discovery is awaiting.');
     }
 
-    let sortedNodeList = [];
     const currentIpsConnTried = [];
 
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (myIP) {
-      sortedNodeList = await fluxCommunicationUtils.deterministicFluxList({
-        sort: true,
-        addressOnly: true,
-      });
 
-      numberOfFluxNodes = sortedNodeList.length;
-      const fluxNode = await fluxCommunicationUtils.getFluxnodeFromFluxList(myIP);
-      if (!fluxNode) {
-        throw new Error('Node not confirmed. Flux discovery is awaiting.');
-      }
-    } else {
+    if (!myIP) {
       throw new Error('Flux IP not detected. Flux discovery is awaiting.');
     }
+
+    const fluxNode = await fluxCommunicationUtils.getFluxnodeFromFluxList(myIP);
+
+    if (!fluxNode) {
+      throw new Error('Node not confirmed. Flux discovery is awaiting.');
+    }
+
+    const sortedNodeList = await fluxCommunicationUtils.deterministicFluxList({
+      sort: true,
+      addressOnly: true,
+    });
+
+    numberOfFluxNodes = sortedNodeList.length;
 
     log.info('Searching for my node on sortedNodeList');
     const fluxNodeIndex = sortedNodeList.findIndex((ip) => ip === myIP);
