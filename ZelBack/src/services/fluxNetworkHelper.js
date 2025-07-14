@@ -832,7 +832,7 @@ async function adjustExternalIP(ip) {
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
- * @returns {boolean} True if all checks passed.
+ * @returns {Promise<boolean>} Return value is only for testing
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
   if (dosTooManyIpChanges) {
@@ -841,8 +841,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
 
-  // fail open here
-  if (myFluxIP === null) return true;
+  if (myFluxIP === null) return false;
 
   let userBlockedPorts = userconfig.initial.blockedPorts || [];
   userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);

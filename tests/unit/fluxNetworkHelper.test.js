@@ -18,7 +18,8 @@ const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunica
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-
+const networkStateService = require('../../ZelBack/src/services/networkStateService');
+const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
@@ -404,132 +405,6 @@ describe('fluxNetworkHelper tests', () => {
     });
   });
 
-  describe('getRandomConnection tests', () => {
-    let deterministicFluxListStub;
-    const ipList = ['47.199.51.61:16137', '47.199.51.61:16147', '44.192.51.11:16128'];
-    let deterministicFluxnodeListResponse;
-
-    beforeEach(() => {
-      deterministicFluxnodeListResponse = [
-        {
-          collateral: 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)',
-          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
-          outidx: '0',
-          ip: '47.199.51.61:16137',
-          network: '',
-          added_height: 1076533,
-          confirmed_height: 1076535,
-          last_confirmed_height: 1079888,
-          last_paid_height: 1077653,
-          tier: 'CUMULUS',
-          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
-          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
-          activesince: '1647197272',
-          lastpaid: '1647333786',
-          amount: '1000.00',
-          rank: 0,
-        },
-        {
-          collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
-          txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
-          outidx: '0',
-          ip: '47.199.51.61:16147',
-          network: '',
-          added_height: 1079638,
-          confirmed_height: 1079642,
-          last_confirmed_height: 1079889,
-          last_paid_height: 0,
-          tier: 'CUMULUS',
-          payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
-          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-          activesince: '1647572455',
-          lastpaid: '1516980000',
-          amount: '1000.00',
-          rank: 1,
-        },
-        {
-          collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
-          txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
-          outidx: '0',
-          ip: '44.192.51.11:16128',
-          network: '',
-          added_height: 123456,
-          confirmed_height: 1234567,
-          last_confirmed_height: 123456,
-          last_paid_height: 0,
-          tier: 'CUMULUS',
-          payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
-          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
-          activesince: '1647572455',
-          lastpaid: '1516980000',
-          amount: '2000.00',
-          rank: 1,
-        },
-      ];
-      deterministicFluxListStub = sinon.stub(fluxCommunicationUtils, 'deterministicFluxList');
-      fluxNetworkHelper.setMyFluxIp('83.52.214.240:16167');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should return a random ip out of list of nodes', async () => {
-      deterministicFluxnodeListResponse = deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
-
-      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
-
-      expect(getRandomConnectionResponse).to.be.oneOf(ipList);
-    });
-
-    it('should return null if ip is the same as userconfig.initial.ipaddress', async () => {
-      const nodesListWrongIp = deterministicFluxnodeListResponse.map((node) => node);
-      nodesListWrongIp.forEach((node) => {
-        // eslint-disable-next-line no-param-reassign
-        node.ip = '83.52.214.240';
-      });
-      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
-
-      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
-
-      expect(getRandomConnectionResponse).to.be.null;
-    });
-
-    it('should return null if ip is null', async () => {
-      const nodesListWrongIp = deterministicFluxnodeListResponse.map((node) => node);
-      nodesListWrongIp.forEach((node) => {
-        // eslint-disable-next-line no-param-reassign
-        node.ip = null;
-      });
-      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
-
-      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
-
-      expect(getRandomConnectionResponse).to.be.null;
-    });
-
-    it('should return null if ip is the same as userconfig.initial.ipaddress', async () => {
-      const nodesListWrongIp = deterministicFluxnodeListResponse.map((node) => node);
-      nodesListWrongIp.forEach((node) => {
-        // eslint-disable-next-line no-param-reassign
-        node.ip = '83.52.214.240:16127';
-      });
-      deterministicFluxListStub.returns(deterministicFluxnodeListResponse);
-
-      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
-
-      expect(getRandomConnectionResponse).to.be.null;
-    });
-
-    it('should return null if the node list is empty', async () => {
-      deterministicFluxListStub.returns([]);
-
-      const getRandomConnectionResponse = await fluxNetworkHelper.getRandomConnection();
-
-      expect(getRandomConnectionResponse).to.be.null;
-    });
-  });
-
   describe('closeConnection tests', () => {
     before(() => {
       outgoingConnections.length = 0;
@@ -697,64 +572,6 @@ describe('fluxNetworkHelper tests', () => {
       expect(closeConnectionResult).to.eql(errorMessage);
       expect(incomingConnections).to.have.length(1);
       expect(incomingPeers).to.have.length(1);
-    });
-  });
-
-  describe('checkRateLimit tests', () => {
-    it('should return true if rate limit is not exceeded', async () => {
-      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit('129.0.0.9');
-
-      expect(checkRateLimitRes).to.equal(true);
-    });
-
-    it('should return false if rate limit is exceeded', async () => {
-      const ip = '129.0.0.10';
-      for (let i = 0; i < 16; i += 1) {
-        fluxNetworkHelper.checkRateLimit(ip);
-      }
-
-      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
-
-      expect(checkRateLimitRes).to.equal(false);
-    });
-
-    it('should return false if a custom rate limit is exceeded', async () => {
-      const ip = '129.0.0.11';
-      for (let i = 0; i < 5; i += 1) {
-        fluxNetworkHelper.checkRateLimit(ip, 10, 5);
-      }
-
-      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip, 10, 5);
-
-      expect(checkRateLimitRes).to.equal(false);
-    });
-
-    it('should return false if a custom replenish rate is not enough', async () => {
-      const ip = '129.0.0.13';
-
-      for (let i = 0; i < 5; i += 1) {
-        fluxNetworkHelper.checkRateLimit(ip, 5, 5);
-      }
-      await serviceHelper.delay(1000);
-      for (let i = 0; i < 5; i += 1) {
-        fluxNetworkHelper.checkRateLimit(ip, 5, 5);
-      }
-
-      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip, 5, 5);
-
-      expect(checkRateLimitRes).to.equal(false);
-    });
-
-    it('should return true when the rate limit bucket has been replenished', async () => {
-      const ip = '129.0.0.14';
-      for (let i = 0; i < 16; i += 1) {
-        fluxNetworkHelper.checkRateLimit(ip);
-      }
-
-      await serviceHelper.delay(1000);
-      const checkRateLimitRes = fluxNetworkHelper.checkRateLimit(ip);
-
-      expect(checkRateLimitRes).to.equal(true);
     });
   });
 
@@ -956,6 +773,13 @@ describe('fluxNetworkHelper tests', () => {
   });
 
   describe('checkMyFluxAvailability tests', () => {
+    let getRandomSocketAddress;
+
+    before(async () => {
+      // need this if running tests standalone
+      await dbHelper.initiateDB();
+    });
+
     beforeEach(() => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('5.0.0');
       fluxNetworkHelper.setMyFluxIp('129.3.3.3');
@@ -982,6 +806,7 @@ describe('fluxNetworkHelper tests', () => {
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(deterministicFluxnodeListResponse);
       sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction').returns(true);
       sinon.stub(serviceHelper, 'delay').returns(true);
+      getRandomSocketAddress = sinon.stub(networkStateService, 'getRandomSocketAddress');
     });
 
     afterEach(() => {
@@ -990,14 +815,6 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return false if the flux bench version is lower than allowed', async () => {
       fluxNetworkHelper.setStoredFluxBenchAllowed('2.0.0');
-
-      const result = await fluxNetworkHelper.checkMyFluxAvailability();
-
-      expect(result).to.be.false;
-    });
-
-    it('should return false if get random connection returns user\'s own ip', async () => {
-      fluxNetworkHelper.setMyFluxIp('129.1.1.1');
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
@@ -1015,6 +832,8 @@ describe('fluxNetworkHelper tests', () => {
     it('should return false if axsiosGet throws error', async () => {
       sinon.stub(serviceHelper, 'axiosGet').rejects();
 
+      getRandomSocketAddress.resolves('1.2.3.4:16127');
+
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(result).to.be.false;
@@ -1023,6 +842,8 @@ describe('fluxNetworkHelper tests', () => {
     it('should return false if axsiosGet resolves null', async () => {
       sinon.stub(serviceHelper, 'axiosGet').resolves(null);
 
+      getRandomSocketAddress.resolves('1.2.3.4:16127');
+
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
 
       expect(result).to.be.false;
@@ -1037,22 +858,8 @@ describe('fluxNetworkHelper tests', () => {
           },
         },
       };
-      sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
 
-      const result = await fluxNetworkHelper.checkMyFluxAvailability();
-
-      expect(result).to.be.true;
-    });
-
-    it('should return true if axios status response is success', async () => {
-      const axiosGetResponse = {
-        data: {
-          status: 'success',
-          data: {
-            message: 'all is good!',
-          },
-        },
-      };
+      getRandomSocketAddress.resolves('1.2.3.4:16127');
       sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
@@ -1094,6 +901,8 @@ describe('fluxNetworkHelper tests', () => {
           },
         },
       };
+
+      getRandomSocketAddress.resolves('1.2.3.4:16127');
       sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
 
       const result = await fluxNetworkHelper.checkMyFluxAvailability();
