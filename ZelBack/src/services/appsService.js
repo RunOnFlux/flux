@@ -5193,6 +5193,11 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   if (userBlockedRepos) {
     log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    organisations.forEach((org) => {
+      if (userBlockedRepos.includes(org.toLowerCase())) {
+        throw new Error(`Organisation ${org} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+      }
+    });
     images.forEach((image) => {
       if (userBlockedRepos.includes(image.toLowerCase())) {
         throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
@@ -5271,11 +5276,18 @@ async function checkApplicationImagesBlocked(appSpecs) {
 
   if (!isBlocked && userBlockedRepos) {
     log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
-    images.forEach((image) => {
-      if (userBlockedRepos.includes(image.toLowerCase())) {
-        isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`;
+    organisations.forEach((org) => {
+      if (userBlockedRepos.includes(org.toLowerCase())) {
+        isBlocked = `Organisation ${org} is user blocked. Application ${appSpecs.name} connot be spawned.`;
       }
     });
+    if (!isBlocked) {
+      images.forEach((image) => {
+        if (userBlockedRepos.includes(image.toLowerCase())) {
+          isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`;
+        }
+      });
+    }
   }
 
   return isBlocked;
