@@ -39,18 +39,27 @@ class NetworkStateManager extends EventEmitter {
 
   #indexStart = null;
 
+  #started = false;
+
+  #fetchQueued = false;
+
   /**
-   * @type {() => {}}
+   * @type {() => Promise | null}
    */
-  #startComplete = Promise.resolve();
+  #onStartComplete = null;
 
   /**
    * @type {Promise<void>}
    */
-  started = new Promise((resolve) => {
-    this.#startComplete = () => {
+  waitStarted = new Promise((resolve) => {
+    if (this.#onStartComplete) {
       resolve();
-      this.#startComplete = Promise.resolve();
+      return;
+    }
+
+    this.#onStartComplete = () => {
+      resolve();
+      this.#onStartComplete = () => Promise.resolve();
     };
   });
 
@@ -106,11 +115,20 @@ class NetworkStateManager extends EventEmitter {
   constructor(stateFetcher, options = {}) {
     super();
 
+    if (!stateFetcher || typeof stateFetcher !== 'function') {
+      throw new Error('State fetcher function is mandatory');
+    }
+
+    this.#stateFetcher = stateFetcher;
     this.intervalMs = options.intervalMs || 120_000;
     this.stateEvent = options.stateEvent || null;
-
     this.#stateEmitter = options.stateEmitter || null;
-    this.#stateFetcher = stateFetcher;
+
+    if (this.#stateEmitter && !this.stateEvent) {
+      throw new Error('The State Event is mandatory is state emitter is used');
+    }
+
+    this.#controller.addLock('fetcher');
   }
 
   get updateTrigger() {
@@ -118,11 +136,35 @@ class NetworkStateManager extends EventEmitter {
   }
 
   get indexesReady() {
-    return this.#controller.lock.ready;
+    return !this.#controller.lock.locked;
+  }
+
+  get waitIndexesReady() {
+    return this.#controller.lock.waitReady();
   }
 
   get nodeCount() {
     return this.#state.length;
+  }
+
+  get started() {
+    return this.#started;
+  }
+
+  get fetchRunning() {
+    const fetchLock = this.#controller.getLock('fetcher');
+
+    return fetchLock.locked;
+  }
+
+  get fetchQueued() {
+    return this.#fetchQueued;
+  }
+
+  get waitFetchComplete() {
+    const fetchLock = this.#controller.getLock('fetcher');
+
+    return fetchLock.waitReady({ waitAll: true });
   }
 
   /**
@@ -139,14 +181,6 @@ class NetworkStateManager extends EventEmitter {
   }
 
   async #buildIndexes(nodes) {
-    // nodes.forEach((node) => {
-    //   if (!this.#pubkeyIndex.has(node.pubkey)) {
-    //     this.#pubkeyIndex.set(node.pubkey, new Map());
-    //   }
-    //   this.#pubkeyIndex.get(node.pubkey).set(node.ip, node);
-    //   this.#socketAddressIndex.set(node.ip, node);
-    // });
-
     // if we are building an index already, just wait for it to finish.
     // maybe look at cancelling it in future.
     await this.#controller.lock.enable();
@@ -200,7 +234,7 @@ class NetworkStateManager extends EventEmitter {
    * @returns {Promise<string | null>} A random socketAddress from the map
    */
   async getRandomSocketAddress(localSocketAddress) {
-    await this.indexesReady;
+    await this.waitIndexesReady;
 
     const indexSize = this.#socketAddressIndex.size;
 
@@ -263,7 +297,7 @@ class NetworkStateManager extends EventEmitter {
   /**
    *
    * @param {number?} blockHeight Just for logging (from event emitter)
-   * @returns
+   * @returns {Promise<void>}
    */
   async fetchNetworkState(blockHeight = null) {
     // always use monotonic clock for any elapsed times
@@ -279,11 +313,16 @@ class NetworkStateManager extends EventEmitter {
       if (this.#controller.aborted) break;
 
       const fetchStart = process.hrtime.bigint();
+      const fetchLock = this.#controller.getLock('fetcher');
+
+      // eslint-disable-next-line no-await-in-loop
+      await fetchLock.enable();
       // eslint-disable-next-line no-await-in-loop
       state = await this.#stateFetcher().catch((err) => {
         log.warning(`Network state fetcher error: ${err.message}`);
         return [];
       });
+      fetchLock.disable();
 
       const fetchElapsed = Number(
         process.hrtime.bigint() - fetchStart,
@@ -329,7 +368,8 @@ class NetworkStateManager extends EventEmitter {
 
       if (!populated) {
         this.emit('populated');
-        this.#startComplete();
+        if (this.#onStartComplete) this.#onStartComplete();
+        this.#started = true;
       }
 
       this.emit('updated');
@@ -347,14 +387,30 @@ class NetworkStateManager extends EventEmitter {
   }
 
   #startEventEmitter() {
-    this.#stateEmitter.on(this.stateEvent, (blockHeight) => {
-      this.fetchNetworkState(blockHeight);
+    this.#stateEmitter.on(this.stateEvent, async (blockHeight) => {
+      if (this.#fetchQueued) {
+        log.info(`Block ${blockHeight} received but a fetch `
+          + 'is already queued... skipping');
+
+        return;
+      }
+
+      if (this.fetchRunning) {
+        log.info('Block received but fetching in progress... '
+          + 'queueing next fetch');
+
+        this.#fetchQueued = true;
+        await this.waitFetchComplete;
+        this.#fetchQueued = false;
+      }
+
+      await this.fetchNetworkState(blockHeight);
     });
   }
 
   async start() {
     await this.fetchNetworkState();
-    await this.started;
+    await this.waitStarted;
 
     const updater = this.#stateEmitter && this.stateEvent
       ? this.#startEventEmitter
@@ -375,12 +431,17 @@ class NetworkStateManager extends EventEmitter {
    * @returns {Promise<Map<string, Fluxnode>> | Fluxnode | null>} Clone of the state
    */
   async search(filter, type) {
-    if (!filter) return null;
+    const invalidInput = !filter
+    || typeof filter !== 'string'
+    || typeof type !== 'string';
+
+    if (invalidInput) return null;
+
     if (!Object.keys(this.#indexes).includes(type)) return null;
 
     // if we are mid stroke indexing, may as well wait the ~10ms and get the
     // latest block
-    await this.indexesReady;
+    await this.waitIndexesReady;
 
     const cached = this.#indexes[type].get(filter);
     const clone = cached ? NetworkStateManager.deepClone(cached) : null;
@@ -401,7 +462,7 @@ class NetworkStateManager extends EventEmitter {
 
     // if we are mid stroke indexing, may as well wait the 10ms (max) and get the
     // latest block
-    await this.indexesReady;
+    await this.waitIndexesReady;
 
     const found = this.#indexes[type].has(filter);
 
@@ -421,7 +482,7 @@ async function main() {
     if (res.status === 'success') {
       return res.data;
     }
-    console.log('fetcher not success');
+    console.log('fetcher says no');
     return [];
   };
 

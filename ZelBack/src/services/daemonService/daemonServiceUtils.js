@@ -77,8 +77,7 @@ async function executeCall(rpc, params, options = {}) {
    */
 
   await lock.readyTimeout(500);
-  const lockedByOther = lock.locked;
-  if (!lockedByOther) await lock.enable();
+  await lock.enable();
 
   try {
     let data;
@@ -107,7 +106,7 @@ async function executeCall(rpc, params, options = {}) {
     const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
     return daemonError;
   } finally {
-    if (!lockedByOther) lock.disable();
+    lock.disable();
   }
 }
 
