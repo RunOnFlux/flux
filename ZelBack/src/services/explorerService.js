@@ -19,6 +19,7 @@ const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const addressTransactionIndexCollection = config.database.daemon.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
 let isInInitiationOfBP = false;
@@ -28,10 +29,11 @@ let initBPfromErrorTimeout;
 let appsTransactions = [];
 let isSynced = false;
 
-// updateFluxAppsPeriod can be between every 4 to 9 blocks
-const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+const blockEmitter = new EventEmitter();
 
-globalThis.blockEmitter = new EventEmitter();
+function getBlockEmitter() {
+  return blockEmitter;
+}
 
 /**
  * To return the sender's transaction info from the daemon service.
@@ -568,7 +570,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // this should run only when node is synced
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
-      globalThis.blockEmitter.emit('blockReceived', scannedHeight);
+      blockEmitter.emit('blockReceived', scannedHeight);
+      // updateFluxAppsPeriod can be between every 4 to 9 blocks
+      const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 
       if (blockHeight % 2 === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
@@ -1608,6 +1612,7 @@ module.exports = {
   getScannedHeight,
   getAllFusionCoinbase,
   getAddressFusionCoinbase,
+  getBlockEmitter,
 
   // exports for testing puproses
   getSenderTransactionFromDaemon,

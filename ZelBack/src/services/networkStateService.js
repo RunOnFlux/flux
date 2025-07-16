@@ -14,21 +14,29 @@ const networkStateManager = require('./utils/networkStateManager');
 let stateManager = null;
 
 /**
- * Uses polling to get the flux network state (Can use zmq here in the future)
- * @param {number?} waitTimeoutMs How long to wait for the promise to resolve
+ * Uses polling or an event emitter to get the flux network state
+ * (Can use zmq here in the future)
+ * @param {{
+ *   waitTimeoutMs?: number,
+ *   stateEmitter?: EventEmitter
+ * }} options waitTimeoutMs - How long to wait for the promise to resolve  \
+ * stateEmitter - the block eventEmitter
  * @returns {Promise<void>}
  */
-async function start(waitTimeoutMs = 0) {
+async function start(options = {}) {
   return new Promise((resolve, reject) => {
     if (stateManager) resolve();
+
+    const waitTimeoutMs = options.waitTimeoutMs || 0;
+    const stateEmitter = options.stateEmitter || null;
 
     const fetcher = async (filter = null) => {
       // this is not how the function is supposed to be used, but it shouldn't take
       // an express req, res pair either. There should be an api function in front of it
-      const options = { params: { useCache: false, filter }, query: { filter: null } };
+      const rpcOptions = { params: { useCache: false, filter }, query: { filter: null } };
 
       const res = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(
-        options,
+        rpcOptions,
       );
 
       const nodes = res.status === 'success' ? res.data : [];
@@ -37,7 +45,7 @@ async function start(waitTimeoutMs = 0) {
     };
 
     stateManager = new networkStateManager.NetworkStateManager(fetcher, {
-      stateEmitter: globalThis.blockEmitter,
+      stateEmitter,
       stateEvent: 'blockReceived',
     });
 
@@ -51,7 +59,7 @@ async function start(waitTimeoutMs = 0) {
       resolve();
     });
 
-    stateManager.start();
+    setImmediate(() => stateManager.start());
   });
 }
 
@@ -84,7 +92,7 @@ function networkState(options = {}) {
 async function waitStarted() {
   if (!stateManager) return;
 
-  await stateManager.started;
+  await stateManager.waitStarted;
 }
 
 function nodeCount() {
@@ -137,7 +145,7 @@ async function main() {
   start();
 
   console.log('Waiting for started');
-  await stateManager.started;
+  await stateManager.waitStarted;
   console.log('After started');
 
   setInterval(() => {

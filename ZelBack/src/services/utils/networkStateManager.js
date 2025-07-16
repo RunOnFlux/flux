@@ -76,7 +76,12 @@ class NetworkStateManager extends EventEmitter {
   /**
    * @type {EventEmitter | nulll}
    */
-  #stateEmitter;
+  #stateEmitter = null;
+
+  /**
+   * @type {()=>Promise<void> | null}
+   */
+  #boundEventHandler = null;
 
   /**
    * Until we get onto NodeJS > 17.0.0 - we need this. I.e. we have no
@@ -288,7 +293,7 @@ class NetworkStateManager extends EventEmitter {
   }
 
   reset() {
-    // recreate objects so they can't be mutated externally
+    this.#stateEmitter = null;
     this.#pubkeyIndex = new Map();
     this.#socketAddressIndex = new Map();
     this.#state = [];
@@ -387,7 +392,7 @@ class NetworkStateManager extends EventEmitter {
   }
 
   #startEventEmitter() {
-    this.#stateEmitter.on(this.stateEvent, async (blockHeight) => {
+    const handler = async (blockHeight) => {
       if (this.#fetchQueued) {
         log.info(`Block ${blockHeight} received but a fetch `
           + 'is already queued... skipping');
@@ -405,7 +410,11 @@ class NetworkStateManager extends EventEmitter {
       }
 
       await this.fetchNetworkState(blockHeight);
-    });
+    };
+
+    this.#boundEventHandler = handler;
+
+    this.#stateEmitter.on(this.stateEvent, handler);
   }
 
   async start() {
@@ -421,6 +430,16 @@ class NetworkStateManager extends EventEmitter {
 
   async stop() {
     await this.#controller.abort();
+
+    if (this.#stateEmitter) {
+      this.#stateEmitter.removeListener(
+        this.stateEvent,
+        this.#boundEventHandler,
+      );
+      this.#boundEventHandler = null;
+    }
+
+    this.reset();
   }
 
   /**

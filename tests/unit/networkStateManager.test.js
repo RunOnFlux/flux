@@ -3,7 +3,6 @@ const sinon = require('sinon');
 const { EventEmitter } = require('node:events');
 
 const { NetworkStateManager } = require('../../ZelBack/src/services/utils/networkStateManager');
-const { log } = require('node:console');
 
 describe('networkStateManager tests', () => {
   let fetcher;
