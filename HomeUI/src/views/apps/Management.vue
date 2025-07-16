@@ -6916,7 +6916,7 @@ export default {
           <kbd style="
             background-color: #AEC6CF;
             color: #333;
-            padding: 2px 2px 2px 2px; 
+            padding: 2px 2px 2px 2px;
             border-radius: 12px;
             margin-right: 5px;
             font-weight: bold;
@@ -6932,7 +6932,7 @@ export default {
           <kbd style="
             background-color: #FFC1A6;
             color: #333;
-            padding: 2px 2px 2px 2px; 
+            padding: 2px 2px 2px 2px;
             border-radius: 12px;
             font-weight: bold;
             font-size: 1em;
@@ -7454,7 +7454,7 @@ export default {
         this.allowedGeolocations = {};
         this.forbiddenGeolocations = {};
       }
-      if (this.appRegistrationSpecification.version === 8 && value === false) {
+      if (this.appUpdateSpecification.version === 8 && value === false) {
         this.appUpdateSpecification.enterprise = false;
       }
       this.dataToSign = '';
@@ -10632,23 +10632,39 @@ export default {
           const pubkey = responseGetPublicKey.data.data;
 
           const rsaPubKey = await this.importRsaPublicKey(pubkey);
+
           const aesKey = crypto.getRandomValues(new Uint8Array(32));
 
           const encryptedEnterpriseKey = await this.encryptAesKeyWithRsaKey(
             aesKey,
             rsaPubKey,
           );
+          console.log('Encrypted Enterprise key:', encryptedEnterpriseKey);
 
           response = await AppsService.getAppDecryptedSpecifics(this.appName, zelidauth, encryptedEnterpriseKey);
-          console.log(response);
+          console.log('getAppDecryptedSpecifics response:', response);
           if (response.data.status === 'error') {
             this.showToast('danger', response.data.data.message || response.data.data);
             this.callBResponse.status = response.data.status;
             return;
           }
-          const enterpriseDecrypted = this.decryptEnterpriseWithAes(response.data.data.enterprise);
-          response.data.data.contacts = enterpriseDecrypted.contacts;
-          response.data.data.compose = enterpriseDecrypted.compose;
+
+          console.log('Enterprise field: ', response.data.data.enterprise);
+
+          const enterpriseDecrypted = await this.decryptEnterpriseWithAes(response.data.data.enterprise, aesKey).catch((err) => {
+            console.log('Error found:', err);
+            return null;
+          });
+
+          if (!enterpriseDecrypted) {
+            this.showToast('danger', 'Unable to decrypt app specs');
+            return;
+          }
+
+          const parsedDecrypted = JSON.parse(enterpriseDecrypted);
+
+          response.data.data.contacts = parsedDecrypted.contacts;
+          response.data.data.compose = parsedDecrypted.compose;
           response.data.data.enterprise = true;
         }
         this.callBResponse.status = response.data.status;
