@@ -205,6 +205,9 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300_000
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
+
+  if (!timestamp) return false;
+
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
   if (currentTimeStamp < (timestamp + maxOld)) { // not older than 5 mins

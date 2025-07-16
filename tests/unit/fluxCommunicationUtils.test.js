@@ -2,7 +2,6 @@ const chai = require('chai');
 const cacheManager = require('../../ZelBack/src/services/utils/cacheManager').default;
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const sinon = require('sinon');
-const proxyquire = require('proxyquire');
 
 const { expect } = chai;
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
@@ -72,14 +71,14 @@ describe('fluxCommunicationUtils tests', () => {
     };
     let daemonStub;
     let networkStateStub;
-    let neteworkStateByPubkeyStub;
+    let networkStateByPubkeyStub;
 
     beforeEach(() => {
       cacheManager.resetCaches();
       daemonStub = sinon.stub(daemonServiceFluxnodeRpcs, 'viewDeterministicFluxNodeList');
       sinon.stub(networkStateService, 'waitStarted').resolves();
       networkStateStub = sinon.stub(networkStateService, 'networkState');
-      neteworkStateByPubkeyStub = sinon.stub(networkStateService, 'getFluxnodesByPubkey');
+      networkStateByPubkeyStub = sinon.stub(networkStateService, 'getFluxnodesByPubkey');
     });
 
     afterEach(() => {
@@ -88,7 +87,7 @@ describe('fluxCommunicationUtils tests', () => {
     });
 
     it('should return the whole list if the filter was not provided', async () => {
-      networkStateStub.resolves(deterministicFluxnodeListResponseBase);
+      networkStateStub.returns(deterministicFluxnodeListResponseBase);
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList();
 
@@ -96,7 +95,7 @@ describe('fluxCommunicationUtils tests', () => {
       sinon.assert.calledOnce(networkStateStub);
     });
 
-    it('should return the list filtered out with proper public key', async () => {
+    it('should return the list filtered by public key', async () => {
       const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
       const stateResult = new Map(
         [
@@ -180,24 +179,124 @@ describe('fluxCommunicationUtils tests', () => {
         },
       ];
 
-      neteworkStateByPubkeyStub.resolves(stateResult);
+      networkStateByPubkeyStub.resolves(stateResult);
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList({ filter: filteredPubKey });
 
       expect(deterministicFluxListResult).to.eql(expectedResult);
-      sinon.assert.calledOnce(neteworkStateByPubkeyStub);
+      sinon.assert.calledOnce(networkStateByPubkeyStub);
+    });
+
+    it('should return an array of socketAddresses if requested', async () => {
+      const stateResult = [
+        {
+          collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
+          txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
+          outidx: '0',
+          ip: '47.199.51.61:16147',
+          network: '',
+          added_height: 1079638,
+          confirmed_height: 1079642,
+          last_confirmed_height: 1079889,
+          last_paid_height: 0,
+          tier: 'CUMULUS',
+          payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
+          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+          activesince: '1647572455',
+          lastpaid: '1516980000',
+          amount: '1000.00',
+          rank: 1,
+        },
+        {
+          collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
+          txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
+          outidx: '0',
+          ip: '44.192.51.11:16147',
+          network: '',
+          added_height: 123456,
+          confirmed_height: 1234567,
+          last_confirmed_height: 123456,
+          last_paid_height: 0,
+          tier: 'CUMULUS',
+          payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+          activesince: '1647572455',
+          lastpaid: '1516980000',
+          amount: '2000.00',
+          rank: 1,
+        },
+      ];
+
+      const expected = ['47.199.51.61:16147', '44.192.51.11:16147'];
+
+      networkStateStub.returns(stateResult);
+
+      const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList({ addressOnly: true });
+
+      expect(deterministicFluxListResult).to.eql(expected);
+      sinon.assert.calledOnce(networkStateStub);
+    });
+
+    it('should return an array of socketAddresses if requested', async () => {
+      const stateResult = [
+        {
+          collateral: 'COutPoint(46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7, 0)',
+          txhash: '46c9ae0313fc128d0fb4327f5babc7868fe557035b58e0a7cb475cfd8819f8c7',
+          outidx: '0',
+          ip: '47.199.51.61:16147',
+          network: '',
+          added_height: 1079638,
+          confirmed_height: 1079642,
+          last_confirmed_height: 1079889,
+          last_paid_height: 0,
+          tier: 'CUMULUS',
+          payment_address: 't1UHecy6WiSJXs4Zqt5UvVdRDF7PMbZJK7q',
+          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+          activesince: '1647572455',
+          lastpaid: '1516980000',
+          amount: '1000.00',
+          rank: 1,
+        },
+        {
+          collateral: 'COutPoint(43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8, 0)',
+          txhash: '43c9ae0313fc128d0fb4327f5babc7868fe557135b58e0a7cb475cdd8819f8c8',
+          outidx: '0',
+          ip: '44.192.51.11:16147',
+          network: '',
+          added_height: 123456,
+          confirmed_height: 1234567,
+          last_confirmed_height: 123456,
+          last_paid_height: 0,
+          tier: 'CUMULUS',
+          payment_address: 't1UHecyqtF7PMb6WiSJXs4ZZJK7q5UvVdRD',
+          pubkey: '04d50620a31f045c61be42bad44b7a9424ffb6de37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc',
+          activesince: '1647572455',
+          lastpaid: '1516980000',
+          amount: '2000.00',
+          rank: 1,
+        },
+      ];
+
+      const expected = ['47.199.51.61:16147', '44.192.51.11:16147'];
+
+      networkStateStub.returns(stateResult);
+
+      const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList({ addressOnly: true });
+
+      expect(deterministicFluxListResult).to.eql(expected);
+      sinon.assert.calledOnce(networkStateStub);
     });
 
     it('should return an empty list if the public key does not match', async () => {
       const filteredPubKey = '04d50620a31f045c61be42bad44b7a9424asdfde37bf256b88f00e118e59736165255f2f4585b36c7e1f8f3e20db4fa4e55e61cc01dc7a5cd2b2ed0153627588dc';
       const expectedResult = [];
 
-      neteworkStateByPubkeyStub.resolves(null);
+      networkStateByPubkeyStub.resolves(null);
 
       const deterministicFluxListResult = await fluxCommunicationUtils.deterministicFluxList({ filter: filteredPubKey });
 
       expect(deterministicFluxListResult).to.eql(expectedResult);
-      sinon.assert.calledOnce(neteworkStateByPubkeyStub);
+      sinon.assert.calledOnce(networkStateByPubkeyStub);
     });
   });
 
@@ -212,10 +311,10 @@ describe('fluxCommunicationUtils tests', () => {
       type: 'fluxapptestmessage',
     };
     const message = JSON.stringify(data);
-    let neteworkStateByPubkeyStub;
+    let networkStateByPubkeyStub;
 
     beforeEach(() => {
-      neteworkStateByPubkeyStub = sinon.stub(networkStateService, 'getFluxnodesByPubkey');
+      networkStateByPubkeyStub = sinon.stub(networkStateService, 'getFluxnodesByPubkey');
     });
 
     afterEach(() => {
@@ -237,7 +336,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const stateResult = new Map([['1.2.3.4:16127', { data: 'here' }]]);
 
-      neteworkStateByPubkeyStub.resolves(stateResult);
+      networkStateByPubkeyStub.resolves(stateResult);
 
       const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend);
 
@@ -257,7 +356,7 @@ describe('fluxCommunicationUtils tests', () => {
         signature,
       };
 
-      const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend, fluxList);
+      const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend, null, fluxList);
 
       expect(isValid).to.equal(false);
     });
@@ -278,7 +377,7 @@ describe('fluxCommunicationUtils tests', () => {
 
       const stateResult = new Map([['1.2.3.4:16127', { data: 'here' }]]);
 
-      neteworkStateByPubkeyStub.resolves(stateResult);
+      networkStateByPubkeyStub.resolves(stateResult);
 
       const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend, providedTimestamp);
 
@@ -299,7 +398,7 @@ describe('fluxCommunicationUtils tests', () => {
       };
       const providedTimestamp = Date.now() + 100;
 
-      const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend, fluxList, providedTimestamp);
+      const isValid = await fluxCommunicationUtils.verifyOriginalFluxBroadcast(dataToSend, providedTimestamp);
 
       expect(isValid).to.equal(false);
     });
