@@ -214,7 +214,10 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300_000
     return true;
   }
   const age = Math.round((currentTimeStamp - timestamp) / 1_000);
-  log.warn(`Unable to verify mesage. Timestamp ${timestamp} is too old: ${age}s`);
+  const maxAge = maxOld / 1_000;
+  log.warn('Unable to verify mesage. Timestamp '
+    + `${timestamp} is too old: ${age}s, Max: ${maxAge}`);
+
   return false;
 }
 
