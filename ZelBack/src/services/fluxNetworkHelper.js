@@ -169,21 +169,38 @@ function isPortUPNPBanned(port) {
 }
 
 /**
- * To perform a basic check if port on an ip is opened
- * @param {string} ip IP address.
- * @param {number} port Port.
- * @returns {boolean} Returns true if opened, otherwise false
+ * To perform a basic check if TCP port on an ip is open. I.e. that we receive a
+ * SYN-ACK in response to a SYN. If connected, we send an RST and close the port.
+ * @param {string} ip IP address
+ * @param {number} port Port
+ * @param {{timeout?:Number}} options
+ * @returns {Promise<boolean>} Returns true if opened, otherwise false
  */
-async function isPortOpen(ip, port) {
-  try {
-    const exec = `nc -w 5 -z -v ${ip} ${port} </dev/null; echo $?`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const result = await cmdAsync(exec);
-    return !+result;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
+async function isPortOpen(ip, port, options = {}) {
+  const timeout = options.timeout || 5_000;
+
+  const call = new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+
+    const timer = setTimeout(() => {
+      socket.destroy();
+    }, timeout);
+
+    socket.connect(port, ip, () => {
+      clearTimeout(timer);
+      socket.resetAndDestroy();
+      resolve(true);
+    });
+
+    socket.on('error', () => {
+      clearTimeout(timer);
+      reject();
+    });
+  });
+
+  const connected = await call.catch(() => false);
+
+  return connected;
 }
 
 /**
@@ -284,10 +301,8 @@ async function checkAppAvailability(req, res) {
         throw new Error('Unable to verify request authenticity');
       }
 
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height;
-      const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
-      const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
+      const { fluxapps: { minPort, maxPort } } = config;
+
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const iBP = isPortBanned(+port);
@@ -534,7 +549,7 @@ async function getFluxNodePublicKey(privatekey) {
 
 /**
  * To get a random connection.
- * @returns {string} IP:Port or just IP if default.
+ * @returns {Promise<string>} IP:Port or just IP if default.
  */
 async function getRandomConnection() {
   const nodeList = await fluxCommunicationUtils.deterministicFluxList();
@@ -1271,7 +1286,7 @@ async function denyPort(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1305,7 +1320,7 @@ async function deleteAllowPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1336,7 +1351,7 @@ async function deleteDenyPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1367,7 +1382,7 @@ async function deleteAllowOutPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1414,7 +1429,7 @@ async function allowPortApi(req, res) {
 
 /**
  * To check if a firewall is active.
- * @returns {boolean} True if a firewall is active. Otherwise false.
+ * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   try {
