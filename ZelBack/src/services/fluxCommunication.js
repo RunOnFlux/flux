@@ -1162,6 +1162,12 @@ async function fluxDiscovery() {
       const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       const clientIncomingExists = incomingConnections.find((client) => client.ip === ipInc && client.port === portInc);
       if (!clientExists && !clientIncomingExists) {
+        // we add to the cache immediately here as we have no idea if this is successful or not;
+        // If it's not successful (due to many reasons) We spam the connection over and over
+
+        // This just adds a 15 minute cooldown between retries, until we implement
+        // heartbeats (and rework the communcation module)
+        wsPeerCache.set(ip, '');
         deterministicPeerConnections = true;
         initiateAndHandleConnection(ip);
         // eslint-disable-next-line no-await-in-loop
@@ -1186,7 +1192,7 @@ async function fluxDiscovery() {
         // for this is that we don't have heartbeats set up, so quite often, the other
         // end will think it's connected to us when it's not - and cut the connection.
         // This just adds a 15 minute cooldown between retries, until we implement
-        // heartbeats (and rework the ws module)
+        // heartbeats (and rework the communcation module)
         wsPeerCache.set(`${ipInc}:${portInc}`, '');
         // eslint-disable-next-line no-await-in-loop
         const result = await serviceHelper.axiosGet(
