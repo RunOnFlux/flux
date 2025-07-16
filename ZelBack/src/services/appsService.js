@@ -10151,9 +10151,14 @@ async function getStrictApplicationSpecifications(appName) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name === appName);
   }
+
+  // we don't need the height here, but just to keep things the same, we add it
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    const { height, hash } = appInfo;
     appInfo = specificationFormatter(appInfo);
+    appInfo.height = height;
+    appInfo.hash = hash;
   }
   return appInfo;
 }
@@ -10531,7 +10536,7 @@ async function getApplicationSpecificationAPI(req, res) {
         mainAppName,
       );
 
-    if (!ownerAuthorized === true || !fluxTeamAuthorized === true) {
+    if (ownerAuthorized !== true && fluxTeamAuthorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return null;
