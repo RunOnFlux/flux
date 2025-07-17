@@ -343,7 +343,7 @@ module.exports = (app) => {
   app.get('/apps/updatetolatestspecs/:appname', cache('30 seconds'), (req, res) => {
     appsService.updateApplicationSpecificationAPI(req, res);
   });
-  app.get('/apps/appspecifications/:appname/:decrypt?', cache('30 seconds'), (req, res) => {
+  app.get('/apps/appspecifications/:appname/:decrypt?', (req, res) => {
     appsService.getApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appowner/:appname?', cache('30 seconds'), (req, res) => {
