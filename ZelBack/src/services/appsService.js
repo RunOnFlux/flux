@@ -7971,7 +7971,7 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
     };
     const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
     const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
-    appOwner = lastAppRegistration.owner;
+    appOwner = lastAppRegistration.appSpecifications.owner;
   }
   const inputData = JSON.stringify({
     fluxID: appOwner,
@@ -7983,10 +7983,9 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
   const { status, data } = dataReturned;
   if (status === 'success') {
     const dataParsed = JSON.parse(data);
-    const base64AesKey = status === 'success' && dataParsed.status === 'ok' ? dataParsed.message : null;
-    if (base64AesKey) {
-      return base64AesKey;
-    }
+    const base64AesKey = dataParsed.status === 'ok' ? dataParsed.message : null;
+    if (base64AesKey) return base64AesKey;
+
     throw new Error('Error decrypting AES key.');
   } else {
     throw new Error('Error getting decrypted AES key.');
@@ -8202,8 +8201,15 @@ async function encryptEnterpriseFromSession(appSpec, daemonHeight, enterpriseKey
 
   const appName = appSpec.name;
 
+  const enterpriseSpec = {
+    contacts: appSpec.contacts,
+    compose: appSpec.compose,
+  };
+
+  const encoded = JSON.stringify(enterpriseSpec);
+
   const base64AesKey = await decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey);
-  const encryptedEnterprise = encryptWithAesSession(appSpec.enterprise, base64AesKey);
+  const encryptedEnterprise = encryptWithAesSession(appSpec.enterprise, encoded, base64AesKey);
   if (encryptedEnterprise) {
     return encryptedEnterprise;
   }
@@ -10151,9 +10157,14 @@ async function getStrictApplicationSpecifications(appName) {
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name === appName);
   }
+
+  // we don't need the height here, but just to keep things the same, we add it
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    const { height, hash } = appInfo;
     appInfo = specificationFormatter(appInfo);
+    appInfo.height = height;
+    appInfo.hash = hash;
   }
   return appInfo;
 }
@@ -10474,7 +10485,7 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Daemon not yet synced.');
     }
 
-    const { data: { daemonHeight } } = syncStatus;
+    const { data: { height: daemonHeight } } = syncStatus;
 
     let { appname, decrypt } = req.params;
     appname = appname || req.query.appname;
@@ -10531,7 +10542,7 @@ async function getApplicationSpecificationAPI(req, res) {
         mainAppName,
       );
 
-    if (!ownerAuthorized === true || !fluxTeamAuthorized === true) {
+    if (ownerAuthorized !== true && fluxTeamAuthorized !== true) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return null;
@@ -10552,6 +10563,7 @@ async function getApplicationSpecificationAPI(req, res) {
       daemonHeight,
       encryptedEnterpriseKey,
     );
+
     specifications.contacts = [];
     specifications.compose = [];
 
