@@ -10776,7 +10776,6 @@ export default {
             this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
             if (this.appUpdateSpecification.enterprise) {
               this.isPrivateApp = true;
-              this.showToast('danger', 'This app was enterprise, all components information will not be migrated');
             }
             if (!this.enterpriseNodes) {
               await this.getEnterpriseNodes();
