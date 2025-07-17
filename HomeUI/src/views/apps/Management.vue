@@ -7322,8 +7322,11 @@ export default {
     },
   },
   watch: {
-    selectedIp(newVal) {
-      this.selectedIpChanged(newVal);
+    selectedIp(newVal, oldVal) {
+      // we only want to run this on changes, not on the initial load
+      if (!oldVal || oldVal === newVal) return;
+
+      this.selectedIpChanged();
     },
     skin() {
       if (this.memoryChart !== null) {
@@ -10319,7 +10322,12 @@ export default {
         console.log('Application not found. Instance switching...');
         await this.switchInstance();
         if (this.applicationManagementAndStatus?.length === 0) {
-          await this.getGlobalApplicationSpecifics();
+          // I have disabled this. This is a heavy call, especially for
+          // enterprise apps. It makes no sense to get the global app sepcs again
+          // as we just got them prior... this was causing us to fetch the pubkey
+          // twice and decrypt the specs twice. If there was a reason for this,
+          // we can look at doing it a different way.
+          // await this.getGlobalApplicationSpecifics();
           this.noInstanceAvailable = true;
           return;
         }
