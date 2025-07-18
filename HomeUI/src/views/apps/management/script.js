@@ -1494,7 +1494,7 @@ export default {
      * @param {{local?: boolean}} options local - If the command is on the "selected node"
      * @returns {Promise<Object>}
      */
-    async getDecryptedEnterpriseSpec(options = {}) {
+    async getDecryptedEnterpriseFields(options = {}) {
       const local = options.local ?? false;
 
       // this should be cached
@@ -1585,14 +1585,7 @@ export default {
 
       const parsedDecrypted = JSON.parse(enterpriseDecrypted);
 
-      specs.contacts = parsedDecrypted.contacts;
-      specs.compose = parsedDecrypted.compose;
-      // I removed what this was doing. We should never be mutating property
-      // types. We actually need this value down the road
-
-      // specs.enterprise = true;
-
-      return specs;
+      return parsedDecrypted;
     },
     normalizeComponents(data) {
       if (!data) return [];
@@ -4623,16 +4616,17 @@ export default {
         spec.contacts = this.appUpdateSpecification.contacts;
         spec.compose = this.appUpdateSpecification.compose;
       } else if (isEnterprise && !sameEnterpriseSpec) {
-        const decrypted = await this.getDecryptedEnterpriseSpec(
+        const decrypted = await this.getDecryptedEnterpriseFields(
           { local: true },
         );
 
-        if (!decrypted) {
-          if (!silent) {
-            this.showToast('danger', 'Unable to get decrypted app spec');
-          }
-          return;
+        const showToast = !decrypted && !silent;
+
+        if (showToast) {
+          this.showToast('danger', 'Unable to get decrypted app spec');
         }
+
+        if (!decrypted) return;
 
         spec.contacts = decrypted.contacts;
         spec.compose = decrypted.compose;
@@ -4727,21 +4721,28 @@ export default {
 
       const isEnterprise = appSpec.version >= 8 && appSpec.enterprise;
 
-      const spec = isEnterprise
-        ? await this.getDecryptedEnterpriseSpec()
-        : appSpec;
+      if (isEnterprise) {
+        const decrypted = await this.getDecryptedEnterpriseFields();
+
+        if (!decrypted) return;
+
+        const { contacts, compose } = decrypted;
+
+        appSpec.contacts = contacts;
+        appSpec.compose = compose;
+      }
 
       // why are we doing this? We are storing a copy of this same object
       // at appUpdateSpecification
       this.callBResponse.status = 'success';
-      this.callBResponse.data = spec;
+      this.callBResponse.data = appSpec;
 
-      this.$store.commit('flux/setAppName', spec.name);
+      this.$store.commit('flux/setAppName', appSpec.name);
 
       // why do this? It's a new object anyway
-      this.appUpdateSpecification = JSON.parse(JSON.stringify(spec));
+      this.appUpdateSpecification = JSON.parse(JSON.stringify(appSpec));
 
-      this.appUpdateSpecification.instances = spec.instances || 3;
+      this.appUpdateSpecification.instances = appSpec.instances || 3;
 
       if (this.instancesLocked) {
         this.maxInstances = this.appUpdateSpecification.instances;
@@ -4749,11 +4750,11 @@ export default {
 
       if (this.appUpdateSpecification.version <= 3) {
         this.appUpdateSpecification.version = 3; // enforce specs version 3
-        this.appUpdateSpecification.ports = spec.port || this.ensureString(spec.ports); // v1 compatibility
-        this.appUpdateSpecification.domains = this.ensureString(spec.domains);
-        this.appUpdateSpecification.enviromentParameters = this.ensureString(spec.enviromentParameters);
-        this.appUpdateSpecification.commands = this.ensureString(spec.commands);
-        this.appUpdateSpecification.containerPorts = spec.containerPort || this.ensureString(spec.containerPorts); // v1 compatibility
+        this.appUpdateSpecification.ports = appSpec.port || this.ensureString(appSpec.ports); // v1 compatibility
+        this.appUpdateSpecification.domains = this.ensureString(appSpec.domains);
+        this.appUpdateSpecification.enviromentParameters = this.ensureString(appSpec.enviromentParameters);
+        this.appUpdateSpecification.commands = this.ensureString(appSpec.commands);
+        this.appUpdateSpecification.containerPorts = appSpec.containerPort || this.ensureString(spec.containerPorts); // v1 compatibility
       } else {
         if (this.appUpdateSpecification.version > 3 && this.appUpdateSpecification.compose.find((comp) => comp.containerData.includes('g:'))) {
           this.masterSlaveApp = true;
@@ -4764,10 +4765,10 @@ export default {
         this.appUpdateSpecification.contacts = this.ensureString([]);
         this.appUpdateSpecification.geolocation = this.ensureString([]);
         if (this.appUpdateSpecification.version >= 5) {
-          this.appUpdateSpecification.contacts = this.ensureString(spec.contacts || []);
-          this.appUpdateSpecification.geolocation = this.ensureString(spec.geolocation || []);
+          this.appUpdateSpecification.contacts = this.ensureString(appSpec.contacts || []);
+          this.appUpdateSpecification.geolocation = this.ensureString(appSpec.geolocation || []);
           try {
-            this.decodeGeolocation(spec.geolocation || []);
+            this.decodeGeolocation(appSpec.geolocation || []);
           } catch (error) {
             console.log(error);
             this.appUpdateSpecification.geolocation = this.ensureString([]);
