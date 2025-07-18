@@ -4613,8 +4613,11 @@ export default {
 
       // this is the global spec we have already decrypted
       if (isEnterprise && sameEnterpriseSpec) {
-        spec.contacts = this.appUpdateSpecification.contacts;
-        spec.compose = this.appUpdateSpecification.compose;
+        const { contacts } = this.appUpdateSpecification;
+        spec.contacts = JSON.parse(JSON.stringify(contacts));
+
+        const { compose } = this.appUpdateSpecification;
+        spec.compose = JSON.parse(JSON.stringify(compose));
       } else if (isEnterprise && !sameEnterpriseSpec) {
         const decrypted = await this.getDecryptedEnterpriseFields(
           { local: true },
