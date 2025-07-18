@@ -7,4 +7,4 @@
 <script src="./management/script.js"></script>
 
 <style scoped src="./management/style.css"></style>
-<style scoped src="./management/style.scss"></style>
+<style scoped lang="scss" src="./management/style.scss"></style>
