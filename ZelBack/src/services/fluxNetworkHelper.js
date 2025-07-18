@@ -9,7 +9,6 @@ const dgram = require('dgram');
 const net = require('net');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
-const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -23,6 +22,8 @@ const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
+const cacheManager = require('./utils/cacheManager').default;
+const networkStateService = require('./networkStateService');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -34,55 +35,11 @@ let ipChangeData = null;
 let dosTooManyIpChanges = false;
 let maxNumberOfIpChanges = 0;
 
-// default cache
-const LRUoptions = {
-  max: 1,
-  ttl: 24 * 60 * 60 * 1000, // 1 day
-  maxAge: 24 * 60 * 60 * 1000, // 1 day
-};
-
-const myCache = new LRUCache(LRUoptions);
+const myCache = cacheManager.ipCache;
+const lruRateCache = cacheManager.rateLimitCache;
 
 // my external Flux IP from benchmark
 let myFluxIP = null;
-
-let response = messageHelper.createErrorMessage();
-
-const axiosConfig = {
-  timeout: 5000,
-};
-
-const buckets = new Map();
-
-class TokenBucket {
-  constructor(capacity, fillPerSecond) {
-    this.capacity = capacity;
-    this.fillPerSecond = fillPerSecond;
-
-    this.lastFilled = Date.now();
-    this.tokens = capacity;
-  }
-
-  take() {
-    // Calculate how many tokens (if any) should have been added since the last request
-    this.refill();
-
-    if (this.tokens > 0) {
-      this.tokens -= 1;
-      return true;
-    }
-
-    return false;
-  }
-
-  refill() {
-    const now = Date.now();
-    const rate = (now - this.lastFilled) / (this.fillPerSecond * 1000);
-
-    this.tokens = Math.min(this.capacity, this.tokens + Math.floor(rate * this.capacity));
-    this.lastFilled = now;
-  }
-}
 
 /**
  * To get if port belongs to enterprise range
@@ -193,6 +150,10 @@ async function isPortOpen(ip, port) {
  * @returns {boolean} False unless FluxOS version meets or exceeds the minimum allowed version.
  */
 async function isFluxAvailable(ip, port = config.server.apiport) {
+  const axiosConfig = {
+    timeout: 5000,
+  };
+
   try {
     const ipchars = /^[0-9.]+$/;
     if (!ipchars.test(ip)) {
@@ -240,14 +201,14 @@ async function checkFluxAvailability(req, res) {
 
   const available = await isFluxAvailable(ip, port);
 
+  let message;
+
   if (available === true) {
-    const message = messageHelper.createSuccessMessage('Asking Flux is available');
-    response = message;
+    message = messageHelper.createSuccessMessage('Asking Flux is available');
   } else {
-    const message = messageHelper.createErrorMessage('Asking Flux is not available');
-    response = message;
+    message = messageHelper.createErrorMessage('Asking Flux is not available');
   }
-  return res.json(response);
+  return res.json(message);
 }
 
 /**
@@ -274,13 +235,12 @@ async function checkAppAvailability(req, res) {
       const ipPort = processedBody.port;
 
       // pubkey of the message has to be on the list
-      const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
-      const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+      const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
       const dataToVerify = processedBody;
       delete dataToVerify.signature;
       const messageToVerify = JSON.stringify(dataToVerify);
       const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-      if ((verified !== true || !node) && authorized !== true) {
+      if ((verified !== true || !nodes.length) && authorized !== true) {
         throw new Error('Unable to verify request authenticity');
       }
 
@@ -394,13 +354,12 @@ async function keepUPNPPortsOpen(req, res) {
     }
 
     // pubkey of the message has to be on the list
-    const zl = await fluxCommunicationUtils.deterministicFluxList(pubKey); // this itself is sufficient.
-    const node = zl.find((key) => key.pubkey === pubKey); // another check in case sufficient check failed on daemon level
+    const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
     const dataToVerify = processedBody;
     delete dataToVerify.signature;
     const messageToVerify = JSON.stringify(dataToVerify);
     const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-    if ((verified !== true || !node) && authorized !== true) {
+    if ((verified !== true || !nodes.length) && authorized !== true) {
       res.status(401).end();
       throw new Error('Unable to verify request authenticity');
     }
@@ -533,26 +492,6 @@ async function getFluxNodePublicKey(privatekey) {
 }
 
 /**
- * To get a random connection.
- * @returns {string} IP:Port or just IP if default.
- */
-async function getRandomConnection() {
-  const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-  const zlLength = nodeList.length;
-  if (zlLength === 0) {
-    return null;
-  }
-  const randomNode = Math.floor((Math.random() * zlLength)); // we do not really need a 'random'
-  const ip = nodeList[randomNode].ip || nodeList[randomNode].ipaddress;
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
-
-  if (!ip || !myFluxIP || ip === userconfig.initial.ipaddress || ip === myFluxIP || ip === `${userconfig.initial.ipaddress}:${apiPort}` || ip.split(':')[0] === myFluxIP.split(':')[0]) {
-    return null;
-  }
-  return ip;
-}
-
-/**
  * To close an outgoing connection.
  * @param {string} ip IP address.
  * @param {string} port node API port.
@@ -605,26 +544,6 @@ async function closeIncomingConnection(ip, port) {
 }
 
 /**
- * To check rate limit.
- * @param {string} ip IP address.
- * @param {number} fillPerSecond Defaults to value of 10.
- * @param {number} maxBurst Defaults to value of 15.
- * @returns {boolean} True if a token is taken from the IP's token bucket. Otherwise false.
- */
-function checkRateLimit(ip, fillPerSecond = 10, maxBurst = 15) {
-  if (!buckets.has(ip)) {
-    buckets.set(ip, new TokenBucket(maxBurst, fillPerSecond));
-  }
-
-  const bucketForIP = buckets.get(ip);
-
-  if (bucketForIP.take()) {
-    return true;
-  }
-  return false;
-}
-
-/**
  * To get IP addresses for incoming connections.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -634,8 +553,7 @@ function getIncomingConnections(req, res) {
   const connections = peers.map((p) => p.ip);
 
   const message = messageHelper.createDataMessage(connections);
-  response = message;
-  res.json(response);
+  res.json(message);
 }
 
 /**
@@ -646,8 +564,7 @@ function getIncomingConnections(req, res) {
 function getIncomingConnectionsInfo(req, res) {
   const connections = incomingPeers;
   const message = messageHelper.createDataMessage(connections);
-  response = message;
-  return res ? res.json(response) : response;
+  return res ? res.json(message) : message;
 }
 
 /**
@@ -818,7 +735,7 @@ function getMaxNumberOfIpChanges() {
 /**
  * To adjust an external IP.
  * @param {string} ip IP address.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function adjustExternalIP(ip) {
   try {
@@ -854,7 +771,7 @@ async function adjustExternalIP(ip) {
     await fs.writeFile(fluxDirPath, dataToWrite);
 
     if (oldUserConfigIp && v4exact.test(oldUserConfigIp) && !myCache.has(ip)) {
-      myCache.set(ip, ip);
+      myCache.set(ip, '');
       const newIP = userconfig.initial.apiport !== 16127 ? `${ip}:${userconfig.initial.apiport}` : ip;
       const oldIP = userconfig.initial.apiport !== 16127 ? `${oldUserConfigIp}:${userconfig.initial.apiport}` : oldUserConfigIp;
       log.info(`New public Ip detected: ${newIP}, old Ip: ${oldIP} , updating the FluxNode info on the network`);
@@ -915,7 +832,7 @@ async function adjustExternalIP(ip) {
 /**
  * To check user's FluxNode availability.
  * @param {number} retryNumber Number of retries.
- * @returns {boolean} True if all checks passed.
+ * @returns {Promise<boolean>} Return value is only for testing
  */
 async function checkMyFluxAvailability(retryNumber = 0) {
   if (dosTooManyIpChanges) {
@@ -923,6 +840,9 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     setDosMessage('IP changes over the limit allowed, one in 20 hours');
     return false;
   }
+
+  if (myFluxIP === null) return false;
+
   let userBlockedPorts = userconfig.initial.blockedPorts || [];
   userBlockedPorts = serviceHelper.ensureObject(userBlockedPorts);
   if (Array.isArray(userBlockedPorts)) {
@@ -945,32 +865,34 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   if (!fluxBenchVersionAllowed) {
     return false;
   }
-  let askingIP = await getRandomConnection();
-  if (typeof askingIP !== 'string' || typeof myFluxIP !== 'string' || myFluxIP === askingIP) {
-    return false;
-  }
-  let askingIpPort = config.server.apiport;
-  if (askingIP.includes(':')) { // has port specification
-    // it has port specification
-    const splittedIP = askingIP.split(':');
-    askingIP = splittedIP[0];
-    askingIpPort = splittedIP[1];
-  }
-  let myIP = myFluxIP;
-  if (myIP.includes(':')) { // has port specification
-    myIP = myIP.split(':')[0];
-  }
-  let availabilityError = null;
-  const axiosConfigAux = {
+
+  const randomSocketAddress = await networkStateService.getRandomSocketAddress(
+    myFluxIP,
+  );
+
+  if (!randomSocketAddress) return false;
+
+  const [remoteIp, remotePort = '16127'] = randomSocketAddress.split(':');
+
+  const axiosConfig = {
     timeout: 7000,
   };
-  const apiPort = userconfig.initial.apiport || config.server.apiport;
-  const resMyAvailability = await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/checkfluxavailability?ip=${myIP}&port=${apiPort}`, axiosConfigAux).catch((error) => {
-    log.error(`${askingIP}:${askingIpPort} is not reachable`);
-    log.error(error);
-    availabilityError = true;
-  });
-  if (!resMyAvailability || availabilityError) {
+
+  const [localIp, localApiPort = '16127'] = myFluxIP.split(':');
+
+  const url = `http://${remoteIp}:${remotePort}/flux/`
+    + `checkfluxavailability?ip=${localIp}&port=${localApiPort}`;
+
+  const resMyAvailability = await serviceHelper.axiosGet(url, axiosConfig).catch(
+    (error) => {
+      log.error(`checkMyFluxAvailability - ${remoteIp}:${remotePort}`
+      + `is not reachable. ${error.message}`);
+
+      return null;
+    },
+  );
+
+  if (!resMyAvailability) {
     dosState += 2;
     if (dosState > 10) {
       setDosMessage(dosMessage || 'Flux communication is limited, other nodes on the network cannot reach yours through API calls');
@@ -984,7 +906,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
     return false;
   }
   if (resMyAvailability.data.status === 'error' || resMyAvailability.data.data.message.includes('not')) {
-    log.error(`My Flux unavailability detected from ${askingIP}`);
+    log.error(`My Flux unavailability detected from: ${remoteIp}:${remotePort}`);
     // Asked Flux cannot reach me lets check if ip changed
     if (retryNumber === 4 || dosState > 10) {
       log.info('Getting publicIp from FluxBench');
@@ -992,14 +914,14 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       if (benchIpResponse.status === 'success') {
         log.info(`FluxBench reported public IP: ${benchIpResponse.data}`);
         const benchMyIP = benchIpResponse.data.length > 5 ? benchIpResponse.data : null;
-        if (benchMyIP && benchMyIP.split(':')[0] !== myIP.split(':')[0]) {
+        if (benchMyIP && benchMyIP.split(':')[0] !== localIp) {
           daemonServiceUtils.setStandardCache('getbenchmarks[]', null);
           log.info('New IP found... updating network');
           dosState = 0;
           setDosMessage(null);
           await adjustExternalIP(benchMyIP.split(':')[0]);
           return true;
-        } if (benchMyIP && benchMyIP.split(':')[0] === myIP.split(':')[0]) {
+        } if (benchMyIP && benchMyIP.split(':')[0] === localIp) {
           log.info('FluxBench reported the same Ip that was already in use');
         } else {
           log.info('FluxBench reported a invalid IP');
@@ -1029,14 +951,10 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   const measuredUptime = fluxUptime();
   if (measuredUptime.status === 'success' && measuredUptime.data > config.fluxapps.minUpTime) { // node has been running for 30 minutes. Upon starting a node, there can be dos that needs resetting
-    const nodeList = await fluxCommunicationUtils.deterministicFluxList();
-    // nodeList must include our fluxnode ip myIP
-    let myCorrectIp = `${myIP}:${apiPort}`;
-    if (apiPort === 16127 || apiPort === '16127') {
-      myCorrectIp = myCorrectIp.split(':')[0];
-    }
-    const myNodeExists = nodeList.find((node) => node.ip === myCorrectIp);
-    if (nodeList.length > config.fluxapps.minIncoming + config.fluxapps.minOutgoing && myNodeExists) { // our node MUST be in confirmed list in order to have some peers
+    const found = await fluxCommunicationUtils.getFluxnodeFromFluxList(myFluxIP);
+    const nodeCount = await fluxCommunicationUtils.getNodeCount();
+
+    if (nodeCount > config.fluxapps.minIncoming + config.fluxapps.minOutgoing && found) { // our node MUST be in confirmed list in order to have some peers
       // check sufficient connections
       const connectionInfo = isCommunicationEstablished();
       if (connectionInfo.status === 'error') {
@@ -1046,7 +964,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           log.error(dosMessage);
           return false;
         }
-        await adjustExternalIP(myIP.split(':')[0]);
+        await adjustExternalIP(localIp);
         return true; // availability ok
       }
     }
@@ -1055,7 +973,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   dosState = 0;
   setDosMessage(null);
-  await adjustExternalIP(myIP.split(':')[0]);
+  await adjustExternalIP(localIp);
   return true;
 }
 
@@ -1064,6 +982,10 @@ async function checkMyFluxAvailability(retryNumber = 0) {
  * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function checkDeterministicNodesCollisions() {
+  const axiosConfig = {
+    timeout: 5000,
+  };
+
   try {
     // get my external ip address
     // get node list with filter on this ip address
@@ -1193,8 +1115,8 @@ function getDOSState(req, res) {
     dosState,
     dosMessage,
   };
-  response = messageHelper.createDataMessage(data);
-  return res ? res.json(response) : response;
+  const message = messageHelper.createDataMessage(data);
+  return res ? res.json(message) : message;
 }
 
 /**
@@ -1397,19 +1319,21 @@ async function allowPortApi(req, res) {
   }
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
 
+  let message;
+
   if (authorized === true) {
     const portResponseOK = await allowPort(port);
     if (portResponseOK.status === true) {
-      response = messageHelper.createSuccessMessage(portResponseOK.message, port, port);
+      message = messageHelper.createSuccessMessage(portResponseOK.message, port, port);
     } else if (portResponseOK.status === false) {
-      response = messageHelper.createErrorMessage(portResponseOK.message, port, port);
+      message = messageHelper.createErrorMessage(portResponseOK.message, port, port);
     } else {
-      response = messageHelper.createErrorMessage(`Unknown error while opening port ${port}`);
+      message = messageHelper.createErrorMessage(`Unknown error while opening port ${port}`);
     }
   } else {
-    response = messageHelper.errUnauthorizedMessage();
+    message = messageHelper.errUnauthorizedMessage();
   }
-  return res.json(response);
+  return res.json(message);
 }
 
 /**
@@ -1739,59 +1663,56 @@ async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
   return true;
 }
 
-const lruRateOptions = {
-  max: 500,
-  ttl: 1000 * 15, // 15 seconds
-  maxAge: 1000 * 15, // 15 seconds
-};
-const lruRateCache = new LRUCache(lruRateOptions);
 /**
- * To check rate limit.
+ * Rate limit inbound / outbound messages on websockets. Using buckets, you
+ * can only send limitPerSecond messages every second. If you go over, you are
+ * limited for the rest of the second.
  * @param {string} ip IP address.
  * @param {number} limitPerSecond Defaults to value of 20
  * @returns {boolean} True if a ip is allowed to do a request, otherwise false
  */
 function lruRateLimit(ip, limitPerSecond = 20) {
-  const lruResponse = lruRateCache.get(ip);
-  const newTime = Date.now();
-  if (lruResponse) {
-    const oldTime = lruResponse.time;
-    const oldTokensRemaining = lruResponse.tokens;
-    const timeDifference = newTime - oldTime;
-    const tokensToAdd = (timeDifference / 1000) * limitPerSecond;
-    let newTokensRemaining = oldTokensRemaining + tokensToAdd;
-    if (newTokensRemaining < 0) {
-      const newdata = {
-        time: newTime,
-        tokens: newTokensRemaining,
-      };
-      lruRateCache.set(ip, newdata);
-      log.warn(`${ip} rate limited`);
-      return false;
-    }
-    if (newTokensRemaining > limitPerSecond) {
-      newTokensRemaining = limitPerSecond;
-      newTokensRemaining -= 1;
-      const newdata = {
-        time: newTime,
-        tokens: newTokensRemaining,
-      };
-      lruRateCache.set(ip, newdata);
-      return true;
-    }
-    newTokensRemaining -= 1;
-    const newdata = {
-      time: newTime,
-      tokens: newTokensRemaining,
+  const rateLimit = lruRateCache.get(ip);
+  const now = process.hrtime.bigint();
+
+  if (!rateLimit) {
+    const limit = {
+      lastUpdate: now,
+      tokenBucket: limitPerSecond,
     };
-    lruRateCache.set(ip, newdata);
+    lruRateCache.set(ip, limit);
+
     return true;
   }
-  const newdata = {
-    time: newTime,
-    tokens: limitPerSecond,
-  };
-  lruRateCache.set(ip, newdata);
+
+  const { lastUpdate, tokenBucket } = rateLimit;
+
+  const elapsedMs = Number(now - lastUpdate) / 1_000_000;
+
+  // This splits the token allocation into buckets. So you literally get 120
+  // tokens once every second. For 120 tokens per second, this means you can
+  // send one req every 8ms, and you will never run out of tokens. If you move
+  // down to 7ms, you will get rate limited for the last part of the second, until
+  // you get more tokens, if you send @ 6ms, you would get rate limited for more
+  // of the second, etc.
+  if (elapsedMs >= 1_000) {
+    rateLimit.tokenBucket = limitPerSecond;
+    rateLimit.lastUpdate = now;
+  }
+
+  if (rateLimit.tokenBucket < 0) {
+    // We don't remove any tokens if rate limited
+    return false;
+  }
+
+  // we log on the trigger edge only
+  if (tokenBucket === 0) {
+    const remaining = Math.round(((1_000 - elapsedMs) + Number.EPSILON) * 100) / 100;
+    console.log(`${ip}: Rate Limited for: ${remaining} ms`);
+  }
+
+  rateLimit.tokenBucket -= 1;
+
   return true;
 }
 
@@ -1882,24 +1803,30 @@ async function addFluxNodeServiceIpToLoopback() {
   }
 }
 
+/**
+ * Return the number of peers this node is connected to
+ */
+function getNumberOfPeers() {
+  return incomingConnections.length + outgoingConnections.length;
+}
+
 module.exports = {
   isFluxAvailable,
   checkFluxAvailability,
   getMyFluxIPandPort,
-  getRandomConnection,
   getFluxNodePrivateKey,
   getFluxNodePublicKey,
   checkDeterministicNodesCollisions,
   getIncomingConnections,
   getIncomingConnectionsInfo,
   getDOSState,
+  getNumberOfPeers,
   denyPort,
   deleteAllowPortRule,
   deleteAllowOutPortRule,
   allowPortApi,
   adjustFirewall,
   purgeUFW,
-  checkRateLimit,
   closeConnection,
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,

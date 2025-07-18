@@ -31,7 +31,7 @@ const isArcane = Boolean(process.env.SYNCTHING_PATH);
 let syncthingBinaryPresent = false;
 
 let syncthingStatusOk = false;
-let getDeviceIDRunning = false;
+const getDeviceIDRunning = false;
 
 const parserOptions = {
   ignoreAttributes: false,
@@ -192,29 +192,6 @@ function getAxiosCache() {
  */
 function syncthingController() {
   return stc;
-}
-
-/**
- * To get syncthing config xml file
- * @returns {string} config gile (XML).
- */
-async function getConfigFileDepreciated() {
-  try {
-    const homedir = os.homedir();
-    // fs may fail to read that as of eaccess
-    // change permissions of the file first so we can read it and get api key properly
-    const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
-    await cmdAsync(execDIRown).catch((error) => log.error(error));
-    const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
-    await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
-    const execPERM = `sudo chmod 644 ${homedir}/.config/syncthing/config.xml`;
-    await cmdAsync(execPERM);
-    const result = await fs.readFile(`${homedir}/.config/syncthing/config.xml`, 'utf8');
-    return result;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
 }
 
 /**
@@ -2178,53 +2155,6 @@ async function getSvcReport(req, res) {
 
 /**
  * Returns device id, also checks that syncthing is installed and running and we have the api key.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDeviceIdDepreciated(req, res) {
-  if (getDeviceIDRunning) {
-    await serviceHelper.delay(2000);
-    return getDeviceIdDepreciated(req, res);
-  }
-  getDeviceIDRunning = true;
-  let meta;
-  let healthy;
-  let pingResponse;
-  let synthingRunning;
-  try {
-    meta = await getMeta();
-    await serviceHelper.delay(500);
-    healthy = await getHealth(); // check that syncthing instance is healthy
-    await serviceHelper.delay(500);
-    pingResponse = await systemPing(); // check that flux has proper api key
-    const execSynct = 'ps aux | grep -i syncthing';
-    synthingRunning = await cmdAsync(execSynct);
-    if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
-      const adjustedString = meta.data.slice(15).slice(0, -2);
-      const deviceObject = JSON.parse(adjustedString);
-      const { deviceID } = deviceObject;
-      const successResponse = messageHelper.createDataMessage(deviceID);
-      syncthingStatusOk = true;
-      return res ? res.json(successResponse) : successResponse;
-    }
-    throw new Error('Syncthing is not running properly');
-  } catch (error) {
-    syncthingStatusOk = false;
-    log.error(error);
-    log.error(synthingRunning);
-    log.error(meta);
-    log.error(healthy);
-    log.error(pingResponse);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  } finally {
-    getDeviceIDRunning = false;
-  }
-}
-
-/**
- * Returns device id, also checks that syncthing is installed and running and we have the api key.
  * @returns {Promise<null | string>} Message
  */
 async function getDeviceId() {
@@ -2733,8 +2663,6 @@ module.exports = {
   setSyncthingRunningState,
   adjustSyncthing,
   getConfigFile,
-  getConfigFileDepreciated,
-  getDeviceIdDepreciated,
   runSyncthingSentinel,
   stopSyncthing,
 };

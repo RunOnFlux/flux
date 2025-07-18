@@ -1,6 +1,8 @@
 const chai = require('chai');
 const sinon = require('sinon');
-const { LRUCache } = require('lru-cache');
+
+const { FluxTTLCache } = require('../../ZelBack/src/services/utils/cacheManager');
+
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 
 const { expect } = chai;
@@ -9,7 +11,7 @@ describe('daemonServiceUtils tests', () => {
   describe('executeCall tests', () => {
     let getSpy;
     beforeEach(() => {
-      getSpy = sinon.spy(LRUCache.prototype, 'get');
+      getSpy = sinon.spy(FluxTTLCache.prototype, 'get');
     });
 
     afterEach(() => {
