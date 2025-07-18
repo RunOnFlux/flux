@@ -1556,7 +1556,9 @@ export default {
 
       const encryptedRes = await executor();
 
-      console.log('getAppEncryptedSpecifics response:', encryptedRes);
+      const fetchType = local ? 'local' : 'global';
+
+      console.log(`Get ${fetchType} encrypted fields`, encryptedRes);
 
       const { data: { status: encryptedStatus, data: specs } } = encryptedRes;
 
