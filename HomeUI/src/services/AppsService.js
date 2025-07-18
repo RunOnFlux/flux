@@ -134,7 +134,7 @@ export default {
   getAppSpecifics(name) {
     return Api().get(`/apps/appspecifications/${name}`);
   },
-  getAppDecryptedSpecifics(name, zelidauthHeader, data) {
+  getAppEncryptedSpecifics(name, zelidauthHeader, data) {
     const axiosConfig = {
       headers: {
         zelidauth: zelidauthHeader,
