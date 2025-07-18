@@ -4608,16 +4608,13 @@ export default {
       const isEnterprise = spec.version >= 8 && spec.enterprise;
 
       const sameEnterpriseSpec = (
-        spec.enterprise === this.appUpdateSpecification.enterprise
+        spec.enterprise === this.callBResponse.enterprise
       );
 
       // this is the global spec we have already decrypted
       if (isEnterprise && sameEnterpriseSpec) {
-        const { contacts } = this.appUpdateSpecification;
-        spec.contacts = JSON.parse(JSON.stringify(contacts));
-
-        const { compose } = this.appUpdateSpecification;
-        spec.compose = JSON.parse(JSON.stringify(compose));
+        spec.contacts = this.callBResponse.contacts;
+        spec.compose = this.callBResponse.compose;
       } else if (isEnterprise && !sameEnterpriseSpec) {
         const decrypted = await this.getDecryptedEnterpriseFields(
           { local: true },
