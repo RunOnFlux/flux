@@ -1416,7 +1416,7 @@ export default {
         this.forbiddenGeolocations = {};
       }
       if (this.appUpdateSpecification.version === 8 && value === false) {
-        this.appUpdateSpecification.enterprise = false;
+        this.appUpdateSpecification.enterprise = '';
       }
       this.dataToSign = '';
       this.signature = '';
@@ -1489,6 +1489,111 @@ export default {
     this.$store.commit('flux/setAppName', '');
   },
   methods: {
+    /**
+     *
+     * @param {{local?: boolean}} options local - If the command is on the "selected node"
+     * @returns {Promise<Object>}
+     */
+    async getDecryptedEnterpriseSpec(options = {}) {
+      const local = options.local ?? false;
+
+      // this should be cached
+      const ownerRes = await AppsService.getAppOriginalOwner(this.appName);
+
+      const { data: { status: ownerStatus, data: originalOwner } } = ownerRes;
+
+      if (ownerStatus !== 'success') {
+        this.showToast('error', 'Unable to get app owner');
+        return null;
+      }
+
+      const zelidauth = localStorage.getItem('zelidauth');
+
+      const appPubKeyData = {
+        name: this.appName,
+        owner: originalOwner,
+      };
+
+      // this should be cached
+      const pubkeyRes = await AppsService.getAppPublicKey(
+        zelidauth,
+        appPubKeyData,
+      );
+
+      const { data: { status: pubkeyStatus, data: pubkey } } = pubkeyRes;
+
+      if (pubkeyStatus !== 'success') {
+        this.showToast('error', 'Unable to get encryption pubkey');
+        return null;
+      }
+
+      const rsaPubKey = await this.importRsaPublicKey(pubkey);
+
+      const aesKey = crypto.getRandomValues(new Uint8Array(32));
+
+      const encryptedEnterpriseKey = await this.encryptAesKeyWithRsaKey(
+        aesKey,
+        rsaPubKey,
+      );
+      console.log('Encrypted Enterprise key:', encryptedEnterpriseKey);
+
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+          'enterprise-key': encryptedEnterpriseKey,
+        },
+      };
+
+      const endpoint = `/apps/appspecifications/${this.appName}/true`;
+
+      const executor = local
+        ? () => this.executeLocalCommand(endpoint, null, axiosConfig).bind(this)
+        : () => AppsService.getAppEncryptedSpecifics(
+          this.appName,
+          zelidauth,
+          encryptedEnterpriseKey,
+        );
+
+      const encryptedRes = await executor();
+
+      console.log('getAppEncryptedSpecifics response:', encryptedRes);
+
+      const { data: { status: encryptedStatus, data: specs } } = encryptedRes;
+
+      if (encryptedStatus !== 'success') {
+        this.showToast('danger', 'Unable to get encrypted app data');
+        this.callBResponse.status = encryptedStatus;
+        // should this also set the data? this whole using globals for this stuff
+        // makes the control flow super hard to follow
+        return null;
+      }
+
+      console.log('Enterprise field: ', specs.enterprise);
+
+      const enterpriseDecrypted = await this.decryptEnterpriseWithAes(
+        specs.enterprise,
+        aesKey,
+      ).catch((err) => {
+        console.log('Error found:', err);
+        return null;
+      });
+
+      if (!enterpriseDecrypted) {
+        this.showToast('danger', 'Unable to decrypt app specs');
+        return null;
+      }
+
+      const parsedDecrypted = JSON.parse(enterpriseDecrypted);
+
+      specs.contacts = parsedDecrypted.contacts;
+      specs.compose = parsedDecrypted.compose;
+      // I removed what this was doing. We should never be mutating property
+      // types. We actually need this value down the road
+
+      // specs.enterprise = true;
+
+      return specs;
+    },
     normalizeComponents(data) {
       if (!data) return [];
       return data.version >= 4 ? data.compose : [{ ...data, repoauth: false }];
@@ -4487,19 +4592,55 @@ export default {
     },
 
     async getInstalledApplicationSpecifics(silent = false) {
-      const response = await this.executeLocalCommand(`/apps/installedapps/${this.appName}`, null, null, true);
-      console.log(response);
-      if (response) {
-        if (response.data.status === 'error' || !response.data.data[0]) {
-          if (!silent) {
-            this.showToast('danger', response.data.data.message || response.data.data);
-          }
-        } else {
-          this.callResponse.status = response.data.status;
-          this.callResponse.data = response.data.data[0];
-          this.appSpecification = response.data.data[0];
+      const installedRes = await this.executeLocalCommand(
+        `/apps/installedapps/${this.appName}`,
+        null,
+        null,
+        true,
+      );
+
+      if (!installedRes) return;
+
+      const { data: { status: installedStatus, data: appSpecs } } = installedRes;
+
+      if (installedStatus !== 'success' || !appSpecs.length) {
+        if (!silent) {
+          this.showToast('danger', 'Unable to get installed app spec');
+          return;
         }
       }
+
+      const spec = appSpecs[0];
+
+      const isEnterprise = spec.version >= 8 && spec.enterprise;
+
+      const sameEnterpriseSpec = (
+        spec.enterprise === this.appUpdateSpecification.enterprise
+      );
+
+      // this is the global spec we have already decrypted
+      if (isEnterprise && sameEnterpriseSpec) {
+        spec.contacts = this.appUpdateSpecification.contacts;
+        spec.compose = this.appUpdateSpecification.compose;
+      } else if (isEnterprise && !sameEnterpriseSpec) {
+        const decrypted = await this.getDecryptedEnterpriseSpec(
+          { local: true },
+        );
+
+        if (!decrypted) {
+          if (!silent) {
+            this.showToast('danger', 'Unable to get decrypted app spec');
+          }
+          return;
+        }
+
+        spec.contacts = decrypted.contacts;
+        spec.compose = decrypted.compose;
+      }
+
+      this.callResponse.status = installedStatus;
+      this.callResponse.data = spec;
+      this.appSpecification = spec;
     },
     getExpireOptions() {
       this.expireOptions = [];
@@ -4574,183 +4715,145 @@ export default {
       return plainText;
     },
     async getGlobalApplicationSpecifics() {
-      let response = await AppsService.getAppSpecifics(this.appName);
-      console.log(response);
-      if (response.data.status === 'error') {
-        this.showToast('danger', response.data.data.message || response.data.data);
-        this.callBResponse.status = response.data.status;
+      const appSpecRes = await AppsService.getAppSpecifics(this.appName);
+
+      const { data: { status: appSpecStatus, data: appSpec } } = appSpecRes;
+
+      if (appSpecStatus !== 'success') {
+        this.showToast('danger', 'Unable to get global app spec');
+        this.callBResponse.status = appSpecStatus;
+        return;
+      }
+
+      const isEnterprise = appSpec.version >= 8 && appSpec.enterprise;
+
+      const spec = isEnterprise
+        ? await this.getDecryptedEnterpriseSpec()
+        : appSpec;
+
+      // why are we doing this? We are storing a copy of this same object
+      // at appUpdateSpecification
+      this.callBResponse.status = 'success';
+      this.callBResponse.data = spec;
+
+      this.$store.commit('flux/setAppName', spec.name);
+
+      // why do this? It's a new object anyway
+      this.appUpdateSpecification = JSON.parse(JSON.stringify(spec));
+
+      this.appUpdateSpecification.instances = spec.instances || 3;
+
+      if (this.instancesLocked) {
+        this.maxInstances = this.appUpdateSpecification.instances;
+      }
+
+      if (this.appUpdateSpecification.version <= 3) {
+        this.appUpdateSpecification.version = 3; // enforce specs version 3
+        this.appUpdateSpecification.ports = spec.port || this.ensureString(spec.ports); // v1 compatibility
+        this.appUpdateSpecification.domains = this.ensureString(spec.domains);
+        this.appUpdateSpecification.enviromentParameters = this.ensureString(spec.enviromentParameters);
+        this.appUpdateSpecification.commands = this.ensureString(spec.commands);
+        this.appUpdateSpecification.containerPorts = spec.containerPort || this.ensureString(spec.containerPorts); // v1 compatibility
       } else {
-        if (response.data.data.version >= 8 && response.data.data.enterprise) {
-          const responseGetOriginalOwner = await AppsService.getAppOriginalOwner(this.appName);
-          if (responseGetOriginalOwner.data.status === 'error') {
-            throw new Error(responseGetOriginalOwner.data.data.message || responseGetOriginalOwner.data.data);
-          }
-          const zelidauth = localStorage.getItem('zelidauth');
-          // call api to get RSA public key
-          const appPubKeyData = {
-            name: response.data.data.name,
-            owner: responseGetOriginalOwner.data.data,
-          };
-          const responseGetPublicKey = await AppsService.getAppPublicKey(zelidauth, appPubKeyData);
-          if (responseGetPublicKey.data.status === 'error') {
-            throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
-          }
-          const pubkey = responseGetPublicKey.data.data;
-
-          const rsaPubKey = await this.importRsaPublicKey(pubkey);
-
-          const aesKey = crypto.getRandomValues(new Uint8Array(32));
-
-          const encryptedEnterpriseKey = await this.encryptAesKeyWithRsaKey(
-            aesKey,
-            rsaPubKey,
-          );
-          console.log('Encrypted Enterprise key:', encryptedEnterpriseKey);
-
-          response = await AppsService.getAppDecryptedSpecifics(this.appName, zelidauth, encryptedEnterpriseKey);
-          console.log('getAppDecryptedSpecifics response:', response);
-          if (response.data.status === 'error') {
-            this.showToast('danger', response.data.data.message || response.data.data);
-            this.callBResponse.status = response.data.status;
-            return;
-          }
-
-          console.log('Enterprise field: ', response.data.data.enterprise);
-
-          const enterpriseDecrypted = await this.decryptEnterpriseWithAes(response.data.data.enterprise, aesKey).catch((err) => {
-            console.log('Error found:', err);
-            return null;
-          });
-
-          if (!enterpriseDecrypted) {
-            this.showToast('danger', 'Unable to decrypt app specs');
-            return;
-          }
-
-          const parsedDecrypted = JSON.parse(enterpriseDecrypted);
-
-          response.data.data.contacts = parsedDecrypted.contacts;
-          response.data.data.compose = parsedDecrypted.compose;
-          response.data.data.enterprise = true;
+        if (this.appUpdateSpecification.version > 3 && this.appUpdateSpecification.compose.find((comp) => comp.containerData.includes('g:'))) {
+          this.masterSlaveApp = true;
         }
-        this.callBResponse.status = response.data.status;
-        this.callBResponse.data = response.data.data;
-        const specs = response.data.data;
-        console.log(specs);
-        this.$store.commit('flux/setAppName', specs.name);
-        this.appUpdateSpecification = JSON.parse(JSON.stringify(specs));
-        this.appUpdateSpecification.instances = specs.instances || 3;
-        if (this.instancesLocked) {
-          this.maxInstances = this.appUpdateSpecification.instances;
+        if (this.appUpdateSpecification.version <= 7) {
+          this.appUpdateSpecification.version = 7;
         }
-        if (this.appUpdateSpecification.version <= 3) {
-          this.appUpdateSpecification.version = 3; // enforce specs version 3
-          this.appUpdateSpecification.ports = specs.port || this.ensureString(specs.ports); // v1 compatibility
-          this.appUpdateSpecification.domains = this.ensureString(specs.domains);
-          this.appUpdateSpecification.enviromentParameters = this.ensureString(specs.enviromentParameters);
-          this.appUpdateSpecification.commands = this.ensureString(specs.commands);
-          this.appUpdateSpecification.containerPorts = specs.containerPort || this.ensureString(specs.containerPorts); // v1 compatibility
-        } else {
-          if (this.appUpdateSpecification.version > 3 && this.appUpdateSpecification.compose.find((comp) => comp.containerData.includes('g:'))) {
-            this.masterSlaveApp = true;
+        this.appUpdateSpecification.contacts = this.ensureString([]);
+        this.appUpdateSpecification.geolocation = this.ensureString([]);
+        if (this.appUpdateSpecification.version >= 5) {
+          this.appUpdateSpecification.contacts = this.ensureString(spec.contacts || []);
+          this.appUpdateSpecification.geolocation = this.ensureString(spec.geolocation || []);
+          try {
+            this.decodeGeolocation(spec.geolocation || []);
+          } catch (error) {
+            console.log(error);
+            this.appUpdateSpecification.geolocation = this.ensureString([]);
           }
-          if (this.appUpdateSpecification.version <= 7) {
-            this.appUpdateSpecification.version = 7;
+        }
+        this.appUpdateSpecification.compose.forEach((component) => {
+          // eslint-disable-next-line no-param-reassign
+          component.ports = this.ensureString(component.ports);
+          // eslint-disable-next-line no-param-reassign
+          component.domains = this.ensureString(component.domains);
+          // eslint-disable-next-line no-param-reassign
+          component.environmentParameters = this.ensureString(component.environmentParameters);
+          // eslint-disable-next-line no-param-reassign
+          component.commands = this.ensureString(component.commands);
+          // eslint-disable-next-line no-param-reassign
+          component.containerPorts = this.ensureString(component.containerPorts);
+          // eslint-disable-next-line no-param-reassign
+          component.secrets = this.ensureString(component.secrets || '');
+          // eslint-disable-next-line no-param-reassign
+          component.repoauth = this.ensureString(component.repoauth || '');
+        });
+        if (this.appUpdateSpecification.version >= 6) {
+          this.getExpireOptions();
+          this.appUpdateSpecification.expire = this.ensureNumber(this.expireOptions[this.expirePosition].value);
+        }
+        if (this.appUpdateSpecification.version === 7) {
+          this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
+          this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
+          if (this.appUpdateSpecification.nodes && this.appUpdateSpecification.nodes.length) {
+            this.isPrivateApp = true;
           }
-          this.appUpdateSpecification.contacts = this.ensureString([]);
-          this.appUpdateSpecification.geolocation = this.ensureString([]);
-          if (this.appUpdateSpecification.version >= 5) {
-            this.appUpdateSpecification.contacts = this.ensureString(specs.contacts || []);
-            this.appUpdateSpecification.geolocation = this.ensureString(specs.geolocation || []);
-            try {
-              this.decodeGeolocation(specs.geolocation || []);
-            } catch (error) {
-              console.log(error);
-              this.appUpdateSpecification.geolocation = this.ensureString([]);
+          // fetch information about enterprise nodes, pgp keys
+          this.appUpdateSpecification.nodes.forEach(async (node) => {
+            // fetch pgp key
+            const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+            if (!keyExists) {
+              const pgpKey = await this.fetchEnterpriseKey(node);
+              if (pgpKey) {
+                const pair = {
+                  nodeip: node.ip,
+                  nodekey: pgpKey,
+                };
+                const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+                if (!keyExistsB) {
+                  this.enterprisePublicKeys.push(pair);
+                }
+              }
             }
-          }
-          this.appUpdateSpecification.compose.forEach((component) => {
-            // eslint-disable-next-line no-param-reassign
-            component.ports = this.ensureString(component.ports);
-            // eslint-disable-next-line no-param-reassign
-            component.domains = this.ensureString(component.domains);
-            // eslint-disable-next-line no-param-reassign
-            component.environmentParameters = this.ensureString(component.environmentParameters);
-            // eslint-disable-next-line no-param-reassign
-            component.commands = this.ensureString(component.commands);
-            // eslint-disable-next-line no-param-reassign
-            component.containerPorts = this.ensureString(component.containerPorts);
-            // eslint-disable-next-line no-param-reassign
-            component.secrets = this.ensureString(component.secrets || '');
-            // eslint-disable-next-line no-param-reassign
-            component.repoauth = this.ensureString(component.repoauth || '');
           });
-          if (this.appUpdateSpecification.version >= 6) {
-            this.getExpireOptions();
-            this.appUpdateSpecification.expire = this.ensureNumber(this.expireOptions[this.expirePosition].value);
+          if (!this.enterpriseNodes) {
+            await this.getEnterpriseNodes();
           }
-          if (this.appUpdateSpecification.version === 7) {
-            this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
-            this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
-            if (this.appUpdateSpecification.nodes && this.appUpdateSpecification.nodes.length) {
-              this.isPrivateApp = true;
-            }
-            // fetch information about enterprise nodes, pgp keys
-            this.appUpdateSpecification.nodes.forEach(async (node) => {
-              // fetch pgp key
-              const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
-              if (!keyExists) {
-                const pgpKey = await this.fetchEnterpriseKey(node);
-                if (pgpKey) {
-                  const pair = {
-                    nodeip: node.ip,
-                    nodekey: pgpKey,
-                  };
-                  const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node);
-                  if (!keyExistsB) {
-                    this.enterprisePublicKeys.push(pair);
-                  }
-                }
+          this.selectedEnterpriseNodes = [];
+          this.appUpdateSpecification.nodes.forEach((node) => {
+            // add to selected node list
+            if (this.enterpriseNodes) {
+              const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
+              if (nodeFound) {
+                this.selectedEnterpriseNodes.push(nodeFound);
               }
-            });
-            if (!this.enterpriseNodes) {
-              await this.getEnterpriseNodes();
+            } else {
+              this.showToast('danger', 'Failed to load Enterprise Node List');
             }
-            this.selectedEnterpriseNodes = [];
-            this.appUpdateSpecification.nodes.forEach((node) => {
-              // add to selected node list
-              if (this.enterpriseNodes) {
-                const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
-                if (nodeFound) {
-                  this.selectedEnterpriseNodes.push(nodeFound);
-                }
-              } else {
-                this.showToast('danger', 'Failed to load Enterprise Node List');
-              }
-            });
+          });
+        }
+        if (this.appUpdateSpecification.version >= 8) {
+          this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
+          this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
+          if (this.appUpdateSpecification.enterprise) {
+            this.isPrivateApp = true;
           }
-          if (this.appUpdateSpecification.version >= 8) {
-            this.appUpdateSpecification.staticip = this.appUpdateSpecification.staticip ?? false;
-            this.appUpdateSpecification.nodes = this.appUpdateSpecification.nodes || [];
-            if (this.appUpdateSpecification.enterprise) {
-              this.isPrivateApp = true;
-            }
-            if (!this.enterpriseNodes) {
-              await this.getEnterpriseNodes();
-            }
-            this.selectedEnterpriseNodes = [];
-            this.appUpdateSpecification.nodes.forEach((node) => {
-              // add to selected node list
-              if (this.enterpriseNodes) {
-                const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
-                if (nodeFound) {
-                  this.selectedEnterpriseNodes.push(nodeFound);
-                }
-              } else {
-                this.showToast('danger', 'Failed to load Priority Node List');
-              }
-            });
+          if (!this.enterpriseNodes) {
+            await this.getEnterpriseNodes();
           }
+          this.selectedEnterpriseNodes = [];
+          this.appUpdateSpecification.nodes.forEach((node) => {
+            // add to selected node list
+            if (this.enterpriseNodes) {
+              const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
+              if (nodeFound) {
+                this.selectedEnterpriseNodes.push(nodeFound);
+              }
+            } else {
+              this.showToast('danger', 'Failed to load Priority Node List');
+            }
+          });
         }
       }
     },

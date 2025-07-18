@@ -2619,7 +2619,7 @@ export default {
         nodes: [],
         expire: 22000,
         staticip: false,
-        enterprise: false,
+        enterprise: '',
         compose: [
           {
             name: '',
@@ -2941,7 +2941,7 @@ export default {
         this.forbiddenGeolocations = {};
       }
       if (this.appRegistrationSpecification.version === 8 && value === false) {
-        this.appRegistrationSpecification.enterprise = false;
+        this.appRegistrationSpecification.enterprise = '';
       }
       this.dataToSign = '';
       this.signature = '';
