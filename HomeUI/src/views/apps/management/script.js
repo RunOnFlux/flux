@@ -4754,7 +4754,7 @@ export default {
         this.appUpdateSpecification.domains = this.ensureString(appSpec.domains);
         this.appUpdateSpecification.enviromentParameters = this.ensureString(appSpec.enviromentParameters);
         this.appUpdateSpecification.commands = this.ensureString(appSpec.commands);
-        this.appUpdateSpecification.containerPorts = appSpec.containerPort || this.ensureString(spec.containerPorts); // v1 compatibility
+        this.appUpdateSpecification.containerPorts = appSpec.containerPort || this.ensureString(appSpec.containerPorts); // v1 compatibility
       } else {
         if (this.appUpdateSpecification.version > 3 && this.appUpdateSpecification.compose.find((comp) => comp.containerData.includes('g:'))) {
           this.masterSlaveApp = true;
