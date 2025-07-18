@@ -1547,7 +1547,7 @@ export default {
       const endpoint = `/apps/appspecifications/${this.appName}/true`;
 
       const executor = local
-        ? () => this.executeLocalCommand(endpoint, null, axiosConfig).bind(this)
+        ? () => this.executeLocalCommand(endpoint, null, axiosConfig)
         : () => AppsService.getAppEncryptedSpecifics(
           this.appName,
           zelidauth,
