@@ -4354,6 +4354,9 @@ export default {
       this.downloadOutputReturned = false;
       this.backupToUpload = [];
       const tabs = this.$refs.managementTabs.$children;
+
+      let appsFetched = false;
+
       const tabTitle = tabs[index]?.title;
       if (tabTitle !== 'Interactive Terminal') {
         this.disconnectTerminal();
@@ -4366,6 +4369,8 @@ export default {
         this.stopPollingStats();
       }
       if (!this.selectedIp) {
+        appsFetched = true;
+
         await this.getGlobalApplicationSpecifics();
         await this.getInstancesForDropDown();
         await this.$nextTick();
@@ -4391,10 +4396,14 @@ export default {
         }
       }
       this.noInstanceAvailable = false;
+      // this should use a map so you can determine what is happening here
       switch (index) {
         case 1:
-          await this.getInstalledApplicationSpecifics();
-          await this.getGlobalApplicationSpecifics();
+          // this was causing these function to run twice on page load
+          if (!appsFetched) {
+            await this.getInstalledApplicationSpecifics();
+            await this.getGlobalApplicationSpecifics();
+          }
           break;
         case 2:
           this.getApplicationInspect();
