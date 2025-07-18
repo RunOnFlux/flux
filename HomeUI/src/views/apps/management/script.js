@@ -101,7 +101,7 @@ const qs = require('qs');
 const store = require('store');
 const openpgp = require('openpgp');
 const splitargs = require('splitargs');
-const geolocations = require('../../libs/geolocation');
+const geolocations = require('../../../libs/geolocation');
 
 export default {
   components: {
