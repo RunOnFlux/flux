@@ -11200,7 +11200,7 @@ async function trySpawningGlobalApplication() {
         delay = true;
       }
       if (delay) {
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
