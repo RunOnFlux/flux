@@ -6095,12 +6095,12 @@ import DaemonService from '@/services/DaemonService';
 
 import SignClient from '@walletconnect/sign-client';
 import { MetaMaskSDK } from '@metamask/sdk';
-import 'xterm/css/xterm.css';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import { WebLinksAddon } from 'xterm-addon-web-links';
-import { Unicode11Addon } from 'xterm-addon-unicode11';
-import { SerializeAddon } from 'xterm-addon-serialize';
+import '@xterm/xterm/css/xterm.css';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { SerializeAddon } from '@xterm/addon-serialize';
 import io from 'socket.io-client';
 import useAppConfig from '@core/app-config/useAppConfig';
 import AnsiToHtml from 'ansi-to-html';

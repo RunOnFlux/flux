@@ -3,7 +3,6 @@ const config = require('config');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-
 const https = require('https');
 const axios = require('axios');
 const express = require('express');
@@ -12,14 +11,12 @@ const http = require('http');
 const nodecmd = require('node-cmd');
 const archiver = require('archiver');
 const df = require('node-df');
-const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const fs = require('fs').promises;
 const execShell = util.promisify(require('child_process').exec);
 const httpShutdown = require('http-shutdown');
-const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const {
@@ -47,6 +44,8 @@ const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const cacheManager = require('./utils/cacheManager').default;
+const networkStateService = require('./networkStateService');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -77,58 +76,14 @@ const testingAppExpress = express();
 let testingAppserver = http.createServer(testingAppExpress);
 testingAppserver = httpShutdown(testingAppserver);
 
-const GlobalAppsSpawnLRUoptions = {
-  max: 2000,
-  ttl: 1000 * 60 * 60 * 12, // 12 hours
-  maxAge: 1000 * 60 * 60 * 12, // 12 hours
-};
-const shortCache = {
-  max: 500,
-  ttl: 1000 * 60 * 5, // 5 minutes
-  maxAge: 1000 * 60 * 5, // 5 minutes
-};
-const longCache = {
-  max: 500,
-  ttl: 1000 * 60 * 60 * 3, // 3 hours
-  maxAge: 1000 * 60 * 60 * 3, // 3 hours
-};
-
-const testPortsCache = {
-  max: 60,
-  ttl: 1000 * 60 * 60 * 3, // 3 hours
-  maxAge: 1000 * 60 * 60 * 3, // 3 hours
-};
-
-const syncthingAppsCache = {
-  max: 500,
-};
-
-const stopedAppsCache = {
-  max: 40,
-  ttl: 1000 * 60 * 60 * 1.5, // 1.5 hours
-  maxAge: 1000 * 60 * 60 * 1.5, // 1.5 hours
-};
-
-const syncthingDevicesCache = {
-  max: 5000,
-  ttl: 1000 * 60 * 60 * 24, // 24 hours
-  maxAge: 1000 * 60 * 60 * 24, // 24 hours
-};
-
-const spawnErrorsLongerLRUoptions = {
-  max: 2000,
-  ttl: 1000 * 60 * 60 * 24 * 7, // 7 days
-  maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-};
-
-const spawnErrorsLongerAppCache = new LRUCache(spawnErrorsLongerLRUoptions);
-const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
-const myShortCache = new LRUCache(shortCache);
-const myLongCache = new LRUCache(longCache);
-const failedNodesTestPortsCache = new LRUCache(testPortsCache);
-const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
-const appsStopedCache = new LRUCache(stopedAppsCache);
-const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
+const spawnErrorsLongerAppCache = cacheManager.appSpawnErrorCache;
+const trySpawningGlobalAppCache = cacheManager.appSpawnCache;
+const myShortCache = cacheManager.fluxRatesCache;
+const myLongCache = cacheManager.appPriceBlockedRepoCache;
+const failedNodesTestPortsCache = cacheManager.testPortsCache;
+const receiveOnlySyncthingAppsCache = cacheManager.syncthingAppsCache;
+const appsStopedCache = cacheManager.stoppedAppsCache;
+const syncthingDevicesIDCache = cacheManager.syncthingDevicesCache;
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -405,12 +360,12 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
     const locations = await appLocation(appname);
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     const myUrl = myIP.split(':')[0];
-    const myUrlPort = myIP.split(':')[1] || 16127;
+    const myUrlPort = myIP.split(':')[1] || '16127';
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
       const ip = appInstance.ip.split(':')[0];
-      const port = appInstance.ip.split(':')[1] || 16127;
+      const port = appInstance.ip.split(':')[1] || '16127';
       if (bypassMyIp && myUrl === ip && myUrlPort === port) {
         // eslint-disable-next-line no-continue
         continue;
@@ -9172,7 +9127,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
  */
 async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   try {
-    const numberOfPeers = fluxCommunication.getNumberOfPeers();
+    const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
     if (numberOfPeers < 12) {
       log.info('checkAndRequestMultipleApps - Not enough connected peers to request missing Flux App messages');
       return;
@@ -9587,7 +9542,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
     log.info('Requesting missing Flux App messages');
     continuousFluxAppHashesCheckRunning = true;
-    const numberOfPeers = fluxCommunication.getNumberOfPeers();
+    const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
     if (numberOfPeers < 12) {
       log.info('Not enough connected peers to request missing Flux App messages');
       continuousFluxAppHashesCheckRunning = false;
@@ -11011,7 +10966,7 @@ async function trySpawningGlobalApplication() {
       }
       if (appToRunAux.enterprise && !isArcane) {
         log.info('trySpawningGlobalApplication - app can only install on ArcaneOS');
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
         await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
@@ -11037,12 +10992,12 @@ async function trySpawningGlobalApplication() {
       }
     }
 
-    trySpawningGlobalAppCache.set(appHash, appHash);
+    trySpawningGlobalAppCache.set(appHash, '');
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
     const installingAppErrorsList = await appInstallingErrorsLocation(appToRun);
     /* if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
-      spawnErrorsLongerAppCache.set(appHash, appHash);
+      spawnErrorsLongerAppCache.set(appHash, '');
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
     } */
     if (installingAppErrorsList.length > 0) {
@@ -11108,7 +11063,7 @@ async function trySpawningGlobalApplication() {
     // verify app compliance
     await checkApplicationImagesComplience(appSpecifications).catch((error) => {
       if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
       }
       throw error;
     });
@@ -11131,7 +11086,7 @@ async function trySpawningGlobalApplication() {
     appPorts.forEach((port) => {
       const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
       if (isUserBlocked) {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
         throw new Error(`trySpawningGlobalApplication - Port ${port} is blocked by user. Installation aborted.`);
       }
     });
@@ -11177,7 +11132,7 @@ async function trySpawningGlobalApplication() {
         // eslint-disable-next-line no-restricted-syntax
         for (const node of runningAppList) {
           const ip = node.ip.split(':')[0];
-          const port = node.ip.split(':')[1] || 16127;
+          const port = node.ip.split(':')[1] || '16127';
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
@@ -11291,7 +11246,7 @@ async function trySpawningGlobalApplication() {
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
         throw error;
       });
     }
@@ -11504,7 +11459,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
               if (!appsStopedCache.has(stoppedApp)) {
-                appsStopedCache.set(stoppedApp, stoppedApp);
+                appsStopedCache.set(stoppedApp, '');
               } else {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerStart(stoppedApp);
@@ -13333,7 +13288,7 @@ async function syncthingApps() {
             // eslint-disable-next-line no-restricted-syntax
             for (const appInstance of locations) {
               const ip = appInstance.ip.split(':')[0];
-              const port = appInstance.ip.split(':')[1] || 16127;
+              const port = appInstance.ip.split(':')[1] || '16127';
               const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
               const name = `${ip}:${port}`;
               let deviceID;
@@ -13530,7 +13485,7 @@ async function syncthingApps() {
               // eslint-disable-next-line no-restricted-syntax
               for (const appInstance of locations) {
                 const ip = appInstance.ip.split(':')[0];
-                const port = appInstance.ip.split(':')[1] || 16127;
+                const port = appInstance.ip.split(':')[1] || '16127';
                 const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
                 const name = `${ip}:${port}`;
                 let deviceID;
@@ -13953,7 +13908,7 @@ async function masterSlaveApps() {
                   }, timeout * 2);
                   const url = mastersRunningGSyncthingApps.get(identifier);
                   const ipToCheckAppRunning = url.split(':')[0];
-                  const portToCheckAppRunning = url.split(':')[1] || 16127;
+                  const portToCheckAppRunning = url.split(':')[1] || '16127';
                   // eslint-disable-next-line no-await-in-loop
                   const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
                   isResolved = true;
@@ -14102,19 +14057,15 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     if (!myIP) {
       return;
     }
+
+    const randomSocketAddress = await networkStateService.getRandomSocketAddress(myIP);
+
+    if (!randomSocketAddress) return;
+
+    const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
+
     myIP = myIP.split(':')[0];
 
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
-    if (!askingIP) {
-      return;
-    }
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) { // has port specification
-      // it has port specification
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
     if (myIP === askingIP) {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
@@ -14150,15 +14101,16 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 
     // We don't add the api port, as the remote node will callback to our
     // api port to make sure it can connect before testing any other ports
-    // this is so that we know the remote end can reach us.
+    // this is so that we know the remote end can reach us. I also removed
+    // -2,-3,-4, +3 as they are currently not used.
     ports.push(apiPort - 1);
-    ports.push(apiPort - 2);
-    ports.push(apiPort - 3);
-    ports.push(apiPort - 4);
+    // ports.push(apiPort - 2);
+    // ports.push(apiPort - 3);
+    // ports.push(apiPort - 4);
     ports.push(apiPort - 5);
     ports.push(apiPort + 1);
     ports.push(apiPort + 2);
-    ports.push(apiPort + 3);
+    // ports.push(apiPort + 3);
 
     const axiosConfig = {
       timeout: 5_000,
@@ -14307,16 +14259,15 @@ async function checkMyAppsAvailability() {
       return;
     }
 
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
       log.info('No Public IP found. Application checks are disabled');
       await serviceHelper.delay(4 * 60 * 1000);
       checkMyAppsAvailability();
       return;
     }
 
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
+    const [myIP, myPort = '16127'] = localSocketAddress.split(':');
 
     const installedAppsRes = await installedApps();
     if (installedAppsRes.status !== 'success') {
@@ -14470,9 +14421,9 @@ async function checkMyAppsAvailability() {
 
     await serviceHelper.delay(10 * 1000);
 
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
+    const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddress);
 
-    if (!askingIP) {
+    if (!randomSocketAddress) {
       await handleTestShutdown(testingPort, {
         skipFirewall: !firewallActive,
         skipUpnp: !isUpnp,
@@ -14484,12 +14435,7 @@ async function checkMyAppsAvailability() {
       return;
     }
 
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) {
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
+    const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
 
     if (myIP === askingIP) {
       await handleTestShutdown(testingPort, {
@@ -14544,7 +14490,7 @@ async function checkMyAppsAvailability() {
           `checkMyAppsAvailability - ${askingIP} for app availability is not reachable`,
         );
         setPortToTest = testingPort;
-        failedNodesTestPortsCache.set(askingIP, askingIP);
+        failedNodesTestPortsCache.set(askingIP, '');
         return null;
       });
 
@@ -14696,12 +14642,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
   try {
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
       throw new Error('Failed to detect Public IP');
     }
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
+    const [myIP, myPort = '16127'] = localSocketAddress.split(':');
+
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
     let somePortBanned = false;
     portsToTest.forEach((portToTest) => {
@@ -14773,18 +14719,15 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     while (!finished && i < 5) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
-      let askingIP = await fluxNetworkHelper.getRandomConnection();
-      while (!askingIP || askingIP.split(':')[0] === myIP) {
-        // eslint-disable-next-line no-await-in-loop
-        askingIP = await fluxNetworkHelper.getRandomConnection();
+      const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddress);
+
+      // this should never happen as the list should be populated here
+      if (!randomSocketAddress) {
+        throw new Error('Unable to get random test connection');
       }
-      let askingIpPort = config.server.apiport;
-      if (askingIP.includes(':')) { // has port specification
-        // it has port specification
-        const splittedIP = askingIP.split(':');
-        askingIP = splittedIP[0];
-        askingIpPort = splittedIP[1];
-      }
+
+      const [askingIP, askingIpPort = '16127'] = randomSocketAddress;
+
       // first check against our IP address
       // eslint-disable-next-line no-await-in-loop
       const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
@@ -15854,16 +15797,37 @@ async function monitorNodeStatus() {
       const variable = 'ip';
       // we already have the exact same data
       const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
-      log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
-      let nodeList = await fluxCommunicationUtils.deterministicFluxList();
-      nodeList = nodeList.map(({ ip }) => ip);
-      const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes(location));
+      const appsLocationCount = appslocations.length;
+      log.info(`monitorNodeStatus - Found ${appsLocationCount} distinct IP's on appslocations`);
+
+      const appsLocationsNotOnNodelist = [];
+
+      const iterChunk = async (chunk) => {
+        const promises = chunk.map(async (location) => {
+          const found = await fluxCommunicationUtils.socketAddressInFluxList(location);
+          if (!found) appsLocationsNotOnNodelist.push(location);
+        });
+        await Promise.all(promises);
+      };
+
+      const chunkSize = 250;
+      let startIndex = 0;
+      let endIndex = chunkSize;
+
+      while (endIndex < appsLocationCount) {
+        const chunk = appslocations.slice(startIndex, endIndex);
+        // eslint-disable-next-line no-await-in-loop
+        await iterChunk(chunk);
+        startIndex = endIndex;
+        endIndex += chunkSize;
+      }
+
       log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
       // eslint-disable-next-line no-restricted-syntax
       for (const location of appsLocationsNotOnNodelist) {
         log.info(`monitorNodeStatus - Checking IP ${location}.`);
         const ip = location.split(':')[0];
-        const port = location.split(':')[1] || 16127;
+        const port = location.split(':')[1] || '16127';
         const { CancelToken } = axios;
         const source = CancelToken.source();
         let isResolved = false;

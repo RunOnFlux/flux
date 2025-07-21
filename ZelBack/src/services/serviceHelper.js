@@ -487,6 +487,30 @@ async function runCommand(userCmd, options = {}) {
 }
 
 /**
+ *
+ * @param {string} raw A possible Fluxnode socket address. I.e. 1.2.3.4:16147
+ * @param {{portAsNumber?: boolean}} options
+ * @returns {Array<string, number | string> | null} The ip as a string, and the
+ * port as either a number or string (depending on portAsNumber) If the input is
+ * unparsable - returns null
+ */
+function normalizeNodeIpApiPort(raw, options = {}) {
+  const portAsNumber = options.portAsNumber || false;
+
+  if (typeof raw !== 'string') return null;
+
+  const ipPattern = /^(?!0)(?!.*\.$)(?:(?:1?\d?\d|25[0-5]|2[0-4]\d)(?:\.|$)){4}$/;
+  const portPattern = /^(?:6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})(?:\s?,\s?(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3}))*$/;
+  const [ip, port = '16127'] = raw.split(':');
+
+  if (!ipPattern.test(ip) || !portPattern.test(port)) return null;
+
+  const castPort = portAsNumber ? Number(port) : port;
+
+  return [ip, castPort];
+}
+
+/**
  * Parses a raw version string from dpkg-query into an object
  * @param {string} rawVersion version string from dpkg-query. Eg:
  * 0.36.1-4ubuntu0.1 (ufw)
@@ -614,4 +638,5 @@ module.exports = {
   parseInterval,
   runCommand,
   validIpv4Address,
+  normalizeNodeIpApiPort,
 };
