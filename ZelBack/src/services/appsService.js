@@ -10906,7 +10906,7 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} that are missing instances on the network.`);
+    log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} apps that are missing instances on the network.`);
 
     let appToRun = null;
     let appToRunAux = null;
@@ -10932,8 +10932,17 @@ async function trySpawningGlobalApplication() {
       appFromAppsSyncthingToBeCheckedLater = true;
     } else {
       const myNodeLocation = nodeFullGeolocation();
+
+      const runningApps = await listRunningApps();
+      if (runningApps.status !== 'success') {
+        throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
+      }
+
       // filter apps that failed to install before
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !spawnErrorsLongerAppCache.has(app.hash) && !trySpawningGlobalAppCache.has(app.hash) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
+      && !spawnErrorsLongerAppCache.has(app.hash)
+      && !trySpawningGlobalAppCache.has(app.hash)
+      && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
       // filter apps that are non enterprise or are marked to install on my node
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP) || app.version >= 8);
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
@@ -10981,10 +10990,10 @@ async function trySpawningGlobalApplication() {
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
     const installingAppErrorsList = await appInstallingErrorsLocation(appToRun);
-    /* if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
+    if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
       spawnErrorsLongerAppCache.set(appHash, '');
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
-    } */
+    }
     if (installingAppErrorsList.length > 0) {
       log.info(`trySpawningGlobalApplication - App ${appToRun} have failed previously to install on ${installingAppErrorsList.length} different nodes`);
     }
@@ -11001,17 +11010,6 @@ async function trySpawningGlobalApplication() {
     }
     if (installingAppList.find((document) => document.ip.includes(adjustedIP))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already being installed on this Flux IP`);
-      await serviceHelper.delay(30 * 60 * 1000);
-      trySpawningGlobalApplication();
-      return;
-    }
-    // second check if app is running on this node
-    const runningApps = await listRunningApps();
-    if (runningApps.status !== 'success') {
-      throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
-    }
-    if (runningApps.data.find((app) => app.Names[0].slice(5) === appToRun)) {
-      log.info(`trySpawningGlobalApplication - ${appToRun} application is already running on this Flux`);
       await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
