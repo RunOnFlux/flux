@@ -678,4 +678,66 @@ describe('serviceHelper tests', () => {
       }
     });
   });
+
+  describe('parseInterval tests', () => {
+    it('should parse all time intervals', () => {
+      const failureValue = 1_000;
+
+      const intervals = [
+        [{ bad: 'input' }, failureValue],
+        [['bad', 'input'], failureValue],
+        [new Error('Bad input'), failureValue],
+        ['', failureValue],
+        [-3600, failureValue],
+        ['-3600', failureValue],
+        ['bad timer', failureValue],
+        ['3 minutes 30', failureValue],
+        ['0 minutes 0 seconds', 0],
+        ['0sec', 0],
+        ['0', 0],
+        [0, 0],
+        [null, failureValue],
+        [undefined, failureValue],
+        ['5 years', failureValue],
+        ['-5 minutes', failureValue],
+        ['-123.55', failureValue],
+        ['123..55', failureValue],
+        ['12.3.55', failureValue],
+        [123.55, 123],
+        ['123.55', 123],
+        [300, 300],
+        [+300, 300],
+        ['3600', 3600],
+        ['+3600', 3600],
+        ['15s', 15_000],
+        ['15sec', 15_000],
+        ['15secs', 15_000],
+        ['15second', 15_000],
+        ['15seconds', 15_000],
+        ['15 seconds', 15_000],
+        [' 15    seconds ', 15_000],
+        ['3 minutes 30 seconds', 210_000],
+        ['3m30s', 210_000],
+        ['3M30S', 210_000],
+        ['3M30s', 210_000],
+        ['3 minute 30 sec', 210_000],
+        ['3minute 30 sec', 210_000],
+        ['3minute 30 seconds', 210_000],
+        ['3MINUTES 30 SECONDS', 210_000],
+        ['3 hours 3 minutes 30 seconds', 11_010_000],
+        ['1 day 3 hours 3 minutes 30 seconds', 97_410_000],
+        ['1 days 3 hours 3 minutes 30 seconds', 97_410_000],
+        ['1day', 86_400_000],
+        ['6hrs', 21_600_000],
+        ['6hours', 21_600_000],
+        ['3days 3 hours', 270_000_000],
+        ['30000 days', 2_147_483_647],
+      ];
+
+      for (let index = 0; index < intervals.length; index += 1) {
+        const interval = serviceHelper.parseInterval(intervals[index][0]);
+        expect(interval).to.equal(intervals[index][1]);
+      }
+    });
+  });
 });
