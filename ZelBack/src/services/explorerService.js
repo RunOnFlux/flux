@@ -7,6 +7,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
@@ -28,11 +29,36 @@ let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 let appsTransactions = [];
 let isSynced = false;
+let cachedDaemonVersion = null; // Cache for daemon version
 
 const blockEmitter = new EventEmitter();
 
 function getBlockEmitter() {
   return blockEmitter;
+}
+
+/**
+ * To get and cache the daemon version
+ * @returns {Promise<number>} Daemon version number
+ */
+async function getDaemonVersion() {
+  if (cachedDaemonVersion !== null) {
+    return cachedDaemonVersion;
+  }
+
+  try {
+    const daemonInfo = await daemonServiceControlRpcs.getInfo();
+    if (daemonInfo.status === 'success' && daemonInfo.data && daemonInfo.data.version) {
+      cachedDaemonVersion = daemonInfo.data.version;
+      return cachedDaemonVersion;
+    }
+  } catch (error) {
+    log.warn(`Failed to get daemon version: ${error.message}`);
+  }
+
+  // Default to 0 if unable to get version
+  cachedDaemonVersion = 0;
+  return cachedDaemonVersion;
 }
 
 /**
@@ -741,9 +767,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     if (daemonBlockCount.status !== 'success') {
       throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
     }
-
     const daemonHeight = daemonBlockCount.data;
-
     // get scanned height from our database;
     // get height from blockchain?
     if (scannedBlockHeight === 0) {
@@ -896,7 +920,24 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
     } else if (scannedBlockHeight >= config.daemon.chainValidHeight && lastchainTipCheck !== 0 && lastchainTipCheck + 100 < scannedBlockHeight) {
       log.info(`Explorer - Checking for chain reorganisations - lastchainTipCheck: ${lastchainTipCheck} scannedBlockHeight: ${scannedBlockHeight}`);
-      const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+
+      // Check daemon version and conditionally pass parameter to getChainTips
+      const daemonVersion = await getDaemonVersion();
+      let daemonGetChainTips;
+
+      if (daemonVersion > 7020050) {
+        // For newer daemon versions, pass the minheight parameter
+        const req = {
+          params: {
+            minheight: lastchainTipCheck + 1,
+          },
+        };
+        daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips(req);
+      } else {
+        // For older versions, call without parameters
+        daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+      }
+
       if (daemonGetChainTips.status !== 'success') {
         throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
       }
