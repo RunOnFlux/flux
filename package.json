@@ -135,6 +135,7 @@
     "@vueuse/core": "~10.7.1",
     "@walletconnect/modal": "~2.6.2",
     "@walletconnect/sign-client": "~2.11.0",
+    "ajv": "~8.17.1",
     "ansi-to-html": "~0.7.2",
     "apexcharts": "~3.45.1",
     "babel-loader": "~9.1.3",
