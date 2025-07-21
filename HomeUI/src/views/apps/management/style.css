@@ -1,0 +1,124 @@
+#updatemessage {
+  padding-right: 25px !important;
+}
+.text-wrap {
+  position: relative;
+  padding: 0em;
+}
+.clipboard.icon {
+  position: absolute;
+  top: 0.4em;
+  right: 2em;
+  margin-top: 4px;
+  margin-left: 4px;
+  width: 12px;
+  height: 12px;
+  border: solid 1px #333333;
+  border-top: none;
+  border-radius: 1px;
+  cursor: pointer;
+}
+.no-wrap {
+  white-space: nowrap !important;
+}
+.no-wrap-limit {
+  white-space: nowrap !important;
+  min-width: 150px;
+  text-align: center;;
+}
+.custom-button {
+  width: 15px !important;
+  height: 25px !important;
+}
+.button-cell {
+  display: flex;
+  align-items: center;
+  min-width: 150px;
+}
+.xterm {
+  padding: 10px;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+.spin-icon {
+  animation: spin 2s linear infinite;
+}
+.spin-icon-l {
+  animation: spin 2s linear infinite;
+  width: 12px !important;
+  height: 12px !important;
+}
+.app-instances-table td:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.app-instances-table th:nth-child(1) {
+  padding: 0 0 0 5px;
+}
+.app-instances-table td:nth-child(5) {
+  width: 105px;
+}
+.app-instances-table th:nth-child(5) {
+  width: 105px;
+}
+.loginRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.walletIcon {
+  height: 90px;
+  width: 90px;
+  padding: 10px;
+}
+.walletIcon img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.fluxSSO {
+  height: 90px;
+  padding: 10px;
+  margin-left: 5px;
+}
+.fluxSSO img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.stripePay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.stripePay img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+.paypalPay {
+  margin-left: 5px;
+  height: 90px;
+  padding: 10px;
+}
+.paypalPay img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+a img {
+  transition: all 0.05s ease-in-out;
+}
+
+a:hover img {
+  filter: opacity(70%);
+  transform: scale(1.1);
+}
+
+.flex {
+  display: flex;
+}
