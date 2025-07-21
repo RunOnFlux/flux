@@ -10975,25 +10975,6 @@ async function trySpawningGlobalApplication() {
         trySpawningGlobalApplication();
         return;
       }
-
-      if (appToRunAux.required === appToRunAux.actual + 1 && appToRunAux.nodes.length === 0 && Math.random() > 0.15) {
-        log.info('trySpawningGlobalApplication - app missing one instance failed the 15% probability check to install');
-        await serviceHelper.delay(5 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
-      if (appToRunAux.required === appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.40) {
-        log.info('trySpawningGlobalApplication - app missing two instances failed the 40% probability check to install');
-        await serviceHelper.delay(10 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
-      if (appToRunAux.required > appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.60) {
-        log.info('trySpawningGlobalApplication - app missing more than two instances failed the 60% probability check to install');
-        await serviceHelper.delay(10 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
     }
 
     trySpawningGlobalAppCache.set(appHash, '');
