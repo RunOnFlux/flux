@@ -10994,9 +10994,6 @@ async function trySpawningGlobalApplication() {
       spawnErrorsLongerAppCache.set(appHash, '');
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
     }
-    if (installingAppErrorsList.length > 0) {
-      log.info(`trySpawningGlobalApplication - App ${appToRun} have failed previously to install on ${installingAppErrorsList.length} different nodes`);
-    }
 
     runningAppList = await appLocation(appToRun);
 
