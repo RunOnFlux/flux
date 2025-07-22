@@ -10906,7 +10906,7 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} that are missing instances on the network.`);
+    log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} apps that are missing instances on the network.`);
 
     let appToRun = null;
     let appToRunAux = null;
@@ -10932,8 +10932,17 @@ async function trySpawningGlobalApplication() {
       appFromAppsSyncthingToBeCheckedLater = true;
     } else {
       const myNodeLocation = nodeFullGeolocation();
+
+      const runningApps = await listRunningApps();
+      if (runningApps.status !== 'success') {
+        throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
+      }
+
       // filter apps that failed to install before
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !spawnErrorsLongerAppCache.has(app.hash) && !trySpawningGlobalAppCache.has(app.hash) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
+      && !spawnErrorsLongerAppCache.has(app.hash)
+      && !trySpawningGlobalAppCache.has(app.hash)
+      && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
       // filter apps that are non enterprise or are marked to install on my node
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP) || app.version >= 8);
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
@@ -10969,28 +10978,9 @@ async function trySpawningGlobalApplication() {
         return;
       }
       if (appToRunAux.enterprise && !isArcane) {
-        log.info('trySpawningGlobalApplication - app can only install on ArcaneOS');
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} can only install on ArcaneOS`);
         spawnErrorsLongerAppCache.set(appHash, '');
         await serviceHelper.delay(5 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
-
-      if (appToRunAux.required === appToRunAux.actual + 1 && appToRunAux.nodes.length === 0 && Math.random() > 0.15) {
-        log.info('trySpawningGlobalApplication - app missing one instance failed the 15% probability check to install');
-        await serviceHelper.delay(5 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
-      if (appToRunAux.required === appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.40) {
-        log.info('trySpawningGlobalApplication - app missing two instances failed the 40% probability check to install');
-        await serviceHelper.delay(10 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
-      if (appToRunAux.required > appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.60) {
-        log.info('trySpawningGlobalApplication - app missing more than two instances failed the 60% probability check to install');
-        await serviceHelper.delay(10 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -11000,12 +10990,9 @@ async function trySpawningGlobalApplication() {
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
     const installingAppErrorsList = await appInstallingErrorsLocation(appToRun);
-    /* if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
+    if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
       spawnErrorsLongerAppCache.set(appHash, '');
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
-    } */
-    if (installingAppErrorsList.length > 0) {
-      log.info(`trySpawningGlobalApplication - App ${appToRun} have failed previously to install on ${installingAppErrorsList.length} different nodes`);
     }
 
     runningAppList = await appLocation(appToRun);
@@ -11020,17 +11007,6 @@ async function trySpawningGlobalApplication() {
     }
     if (installingAppList.find((document) => document.ip.includes(adjustedIP))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already being installed on this Flux IP`);
-      await serviceHelper.delay(30 * 60 * 1000);
-      trySpawningGlobalApplication();
-      return;
-    }
-    // second check if app is running on this node
-    const runningApps = await listRunningApps();
-    if (runningApps.status !== 'success') {
-      throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
-    }
-    if (runningApps.data.find((app) => app.Names[0].slice(5) === appToRun)) {
-      log.info(`trySpawningGlobalApplication - ${appToRun} application is already running on this Flux`);
       await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
@@ -11059,7 +11035,7 @@ async function trySpawningGlobalApplication() {
     const appExists = apps.find((app) => app.name === appSpecifications.name);
     if (appExists) { // double checked in installation process.
       log.info(`trySpawningGlobalApplication - Application ${appSpecifications.name} is already installed`);
-      await serviceHelper.delay(30 * 60 * 1000);
+      await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -11098,7 +11074,7 @@ async function trySpawningGlobalApplication() {
     const portsPubliclyAvailable = await checkInstallingAppPortAvailable(appPorts);
     if (portsPubliclyAvailable === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-      await serviceHelper.delay(30 * 60 * 1000);
+      await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -11127,7 +11103,7 @@ async function trySpawningGlobalApplication() {
       const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -11149,7 +11125,7 @@ async function trySpawningGlobalApplication() {
             };
             appsSyncthingToBeCheckedLater.push(appToCheck);
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(30 * 60 * 1000);
+            await serviceHelper.delay(5 * 60 * 1000);
             trySpawningGlobalAppCache.delete(appHash);
             trySpawningGlobalApplication();
             return;
@@ -11219,7 +11195,7 @@ async function trySpawningGlobalApplication() {
         delay = true;
       }
       if (delay) {
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -11232,21 +11208,6 @@ async function trySpawningGlobalApplication() {
     const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
     // eslint-disable-next-line no-restricted-syntax
     for (const componentToInstall of compositedSpecification) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const installedApp of apps) {
-        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of installedAppCompositedSpecification) {
-          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
-            log.info(`trySpawningGlobalApplication - ${componentToInstall.repotag} Image is already running on this Flux`);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(30 * 60 * 1000);
-            trySpawningGlobalApplication();
-            return;
-          }
-        }
-      }
-
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
@@ -11304,7 +11265,7 @@ async function trySpawningGlobalApplication() {
       const index = installingAppList.findIndex((x) => x.ip === myIP);
       if (runningAppList.length + index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances, my instance is number ${runningAppList.length + index + 1}`);
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -11320,7 +11281,7 @@ async function trySpawningGlobalApplication() {
     }
     if (!registerOk) {
       log.info('trySpawningGlobalApplication - Error on registerAppLocally');
-      await serviceHelper.delay(30 * 60 * 1000);
+      await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
