@@ -30,11 +30,110 @@ const MAX_CHILD_PROCESS_TIME = 15 * 60 * 1000;
 const locks = new Map();
 
 /**
+ *  Parse a human readable time string into milliseconds, for timers
+ * @param {number|string} userInterval the time period to parse. In the format
+ * ```<amount of time>[<unit of time>]+``` For example:
+ * ```
+ *   200  = 200 milliseconds
+ *   15s  = 15 seconds
+ *   2m   = 2 minutes
+ *   4h   = 4 hours
+ *   1d   = 1 day
+ *
+ *   3m30s   = 3 minutes 30 seconds
+ *   1h30m    = 1 hour 30 minutes
+ *   1d8h30m5s  = 1 day 8 hours 30 minutes 5 seconds
+ *
+ *   3 minutes 30 seconds
+ *   3minutes30seconds
+ *   3mins30secs
+ *   1minute5seconds
+ * ```
+ * @returns {number} milliseconds
+ */
+function parseInterval(userInterval) {
+  // we use a default interval here of 1 second, instead of 0. This is in case of
+  // user error where there is a function in a loop, this will prevent cpu @ 100%
+  const defaultInterval = 1_000;
+
+  if (typeof userInterval !== 'string' && typeof userInterval !== 'number') {
+    log.warn(`Unparsable time value received: ${userInterval}, returning 1000ms`);
+    return defaultInterval;
+  }
+
+  // if only numbers are provided, we assume they are ms and return those
+  if (/^[-+]?[0-9]*\.?[0-9]+$/.test(userInterval)) {
+    const asNumber = Math.floor(Number(userInterval));
+
+    if (asNumber < 0) {
+      log.warn(`Negative time value received: ${userInterval}, returning 1000ms`);
+      return defaultInterval;
+    }
+    return asNumber;
+  }
+
+  const formattedInterval = userInterval.replace(/\s/g, '').toLowerCase();
+  // this will ensure we only get time pairs. I.e. 1 minute
+  const timePattern = /^(?:[0-9]+(?:[s|S|m|M|h|H|d|D]|secs?|seconds?|mins?|minutes?|hrs?|hours?|days?))+$/;
+
+  if (!timePattern.test(formattedInterval)) {
+    log.warn(`Unparsable time value received: ${userInterval}, returning 1000ms`);
+    return defaultInterval;
+  }
+
+  const intervalAsArray = formattedInterval.match(/[0-9]+|[a-zA-Z]+/g);
+
+  let ms = 0;
+  // iterate the array objects as pairs
+  for (let i = 0; i < intervalAsArray.length; i += 2) {
+    const measure = intervalAsArray[i];
+    const unit = intervalAsArray[i + 1];
+
+    switch (unit) {
+      case 's':
+      case 'sec':
+      case 'secs':
+      case 'second':
+      case 'seconds':
+        ms += measure * 1_000;
+        break;
+      case 'm':
+      case 'min':
+      case 'mins':
+      case 'minute':
+      case 'minutes':
+        ms += measure * 60_000;
+        break;
+      case 'h':
+      case 'hr':
+      case 'hrs':
+      case 'hour':
+      case 'hours':
+        ms += measure * 3_600_000;
+        break;
+      case 'd':
+      case 'day':
+      case 'days':
+        ms += measure * 86_400_000;
+        break;
+      default:
+      // do nothing
+    }
+
+    if (ms >= 2_147_483_647) return 2_147_483_647;
+  }
+  return ms;
+}
+
+/**
  * To delay by a number of milliseconds.
- * @param {number} ms Number of milliseconds.
+ * @param {number} userInterval The interval to delay for. See parseInterval
+ * for specifics.
  * @returns {Promise} Promise object.
  */
-function delay(ms) {
+function delay(userInterval) {
+  const ms = parseInterval(userInterval);
+
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
@@ -388,6 +487,30 @@ async function runCommand(userCmd, options = {}) {
 }
 
 /**
+ *
+ * @param {string} raw A possible Fluxnode socket address. I.e. 1.2.3.4:16147
+ * @param {{portAsNumber?: boolean}} options
+ * @returns {Array<string, number | string> | null} The ip as a string, and the
+ * port as either a number or string (depending on portAsNumber) If the input is
+ * unparsable - returns null
+ */
+function normalizeNodeIpApiPort(raw, options = {}) {
+  const portAsNumber = options.portAsNumber || false;
+
+  if (typeof raw !== 'string') return null;
+
+  const ipPattern = /^(?!0)(?!.*\.$)(?:(?:1?\d?\d|25[0-5]|2[0-4]\d)(?:\.|$)){4}$/;
+  const portPattern = /^(?:6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})(?:\s?,\s?(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3}))*$/;
+  const [ip, port = '16127'] = raw.split(':');
+
+  if (!ipPattern.test(ip) || !portPattern.test(port)) return null;
+
+  const castPort = portAsNumber ? Number(port) : port;
+
+  return [ip, castPort];
+}
+
+/**
  * Parses a raw version string from dpkg-query into an object
  * @param {string} rawVersion version string from dpkg-query. Eg:
  * 0.36.1-4ubuntu0.1 (ufw)
@@ -512,6 +635,8 @@ module.exports = {
   isPrivateAddress,
   minVersionSatisfy,
   parseVersion,
+  parseInterval,
   runCommand,
   validIpv4Address,
+  normalizeNodeIpApiPort,
 };

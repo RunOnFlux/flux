@@ -215,6 +215,8 @@ module.exports = {
     minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
     newMinBlocksAllowance: 100, // app can be registered for a minimum of this blocks ~ 3 hours - to allow users to cancel application subscription
     newMinBlocksAllowanceBlock: 1630040, // block where we will start looking at new min blocks allowance. block expected on 26th of April 2024
+    cancel1BlockMinBlocksAllowance: 1, // app can be registered for a minimum of 1 block for cancellation purposes
+    cancel1BlockMinBlocksAllowanceBlock: 1964447, // block where we will start allowing 1 block lifetime updates - Expected August 6th 2025
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024

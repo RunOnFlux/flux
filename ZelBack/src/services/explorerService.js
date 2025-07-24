@@ -1,4 +1,5 @@
 const config = require('config');
+const EventEmitter = require('node:events');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -6,6 +7,7 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
@@ -18,6 +20,7 @@ const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const addressTransactionIndexCollection = config.database.daemon.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
 let isInInitiationOfBP = false;
@@ -26,9 +29,37 @@ let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
 let appsTransactions = [];
 let isSynced = false;
+let cachedDaemonVersion = null; // Cache for daemon version
 
-// updateFluxAppsPeriod can be between every 4 to 9 blocks
-const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+const blockEmitter = new EventEmitter();
+
+function getBlockEmitter() {
+  return blockEmitter;
+}
+
+/**
+ * To get and cache the daemon version
+ * @returns {Promise<number>} Daemon version number
+ */
+async function getDaemonVersion() {
+  if (cachedDaemonVersion !== null) {
+    return cachedDaemonVersion;
+  }
+
+  try {
+    const daemonInfo = await daemonServiceControlRpcs.getInfo();
+    if (daemonInfo.status === 'success' && daemonInfo.data && daemonInfo.data.version) {
+      cachedDaemonVersion = daemonInfo.data.version;
+      return cachedDaemonVersion;
+    }
+  } catch (error) {
+    log.warn(`Failed to get daemon version: ${error.message}`);
+  }
+
+  // Default to 0 if unable to get version
+  cachedDaemonVersion = 0;
+  return cachedDaemonVersion;
+}
 
 /**
  * To return the sender's transaction info from the daemon service.
@@ -565,6 +596,10 @@ async function processBlock(blockHeight, isInsightExplorer) {
     // this should run only when node is synced
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
+      blockEmitter.emit('blockReceived', scannedHeight);
+      // updateFluxAppsPeriod can be between every 4 to 9 blocks
+      const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+
       if (blockHeight % 2 === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           await appsService.expireGlobalApplications();
@@ -885,7 +920,24 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
     } else if (scannedBlockHeight >= config.daemon.chainValidHeight && lastchainTipCheck !== 0 && lastchainTipCheck + 100 < scannedBlockHeight) {
       log.info(`Explorer - Checking for chain reorganisations - lastchainTipCheck: ${lastchainTipCheck} scannedBlockHeight: ${scannedBlockHeight}`);
-      const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+
+      // Check daemon version and conditionally pass parameter to getChainTips
+      const daemonVersion = await getDaemonVersion();
+      let daemonGetChainTips;
+
+      if (daemonVersion > 7020050) {
+        // For newer daemon versions, pass the minheight parameter
+        const req = {
+          params: {
+            minheight: lastchainTipCheck + 1,
+          },
+        };
+        daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips(req);
+      } else {
+        // For older versions, call without parameters
+        daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+      }
+
       if (daemonGetChainTips.status !== 'success') {
         throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
       }
@@ -1601,6 +1653,7 @@ module.exports = {
   getScannedHeight,
   getAllFusionCoinbase,
   getAddressFusionCoinbase,
+  getBlockEmitter,
 
   // exports for testing puproses
   getSenderTransactionFromDaemon,

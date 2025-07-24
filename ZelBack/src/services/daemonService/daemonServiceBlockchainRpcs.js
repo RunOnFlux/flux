@@ -209,9 +209,18 @@ async function getBlockHeader(req, res) {
  * @returns {object} Message.
  */
 async function getChainTips(req, res) {
-  const rpccall = 'getChainTips';
+  let { minheight } = req?.params || {};
+  minheight = minheight || req?.query?.minheight;
 
-  response = await daemonServiceUtils.executeCall(rpccall);
+  const rpccall = 'getChainTips';
+  const rpcparameters = [];
+
+  if (minheight !== undefined && minheight !== null) {
+    minheight = serviceHelper.ensureNumber(minheight);
+    rpcparameters.push(minheight);
+  }
+
+  response = await daemonServiceUtils.executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }

@@ -14,8 +14,6 @@ const fluxRpc = require('./utils/fluxRpc');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
-let response = messageHelper.createErrorMessage();
-
 let benchdClient = null;
 
 async function buildBenchdClient() {
@@ -78,7 +76,7 @@ async function executeCall(rpc, params) {
 async function getStatus(req, res) {
   const rpccall = 'getstatus';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -91,6 +89,9 @@ async function getStatus(req, res) {
  */
 async function restartNodeBenchmarks(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+
+  let response;
+
   if (authorized === true) {
     const rpccall = 'restartnodebenchmarks';
 
@@ -112,6 +113,9 @@ async function signFluxTransaction(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
+
+  let response;
+
   if (authorized === true) {
     const rpccall = 'signzelnodetransaction';
     const rpcparameters = [];
@@ -141,6 +145,9 @@ async function signFluxTransactionPost(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
     const { hexstring } = processedBody;
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
+
+    let response;
+
     if (authorized === true) {
       const rpccall = 'signzelnodetransaction';
       const rpcparameters = [];
@@ -209,7 +216,7 @@ async function help(req, res) {
   const rpccall = 'help';
   const rpcparameters = [command];
 
-  response = await executeCall(rpccall, rpcparameters);
+  const response = await executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -222,6 +229,9 @@ async function help(req, res) {
  */
 async function stop(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
+
+  let response;
+
   if (authorized === true) {
     const rpccall = 'stop';
 
@@ -243,7 +253,7 @@ async function stop(req, res) {
 async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -257,7 +267,7 @@ async function getBenchmarks(req, res) {
 async function getInfo(req, res) {
   const rpccall = 'getInfo';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -271,7 +281,7 @@ async function getInfo(req, res) {
 async function getPublicIp(req, res) {
   const rpccall = 'getpublicip';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -285,7 +295,7 @@ async function getPublicIp(req, res) {
 async function startMultiPortBench(req, res) {
   const rpccall = 'startmultiportbench';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }

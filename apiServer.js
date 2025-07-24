@@ -19,11 +19,10 @@ const axios = require('axios').default;
 const config = require('config');
 const hash = require('object-hash');
 
+const serviceManager = require('./ZelBack/src/services/serviceManager');
 const fluxServer = require('./ZelBack/src/lib/fluxServer');
-
 const log = require('./ZelBack/src/lib/log');
 
-const serviceManager = require('./ZelBack/src/services/serviceManager');
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
@@ -247,9 +246,7 @@ async function initiate() {
 
   await loadUpnpIfRequired();
 
-  setInterval(async () => {
-    configReload();
-  }, 2 * 1000);
+  setImmediate(configReload);
 
   const appRoot = process.cwd();
   // ToDo: move this to async

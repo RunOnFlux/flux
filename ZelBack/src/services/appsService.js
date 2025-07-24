@@ -3,7 +3,6 @@ const config = require('config');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-
 const https = require('https');
 const axios = require('axios');
 const express = require('express');
@@ -12,14 +11,12 @@ const http = require('http');
 const nodecmd = require('node-cmd');
 const archiver = require('archiver');
 const df = require('node-df');
-const { LRUCache } = require('lru-cache');
 const systemcrontab = require('crontab');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
 const fs = require('fs').promises;
 const execShell = util.promisify(require('child_process').exec);
 const httpShutdown = require('http-shutdown');
-const fluxCommunication = require('./fluxCommunication');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const {
@@ -47,6 +44,8 @@ const log = require('../lib/log');
 const { PassThrough } = require('stream');
 const { invalidMessages } = require('./invalidMessages');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
+const cacheManager = require('./utils/cacheManager').default;
+const networkStateService = require('./networkStateService');
 
 const fluxDirPath = path.join(__dirname, '../../../');
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -77,58 +76,14 @@ const testingAppExpress = express();
 let testingAppserver = http.createServer(testingAppExpress);
 testingAppserver = httpShutdown(testingAppserver);
 
-const GlobalAppsSpawnLRUoptions = {
-  max: 2000,
-  ttl: 1000 * 60 * 60 * 12, // 12 hours
-  maxAge: 1000 * 60 * 60 * 12, // 12 hours
-};
-const shortCache = {
-  max: 500,
-  ttl: 1000 * 60 * 5, // 5 minutes
-  maxAge: 1000 * 60 * 5, // 5 minutes
-};
-const longCache = {
-  max: 500,
-  ttl: 1000 * 60 * 60 * 3, // 3 hours
-  maxAge: 1000 * 60 * 60 * 3, // 3 hours
-};
-
-const testPortsCache = {
-  max: 60,
-  ttl: 1000 * 60 * 60 * 3, // 3 hours
-  maxAge: 1000 * 60 * 60 * 3, // 3 hours
-};
-
-const syncthingAppsCache = {
-  max: 500,
-};
-
-const stopedAppsCache = {
-  max: 40,
-  ttl: 1000 * 60 * 60 * 1.5, // 1.5 hours
-  maxAge: 1000 * 60 * 60 * 1.5, // 1.5 hours
-};
-
-const syncthingDevicesCache = {
-  max: 5000,
-  ttl: 1000 * 60 * 60 * 24, // 24 hours
-  maxAge: 1000 * 60 * 60 * 24, // 24 hours
-};
-
-const spawnErrorsLongerLRUoptions = {
-  max: 2000,
-  ttl: 1000 * 60 * 60 * 24 * 7, // 7 days
-  maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-};
-
-const spawnErrorsLongerAppCache = new LRUCache(spawnErrorsLongerLRUoptions);
-const trySpawningGlobalAppCache = new LRUCache(GlobalAppsSpawnLRUoptions);
-const myShortCache = new LRUCache(shortCache);
-const myLongCache = new LRUCache(longCache);
-const failedNodesTestPortsCache = new LRUCache(testPortsCache);
-const receiveOnlySyncthingAppsCache = new LRUCache(syncthingAppsCache);
-const appsStopedCache = new LRUCache(stopedAppsCache);
-const syncthingDevicesIDCache = new LRUCache(syncthingDevicesCache);
+const spawnErrorsLongerAppCache = cacheManager.appSpawnErrorCache;
+const trySpawningGlobalAppCache = cacheManager.appSpawnCache;
+const myShortCache = cacheManager.fluxRatesCache;
+const myLongCache = cacheManager.appPriceBlockedRepoCache;
+const failedNodesTestPortsCache = cacheManager.testPortsCache;
+const receiveOnlySyncthingAppsCache = cacheManager.syncthingAppsCache;
+const appsStopedCache = cacheManager.stoppedAppsCache;
+const syncthingDevicesIDCache = cacheManager.syncthingDevicesCache;
 
 let removalInProgress = false;
 let installationInProgress = false;
@@ -405,12 +360,12 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
     const locations = await appLocation(appname);
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     const myUrl = myIP.split(':')[0];
-    const myUrlPort = myIP.split(':')[1] || 16127;
+    const myUrlPort = myIP.split(':')[1] || '16127';
     // eslint-disable-next-line no-restricted-syntax
     for (const appInstance of locations) {
       // HERE let the node we are connected to handle it
       const ip = appInstance.ip.split(':')[0];
-      const port = appInstance.ip.split(':')[1] || 16127;
+      const port = appInstance.ip.split(':')[1] || '16127';
       if (bypassMyIp && myUrl === ip && myUrlPort === port) {
         // eslint-disable-next-line no-continue
         continue;
@@ -6077,8 +6032,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       if (appSpecifications.expire < config.fluxapps.minBlocksAllowance) {
         throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 1 week`);
       }
-    } else if (appSpecifications.expire < config.fluxapps.newMinBlocksAllowance) {
-      throw new Error(`Minimum expiration of application is ${config.fluxapps.minBlocksAllowance} blocks ~ 3 hours`);
+    } else if (height < config.fluxapps.cancel1BlockMinBlocksAllowanceBlock) {
+      if (appSpecifications.expire < config.fluxapps.newMinBlocksAllowance) {
+        throw new Error(`Minimum expiration of application is ${config.fluxapps.newMinBlocksAllowance} blocks ~ 3 hours`);
+      }
+    } else if (appSpecifications.expire < config.fluxapps.cancel1BlockMinBlocksAllowance) {
+      throw new Error(`Minimum expiration of application is ${config.fluxapps.cancel1BlockMinBlocksAllowance} blocks`);
     }
     if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
       throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
@@ -9172,7 +9131,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
  */
 async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   try {
-    const numberOfPeers = fluxCommunication.getNumberOfPeers();
+    const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
     if (numberOfPeers < 12) {
       log.info('checkAndRequestMultipleApps - Not enough connected peers to request missing Flux App messages');
       return;
@@ -9587,7 +9546,7 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
     log.info('Requesting missing Flux App messages');
     continuousFluxAppHashesCheckRunning = true;
-    const numberOfPeers = fluxCommunication.getNumberOfPeers();
+    const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
     if (numberOfPeers < 12) {
       log.info('Not enough connected peers to request missing Flux App messages');
       continuousFluxAppHashesCheckRunning = false;
@@ -10947,7 +10906,7 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} that are missing instances on the network.`);
+    log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} apps that are missing instances on the network.`);
 
     let appToRun = null;
     let appToRunAux = null;
@@ -10973,8 +10932,17 @@ async function trySpawningGlobalApplication() {
       appFromAppsSyncthingToBeCheckedLater = true;
     } else {
       const myNodeLocation = nodeFullGeolocation();
+
+      const runningApps = await listRunningApps();
+      if (runningApps.status !== 'success') {
+        throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
+      }
+
       // filter apps that failed to install before
-      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !spawnErrorsLongerAppCache.has(app.hash) && !trySpawningGlobalAppCache.has(app.hash) && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+      globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
+      && !spawnErrorsLongerAppCache.has(app.hash)
+      && !trySpawningGlobalAppCache.has(app.hash)
+      && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
       // filter apps that are non enterprise or are marked to install on my node
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP) || app.version >= 8);
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
@@ -11010,43 +10978,21 @@ async function trySpawningGlobalApplication() {
         return;
       }
       if (appToRunAux.enterprise && !isArcane) {
-        log.info('trySpawningGlobalApplication - app can only install on ArcaneOS');
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} can only install on ArcaneOS`);
+        spawnErrorsLongerAppCache.set(appHash, '');
         await serviceHelper.delay(5 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
-
-      if (appToRunAux.required === appToRunAux.actual + 1 && appToRunAux.nodes.length === 0 && Math.random() > 0.15) {
-        log.info('trySpawningGlobalApplication - app missing one instance failed the 15% probability check to install');
-        await serviceHelper.delay(5 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
-      if (appToRunAux.required === appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.40) {
-        log.info('trySpawningGlobalApplication - app missing two instances failed the 40% probability check to install');
-        await serviceHelper.delay(10 * 60 * 1000);
-        trySpawningGlobalApplication();
-        return;
-      }
-      if (appToRunAux.required > appToRunAux.actual + 2 && appToRunAux.nodes.length === 0 && Math.random() > 0.60) {
-        log.info('trySpawningGlobalApplication - app missing more than two instances failed the 60% probability check to install');
-        await serviceHelper.delay(10 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
     }
 
-    trySpawningGlobalAppCache.set(appHash, appHash);
+    trySpawningGlobalAppCache.set(appHash, '');
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
     const installingAppErrorsList = await appInstallingErrorsLocation(appToRun);
-    /* if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
-      spawnErrorsLongerAppCache.set(appHash, appHash);
+    if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
+      spawnErrorsLongerAppCache.set(appHash, '');
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
-    } */
-    if (installingAppErrorsList.length > 0) {
-      log.info(`trySpawningGlobalApplication - App ${appToRun} have failed previously to install on ${installingAppErrorsList.length} different nodes`);
     }
 
     runningAppList = await appLocation(appToRun);
@@ -11061,17 +11007,6 @@ async function trySpawningGlobalApplication() {
     }
     if (installingAppList.find((document) => document.ip.includes(adjustedIP))) {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is reported as already being installed on this Flux IP`);
-      await serviceHelper.delay(30 * 60 * 1000);
-      trySpawningGlobalApplication();
-      return;
-    }
-    // second check if app is running on this node
-    const runningApps = await listRunningApps();
-    if (runningApps.status !== 'success') {
-      throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
-    }
-    if (runningApps.data.find((app) => app.Names[0].slice(5) === appToRun)) {
-      log.info(`trySpawningGlobalApplication - ${appToRun} application is already running on this Flux`);
       await serviceHelper.delay(30 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
@@ -11100,7 +11035,7 @@ async function trySpawningGlobalApplication() {
     const appExists = apps.find((app) => app.name === appSpecifications.name);
     if (appExists) { // double checked in installation process.
       log.info(`trySpawningGlobalApplication - Application ${appSpecifications.name} is already installed`);
-      await serviceHelper.delay(30 * 60 * 1000);
+      await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -11108,7 +11043,7 @@ async function trySpawningGlobalApplication() {
     // verify app compliance
     await checkApplicationImagesComplience(appSpecifications).catch((error) => {
       if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
       }
       throw error;
     });
@@ -11131,7 +11066,7 @@ async function trySpawningGlobalApplication() {
     appPorts.forEach((port) => {
       const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
       if (isUserBlocked) {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
         throw new Error(`trySpawningGlobalApplication - Port ${port} is blocked by user. Installation aborted.`);
       }
     });
@@ -11139,7 +11074,7 @@ async function trySpawningGlobalApplication() {
     const portsPubliclyAvailable = await checkInstallingAppPortAvailable(appPorts);
     if (portsPubliclyAvailable === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-      await serviceHelper.delay(30 * 60 * 1000);
+      await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -11168,7 +11103,7 @@ async function trySpawningGlobalApplication() {
       const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -11177,7 +11112,7 @@ async function trySpawningGlobalApplication() {
         // eslint-disable-next-line no-restricted-syntax
         for (const node of runningAppList) {
           const ip = node.ip.split(':')[0];
-          const port = node.ip.split(':')[1] || 16127;
+          const port = node.ip.split(':')[1] || '16127';
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
@@ -11190,7 +11125,7 @@ async function trySpawningGlobalApplication() {
             };
             appsSyncthingToBeCheckedLater.push(appToCheck);
             // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(30 * 60 * 1000);
+            await serviceHelper.delay(5 * 60 * 1000);
             trySpawningGlobalAppCache.delete(appHash);
             trySpawningGlobalApplication();
             return;
@@ -11260,7 +11195,7 @@ async function trySpawningGlobalApplication() {
         delay = true;
       }
       if (delay) {
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -11273,25 +11208,10 @@ async function trySpawningGlobalApplication() {
     const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
     // eslint-disable-next-line no-restricted-syntax
     for (const componentToInstall of compositedSpecification) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const installedApp of apps) {
-        const installedAppCompositedSpecification = installedApp.compose || [installedApp];
-        // eslint-disable-next-line no-restricted-syntax
-        for (const component of installedAppCompositedSpecification) {
-          if (component.repotag === componentToInstall.repotag && componentToInstall.repotag.startsWith('presearch/node')) { // applies to presearch specifically
-            log.info(`trySpawningGlobalApplication - ${componentToInstall.repotag} Image is already running on this Flux`);
-            // eslint-disable-next-line no-await-in-loop
-            await serviceHelper.delay(30 * 60 * 1000);
-            trySpawningGlobalApplication();
-            return;
-          }
-        }
-      }
-
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
-        spawnErrorsLongerAppCache.set(appHash, appHash);
+        spawnErrorsLongerAppCache.set(appHash, '');
         throw error;
       });
     }
@@ -11345,7 +11265,7 @@ async function trySpawningGlobalApplication() {
       const index = installingAppList.findIndex((x) => x.ip === myIP);
       if (runningAppList.length + index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances, my instance is number ${runningAppList.length + index + 1}`);
-        await serviceHelper.delay(30 * 60 * 1000);
+        await serviceHelper.delay(5 * 60 * 1000);
         trySpawningGlobalApplication();
         return;
       }
@@ -11361,7 +11281,7 @@ async function trySpawningGlobalApplication() {
     }
     if (!registerOk) {
       log.info('trySpawningGlobalApplication - Error on registerAppLocally');
-      await serviceHelper.delay(30 * 60 * 1000);
+      await serviceHelper.delay(5 * 60 * 1000);
       trySpawningGlobalApplication();
       return;
     }
@@ -11504,7 +11424,7 @@ async function checkAndNotifyPeersOfRunningApps() {
             if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
               if (!appsStopedCache.has(stoppedApp)) {
-                appsStopedCache.set(stoppedApp, stoppedApp);
+                appsStopedCache.set(stoppedApp, '');
               } else {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerStart(stoppedApp);
@@ -13333,7 +13253,7 @@ async function syncthingApps() {
             // eslint-disable-next-line no-restricted-syntax
             for (const appInstance of locations) {
               const ip = appInstance.ip.split(':')[0];
-              const port = appInstance.ip.split(':')[1] || 16127;
+              const port = appInstance.ip.split(':')[1] || '16127';
               const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
               const name = `${ip}:${port}`;
               let deviceID;
@@ -13530,7 +13450,7 @@ async function syncthingApps() {
               // eslint-disable-next-line no-restricted-syntax
               for (const appInstance of locations) {
                 const ip = appInstance.ip.split(':')[0];
-                const port = appInstance.ip.split(':')[1] || 16127;
+                const port = appInstance.ip.split(':')[1] || '16127';
                 const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
                 const name = `${ip}:${port}`;
                 let deviceID;
@@ -13953,7 +13873,7 @@ async function masterSlaveApps() {
                   }, timeout * 2);
                   const url = mastersRunningGSyncthingApps.get(identifier);
                   const ipToCheckAppRunning = url.split(':')[0];
-                  const portToCheckAppRunning = url.split(':')[1] || 16127;
+                  const portToCheckAppRunning = url.split(':')[1] || '16127';
                   // eslint-disable-next-line no-await-in-loop
                   const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
                   isResolved = true;
@@ -14102,19 +14022,15 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     if (!myIP) {
       return;
     }
+
+    const randomSocketAddress = await networkStateService.getRandomSocketAddress(myIP);
+
+    if (!randomSocketAddress) return;
+
+    const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
+
     myIP = myIP.split(':')[0];
 
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
-    if (!askingIP) {
-      return;
-    }
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) { // has port specification
-      // it has port specification
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
     if (myIP === askingIP) {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
@@ -14150,15 +14066,16 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
 
     // We don't add the api port, as the remote node will callback to our
     // api port to make sure it can connect before testing any other ports
-    // this is so that we know the remote end can reach us.
+    // this is so that we know the remote end can reach us. I also removed
+    // -2,-3,-4, +3 as they are currently not used.
     ports.push(apiPort - 1);
-    ports.push(apiPort - 2);
-    ports.push(apiPort - 3);
-    ports.push(apiPort - 4);
+    // ports.push(apiPort - 2);
+    // ports.push(apiPort - 3);
+    // ports.push(apiPort - 4);
     ports.push(apiPort - 5);
     ports.push(apiPort + 1);
     ports.push(apiPort + 2);
-    ports.push(apiPort + 3);
+    // ports.push(apiPort + 3);
 
     const axiosConfig = {
       timeout: 5_000,
@@ -14307,16 +14224,15 @@ async function checkMyAppsAvailability() {
       return;
     }
 
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
       log.info('No Public IP found. Application checks are disabled');
       await serviceHelper.delay(4 * 60 * 1000);
       checkMyAppsAvailability();
       return;
     }
 
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
+    const [myIP, myPort = '16127'] = localSocketAddress.split(':');
 
     const installedAppsRes = await installedApps();
     if (installedAppsRes.status !== 'success') {
@@ -14470,9 +14386,9 @@ async function checkMyAppsAvailability() {
 
     await serviceHelper.delay(10 * 1000);
 
-    let askingIP = await fluxNetworkHelper.getRandomConnection();
+    const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddress);
 
-    if (!askingIP) {
+    if (!randomSocketAddress) {
       await handleTestShutdown(testingPort, {
         skipFirewall: !firewallActive,
         skipUpnp: !isUpnp,
@@ -14484,12 +14400,7 @@ async function checkMyAppsAvailability() {
       return;
     }
 
-    let askingIpPort = config.server.apiport;
-    if (askingIP.includes(':')) {
-      const splittedIP = askingIP.split(':');
-      askingIP = splittedIP[0];
-      askingIpPort = splittedIP[1];
-    }
+    const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
 
     if (myIP === askingIP) {
       await handleTestShutdown(testingPort, {
@@ -14544,7 +14455,7 @@ async function checkMyAppsAvailability() {
           `checkMyAppsAvailability - ${askingIP} for app availability is not reachable`,
         );
         setPortToTest = testingPort;
-        failedNodesTestPortsCache.set(askingIP, askingIP);
+        failedNodesTestPortsCache.set(askingIP, '');
         return null;
       });
 
@@ -14696,12 +14607,12 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
   try {
-    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!myIP) {
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
       throw new Error('Failed to detect Public IP');
     }
-    myIP = myIP.split(':')[0];
-    const myPort = myIP.split(':')[1] || 16127;
+    const [myIP, myPort = '16127'] = localSocketAddress.split(':');
+
     const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
     let somePortBanned = false;
     portsToTest.forEach((portToTest) => {
@@ -14773,18 +14684,15 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     while (!finished && i < 5) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
-      let askingIP = await fluxNetworkHelper.getRandomConnection();
-      while (!askingIP || askingIP.split(':')[0] === myIP) {
-        // eslint-disable-next-line no-await-in-loop
-        askingIP = await fluxNetworkHelper.getRandomConnection();
+      const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddress);
+
+      // this should never happen as the list should be populated here
+      if (!randomSocketAddress) {
+        throw new Error('Unable to get random test connection');
       }
-      let askingIpPort = config.server.apiport;
-      if (askingIP.includes(':')) { // has port specification
-        // it has port specification
-        const splittedIP = askingIP.split(':');
-        askingIP = splittedIP[0];
-        askingIpPort = splittedIP[1];
-      }
+
+      const [askingIP, askingIpPort = '16127'] = randomSocketAddress;
+
       // first check against our IP address
       // eslint-disable-next-line no-await-in-loop
       const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
@@ -15854,16 +15762,37 @@ async function monitorNodeStatus() {
       const variable = 'ip';
       // we already have the exact same data
       const appslocations = await dbHelper.distinctDatabase(database, globalAppsLocations, variable);
-      log.info(`monitorNodeStatus - Found ${appslocations.length} distinct IP's on appslocations`);
-      let nodeList = await fluxCommunicationUtils.deterministicFluxList();
-      nodeList = nodeList.map(({ ip }) => ip);
-      const appsLocationsNotOnNodelist = appslocations.filter((location) => !nodeList.includes(location));
+      const appsLocationCount = appslocations.length;
+      log.info(`monitorNodeStatus - Found ${appsLocationCount} distinct IP's on appslocations`);
+
+      const appsLocationsNotOnNodelist = [];
+
+      const iterChunk = async (chunk) => {
+        const promises = chunk.map(async (location) => {
+          const found = await fluxCommunicationUtils.socketAddressInFluxList(location);
+          if (!found) appsLocationsNotOnNodelist.push(location);
+        });
+        await Promise.all(promises);
+      };
+
+      const chunkSize = 250;
+      let startIndex = 0;
+      let endIndex = chunkSize;
+
+      while (endIndex < appsLocationCount) {
+        const chunk = appslocations.slice(startIndex, endIndex);
+        // eslint-disable-next-line no-await-in-loop
+        await iterChunk(chunk);
+        startIndex = endIndex;
+        endIndex += chunkSize;
+      }
+
       log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
       // eslint-disable-next-line no-restricted-syntax
       for (const location of appsLocationsNotOnNodelist) {
         log.info(`monitorNodeStatus - Checking IP ${location}.`);
         const ip = location.split(':')[0];
-        const port = location.split(':')[1] || 16127;
+        const port = location.split(':')[1] || '16127';
         const { CancelToken } = axios;
         const source = CancelToken.source();
         let isResolved = false;
