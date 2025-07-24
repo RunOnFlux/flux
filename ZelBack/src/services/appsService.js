@@ -14714,9 +14714,8 @@ async function checkMyAppsAvailability() {
  * @param {array} portsToTest array of ports we will be testing
  * @returns boolean if ports are publicly available. So app installation can proceed
  */
-let beforeAppInstallTestingServers = [];
 async function checkInstallingAppPortAvailable(portsToTest = []) {
-  beforeAppInstallTestingServers = [];
+  const beforeAppInstallTestingServers = [];
   const isUPNP = upnpService.isUPNP();
   let portsStatus = false;
   try {
@@ -14764,18 +14763,36 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
           throw new Error('Failed to create map UPNP port');
         }
       }
-      const beforeAppInstallTestingExpress = express();
-      let beforeAppInstallTestingServer = http.createServer(beforeAppInstallTestingExpress);
-      beforeAppInstallTestingServer = httpShutdown(beforeAppInstallTestingServer);
+      const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
+
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(5 * 1000);
-      beforeAppInstallTestingServers.push(beforeAppInstallTestingServer);
-      beforeAppInstallTestingServer.listen(portToTest).on('error', (err) => {
-        throw err.message;
-      }).on('uncaughtException', (err) => {
-        throw err.message;
+
+      beforeAppInstallTestingServers.push(testHttpServer);
+
+      // Tested: This catches EADDRINUSE. Previously, this was crashing the entire app
+      // note - if you kill the port with:
+      //    ss --kill state listening src :<the port>
+      // nodeJS does not raise an error.
+      const listening = new Promise((resolve, reject) => {
+        testHttpServer
+          .once('error', (err) => {
+            testHttpServer.removeAllListeners('listening');
+            reject(err.message);
+          })
+          .once('listening', () => {
+            testHttpServer.removeAllListeners('error');
+            resolve(null);
+          });
+        testHttpServer.listen(portToTest);
       });
+
+      // eslint-disable-next-line no-await-in-loop
+      const error = await listening.catch((err) => err);
+
+      if (error) throw error;
     }
+
     await serviceHelper.delay(10 * 1000);
     const timeout = 30000;
     const axiosConfig = {
@@ -14797,7 +14814,9 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     while (!finished && i < 5) {
       i += 1;
       // eslint-disable-next-line no-await-in-loop
-      const randomSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddress);
+      const randomSocketAddress = await networkStateService.getRandomSocketAddress(
+        localSocketAddress,
+      );
 
       // this should never happen as the list should be populated here
       if (!randomSocketAddress) {
@@ -14820,7 +14839,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
             // if we aren't already testing ports, we set it here, otherwise, just continue
             if (!originalPortFailed) {
               originalPortFailed = portToRetest;
-              setPortToTest = portToRetest < 65535 ? testingPort + 1 : testingPort - 1;
+              nextTestingPort = portToRetest < 65535 ? testingPort + 1 : testingPort - 1;
             }
           }
         }
@@ -14844,7 +14863,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
       }
     }
     beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
-      beforeAppInstallTestingServer.shutdown((err) => {
+      beforeAppInstallTestingServer.close((err) => {
         if (err) {
           log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
         }
