@@ -98,7 +98,6 @@
     "express": "~4.19.2",
     "fast-xml-parser": "~4.3.2",
     "formidable": "~2.1.2",
-    "http-shutdown": "~1.2.2",
     "inquirer": "~8.2.6",
     "js-yaml": "~4.1.0",
     "mongodb": "~4.17.2",
