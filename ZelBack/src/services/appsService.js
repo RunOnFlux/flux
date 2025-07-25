@@ -6370,17 +6370,23 @@ async function assignedPortsInstalledApps() {
 
   const decryptedApps = [];
 
-  // if the app isn't decrypted, this just returns the spec as is
+  // ToDo: move the functions around so we can remove no-use-before-define
 
   // eslint-disable-next-line no-restricted-syntax
   for (const spec of results) {
-    // temp: move the functions around for the no-use-before
-    // eslint-disable-next-line
-    const decrypted = await checkAndDecryptAppSpecs(spec);
-    // temp: move the functions around for the no-use-before
-    // eslint-disable-next-line
-    const formatted = specificationFormatter(decrypted);
-    decryptedApps.push(formatted);
+    const isEnterprise = Boolean(
+      spec.version >= 8 && spec.enterprise,
+    );
+
+    if (isEnterprise) {
+      // eslint-disable-next-line no-await-in-loop,no-use-before-define
+      const decrypted = await checkAndDecryptAppSpecs(spec);
+      // eslint-disable-next-line no-use-before-define
+      const formatted = specificationFormatter(decrypted);
+      decryptedApps.push(formatted);
+    } else {
+      decryptedApps.push(spec);
+    }
   }
 
   const apps = [];
