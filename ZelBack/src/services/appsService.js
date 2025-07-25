@@ -81,7 +81,7 @@ const trySpawningGlobalAppCache = cacheManager.appSpawnCache;
 const myShortCache = cacheManager.fluxRatesCache;
 const myLongCache = cacheManager.appPriceBlockedRepoCache;
 const failedNodesTestPortsCache = cacheManager.testPortsCache;
-const receiveOnlySyncthingAppsCache = cacheManager.syncthingAppsCache;
+const receiveOnlySyncthingAppsCache = new Map();
 const appsStopedCache = cacheManager.stoppedAppsCache;
 const syncthingDevicesIDCache = cacheManager.syncthingDevicesCache;
 
