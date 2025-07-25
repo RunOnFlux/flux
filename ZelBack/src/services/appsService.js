@@ -6374,10 +6374,13 @@ async function assignedPortsInstalledApps() {
 
   // eslint-disable-next-line no-restricted-syntax
   for (const spec of results) {
-    // temp: - move the functions around for the no-use-before
+    // temp: move the functions around for the no-use-before
     // eslint-disable-next-line
     const decrypted = await checkAndDecryptAppSpecs(spec);
-    decryptedApps.push(decrypted);
+    // temp: move the functions around for the no-use-before
+    // eslint-disable-next-line
+    const formatted = specificationFormatter(decrypted);
+    decryptedApps.push(formatted);
   }
 
   const apps = [];
