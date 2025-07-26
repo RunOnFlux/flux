@@ -2650,6 +2650,12 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
 
+    // do this temporarily - otherwise we have to move a bunch of functions around
+    // eslint-disable-next-line no-use-before-define
+    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+    // eslint-disable-next-line no-use-before-define
+    appSpecifications = specificationFormatter(appSpecifications);
+
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
@@ -2931,12 +2937,18 @@ async function softRemoveAppLocally(app, res) {
 
   const appsQuery = { name: appName };
   const appsProjection = {};
-  const appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
   if (!appSpecifications) {
     throw new Error('Flux App not found');
   }
 
   let appId = dockerService.getAppIdentifier(app);
+
+  // do this temporarily - otherwise we have to move a bunch of functions around
+  // eslint-disable-next-line no-use-before-define
+  appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+  // eslint-disable-next-line no-use-before-define
+  appSpecifications = specificationFormatter(appSpecifications);
 
   if (appSpecifications.version >= 4 && !isComponent) {
     // it is a composed application
@@ -6355,8 +6367,30 @@ async function assignedPortsInstalledApps() {
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, localAppsInformation, query, projection);
+
+  const decryptedApps = [];
+
+  // ToDo: move the functions around so we can remove no-use-before-define
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const spec of results) {
+    const isEnterprise = Boolean(
+      spec.version >= 8 && spec.enterprise,
+    );
+
+    if (isEnterprise) {
+      // eslint-disable-next-line no-await-in-loop,no-use-before-define
+      const decrypted = await checkAndDecryptAppSpecs(spec);
+      // eslint-disable-next-line no-use-before-define
+      const formatted = specificationFormatter(decrypted);
+      decryptedApps.push(formatted);
+    } else {
+      decryptedApps.push(spec);
+    }
+  }
+
   const apps = [];
-  results.forEach((app) => {
+  decryptedApps.forEach((app) => {
     // there is no app
     if (app.version === 1) {
       const appSpecs = {
