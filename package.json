@@ -95,7 +95,7 @@
     "cors": "~2.8.5",
     "crontab": "~1.4.2",
     "dockerode": "~4.0.7",
-    "express": "^5.0.1",
+    "express": "^4.21.2",
     "fast-xml-parser": "~5.2.5",
     "formidable": "~3.5.4",
     "inquirer": "~12.8.2",

@@ -3,7 +3,7 @@ const sinon = require('sinon');
 
 const handlerA = sinon.stub();
 const handlerB = sinon.stub();
-const routes = { '/ws/flux/{/:port}': handlerA, '/ws/testendpoint': handlerB };
+const routes = { '/ws/flux/:port': handlerA, '/ws/flux': handlerA, '/ws/testendpoint': handlerB };
 
 const socketServer = require('../../ZelBack/src/lib/socketServer');
 
