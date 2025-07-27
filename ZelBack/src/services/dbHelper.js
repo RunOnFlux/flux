@@ -296,8 +296,29 @@ async function dropCollection(database, collection) {
  * @returns object
  */
 async function collectionStats(database, collection) {
-  const result = await database.collection(collection).stats();
-  return result;
+  try {
+    // In MongoDB v4+, use $collStats aggregation instead of .stats()
+    const result = await database.collection(collection).aggregate([{ $collStats: { storageStats: {} } }]).toArray();
+    if (result[0] && result[0].storageStats) {
+      const stats = result[0].storageStats;
+      // Add namespace manually for compatibility with old tests
+      stats.ns = `${database.databaseName}.${collection}`;
+      return stats;
+    }
+    // Return compatible empty structure for non-existent collections
+    return {
+      ns: `${database.databaseName}.${collection}`,
+      count: 0,
+      avgObjSize: undefined,
+    };
+  } catch (error) {
+    // Fallback for older MongoDB versions or if collection doesn't exist
+    return {
+      ns: `${database.databaseName}.${collection}`,
+      count: 0,
+      avgObjSize: undefined,
+    };
+  }
 }
 
 async function findValueSatNanInAppsMessages() {

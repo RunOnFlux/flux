@@ -1808,7 +1808,7 @@ async function addFluxNodeServiceIpToLoopback() {
     await cmdAsync(addIp);
     ok = true;
   } catch (err) {
-    if (err.message.includes('File exists')) {
+    if (err.message.includes('File exists') || err.message.includes('Address already assigned')) {
       ok = true;
     } else {
       log.error(err);

@@ -262,7 +262,7 @@ describe('dbHelper tests', () => {
       const findOneAndUpdateInDatabaseResponse = await dbHelper.findOneAndUpdateInDatabase(database, collection, query, updateExpression);
       const findOneInDatabaseResult = await dbHelper.findOneInDatabase(database, collection, query);
 
-      expect(findOneAndUpdateInDatabaseResponse.ok).to.eql(1);
+      expect(findOneAndUpdateInDatabaseResponse).to.not.be.null;
       expect(findOneInDatabaseResult).to.eql(expectedResult);
     });
 
@@ -279,8 +279,8 @@ describe('dbHelper tests', () => {
 
       const findOneAndUpdateInDatabaseResponse = await dbHelper.findOneAndUpdateInDatabase(database, collection, query, updateExpression, options);
 
-      expect(findOneAndUpdateInDatabaseResponse.ok).to.equal(1);
-      expect(findOneAndUpdateInDatabaseResponse.value).to.eql(expectedResult);
+      expect(findOneAndUpdateInDatabaseResponse).to.not.be.null;
+      expect(findOneAndUpdateInDatabaseResponse).to.eql(expectedResult);
     });
 
     it('should return null if the document does not exist', async () => {
@@ -289,8 +289,7 @@ describe('dbHelper tests', () => {
 
       const findOneAndUpdateInDatabaseResponse = await dbHelper.findOneAndUpdateInDatabase(database, collection, query, updateExpression);
 
-      expect(findOneAndUpdateInDatabaseResponse.value).to.be.null;
-      expect(findOneAndUpdateInDatabaseResponse.ok).to.equal(1);
+      expect(findOneAndUpdateInDatabaseResponse).to.be.null;
     });
   });
 
@@ -608,8 +607,8 @@ describe('dbHelper tests', () => {
       const findOneAndDeleteInDatabaseResponse = await dbHelper.findOneAndDeleteInDatabase(database, collection, query);
       const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
 
-      expect(findOneAndDeleteInDatabaseResponse.ok).to.eql(1);
-      expect(findOneAndDeleteInDatabaseResponse.value).to.eql(expectedResult);
+      expect(findOneAndDeleteInDatabaseResponse).to.not.be.null;
+      expect(findOneAndDeleteInDatabaseResponse).to.eql(expectedResult);
       expect(findInDatabaseResult).to.be.empty;
     });
 
@@ -630,8 +629,8 @@ describe('dbHelper tests', () => {
       const findOneAndDeleteInDatabaseResponse = await dbHelper.findOneAndDeleteInDatabase(database, collection, query, queryProjection);
       const findInDatabaseResult = await dbHelper.findInDatabase(database, collection, query);
 
-      expect(findOneAndDeleteInDatabaseResponse.ok).to.eql(1);
-      expect(findOneAndDeleteInDatabaseResponse.value).to.eql(expectedResult);
+      expect(findOneAndDeleteInDatabaseResponse).to.not.be.null;
+      expect(findOneAndDeleteInDatabaseResponse).to.eql(expectedResult);
       expect(findInDatabaseResult).to.be.empty;
     });
   });
