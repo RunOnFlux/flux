@@ -1140,7 +1140,7 @@ function getDOSState(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1169,7 +1169,7 @@ async function allowPort(port) {
  * @returns {object} Command status.
  */
 async function allowOutPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1198,7 +1198,7 @@ async function allowOutPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1232,7 +1232,7 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1263,7 +1263,7 @@ async function deleteAllowPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteDenyPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1294,7 +1294,7 @@ async function deleteDenyPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowOutPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1357,7 +1357,7 @@ async function allowPortApi(req, res) {
  */
 async function isFirewallActive() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
@@ -1376,7 +1376,7 @@ async function isFirewallActive() {
  */
 async function adjustFirewall() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const apiSSLPort = +apiPort + 1;
@@ -1461,7 +1461,7 @@ async function adjustFirewall() {
  */
 async function purgeUFW() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
       const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\'';
@@ -1547,7 +1547,7 @@ async function purgeUFW() {
  * @returns  {Promise<Boolean>}
  */
 async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   const checkIptables = 'sudo iptables --version';
   const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
@@ -1736,7 +1736,7 @@ function lruRateLimit(ip, limitPerSecond = 20) {
  */
 async function allowNodeToBindPrivilegedPorts() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
     await cmdAsync(exec);
   } catch (error) {
@@ -1761,7 +1761,7 @@ async function allowOnlyDockerNetworksToFluxNodeService() {
   const checkDenyRule = `LANG="en_US.UTF-8" && sudo iptables -C ${denyRule}`;
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I ${denyRule}`;
 
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   try {
     const cmd = await cmdAsync(allowDockerNetworks);
@@ -1792,7 +1792,7 @@ async function allowOnlyDockerNetworksToFluxNodeService() {
  * Adds the 169.254 adddress to the loopback interface for use with the flux node service.
  */
 async function addFluxNodeServiceIpToLoopback() {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   // could also check exists first with:
   //   ip -f inet addr show lo | grep 169.254.43.43/32

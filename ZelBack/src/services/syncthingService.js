@@ -15,12 +15,6 @@ const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 
-// these are just for testing to stub right now
-const util = require('node:util');
-const nodecmd = require('node-cmd');
-
-const cmdAsync = util.promisify(nodecmd.get);
-
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 
 const isArcane = Boolean(process.env.SYNCTHING_PATH);
@@ -31,7 +25,6 @@ const isArcane = Boolean(process.env.SYNCTHING_PATH);
 let syncthingBinaryPresent = false;
 
 let syncthingStatusOk = false;
-const getDeviceIDRunning = false;
 
 const parserOptions = {
   ignoreAttributes: false,

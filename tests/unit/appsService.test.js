@@ -39,7 +39,7 @@ const dockerPullStreamFake = sinon.fake(async () => true);
 const dockerContainerStatsStreamFake = sinon.fake(async () => true);
 const utilFake = {
   promisify: sinon.fake((arg) => {
-    if (arg === nodecmd.get) return cmdAsyncFake;
+    if (arg === nodecmd.run) return cmdAsyncFake;
     if (arg === systemcrontab.load) return crontabLoadFake;
     if (arg === dockerService.dockerPullStream) return dockerPullStreamFake;
     if (arg === dockerService.dockerContainerStatsStream) return dockerContainerStatsStreamFake;

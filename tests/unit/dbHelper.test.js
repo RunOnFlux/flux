@@ -7,22 +7,22 @@ const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
 const testInsert = [{
-  _id: ObjectId('5f99562a09aef91cd19fbb93'),
+  _id: new ObjectId('5f99562a09aef91cd19fbb93'),
   name: 'App1',
   description: 'Test',
   owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
 }, {
-  _id: ObjectId('5fa25bf73ba9312a4d83712d'),
+  _id: new ObjectId('5fa25bf73ba9312a4d83712d'),
   name: 'App1',
   description: 'Test',
   owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6d',
 }, {
-  _id: ObjectId('5fb48e724b82682e2bd22269'),
+  _id: new ObjectId('5fb48e724b82682e2bd22269'),
   name: 'App2',
   description: 'Test3',
   owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6h',
 }, {
-  _id: ObjectId('5fec239ec4ef4d416e70ac61'),
+  _id: new ObjectId('5fec239ec4ef4d416e70ac61'),
   name: 'App3',
   description: 'Test3',
   owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6w',
@@ -192,7 +192,7 @@ describe('dbHelper tests', () => {
     it('should return results based on the query without projection', async () => {
       const query = { name: 'App1' };
       const expectedResult = {
-        _id: ObjectId('5f99562a09aef91cd19fbb93'),
+        _id: new ObjectId('5f99562a09aef91cd19fbb93'),
         name: 'App1',
         description: 'Test',
         owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
@@ -250,10 +250,10 @@ describe('dbHelper tests', () => {
     });
 
     it('should find and update the document based on query and updateExpression', async () => {
-      const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
+      const query = { _id: new ObjectId('5f99562a09aef91cd19fbb93') };
       const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
       const expectedResult = {
-        _id: ObjectId('5f99562a09aef91cd19fbb93'),
+        _id: new ObjectId('5f99562a09aef91cd19fbb93'),
         name: 'App1',
         description: 'New Description',
         owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a',
@@ -267,11 +267,11 @@ describe('dbHelper tests', () => {
     });
 
     it('should find and update the document and return the new document', async () => {
-      const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
+      const query = { _id: new ObjectId('5f99562a09aef91cd19fbb93') };
       const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
       const options = { returnDocument: 'after' };
       const expectedResult = {
-        _id: ObjectId('5f99562a09aef91cd19fbb93'),
+        _id: new ObjectId('5f99562a09aef91cd19fbb93'),
         name: 'App1',
         description: 'New Description',
         owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a',
@@ -284,7 +284,7 @@ describe('dbHelper tests', () => {
     });
 
     it('should return null if the document does not exist', async () => {
-      const query = { _id: ObjectId('5f91562a011ef91cd19fbb93') };
+      const query = { _id: new ObjectId('5f91562a011ef91cd19fbb93') };
       const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
 
       const findOneAndUpdateInDatabaseResponse = await dbHelper.findOneAndUpdateInDatabase(database, collection, query, updateExpression);
@@ -314,12 +314,12 @@ describe('dbHelper tests', () => {
 
     it('should insert object into database if called properly', async () => {
       const documentToInsert = {
-        _id: ObjectId('4f99562a09aef92cd1afbe93'),
+        _id: new ObjectId('4f99562a09aef92cd1afbe93'),
         name: 'App5',
         description: 'Test3',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
       };
-      const query = { _id: ObjectId('4f99562a09aef92cd1afbe93') };
+      const query = { _id: new ObjectId('4f99562a09aef92cd1afbe93') };
 
       const insertOneResponse = await dbHelper.insertOneToDatabase(database, collection, documentToInsert);
       const getOneFromDatabase = await dbHelper.findOneInDatabase(database, collection, query);
@@ -332,7 +332,7 @@ describe('dbHelper tests', () => {
 
     it('should return undefined if the key already exists', async () => {
       const documentToInsert = {
-        _id: ObjectId('5fa25bf73ba9312a4d83712d'),
+        _id: new ObjectId('5fa25bf73ba9312a4d83712d'),
         name: 'App5',
         description: 'Test3',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
@@ -362,17 +362,17 @@ describe('dbHelper tests', () => {
 
     it('should insert documents into database if called properly', async () => {
       const documentsToInsert = [{
-        _id: ObjectId('4f99562a09aef92cd1afbe93'),
+        _id: new ObjectId('4f99562a09aef92cd1afbe93'),
         name: 'App5',
         description: 'Test3',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
       }, {
-        _id: ObjectId('4f89562a09aef92cd1afbe96'),
+        _id: new ObjectId('4f89562a09aef92cd1afbe96'),
         name: 'App5',
         description: 'Test4',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
       }, {
-        _id: ObjectId('4f79562a09aef92cd1afbe97'),
+        _id: new ObjectId('4f79562a09aef92cd1afbe97'),
         name: 'App5',
         description: 'Test5',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdzKNSi3e',
@@ -391,17 +391,17 @@ describe('dbHelper tests', () => {
     it('should not insert any of docs if one of them has duplicate ID if ordered option is set to true', async () => {
       const options = { ordered: true }; // If true, when an insert fails, don't execute the remaining writes. If false, continue with remaining inserts when one fails.
       const documentsToInsert = [{
-        _id: ObjectId('5f99562a09aef91cd19fbb93'), // duplicate ID
+        _id: new ObjectId('5f99562a09aef91cd19fbb93'), // duplicate ID
         name: 'App5',
         description: 'Test3',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
       }, {
-        _id: ObjectId('4f89562a09aef92cd1afbe96'),
+        _id: new ObjectId('4f89562a09aef92cd1afbe96'),
         name: 'App5',
         description: 'Test4',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
       }, {
-        _id: ObjectId('4f79562a09aef92cd1afbe97'),
+        _id: new ObjectId('4f79562a09aef92cd1afbe97'),
         name: 'App5',
         description: 'Test5',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdzKNSi3e',
@@ -419,28 +419,28 @@ describe('dbHelper tests', () => {
     it('should insert docs, except for the one that had duplicate ID', async () => {
       const options = { ordered: false }; // If true, when an insert fails, don't execute the remaining writes. If false, continue with remaining inserts when one fails.
       const documentsToInsert = [{
-        _id: ObjectId('5f99562a09aef91cd19fbb93'), // duplicate ID
+        _id: new ObjectId('5f99562a09aef91cd19fbb93'), // duplicate ID
         name: 'App5',
         description: 'Test3',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
       }, {
-        _id: ObjectId('4f89562a09aef92cd1afbe96'),
+        _id: new ObjectId('4f89562a09aef92cd1afbe96'),
         name: 'App5',
         description: 'Test4',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
       }, {
-        _id: ObjectId('4f79562a09aef92cd1afbe97'),
+        _id: new ObjectId('4f79562a09aef92cd1afbe97'),
         name: 'App5',
         description: 'Test5',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdzKNSi3e',
       }];
       const expectedResult = [{
-        _id: ObjectId('4f89562a09aef92cd1afbe96'),
+        _id: new ObjectId('4f89562a09aef92cd1afbe96'),
         name: 'App5',
         description: 'Test4',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
       }, {
-        _id: ObjectId('4f79562a09aef92cd1afbe97'),
+        _id: new ObjectId('4f79562a09aef92cd1afbe97'),
         name: 'App5',
         description: 'Test5',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdzKNSi3e',
@@ -457,12 +457,12 @@ describe('dbHelper tests', () => {
 
     it('should return undefined if there are duplicate keys', async () => {
       const documentsToInsert = [{
-        _id: ObjectId('4f99562a09aef92cd1afbe93'),
+        _id: new ObjectId('4f99562a09aef92cd1afbe93'),
         name: 'App5',
         description: 'Test3',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLdoKNSi9e',
       }, {
-        _id: ObjectId('4f99562a09aef92cd1afbe93'),
+        _id: new ObjectId('4f99562a09aef92cd1afbe93'),
         name: 'App5',
         description: 'Test4',
         owner: '1SZe3AUYQC4aT5Y0LhgEcH2nLLsoKNSi6e',
@@ -491,10 +491,10 @@ describe('dbHelper tests', () => {
     });
 
     it('should update the document based on query and updateExpression', async () => {
-      const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
+      const query = { _id: new ObjectId('5f99562a09aef91cd19fbb93') };
       const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
       const expectedResult = {
-        _id: ObjectId('5f99562a09aef91cd19fbb93'),
+        _id: new ObjectId('5f99562a09aef91cd19fbb93'),
         name: 'App1',
         description: 'New Description',
         owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a',
@@ -510,7 +510,7 @@ describe('dbHelper tests', () => {
     });
 
     it('should return null if the document does not exist', async () => {
-      const query = { _id: ObjectId('5f91562a011ef91cd19fbb93') };
+      const query = { _id: new ObjectId('5f91562a011ef91cd19fbb93') };
       const updateExpression = { $set: { description: 'New Description', owner: '1SZe3AUYQC4aT5YWLhgEcH1nLLdoKNSi9a' } };
 
       const updateOneInDatabaseResponse = await dbHelper.updateOneInDatabase(database, collection, query, updateExpression);
@@ -597,9 +597,9 @@ describe('dbHelper tests', () => {
     });
 
     it('should delete a document and return it', async () => {
-      const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
+      const query = { _id: new ObjectId('5f99562a09aef91cd19fbb93') };
       const expectedResult = {
-        _id: ObjectId('5f99562a09aef91cd19fbb93'),
+        _id: new ObjectId('5f99562a09aef91cd19fbb93'),
         name: 'App1',
         description: 'Test',
         owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
@@ -614,7 +614,7 @@ describe('dbHelper tests', () => {
     });
 
     it('should delete a document and return it according to projection', async () => {
-      const query = { _id: ObjectId('5f99562a09aef91cd19fbb93') };
+      const query = { _id: new ObjectId('5f99562a09aef91cd19fbb93') };
       const expectedResult = {
         name: 'App1',
         owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',
