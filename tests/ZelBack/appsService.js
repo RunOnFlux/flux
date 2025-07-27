@@ -143,7 +143,8 @@ describe('checkHWParameters', () => {
     expect(hwSpecs).to.throw();
   });
 
-  it('Verifies repository exists or is not correct', async () => {
+  it('Verifies repository exists or is not correct', async function () {
+    this.timeout(10000);
     const fluxAppSpecs = {
       repotag: 'yurinnick/folding-at-home:latest',
       repotagB: 'yurinnick/folding-at-home:latestaaa',

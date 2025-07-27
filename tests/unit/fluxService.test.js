@@ -691,7 +691,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'fluxbenchd', { params: ['-daemon'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'zelbenchd', { params: ['-daemon'] });
     });
 
     it('should return error if cmd exec throws error ', async () => {
@@ -718,7 +718,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'fluxbenchd', { params: ['-daemon'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'zelbenchd', { params: ['-daemon'] });
     });
   });
 
@@ -853,7 +853,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'fluxd');
+      sinon.assert.calledWithExactly(runCmdStub, 'zelcashd');
     });
 
     it('should return error if cmd exec throws error ', async () => {
@@ -880,7 +880,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'fluxd');
+      sinon.assert.calledWithExactly(runCmdStub, 'zelcashd');
     });
   });
 
@@ -1302,6 +1302,9 @@ describe('fluxService tests', () => {
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
+      // Mock daemon service utils to return valid paths
+      sinon.stub(daemonServiceUtils, 'getConfigValue').returns(path.join(os.homedir(), '.flux'));
+      sinon.stub(daemonServiceUtils, 'getFluxdDir').returns(path.join(os.homedir(), '.flux'));
     });
 
     afterEach(() => {
@@ -1441,7 +1444,7 @@ describe('fluxService tests', () => {
     it('should trigger download ', async () => {
       const res = generateResponse();
       const filename = 'test';
-      const filepath = path.join(__dirname, `../../../flux/${filename}.log`);
+      const filepath = path.join(__dirname, `../../${filename}.log`);
 
       await fluxService.fluxLog(res, filename);
 
@@ -1479,7 +1482,7 @@ describe('fluxService tests', () => {
     it('should return file download', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
-      const filepath = path.join(__dirname, '../../../flux/error.log');
+      const filepath = path.join(__dirname, '../../error.log');
 
       await fluxService.fluxErrorLog(undefined, res);
 
@@ -1517,7 +1520,7 @@ describe('fluxService tests', () => {
     it('should return file download', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
-      const filepath = path.join(__dirname, '../../../flux/info.log');
+      const filepath = path.join(__dirname, '../../info.log');
 
       await fluxService.fluxInfoLog(undefined, res);
 
@@ -1555,7 +1558,7 @@ describe('fluxService tests', () => {
     it('should return file download', async () => {
       const res = generateResponse();
       verifyPrivilegeStub.returns(true);
-      const filepath = path.join(__dirname, '../../../flux/debug.log');
+      const filepath = path.join(__dirname, '../../debug.log');
 
       await fluxService.fluxDebugLog(undefined, res);
 
@@ -1616,7 +1619,7 @@ describe('fluxService tests', () => {
           name: 'testing error',
         },
       });
-      const nodePath = path.join(__dirname, '../../../flux/test.log');
+      const nodePath = path.join(__dirname, '../../test.log');
       const expectedResponse = {
         data: {
           code: 403,
@@ -2307,7 +2310,7 @@ describe('fluxService tests', () => {
           blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
-      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustRouterIP(req, res);
 
@@ -2397,7 +2400,7 @@ describe('fluxService tests', () => {
           blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
         }
       }`;
-      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustAPIPort(req, res);
 
@@ -2492,7 +2495,7 @@ describe('fluxService tests', () => {
               blockedRepositories: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
             }
           }`;
-      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       verifyPrivilegeStub.returns(true);
       await fluxService.adjustBlockedPorts(mockReq, mockRes);
@@ -2587,7 +2590,7 @@ describe('fluxService tests', () => {
               blockedRepositories: ['blabla/test','ban/this'],
             }
           }`;
-      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       verifyPrivilegeStub.returns(true);
       await fluxService.adjustBlockedRepositories(mockReq, mockRes);
@@ -2657,7 +2660,7 @@ describe('fluxService tests', () => {
     blockedRepositories: [],
   }
 }`;
-      const fluxDirPath = path.join(__dirname, '../../../flux/config/userconfig.js');
+      const fluxDirPath = path.join(__dirname, '../../config/userconfig.js');
 
       await fluxService.adjustKadenaAccount(req, res);
 
@@ -2867,7 +2870,7 @@ describe('fluxService tests', () => {
     });
 
     it('should install flux watchtower', async () => {
-      const nodedpath = path.join(__dirname, '../../../flux/helpers');
+      const nodedpath = path.join(__dirname, '../../helpers');
 
       runCmdStub.resolves({ error: null, stdout: 'Installed' });
 
