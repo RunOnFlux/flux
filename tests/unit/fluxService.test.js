@@ -30,7 +30,23 @@ const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/dae
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const syncthingService = require('../../ZelBack/src/services/syncthingService');
 const packageJson = require('../../package.json');
-const adminConfig = require('../../config/userconfig');
+
+// Mock adminConfig for consistent testing
+const adminConfig = {
+  initial: {
+    ipaddress: '127.0.0.1',
+    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
+    testnet: false,
+    development: false,
+    apiport: 16127,
+    routerIP: '',
+    pgpPrivateKey: '',
+    pgpPublicKey: '',
+    blockedPorts: [],
+    blockedRepositories: [],
+  }
+};
 
 const fluxService = proxyquire(
   '../../ZelBack/src/services/fluxService',
@@ -691,7 +707,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'zelbenchd', { params: ['-daemon'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'fluxbenchd', { params: ['-daemon'] });
     });
 
     it('should return error if cmd exec throws error ', async () => {
@@ -718,7 +734,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'zelbenchd', { params: ['-daemon'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'fluxbenchd', { params: ['-daemon'] });
     });
   });
 
@@ -853,7 +869,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'zelcashd');
+      sinon.assert.calledWithExactly(runCmdStub, 'fluxd');
     });
 
     it('should return error if cmd exec throws error ', async () => {
@@ -880,7 +896,7 @@ describe('fluxService tests', () => {
       await serviceHelper.delay(200);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledWithExactly(runCmdStub, 'zelcashd');
+      sinon.assert.calledWithExactly(runCmdStub, 'fluxd');
     });
   });
 
@@ -2586,7 +2602,7 @@ describe('fluxService tests', () => {
               routerIP: '${adminConfig.initial.routerIP || ''}',
               pgpPrivateKey: \`${adminConfig.initial.pgpPrivateKey}\`,
               pgpPublicKey: \`${adminConfig.initial.pgpPublicKey}\`,
-              blockedPorts: ${JSON.stringify(adminConfig.initial.blockedRepositories || []).replace(/"/g, "'")},
+              blockedPorts: ${JSON.stringify(adminConfig.initial.blockedPorts || [])},
               blockedRepositories: ['blabla/test','ban/this'],
             }
           }`;
