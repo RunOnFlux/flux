@@ -37,35 +37,7 @@ const cache = apicache.middleware;
 
 module.exports = (app) => {
   // GET PUBLIC methods
-  console.log('DEBUG: Registering routes...');
-  
-  const originalGet = app.get;
-  const originalPost = app.post;
-  const originalPut = app.put;
-  const originalPatch = app.patch;
-  const originalDelete = app.delete;
-  
-  app.get = function(route, ...args) {
-    console.log('DEBUG: Registering GET route:', route);
-    try {
-      return originalGet.call(this, route, ...args);
-    } catch (error) {
-      console.error('ERROR: Failed to register GET route:', route, 'Error:', error.message);
-      throw error;
-    }
-  };
-  
-  app.post = function(route, ...args) {
-    console.log('DEBUG: Registering POST route:', route);
-    try {
-      return originalPost.call(this, route, ...args);
-    } catch (error) {
-      console.error('ERROR: Failed to register POST route:', route, 'Error:', error.message);
-      throw error;
-    }
-  };
-  
-  app.get('/daemon/help/:command', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
+  app.get('/daemon/help/:command?', cache('1 hour'), (req, res) => { // accept both help/command and ?command=getinfo. If ommited, default help will be displayed. Other calls works in similar way
     daemonServiceControlRpcs.help(req, res);
   });
   app.get('/daemon/getinfo', cache('30 seconds'), (req, res) => {
@@ -77,16 +49,16 @@ module.exports = (app) => {
   app.get('/daemon/getzelnodestatus', cache('60 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeStatus(req, res);
   });
-  app.get('/daemon/listfluxnodes/:filter', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/listfluxnodes/:filter?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
-  app.get('/daemon/listzelnodes/:filter', cache('30 seconds'), (req, res) => { // DEPRECATED
+  app.get('/daemon/listzelnodes/:filter?', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
-  app.get('/daemon/viewdeterministicfluxnodelist/:filter', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/viewdeterministicfluxnodelist/:filter?', cache('30 seconds'), (req, res) => {
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
-  app.get('/daemon/viewdeterministiczelnodelist/:filter', cache('30 seconds'), (req, res) => { // DEPRECATED
+  app.get('/daemon/viewdeterministiczelnodelist/:filter?', cache('30 seconds'), (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.listFluxNodes(req, res);
   });
   app.get('/daemon/getfluxnodecount', cache('30 seconds'), (req, res) => {
@@ -107,7 +79,7 @@ module.exports = (app) => {
   app.get('/daemon/getbestblockhash', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBestBlockHash(req, res);
   });
-  app.get('/daemon/getblock/:hashheight/:verbosity', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getblock/:hashheight?/:verbosity?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlock(req, res);
   });
   app.get('/daemon/getblockchaininfo', cache('30 seconds'), (req, res) => {
@@ -116,16 +88,16 @@ module.exports = (app) => {
   app.get('/daemon/getblockcount', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockCount(req, res);
   });
-  app.get('/daemon/getblockdeltas/:hash', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getblockdeltas/:hash?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockDeltas(req, res);
   });
-  app.get('/daemon/getblockhashes/:high/:low/:noorphans/:logicaltimes', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getblockhashes/:high?/:low?/:noorphans?/:logicaltimes?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockHashes(req, res);
   });
-  app.get('/daemon/getblockhash/:index', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getblockhash/:index?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockHash(req, res);
   });
-  app.get('/daemon/getblockheader/:hash/:verbose', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getblockheader/:hash?/:verbose?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getBlockHeader(req, res);
   });
   app.get('/daemon/getchaintips', cache('30 seconds'), (req, res) => {
@@ -137,28 +109,28 @@ module.exports = (app) => {
   app.get('/daemon/getmempoolinfo', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getMempoolInfo(req, res);
   });
-  app.get('/daemon/getrawmempool/:verbose', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getrawmempool/:verbose?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getRawMemPool(req, res);
   });
-  app.get('/daemon/gettxout/:txid/:n/:includemempool', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/gettxout/:txid?/:n?/:includemempool?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getTxOut(req, res);
   });
-  app.get('/daemon/gettxoutproof/:txids/:blockhash', cache('30 seconds'), (req, res) => { // comma separated list of txids. For example: /gettxoutproof/abc,efg,asd/blockhash
+  app.get('/daemon/gettxoutproof/:txids?/:blockhash?', cache('30 seconds'), (req, res) => { // comma separated list of txids. For example: /gettxoutproof/abc,efg,asd/blockhash
     daemonServiceBlockchainRpcs.getTxOutProof(req, res);
   });
   app.get('/daemon/gettxoutsetinfo', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getTxOutSetInfo(req, res);
   });
-  app.get('/daemon/verifytxoutproof/:proof', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/verifytxoutproof/:proof?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.verifyTxOutProof(req, res);
   });
-  app.get('/daemon/getspentinfo/:txid/:index', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getspentinfo/:txid?/:index?', cache('30 seconds'), (req, res) => {
     daemonServiceBlockchainRpcs.getSpentInfo(req, res);
   });
-  app.get('/daemon/getblocksubsidy/:height', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getblocksubsidy/:height?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getBlockSubsidy(req, res);
   });
-  app.get('/daemon/getblocktemplate/:jsonrequestobject', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getblocktemplate/:jsonrequestobject?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getBlockTemplate(req, res);
   });
   app.get('/daemon/getlocalsolps', cache('30 seconds'), (req, res) => {
@@ -167,10 +139,10 @@ module.exports = (app) => {
   app.get('/daemon/getmininginfo', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getMiningInfo(req, res);
   });
-  app.get('/daemon/getnetworkhashps/:blocks/:height', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getnetworkhashps/:blocks?/:height?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getNetworkHashPs(req, res);
   });
-  app.get('/daemon/getnetworksolps/:blocks/:height', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/getnetworksolps/:blocks?/:height?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.getNetworkSolPs(req, res);
   });
   app.get('/daemon/getconnectioncount', cache('30 seconds'), (req, res) => {
@@ -191,43 +163,43 @@ module.exports = (app) => {
   app.get('/daemon/listbanned', cache('30 seconds'), (req, res) => {
     daemonServiceNetworkRpcs.listBanned(req, res);
   });
-  app.get('/daemon/createrawtransaction/:transactions/:addresses/:locktime/:expiryheight', (req, res) => {
+  app.get('/daemon/createrawtransaction/:transactions?/:addresses?/:locktime?/:expiryheight?', (req, res) => {
     daemonServiceTransactionRpcs.createRawTransaction(req, res);
   });
-  app.get('/daemon/decoderawtransaction/:hexstring', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/decoderawtransaction/:hexstring?', cache('30 seconds'), (req, res) => {
     daemonServiceTransactionRpcs.decodeRawTransaction(req, res);
   });
-  app.get('/daemon/decodescript/:hex', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/decodescript/:hex?', cache('30 seconds'), (req, res) => {
     daemonServiceTransactionRpcs.decodeScript(req, res);
   });
-  app.get('/daemon/fundrawtransaction/:hexstring', (req, res) => {
+  app.get('/daemon/fundrawtransaction/:hexstring?', (req, res) => {
     daemonServiceTransactionRpcs.fundRawTransaction(req, res);
   });
-  app.get('/daemon/getrawtransaction/:txid/:verbose', (req, res) => {
+  app.get('/daemon/getrawtransaction/:txid?/:verbose?', (req, res) => {
     daemonServiceTransactionRpcs.getRawTransaction(req, res);
   });
-  app.get('/daemon/sendrawtransaction/:hexstring/:allowhighfees', (req, res) => {
+  app.get('/daemon/sendrawtransaction/:hexstring?/:allowhighfees?', (req, res) => {
     daemonServiceTransactionRpcs.sendRawTransaction(req, res);
   });
-  app.get('/daemon/createmultisig/:n/:keys', (req, res) => {
+  app.get('/daemon/createmultisig/:n?/:keys?', (req, res) => {
     daemonServiceUtilityRpcs.createMultiSig(req, res);
   });
-  app.get('/daemon/estimatefee/:nblocks', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/estimatefee/:nblocks?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.estimateFee(req, res);
   });
-  app.get('/daemon/estimatepriority/:nblocks', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/estimatepriority/:nblocks?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.estimatePriority(req, res);
   });
-  app.get('/daemon/validateaddress/:fluxaddress', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/validateaddress/:fluxaddress?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.validateAddress(req, res);
   });
-  app.get('/daemon/verifymessage/:fluxaddress/:signature/:message', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/verifymessage/:fluxaddress?/:signature?/:message?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.verifyMessage(req, res);
   });
-  app.get('/daemon/gettransaction/:txid/:includewatchonly', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/gettransaction/:txid?/:includewatchonly?', cache('30 seconds'), (req, res) => {
     daemonServiceWalletRpcs.getTransaction(req, res);
   });
-  app.get('/daemon/zvalidateaddress/:zaddr', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/zvalidateaddress/:zaddr?', cache('30 seconds'), (req, res) => {
     daemonServiceUtilityRpcs.zValidateAddress(req, res);
   });
   app.get('/daemon/getbenchmarks', cache('30 seconds'), (req, res) => {
@@ -322,7 +294,7 @@ module.exports = (app) => {
   app.get('/flux/incomingconnectionsinfo', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.getIncomingConnectionsInfo(req, res);
   });
-  app.get('/flux/checkfluxavailability/:ip/:port', cache('30 seconds'), (req, res) => {
+  app.get('/flux/checkfluxavailability/:ip?/:port?', cache('30 seconds'), (req, res) => {
     fluxNetworkHelper.checkFluxAvailability(req, res);
   });
   app.post('/flux/checkappavailability', (req, res) => {
@@ -341,7 +313,7 @@ module.exports = (app) => {
   app.get('/apps/listappsimages', cache('30 seconds'), (req, res) => {
     appsService.listAppsImages(req, res);
   });
-  app.get('/apps/installedapps/:appname', cache('30 seconds'), (req, res) => {
+  app.get('/apps/installedapps/:appname?', cache('30 seconds'), (req, res) => {
     appsService.installedApps(req, res);
   });
   app.get('/apps/availableapps', cache('30 seconds'), (req, res) => {
@@ -356,13 +328,13 @@ module.exports = (app) => {
   app.get('/apps/registrationinformation', cache('30 seconds'), (req, res) => {
     appsService.registrationInformation(req, res);
   });
-  app.get('/apps/temporarymessages/:hash', cache('5 seconds'), (req, res) => {
+  app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
     appsService.getAppsTemporaryMessages(req, res);
   });
-  app.get('/apps/permanentmessages/:hash/:owner/:appname', cache('2 minutes'), (req, res) => {
+  app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), (req, res) => {
     appsService.getAppsPermanentMessages(req, res);
   });
-  app.get('/apps/globalappsspecifications/:hash/:owner/:appname', cache('30 seconds'), (req, res) => {
+  app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getGlobalAppsSpecifications(req, res);
   });
   app.get('/apps/latestspecificationversion', cache('5 minutes'), (req, res) => {
@@ -371,31 +343,31 @@ module.exports = (app) => {
   app.get('/apps/updatetolatestspecs/:appname', cache('30 seconds'), (req, res) => {
     appsService.updateApplicationSpecificationAPI(req, res);
   });
-  app.get('/apps/appspecifications/:appname/:decrypt', (req, res) => {
+  app.get('/apps/appspecifications/:appname/:decrypt?', (req, res) => {
     appsService.getApplicationSpecificationAPI(req, res);
   });
-  app.get('/apps/appowner/:appname', cache('30 seconds'), (req, res) => {
+  app.get('/apps/appowner/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationOwnerAPI(req, res);
   });
-  app.get('/apps/apporiginalowner/:appname', cache('30 seconds'), (req, res) => {
+  app.get('/apps/apporiginalowner/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getApplicationOriginalOwner(req, res);
   });
   app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
     appsService.getAppHashes(req, res);
   });
-  app.get('/apps/location/:appname', cache('30 seconds'), (req, res) => {
+  app.get('/apps/location/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocation(req, res);
   });
   app.get('/apps/locations', cache('30 seconds'), (req, res) => {
     appsService.getAppsLocations(req, res);
   });
-  app.get('/apps/installinglocation/:appname', cache('30 seconds'), (req, res) => {
+  app.get('/apps/installinglocation/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppInstallingLocation(req, res);
   });
   app.get('/apps/installinglocations', cache('30 seconds'), (req, res) => {
     appsService.getAppsInstallingLocations(req, res);
   });
-  app.get('/apps/installingerrorslocation/:appname', cache('30 seconds'), (req, res) => {
+  app.get('/apps/installingerrorslocation/:appname?', cache('30 seconds'), (req, res) => {
     appsService.getAppInstallingErrorsLocation(req, res);
   });
   app.get('/apps/installingerrorslocations', cache('30 seconds'), (req, res) => {
@@ -436,13 +408,13 @@ module.exports = (app) => {
   //   explorerService.getAllAddresses(req, res);
   // });
 
-  app.get('/explorer/utxo/:address', cache('30 seconds'), (req, res) => {
+  app.get('/explorer/utxo/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressUtxos(req, res);
   });
-  app.get('/explorer/transactions/:address', cache('30 seconds'), (req, res) => {
+  app.get('/explorer/transactions/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressTransactions(req, res);
   });
-  app.get('/explorer/balance/:address', cache('30 seconds'), (req, res) => {
+  app.get('/explorer/balance/:address?', cache('30 seconds'), (req, res) => {
     explorerService.getAddressBalance(req, res);
   });
   app.get('/explorer/scannedheight', cache('30 seconds'), (req, res) => {
@@ -451,15 +423,15 @@ module.exports = (app) => {
   // app.get('/explorer/fusion/coinbase/all', cache('30 seconds'), (req, res) => {
   //   explorerService.getAllFusionCoinbase(req, res);
   // });
-  app.get('/explorer/fusion/coinbase/:address', cache('30 seconds'), (req, res) => { // deprecated
+  app.get('/explorer/fusion/coinbase/:address?', cache('30 seconds'), (req, res) => { // deprecated
     explorerService.getAddressFusionCoinbase(req, res);
   });
 
   // GET PROTECTED API - User level
-  app.get('/daemon/prioritisetransaction/:txid/:prioritydelta/:feedelta', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/prioritisetransaction/:txid?/:prioritydelta?/:feedelta?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.prioritiseTransaction(req, res);
   });
-  app.get('/daemon/submitblock/:hexdata/:jsonparametersobject', cache('30 seconds'), (req, res) => {
+  app.get('/daemon/submitblock/:hexdata?/:jsonparametersobject?', cache('30 seconds'), (req, res) => {
     daemonServiceMiningRpcs.submitBlock(req, res);
   });
 
@@ -485,7 +457,7 @@ module.exports = (app) => {
   app.get('/benchmark/getstatus', cache('30 seconds'), (req, res) => {
     benchmarkService.getStatus(req, res);
   });
-  app.get('/benchmark/help/:command', cache('1 hour'), (req, res) => {
+  app.get('/benchmark/help/:command?', cache('1 hour'), (req, res) => {
     benchmarkService.help(req, res);
   });
   app.get('/benchmark/getbenchmarks', cache('30 seconds'), (req, res) => {
@@ -504,46 +476,46 @@ module.exports = (app) => {
   app.get('/syncthing/health', cache('30 seconds'), (req, res) => {
     syncthingService.getHealth(req, res);
   });
-  app.get('/syncthing/system/browse/:current', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/browse/:current?', cache('30 seconds'), (req, res) => {
     syncthingService.systemBrowse(req, res);
   });
   app.get('/syncthing/system/connections', cache('30 seconds'), (req, res) => {
     syncthingService.systemConnections(req, res);
   });
-  app.get('/syncthing/system/debug/:enable/:disable', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/debug/:enable?/:disable?', cache('30 seconds'), (req, res) => {
     syncthingService.systemDebug(req, res);
   });
-  app.get('/syncthing/system/discovery/:device/:addr', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/discovery/:device?/:addr?', cache('30 seconds'), (req, res) => {
     syncthingService.systemDiscovery(req, res);
   });
   app.get('/syncthing/system/error/clear', cache('30 seconds'), (req, res) => {
     syncthingService.systemErrorClear(req, res);
   });
-  app.get('/syncthing/system/error/:message', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/error/:message?', cache('30 seconds'), (req, res) => {
     syncthingService.systemError(req, res);
   });
-  app.get('/syncthing/system/log/:since', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/log/:since?', cache('30 seconds'), (req, res) => {
     syncthingService.systemLog(req, res);
   });
-  app.get('/syncthing/system/logtxt/:since', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/logtxt/:since?', cache('30 seconds'), (req, res) => {
     syncthingService.systemLogTxt(req, res);
   });
   app.get('/syncthing/system/paths', cache('30 seconds'), (req, res) => {
     syncthingService.systemPaths(req, res);
   });
-  app.get('/syncthing/system/pause/:device', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/pause/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.systemPause(req, res);
   });
   app.get('/syncthing/system/ping', cache('30 seconds'), (req, res) => {
     syncthingService.systemPing(req, res);
   });
-  app.get('/syncthing/system/reset/:folder', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/reset/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.systemReset(req, res);
   });
   app.get('/syncthing/system/restart', cache('30 seconds'), (req, res) => {
     syncthingService.systemRestart(req, res);
   });
-  app.get('/syncthing/system/resume/:device', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/system/resume/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.systemResume(req, res);
   });
   app.get('/syncthing/system/shutdown', cache('30 seconds'), (req, res) => {
@@ -564,10 +536,10 @@ module.exports = (app) => {
   app.get('/syncthing/config/restart-required', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigRestartRequired(req, res);
   });
-  app.get('/syncthing/config/folders/:id', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/config/folders/:id?', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigFolders(req, res);
   });
-  app.get('/syncthing/config/devices/:id', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/config/devices/:id?', cache('30 seconds'), (req, res) => {
     syncthingService.getConfigDevices(req, res);
   });
   app.get('/syncthing/config/defaults/folder', cache('30 seconds'), (req, res) => {
@@ -600,49 +572,49 @@ module.exports = (app) => {
   app.get('/syncthing/cluster/pending/folders', cache('30 seconds'), (req, res) => {
     syncthingService.getClusterPendigFolders(req, res);
   });
-  app.get('/syncthing/folder/errors/:folder', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/folder/errors/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getFolderErrors(req, res);
   });
-  app.get('/syncthing/folder/versions/:folder', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/folder/versions/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getFolderVersions(req, res);
   });
-  app.get('/syncthing/db/browse/:folder/:levels/:prefix', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/browse/:folder?/:levels?/:prefix?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbBrowse(req, res);
   });
-  app.get('/syncthing/db/completion/:folder/:device', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/completion/:folder?/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbCompletion(req, res);
   });
-  app.get('/syncthing/db/file/:folder/:file', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/file/:folder?/:file?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbFile(req, res);
   });
-  app.get('/syncthing/db/ignores/:folder', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/ignores/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbIgnores(req, res);
   });
-  app.get('/syncthing/db/localchanged/:folder', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/localchanged/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbLocalchanged(req, res);
   });
-  app.get('/syncthing/db/need/:folder', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/need/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbNeed(req, res);
   });
-  app.get('/syncthing/db/remoteneed/:folder/:device', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/remoteneed/:folder?/:device?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbRemoteNeed(req, res);
   });
-  app.get('/syncthing/db/status/:folder', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/db/status/:folder?', cache('30 seconds'), (req, res) => {
     syncthingService.getDbStatus(req, res);
   });
   app.get('/syncthing/events/disk', cache('30 seconds'), (req, res) => {
     syncthingService.getEventsDisk(req, res);
   });
-  app.get('/syncthing/events/:events/:since/:limit/:timeout', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/events/:events?/:since?/:limit?/:timeout?', cache('30 seconds'), (req, res) => {
     syncthingService.getEvents(req, res);
   });
-  app.get('/syncthing/svc/random/string/:length', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/svc/random/string/:length?', cache('30 seconds'), (req, res) => {
     syncthingService.getSvcRandomString(req, res);
   });
   app.get('/syncthing/svc/report', cache('30 seconds'), (req, res) => {
     syncthingService.getSvcReport(req, res);
   });
-  app.get('/syncthing/svc/:deviceid', cache('30 seconds'), (req, res) => {
+  app.get('/syncthing/svc/:deviceid?', cache('30 seconds'), (req, res) => {
     syncthingService.getSvcDeviceID(req, res);
   });
   app.get('/syncthing/debug/peercompletion', cache('30 seconds'), (req, res) => {
@@ -665,19 +637,19 @@ module.exports = (app) => {
   });
   // BACKUP & RESTORE
 
-  app.get('/backup/getvolumedataofcomponent/:appname/:component/:multiplier/:decimal/:fields', (req, res) => {
+  app.get('/backup/getvolumedataofcomponent/:appname?/:component?/:multiplier?/:decimal?/:fields?', (req, res) => {
     backupRestoreService.getVolumeDataOfComponent(req, res);
   });
-  app.get('/backup/getremotefilesize/:fileurl/:multiplier/:decimal/:number/:appname', (req, res) => {
+  app.get('/backup/getremotefilesize/:fileurl?/:multiplier?/:decimal?/:number?/:appname?', (req, res) => {
     backupRestoreService.getRemoteFileSize(req, res);
   });
-  app.get('/backup/getlocalbackuplist/:path/:multiplier/:decimal/:number/:appname', (req, res) => {
+  app.get('/backup/getlocalbackuplist/:path?/:multiplier?/:decimal?/:number?/:appname?', (req, res) => {
     backupRestoreService.getLocalBackupList(req, res);
   });
-  app.get('/backup/removebackupfile/:filepath/:appname', (req, res) => {
+  app.get('/backup/removebackupfile/:filepath?/:appname?', (req, res) => {
     backupRestoreService.removeBackupFile(req, res);
   });
-  app.get('/backup/downloadlocalfile/:filepath/:appname', (req, res) => {
+  app.get('/backup/downloadlocalfile/:filepath?/:appname?', (req, res) => {
     backupRestoreService.downloadLocalFile(req, res);
   });
   app.post('/apps/appendbackuptask', (req, res) => {
@@ -688,7 +660,7 @@ module.exports = (app) => {
     appsService.appendRestoreTask(req, res);
   });
 
-  app.post('/ioutils/fileupload/:type/:appname/:component/:folder/:filename', (req, res) => {
+  app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
     IOUtils.fileUpload(req, res);
   });
 
@@ -705,10 +677,10 @@ module.exports = (app) => {
   app.get('/daemon/createzelnodekey', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.createFluxNodeKey(req, res);
   });
-  app.get('/daemon/listfluxnodeconf/:filter', (req, res) => {
+  app.get('/daemon/listfluxnodeconf/:filter?', (req, res) => {
     daemonServiceNodeRpcs.listFluxNodeConf(req, res);
   });
-  app.get('/daemon/listzelnodeconf/:filter', (req, res) => { // DEPRECATED
+  app.get('/daemon/listzelnodeconf/:filter?', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.listFluxNodeConf(req, res);
   });
   app.get('/daemon/getfluxnodeoutputs', (req, res) => {
@@ -717,49 +689,49 @@ module.exports = (app) => {
   app.get('/daemon/getzelnodeoutputs', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.getFluxNodeOutputs(req, res);
   });
-  app.get('/daemon/startfluxnode/:set/:lockwallet/:alias', (req, res) => {
+  app.get('/daemon/startfluxnode/:set?/:lockwallet?/:alias?', (req, res) => {
     daemonServiceNodeRpcs.startFluxNode(req, res);
   });
-  app.get('/daemon/startzelnode/:set/:lockwallet/:alias', (req, res) => { // DEPRECATED
+  app.get('/daemon/startzelnode/:set?/:lockwallet?/:alias?', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.startFluxNode(req, res);
   });
-  app.get('/daemon/startdeterministicfluxnode/:alias/:lockwallet', (req, res) => {
+  app.get('/daemon/startdeterministicfluxnode/:alias?/:lockwallet?', (req, res) => {
     daemonServiceNodeRpcs.startDeterministicFluxNode(req, res);
   });
-  app.get('/daemon/startdeterministiczelnode/:alias/:lockwallet', (req, res) => { // DEPRECATED
+  app.get('/daemon/startdeterministiczelnode/:alias?/:lockwallet?', (req, res) => { // DEPRECATED
     daemonServiceNodeRpcs.startDeterministicFluxNode(req, res);
   });
-  app.get('/daemon/verifychain/:checklevel/:numblocks', (req, res) => {
+  app.get('/daemon/verifychain/:checklevel?/:numblocks?', (req, res) => {
     daemonServiceBlockchainRpcs.verifyChain(req, res);
   });
-  app.get('/daemon/addnode/:node/:command', (req, res) => {
+  app.get('/daemon/addnode/:node?/:command?', (req, res) => {
     daemonServiceNetworkRpcs.addNode(req, res);
   });
   app.get('/daemon/clearbanned', (req, res) => {
     daemonServiceNetworkRpcs.clearBanned(req, res);
   });
-  app.get('/daemon/disconnectnode/:node', (req, res) => {
+  app.get('/daemon/disconnectnode/:node?', (req, res) => {
     daemonServiceNetworkRpcs.disconnectNode(req, res);
   });
-  app.get('/daemon/getaddednodeinfo/:dns/:node', (req, res) => {
+  app.get('/daemon/getaddednodeinfo/:dns?/:node?', (req, res) => {
     daemonServiceNetworkRpcs.getAddedNodeInfo(req, res);
   });
-  app.get('/daemon/setban/:ip/:command/:bantime/:absolute', (req, res) => {
+  app.get('/daemon/setban/:ip?/:command?/:bantime?/:absolute?', (req, res) => {
     daemonServiceNetworkRpcs.setBan(req, res);
   });
-  app.get('/daemon/signrawtransaction/:hexstring/:prevtxs/:privatekeys/:sighashtype/:branchid', (req, res) => {
+  app.get('/daemon/signrawtransaction/:hexstring?/:prevtxs?/:privatekeys?/:sighashtype?/:branchid?', (req, res) => {
     daemonServiceTransactionRpcs.signRawTransaction(req, res);
   });
-  app.get('/daemon/addmultisigaddress/:n/:keysobject', (req, res) => {
+  app.get('/daemon/addmultisigaddress/:n?/:keysobject?', (req, res) => {
     daemonServiceWalletRpcs.addMultiSigAddress(req, res);
   });
-  app.get('/daemon/backupwallet/:destination', (req, res) => {
+  app.get('/daemon/backupwallet/:destination?', (req, res) => {
     daemonServiceWalletRpcs.backupWallet(req, res);
   });
-  app.get('/daemon/dumpprivkey/:taddr', (req, res) => {
+  app.get('/daemon/dumpprivkey/:taddr?', (req, res) => {
     daemonServiceWalletRpcs.dumpPrivKey(req, res);
   });
-  app.get('/daemon/getbalance/:minconf/:includewatchonly', (req, res) => {
+  app.get('/daemon/getbalance/:minconf?/:includewatchonly?', (req, res) => {
     daemonServiceWalletRpcs.getBalance(req, res);
   });
   app.get('/daemon/getnewaddress', (req, res) => {
@@ -768,7 +740,7 @@ module.exports = (app) => {
   app.get('/daemon/getrawchangeaddress', (req, res) => {
     daemonServiceWalletRpcs.getRawChangeAddress(req, res);
   });
-  app.get('/daemon/getreceivedbyaddress/:fluxaddress/:minconf', (req, res) => {
+  app.get('/daemon/getreceivedbyaddress/:fluxaddress?/:minconf?', (req, res) => {
     daemonServiceWalletRpcs.getReceivedByAddress(req, res);
   });
   app.get('/daemon/getunconfirmedbalance', (req, res) => {
@@ -777,16 +749,16 @@ module.exports = (app) => {
   app.get('/daemon/getwalletinfo', (req, res) => {
     daemonServiceWalletRpcs.getWalletInfo(req, res);
   });
-  app.get('/daemon/importaddress/:address/:label/:rescan', (req, res) => {
+  app.get('/daemon/importaddress/:address?/:label?/:rescan?', (req, res) => {
     daemonServiceWalletRpcs.importAddress(req, res);
   });
-  app.get('/daemon/importprivkey/:fluxprivkey/:label/:rescan', (req, res) => {
+  app.get('/daemon/importprivkey/:fluxprivkey?/:label?/:rescan?', (req, res) => {
     daemonServiceWalletRpcs.importPrivKey(req, res);
   });
-  app.get('/daemon/importwallet/:filename', (req, res) => {
+  app.get('/daemon/importwallet/:filename?', (req, res) => {
     daemonServiceWalletRpcs.importWallet(req, res);
   });
-  app.get('/daemon/keypoolrefill/:newsize', (req, res) => {
+  app.get('/daemon/keypoolrefill/:newsize?', (req, res) => {
     daemonServiceWalletRpcs.keyPoolRefill(req, res);
   });
   app.get('/daemon/listaddressgroupings', (req, res) => {
@@ -795,121 +767,121 @@ module.exports = (app) => {
   app.get('/daemon/listlockunspent', (req, res) => {
     daemonServiceWalletRpcs.listLockUnspent(req, res);
   });
-  app.get('/daemon/listreceivedbyaddress/:minconf/:includeempty/:includewatchonly', (req, res) => {
+  app.get('/daemon/listreceivedbyaddress/:minconf?/:includeempty?/:includewatchonly?', (req, res) => {
     daemonServiceWalletRpcs.listReceivedByAddress(req, res);
   });
-  app.get('/daemon/listsinceblock/:blockhash/:targetconfirmations/:includewatchonly', (req, res) => {
+  app.get('/daemon/listsinceblock/:blockhash?/:targetconfirmations?/:includewatchonly?', (req, res) => {
     daemonServiceWalletRpcs.listSinceBlock(req, res);
   });
-  app.get('/daemon/listtransactions/:count/:from/:includewatchonly', (req, res) => {
+  app.get('/daemon/listtransactions/:count?/:from?/:includewatchonly?', (req, res) => {
     daemonServiceWalletRpcs.listTransactions(req, res);
   });
-  app.get('/daemon/listunspent/:minconf/:maxconf/:addresses', (req, res) => {
+  app.get('/daemon/listunspent/:minconf?/:maxconf?/:addresses?', (req, res) => {
     daemonServiceWalletRpcs.listUnspent(req, res);
   });
-  app.get('/daemon/lockunspent/:unlock/:transactions', (req, res) => {
+  app.get('/daemon/lockunspent/:unlock?/:transactions?', (req, res) => {
     daemonServiceWalletRpcs.lockUnspent(req, res);
   });
-  app.get('/daemon/rescanblockchain/:startheight', (req, res) => {
+  app.get('/daemon/rescanblockchain/:startheight?', (req, res) => {
     daemonServiceWalletRpcs.rescanBlockchain(req, res);
   });
-  app.get('/daemon/sendfrom/:tofluxaddress/:amount/:minconf/:comment/:commentto', (req, res) => {
+  app.get('/daemon/sendfrom/:tofluxaddress?/:amount?/:minconf?/:comment?/:commentto?', (req, res) => {
     daemonServiceWalletRpcs.sendFrom(req, res);
   });
-  app.get('/daemon/sendmany/:amounts/:minconf/:comment/:substractfeefromamount', (req, res) => {
+  app.get('/daemon/sendmany/:amounts?/:minconf?/:comment?/:substractfeefromamount?', (req, res) => {
     daemonServiceWalletRpcs.sendMany(req, res);
   });
-  app.get('/daemon/sendtoaddress/:fluxaddress/:amount/:comment/:commentto/:substractfeefromamount', (req, res) => {
+  app.get('/daemon/sendtoaddress/:fluxaddress?/:amount?/:comment?/:commentto?/:substractfeefromamount?', (req, res) => {
     daemonServiceWalletRpcs.sendToAddress(req, res);
   });
-  app.get('/daemon/settxfee/:amount', (req, res) => {
+  app.get('/daemon/settxfee/:amount?', (req, res) => {
     daemonServiceWalletRpcs.setTxFee(req, res);
   });
-  app.get('/daemon/signmessage/:taddr/:message', (req, res) => {
+  app.get('/daemon/signmessage/:taddr?/:message?', (req, res) => {
     daemonServiceWalletRpcs.signMessage(req, res);
   });
-  app.get('/daemon/zexportkey/:zaddr', (req, res) => {
+  app.get('/daemon/zexportkey/:zaddr?', (req, res) => {
     daemonServiceZcashRpcs.zExportKey(req, res);
   });
-  app.get('/daemon/zexportviewingkey/:zaddr', (req, res) => {
+  app.get('/daemon/zexportviewingkey/:zaddr?', (req, res) => {
     daemonServiceZcashRpcs.zExportViewingKey(req, res);
   });
-  app.get('/daemon/zgetbalance/:address/:minconf', (req, res) => {
+  app.get('/daemon/zgetbalance/:address?/:minconf?', (req, res) => {
     daemonServiceZcashRpcs.zGetBalance(req, res);
   });
   app.get('/daemon/zgetmigrationstatus', (req, res) => {
     daemonServiceZcashRpcs.zGetMigrationStatus(req, res);
   });
-  app.get('/daemon/zgetnewaddress/:type', (req, res) => {
+  app.get('/daemon/zgetnewaddress/:type?', (req, res) => {
     daemonServiceZcashRpcs.zGetNewAddress(req, res);
   });
-  app.get('/daemon/zgetoperationresult/:operationid', (req, res) => {
+  app.get('/daemon/zgetoperationresult/:operationid?', (req, res) => {
     daemonServiceZcashRpcs.zGetOperationResult(req, res);
   });
-  app.get('/daemon/zgetoperationstatus/:operationid', (req, res) => {
+  app.get('/daemon/zgetoperationstatus/:operationid?', (req, res) => {
     daemonServiceZcashRpcs.zGetOperationStatus(req, res);
   });
-  app.get('/daemon/zgettotalbalance/:minconf/:includewatchonly', (req, res) => {
+  app.get('/daemon/zgettotalbalance/:minconf?/:includewatchonly?', (req, res) => {
     daemonServiceZcashRpcs.zGetTotalBalance(req, res);
   });
-  app.get('/daemon/zimportkey/:zkey/:rescan/:startheight', (req, res) => {
+  app.get('/daemon/zimportkey/:zkey?/:rescan?/:startheight?', (req, res) => {
     daemonServiceZcashRpcs.zImportKey(req, res);
   });
-  app.get('/daemon/zimportviewingkey/:vkey/:rescan/:startheight', (req, res) => {
+  app.get('/daemon/zimportviewingkey/:vkey?/:rescan?/:startheight?', (req, res) => {
     daemonServiceZcashRpcs.zImportViewingKey(req, res);
   });
-  app.get('/daemon/zimportwallet/:filename', (req, res) => {
+  app.get('/daemon/zimportwallet/:filename?', (req, res) => {
     daemonServiceZcashRpcs.zImportWallet(req, res);
   });
-  app.get('/daemon/zlistaddresses/:includewatchonly', (req, res) => {
+  app.get('/daemon/zlistaddresses/:includewatchonly?', (req, res) => {
     daemonServiceZcashRpcs.zListAddresses(req, res);
   });
   app.get('/daemon/zlistoperationids', (req, res) => {
     daemonServiceZcashRpcs.zListOperationIds(req, res);
   });
-  app.get('/daemon/zlistreceivedbyaddress/:address/:minconf', (req, res) => {
+  app.get('/daemon/zlistreceivedbyaddress/:address?/:minconf?', (req, res) => {
     daemonServiceZcashRpcs.zListReceivedByAddress(req, res);
   });
-  app.get('/daemon/zlistunspent/:minconf/:maxonf/:includewatchonly/:addresses', (req, res) => {
+  app.get('/daemon/zlistunspent/:minconf?/:maxonf?/:includewatchonly?/:addresses?', (req, res) => {
     daemonServiceZcashRpcs.zListUnspent(req, res);
   });
-  app.get('/daemon/zmergetoaddress/:fromaddresses/:toaddress/:fee/:transparentlimit/:shieldedlimit/:memo', (req, res) => {
+  app.get('/daemon/zmergetoaddress/:fromaddresses?/:toaddress?/:fee?/:transparentlimit?/:shieldedlimit?/:memo?', (req, res) => {
     daemonServiceZcashRpcs.zMergeToAddress(req, res);
   });
-  app.get('/daemon/zsendmany/:fromaddress/:amounts/:minconf/:fee', (req, res) => {
+  app.get('/daemon/zsendmany/:fromaddress?/:amounts?/:minconf?/:fee?', (req, res) => {
     daemonServiceZcashRpcs.zSendMany(req, res);
   });
-  app.get('/daemon/zsetmigration/:enabled', (req, res) => {
+  app.get('/daemon/zsetmigration/:enabled?', (req, res) => {
     daemonServiceZcashRpcs.zSetMigration(req, res);
   });
-  app.get('/daemon/zshieldcoinbase/:fromaddress/:toaddress/:fee/:limit', (req, res) => {
+  app.get('/daemon/zshieldcoinbase/:fromaddress?/:toaddress?/:fee?/:limit?', (req, res) => {
     daemonServiceZcashRpcs.zShieldCoinBase(req, res);
   });
-  app.get('/daemon/zcrawjoinsplit/:rawtx/:inputs/:outputs/:vpubold/:vpubnew', (req, res) => {
+  app.get('/daemon/zcrawjoinsplit/:rawtx?/:inputs?/:outputs?/:vpubold?/:vpubnew?', (req, res) => {
     daemonServiceZcashRpcs.zcRawJoinSplit(req, res);
   });
   app.get('/daemon/zcrawkeygen', (req, res) => {
     daemonServiceZcashRpcs.zcRawKeygen(req, res);
   });
-  app.get('/daemon/zcrawreceive/:zcsecretkey/:encryptednote', (req, res) => {
+  app.get('/daemon/zcrawreceive/:zcsecretkey?/:encryptednote?', (req, res) => {
     daemonServiceZcashRpcs.zcRawReceive(req, res);
   });
   app.get('/daemon/zcsamplejoinsplit', (req, res) => {
     daemonServiceZcashRpcs.zcSampleJoinSplit(req, res);
   });
-  app.get('/daemon/getaddresstxids/:address/:start/:end', (req, res) => {
+  app.get('/daemon/getaddresstxids/:address?/:start?/:end?', (req, res) => {
     daemonServiceAddressRpcs.getSingleAddresssTxids(req, res);
   });
-  app.get('/daemon/getaddressbalance/:address', (req, res) => {
+  app.get('/daemon/getaddressbalance/:address?', (req, res) => {
     daemonServiceAddressRpcs.getSingleAddressBalance(req, res);
   });
-  app.get('/daemon/getaddressdeltas/:address/:start/:end/:chaininfo', (req, res) => {
+  app.get('/daemon/getaddressdeltas/:address?/:start?/:end?/:chaininfo?', (req, res) => {
     daemonServiceAddressRpcs.getSingleAddressDeltas(req, res);
   });
-  app.get('/daemon/getaddressutxos/:address/:chaininfo', (req, res) => {
+  app.get('/daemon/getaddressutxos/:address?/:chaininfo?', (req, res) => {
     daemonServiceAddressRpcs.getSingleAddressUtxos(req, res);
   });
-  app.get('/daemon/getaddressmempool/:address', (req, res) => {
+  app.get('/daemon/getaddressmempool/:address?', (req, res) => {
     daemonServiceAddressRpcs.getSingleAddressMempool(req, res);
   });
 
@@ -932,16 +904,16 @@ module.exports = (app) => {
     idService.logoutAllUsers(req, res);
   });
 
-  app.get('/flux/adjustkadena/:account/:chainid', (req, res) => { // note this essentially rebuilds flux use with caution!
+  app.get('/flux/adjustkadena/:account?/:chainid?', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustKadenaAccount(req, res);
   });
-  app.get('/flux/adjustrouterip/:routerip', (req, res) => { // note this essentially rebuilds flux use with caution!
+  app.get('/flux/adjustrouterip/:routerip?', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustRouterIP(req, res);
   });
   app.post('/flux/adjustblockedports', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustBlockedPorts(req, res);
   });
-  app.get('/flux/adjustapiport/:apiport', (req, res) => { // note this essentially rebuilds flux use with caution!
+  app.get('/flux/adjustapiport/:apiport?', (req, res) => { // note this essentially rebuilds flux use with caution!
     fluxService.adjustAPIPort(req, res);
   });
   app.post('/flux/adjustblockedrepositories', (req, res) => { // note this essentially rebuilds flux use with caution!
@@ -951,10 +923,10 @@ module.exports = (app) => {
     fluxService.reindexDaemon(req, res);
   });
 
-  app.get('/benchmark/signfluxnodetransaction/:hexstring', (req, res) => {
+  app.get('/benchmark/signfluxnodetransaction/:hexstring?', (req, res) => {
     benchmarkService.signFluxTransaction(req, res);
   });
-  app.get('/benchmark/signzelnodetransaction/:hexstring', (req, res) => { // DEPRECATED
+  app.get('/benchmark/signzelnodetransaction/:hexstring?', (req, res) => { // DEPRECATED
     benchmarkService.signFluxTransaction(req, res);
   });
   app.get('/benchmark/stop', (req, res) => {
@@ -971,7 +943,7 @@ module.exports = (app) => {
   app.get('/daemon/ping', (req, res) => { // we do not want this to be issued by anyone.
     daemonServiceNetworkRpcs.ping(req, res);
   });
-  app.get('/daemon/zcbenchmark/:benchmarktype/:samplecount', (req, res) => {
+  app.get('/daemon/zcbenchmark/:benchmarktype?/:samplecount?', (req, res) => {
     daemonServiceZcashRpcs.zcBenchmark(req, res);
   });
   app.get('/daemon/startbenchmark', (req, res) => {
@@ -1057,28 +1029,28 @@ module.exports = (app) => {
     fluxService.tailFluxInfoLog(req, res);
   });
 
-  app.get('/flux/broadcastmessage/:data', (req, res) => {
+  app.get('/flux/broadcastmessage/:data?', (req, res) => {
     fluxCommunicationMessagesSender.broadcastMessageFromUser(req, res);
   });
-  app.get('/flux/broadcastmessagetooutgoing/:data', (req, res) => {
+  app.get('/flux/broadcastmessagetooutgoing/:data?', (req, res) => {
     fluxCommunicationMessagesSender.broadcastMessageToOutgoingFromUser(req, res);
   });
-  app.get('/flux/broadcastmessagetoincoming/:data', (req, res) => {
+  app.get('/flux/broadcastmessagetoincoming/:data?', (req, res) => {
     fluxCommunicationMessagesSender.broadcastMessageToIncomingFromUser(req, res);
   });
-  app.get('/flux/addpeer/:ip', (req, res) => {
+  app.get('/flux/addpeer/:ip?', (req, res) => {
     fluxCommunication.addPeer(req, res);
   });
-  app.get('/flux/removepeer/:ip', (req, res) => {
+  app.get('/flux/removepeer/:ip?', (req, res) => {
     fluxCommunication.removePeer(req, res);
   });
-  app.get('/flux/addoutgoingpeer/:ip', (req, res) => {
+  app.get('/flux/addoutgoingpeer/:ip?', (req, res) => {
     fluxCommunication.addOutgoingPeer(req, res);
   });
-  app.get('/flux/removeincomingpeer/:ip', (req, res) => {
+  app.get('/flux/removeincomingpeer/:ip?', (req, res) => {
     fluxCommunication.removeIncomingPeer(req, res);
   });
-  app.get('/flux/allowport/:port', (req, res) => {
+  app.get('/flux/allowport/:port?', (req, res) => {
     fluxNetworkHelper.allowPortApi(req, res);
   });
   app.get('/flux/checkcommunication', (req, res) => {
@@ -1093,10 +1065,10 @@ module.exports = (app) => {
   app.get('/flux/backendfolder', isLocal, (req, res) => {
     fluxService.fluxBackendFolder(req, res);
   });
-  app.get('/flux/mapport/:port', (req, res) => {
+  app.get('/flux/mapport/:port?', (req, res) => {
     upnpService.mapPortApi(req, res);
   });
-  app.get('/flux/unmapport/:port', (req, res) => {
+  app.get('/flux/unmapport/:port?', (req, res) => {
     upnpService.removeMapPortApi(req, res);
   });
   app.get('/flux/getmap', (req, res) => {
@@ -1122,7 +1094,7 @@ module.exports = (app) => {
     benchmarkService.restartNodeBenchmarks(req, res);
   });
 
-  app.get('/explorer/reindex/:reindexapps', (req, res) => {
+  app.get('/explorer/reindex/:reindexapps?', (req, res) => {
     explorerService.reindexExplorer(req, res);
   });
   app.get('/explorer/restart', (req, res) => {
@@ -1131,7 +1103,7 @@ module.exports = (app) => {
   app.get('/explorer/stop', (req, res) => {
     explorerService.stopBlockProcessing(req, res);
   });
-  app.get('/explorer/rescan/:blockheight/:rescanapps', (req, res) => {
+  app.get('/explorer/rescan/:blockheight?/:rescanapps?', (req, res) => {
     explorerService.rescanExplorer(req, res);
   });
 
@@ -1141,61 +1113,61 @@ module.exports = (app) => {
   app.get('/apps/requestmessage/:hash', (req, res) => {
     appsService.requestAppMessageAPI(req, res);
   });
-  app.get('/apps/appstart/:appname/:global', (req, res) => {
+  app.get('/apps/appstart/:appname?/:global?', (req, res) => {
     appsService.appStart(req, res);
   });
-  app.get('/apps/appstop/:appname/:global', (req, res) => {
+  app.get('/apps/appstop/:appname?/:global?', (req, res) => {
     appsService.appStop(req, res);
   });
-  app.get('/apps/apprestart/:appname/:global', (req, res) => {
+  app.get('/apps/apprestart/:appname?/:global?', (req, res) => {
     appsService.appRestart(req, res);
   });
-  app.get('/apps/apppause/:appname/:global', (req, res) => {
+  app.get('/apps/apppause/:appname?/:global?', (req, res) => {
     appsService.appPause(req, res);
   });
-  app.get('/apps/appunpause/:appname/:global', (req, res) => {
+  app.get('/apps/appunpause/:appname?/:global?', (req, res) => {
     appsService.appUnpause(req, res);
   });
-  app.get('/apps/apptop/:appname', (req, res) => {
+  app.get('/apps/apptop/:appname?', (req, res) => {
     appsService.appTop(req, res);
   });
-  app.get('/apps/applog/:appname/:lines', (req, res) => {
+  app.get('/apps/applog/:appname?/:lines?', (req, res) => {
     appsService.appLog(req, res);
   });
-  app.get('/apps/applogpolling/:appname/:lines/:since', (req, res) => {
+  app.get('/apps/applogpolling/:appname?/:lines?/:since?', (req, res) => {
     appsService.appLogPolling(req, res);
   });
-  app.get('/apps/appinspect/:appname', (req, res) => {
+  app.get('/apps/appinspect/:appname?', (req, res) => {
     appsService.appInspect(req, res);
   });
-  app.get('/apps/appstats/:appname', (req, res) => {
+  app.get('/apps/appstats/:appname?', (req, res) => {
     appsService.appStats(req, res);
   });
-  app.get('/apps/appmonitor/:appname/:range', (req, res) => {
+  app.get('/apps/appmonitor/:appname?/:range?', (req, res) => {
     appsService.appMonitor(req, res);
   });
-  app.get('/apps/appmonitorstream/:appname', (req, res) => {
+  app.get('/apps/appmonitorstream/:appname?', (req, res) => {
     appsService.appMonitorStream(req, res);
   });
-  app.get('/apps/appchanges/:appname', (req, res) => {
+  app.get('/apps/appchanges/:appname?', (req, res) => {
     appsService.appChanges(req, res);
   });
   app.post('/apps/appexec', (req, res) => {
     appsService.appExec(req, res);
   });
-  app.get('/apps/appremove/:appname/:force/:global', (req, res) => {
+  app.get('/apps/appremove/:appname?/:force?/:global?', (req, res) => {
     appsService.removeAppLocallyApi(req, res);
   });
-  app.get('/apps/installapplocally/:appname', (req, res) => {
+  app.get('/apps/installapplocally/:appname?', (req, res) => {
     appsService.installAppLocally(req, res);
   });
-  app.get('/apps/testappinstall/:appname', (req, res) => {
+  app.get('/apps/testappinstall/:appname?', (req, res) => {
     appsService.testAppInstall(req, res);
   });
   app.get('/apps/createfluxnetwork', (req, res) => {
     appsService.createFluxNetworkAPI(req, res);
   });
-  app.get('/apps/rescanglobalappsinformation/:blockheight/:removelastinformation', (req, res) => {
+  app.get('/apps/rescanglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => {
     appsService.rescanGlobalAppsInformationAPI(req, res);
   });
   app.get('/apps/reindexglobalappsinformation', (req, res) => {
@@ -1204,16 +1176,16 @@ module.exports = (app) => {
   app.get('/apps/reindexglobalappslocation', (req, res) => {
     appsService.reindexGlobalAppsLocationAPI(req, res);
   });
-  app.get('/apps/redeploy/:appname/:force/:global', (req, res) => {
+  app.get('/apps/redeploy/:appname?/:force?/:global?', (req, res) => {
     appsService.redeployAPI(req, res);
   });
   app.get('/apps/reconstructhashes', (req, res) => {
     appsService.reconstructAppMessagesHashCollectionAPI(req, res);
   });
-  app.get('/apps/startmonitoring/:appname', (req, res) => {
+  app.get('/apps/startmonitoring/:appname?', (req, res) => {
     appsService.startAppMonitoringAPI(req, res);
   });
-  app.get('/apps/stopmonitoring/:appname/:deletedata', (req, res) => {
+  app.get('/apps/stopmonitoring/:appname?/:deletedata?', (req, res) => {
     appsService.stopAppMonitoringAPI(req, res);
   });
 
@@ -1417,62 +1389,62 @@ module.exports = (app) => {
   });
 
   // FluxShare
-  app.get('/apps/fluxshare/getfile/:file/:token', (req, res) => {
+  app.get('/apps/fluxshare/getfile/:file?/:token?', (req, res) => {
     fluxshareService.fluxShareDownloadFile(req, res);
   });
-  app.get('/apps/fluxshare/getfolder/:folder', (req, res) => {
+  app.get('/apps/fluxshare/getfolder/:folder?', (req, res) => {
     fluxshareService.fluxShareGetFolder(req, res);
   });
-  app.get('/apps/fluxshare/createfolder/:folder', (req, res) => {
+  app.get('/apps/fluxshare/createfolder/:folder?', (req, res) => {
     fluxshareService.fluxShareCreateFolder(req, res);
   });
-  app.post('/apps/fluxshare/uploadfile/:folder', (req, res) => {
+  app.post('/apps/fluxshare/uploadfile/:folder?', (req, res) => {
     fluxshareService.fluxShareUpload(req, res);
   });
-  app.get('/apps/fluxshare/removefile/:file', (req, res) => {
+  app.get('/apps/fluxshare/removefile/:file?', (req, res) => {
     fluxshareService.fluxShareRemoveFile(req, res);
   });
-  app.get('/apps/fluxshare/removefolder/:folder', (req, res) => {
+  app.get('/apps/fluxshare/removefolder/:folder?', (req, res) => {
     fluxshareService.fluxShareRemoveFolder(req, res);
   });
-  app.get('/apps/fluxshare/fileexists/:file', (req, res) => {
+  app.get('/apps/fluxshare/fileexists/:file?', (req, res) => {
     fluxshareService.fluxShareFileExists(req, res);
   });
   app.get('/apps/fluxshare/stats', (req, res) => {
     fluxshareService.fluxShareStorageStats(req, res);
   });
-  app.get('/apps/fluxshare/sharefile/:file', (req, res) => {
+  app.get('/apps/fluxshare/sharefile/:file?', (req, res) => {
     fluxshareService.fluxShareShareFile(req, res);
   });
-  app.get('/apps/fluxshare/unsharefile/:file', (req, res) => {
+  app.get('/apps/fluxshare/unsharefile/:file?', (req, res) => {
     fluxshareService.fluxShareUnshareFile(req, res);
   });
   app.get('/apps/fluxshare/sharedfiles', (req, res) => {
     fluxshareService.fluxShareGetSharedFiles(req, res);
   });
-  app.get('/apps/fluxshare/rename/:oldpath/:newname', (req, res) => {
+  app.get('/apps/fluxshare/rename/:oldpath?/:newname?', (req, res) => {
     fluxshareService.fluxShareRename(req, res);
   });
-  app.get('/apps/fluxshare/downloadfolder/:folder', (req, res) => {
+  app.get('/apps/fluxshare/downloadfolder/:folder?', (req, res) => {
     fluxshareService.fluxShareDownloadFolder(req, res);
   });
   // Volume Browser
-  app.get('/apps/getfolderinfo/:appname/:component/:folder', (req, res) => {
+  app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {
     appsService.getAppsFolder(req, res);
   });
-  app.get('/apps/createfolder/:appname/:component/:folder', (req, res) => {
+  app.get('/apps/createfolder/:appname?/:component?/:folder?', (req, res) => {
     appsService.createAppsFolder(req, res);
   });
-  app.get('/apps/renameobject/:appname/:component/:oldpath/:newname', (req, res) => {
+  app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', (req, res) => {
     appsService.renameAppsObject(req, res);
   });
-  app.get('/apps/removeobject/:appname/:component/:object', (req, res) => {
+  app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
     appsService.removeAppsObject(req, res);
   });
-  app.get('/apps/downloadfile/:appname/:component/:file', (req, res) => {
+  app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {
     appsService.downloadAppsFile(req, res);
   });
-  app.get('/apps/downloadfolder/:appname/:component/:folder', (req, res) => {
+  app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
     appsService.downloadAppsFolder(req, res);
   });
   app.get('/explorer/issynced', cache('30 seconds'), (req, res) => {
