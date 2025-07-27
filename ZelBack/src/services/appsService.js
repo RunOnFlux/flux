@@ -50,7 +50,7 @@ const fluxDirPath = path.join(__dirname, '../../../');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
 
-const cmdAsync = util.promisify(nodecmd.get);
+const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
