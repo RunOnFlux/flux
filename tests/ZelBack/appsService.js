@@ -143,28 +143,36 @@ describe('checkHWParameters', () => {
     expect(hwSpecs).to.throw();
   });
 
-  it('Verifies repository exists or is not correct', async function () {
-    this.timeout(10000);
+  it('Verifies repository format validation (spaces)', async function () {
     const fluxAppSpecs = {
-      repotag: 'yurinnick/folding-at-home:latest',
-      repotagB: 'yurinnick/folding-at-home:latestaaa',
       repotagC: ' bunnyanalyst/fluxrun:latest',
       repotagD: 'bunnyanalyst/fluxrun:latest ',
     };
+
+    const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((err) => err);
+    expect(repC).to.be.an.instanceof(Error);
+    expect(repC.message).to.be.equal('Image tag: " bunnyanalyst/fluxrun:latest" should not contain space characters.');
+
+    const repD = await appService.verifyRepository(fluxAppSpecs.repotagD).catch((err) => err);
+    expect(repD).to.be.an.instanceof(Error);
+    expect(repD.message).to.be.equal('Image tag: "bunnyanalyst/fluxrun:latest " should not contain space characters.');
+  });
+
+  it('Verifies repository network validation', async function () {
+    // Use a longer timeout only for network-dependent tests
+    this.timeout(10000);
+    
+    const fluxAppSpecs = {
+      repotag: 'yurinnick/folding-at-home:latest',
+      repotagB: 'yurinnick/folding-at-home:latestaaa',
+    };
+    
     const repA = await appService.verifyRepository(fluxAppSpecs.repotag).catch(() => true);
     expect(repA).to.be.equal(undefined);
 
     const repB = await appService.verifyRepository(fluxAppSpecs.repotagB).catch((err) => err);
     expect(repB).to.be.an.instanceof(Error);
     expect(repB.message).to.be.equal('Bad HTTP Status 404: yurinnick/folding-at-home:latestaaa not available');
-
-    const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((err) => err);
-    expect(repB).to.be.an.instanceof(Error);
-    expect(repC.message).to.be.equal('Image tag: " bunnyanalyst/fluxrun:latest" should not contain space characters.');
-
-    const repD = await appService.verifyRepository(fluxAppSpecs.repotagD).catch((err) => err);
-    expect(repB).to.be.an.instanceof(Error);
-    expect(repD.message).to.be.equal('Image tag: "bunnyanalyst/fluxrun:latest " should not contain space characters.');
   });
 
   it('Message Hash is correctly calculated', async () => {
