@@ -90,23 +90,19 @@ function isPortUserBlocked(port) {
 function isPortBanned(port) {
   const { bannedPorts } = config.fluxapps;
   let portBanned = false;
-  log.info(`DEBUG: isPortBanned checking port ${port}, bannedPorts: ${JSON.stringify(bannedPorts)}`);
   
   bannedPorts.forEach((portOrInterval) => {
     if (typeof portOrInterval === 'string') { // '0-10'
       const minPort = Number(portOrInterval.split('-')[0]);
       const maxPort = Number(portOrInterval.split('-')[1]);
       if (+port >= minPort && +port <= maxPort) {
-        log.info(`DEBUG: Port ${port} banned by range ${portOrInterval} (${minPort}-${maxPort})`);
         portBanned = true;
       }
     } else if (portOrInterval === +port) {
-      log.info(`DEBUG: Port ${port} banned by exact match ${portOrInterval}`);
       portBanned = true;
     }
   });
   
-  log.info(`DEBUG: isPortBanned result for port ${port}: ${portBanned}`);
   return portBanned;
 }
 
@@ -271,18 +267,13 @@ async function checkAppAvailability(req, res) {
         throw new Error('Unable to verify request authenticity');
       }
 
-      const { fluxapps: { minPort, maxPort } } = config;
-      log.info(`DEBUG: Port validation config - minPort: ${minPort}, maxPort: ${maxPort}`);
-      log.info(`DEBUG: Checking ports: ${JSON.stringify(ports)}`);
+      const { fluxapps: { portMin: minPort, portMax: maxPort } } = config;
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const iBP = isPortBanned(+port);
         const portNum = +port;
         const withinRange = portNum >= minPort && portNum <= maxPort;
-        
-        log.info(`DEBUG: Port ${port} validation - portNum: ${portNum}, withinRange: ${withinRange}, isBanned: ${iBP}`);
-        log.info(`DEBUG: Port ${port} checks - portNum >= minPort: ${portNum >= minPort}, portNum <= maxPort: ${portNum <= maxPort}`);
         
         if (withinRange && !iBP) {
           // eslint-disable-next-line no-await-in-loop

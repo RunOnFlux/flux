@@ -10832,8 +10832,11 @@ async function getPeerAppsInstallingErrorMessages() {
       }));
       const dbopen = dbHelper.databaseConnection();
       const database = dbopen.db(config.database.appsglobal.database);
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.bulkWriteInDatabase(database, globalAppsInstallingErrorsLocations, operations);
+      // Only perform bulk write if there are operations to execute
+      if (operations.length > 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await dbHelper.bulkWriteInDatabase(database, globalAppsInstallingErrorsLocations, operations);
+      }
       finished = true;
     }
   } catch (error) {

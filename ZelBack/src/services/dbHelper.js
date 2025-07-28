@@ -132,6 +132,9 @@ async function findOneInDatabase(database, collection, query = {}, projection = 
  * @returns void
  */
 async function bulkWriteInDatabase(database, collection, operations) {
+  if (!operations || operations.length === 0) {
+    return { insertedCount: 0, matchedCount: 0, modifiedCount: 0, deletedCount: 0, upsertedCount: 0 };
+  }
   const result = await database.collection(collection).bulkWrite(operations);
   return result;
 }
