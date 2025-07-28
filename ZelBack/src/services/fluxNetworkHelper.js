@@ -90,17 +90,23 @@ function isPortUserBlocked(port) {
 function isPortBanned(port) {
   const { bannedPorts } = config.fluxapps;
   let portBanned = false;
+  log.info(`DEBUG: isPortBanned checking port ${port}, bannedPorts: ${JSON.stringify(bannedPorts)}`);
+  
   bannedPorts.forEach((portOrInterval) => {
     if (typeof portOrInterval === 'string') { // '0-10'
       const minPort = Number(portOrInterval.split('-')[0]);
       const maxPort = Number(portOrInterval.split('-')[1]);
       if (+port >= minPort && +port <= maxPort) {
+        log.info(`DEBUG: Port ${port} banned by range ${portOrInterval} (${minPort}-${maxPort})`);
         portBanned = true;
       }
     } else if (portOrInterval === +port) {
+      log.info(`DEBUG: Port ${port} banned by exact match ${portOrInterval}`);
       portBanned = true;
     }
   });
+  
+  log.info(`DEBUG: isPortBanned result for port ${port}: ${portBanned}`);
   return portBanned;
 }
 
@@ -266,18 +272,26 @@ async function checkAppAvailability(req, res) {
       }
 
       const { fluxapps: { minPort, maxPort } } = config;
+      log.info(`DEBUG: Port validation config - minPort: ${minPort}, maxPort: ${maxPort}`);
+      log.info(`DEBUG: Checking ports: ${JSON.stringify(ports)}`);
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const iBP = isPortBanned(+port);
-        if (+port >= minPort && +port <= maxPort && !iBP) {
+        const portNum = +port;
+        const withinRange = portNum >= minPort && portNum <= maxPort;
+        
+        log.info(`DEBUG: Port ${port} validation - portNum: ${portNum}, withinRange: ${withinRange}, isBanned: ${iBP}`);
+        log.info(`DEBUG: Port ${port} checks - portNum >= minPort: ${portNum >= minPort}, portNum <= maxPort: ${portNum <= maxPort}`);
+        
+        if (withinRange && !iBP) {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port);
           if (!isOpen) {
             throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
           }
         } else {
-          log.error(`Flux App port ${port} is outside allowed range.`);
+          log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
         }
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
