@@ -160,11 +160,7 @@ describe('appsService tests', () => {
       const res = generateResponse();
       const req = 'appName';
 
-      try {
-        await appsService.installedApps(req, res);
-      } catch (e) {
-        // Expected error - service should handle it internally
-      }
+      await appsService.installedApps(req, res);
 
       sinon.assert.calledOnce(res.json);
       sinon.assert.calledOnce(logSpy);
@@ -175,12 +171,7 @@ describe('appsService tests', () => {
       dbStub.callsFake(() => { throw new Error('Error'); });
       const req = 'appName';
 
-      let result;
-      try {
-        result = await appsService.installedApps(req);
-      } catch (e) {
-        // Expected error - service should handle it internally
-      }
+      const result = await appsService.installedApps(req);
 
       expect(result).to.be.an('object');
       sinon.assert.calledOnce(logSpy);
@@ -238,12 +229,7 @@ describe('appsService tests', () => {
     it('should return error if dockerService throws, no response passed', async () => {
       dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      let result;
-      try {
-        result = await appsService.listRunningApps();
-      } catch (e) {
-        // Expected error - service should handle it internally
-      }
+      const result = await appsService.listRunningApps();
 
       expect(result).to.eql({
         status: 'error',
@@ -260,11 +246,7 @@ describe('appsService tests', () => {
       const res = generateResponse();
       dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      try {
-        await appsService.listRunningApps(undefined, res);
-      } catch (e) {
-        // Expected error - service should handle it internally
-      }
+      await appsService.listRunningApps(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -383,12 +365,7 @@ describe('appsService tests', () => {
     it('should return error if dockerService throws, no response passed', async () => {
       dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      let result;
-      try {
-        result = await appsService.listAllApps();
-      } catch (e) {
-        // Expected error - service should handle it internally
-      }
+      const result = await appsService.listAllApps();
 
       expect(result).to.eql({
         status: 'error',
@@ -405,11 +382,7 @@ describe('appsService tests', () => {
       const res = generateResponse();
       dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      try {
-        await appsService.listAllApps(undefined, res);
-      } catch (e) {
-        // Expected error - service should handle it internally
-      }
+      await appsService.listAllApps(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -528,12 +501,7 @@ describe('appsService tests', () => {
     it('should return error if dockerService throws, no response passed', async () => {
       dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      let result;
-      try {
-        result = await appsService.listAppsImages();
-      } catch (e) {
-        // Expected error - service should handle it internally
-      }
+      const result = await appsService.listAppsImages();
 
       expect(result).to.eql({
         status: 'error',
@@ -550,11 +518,7 @@ describe('appsService tests', () => {
       const res = generateResponse();
       dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      try {
-        await appsService.listAppsImages(undefined, res);
-      } catch (e) {
-        // Expected error - service should handle it internally
-      }
+      await appsService.listAppsImages(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',

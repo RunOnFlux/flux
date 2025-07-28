@@ -35,7 +35,6 @@ class FluxWebsocketServer {
     this.#routeMatchers = Object.entries(this.#routes).map((entry) => {
       const [route, handler] = entry;
 
-      console.log('DEBUG: Processing route:', JSON.stringify(route));
       try {
         const matcher = match(route, { decode: decodeURIComponent });
         return { matcher, handler };
