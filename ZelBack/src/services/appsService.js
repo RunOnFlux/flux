@@ -3821,7 +3821,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         hash: appSpecifications.hash, // hash of application specifics that are running
         ip: myIP,
         broadcastedAt,
-        runningSince: broadcastedAt,
+        runningSince: new Date(broadcastedAt).toISOString(),
         osUptime: os.uptime(),
         staticIp: geolocationService.isStaticIP(),
       };
@@ -11541,7 +11541,7 @@ async function checkAndNotifyPeersOfRunningApps() {
       for (const application of applicationsToBroadcast) {
         const queryFind = { name: application.name, ip: myIP };
         const projection = { _id: 0, runningSince: 1 };
-        let runningOnMyNodeSince = Date.now();
+        let runningOnMyNodeSince = new Date().toISOString();
         // we already have the exact same data
         // eslint-disable-next-line no-await-in-loop
         const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
