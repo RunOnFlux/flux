@@ -39,7 +39,7 @@ class FluxWebsocketServer {
         const matcher = match(route, { decode: decodeURIComponent });
         return { matcher, handler };
       } catch (error) {
-        console.error('ERROR: Failed to create matcher for route:', JSON.stringify(route), 'Error:', error.message);
+        log.error('ERROR: Failed to create matcher for route:', JSON.stringify(route), 'Error:', error.message);
         throw error;
       }
     });

@@ -4113,7 +4113,7 @@ export default {
         const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         console.log(encryptionKeys);
         console.log(message);
-        const pgpMessage = await openpgp.createMessage({ text: message.replace('\\"', '\\"') });
+        const pgpMessage = await openpgp.createMessage({ text: message.replace('\\“', '\\"') });
         const encryptedMessage = await openpgp.encrypt({
           message: pgpMessage, // input as Message object
           encryptionKeys: publicKeys,
