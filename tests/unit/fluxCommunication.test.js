@@ -942,7 +942,7 @@ describe('fluxCommunication tests', () => {
       await fluxCommunication.initiateAndHandleConnection(ip);
 
       await waitForWsConnected(wsserver);
-      
+
       // Wait for the close event to be processed
       await new Promise((resolve) => {
         const checkInterval = setInterval(() => {
@@ -1429,10 +1429,10 @@ describe('fluxCommunication tests', () => {
       fluxNetworkHelper.setMyFluxIp('44.192.51.11');
       sinon.stub(fluxCommunicationUtils, 'getFluxnodeFromFluxList').returns('44.192.51.11');
       sinon.stub(fluxCommunicationUtils, 'deterministicFluxList').returns(fluxNodeList);
-      
+
       // Mock delay to return immediately
       sinon.stub(serviceHelper, 'delay').resolves();
-      
+
       // Mock different addresses to avoid infinite loop
       const addresses = ['1.2.3.4:16137', '1.2.3.5:16137', '1.2.3.6:16137'];
       let addressIndex = 0;
@@ -1441,10 +1441,10 @@ describe('fluxCommunication tests', () => {
         addressIndex += 1;
         return Promise.resolve(address);
       });
-      
+
       // Stub initiateAndHandleConnection to prevent actual connections
       const initiateStub = sinon.stub(fluxCommunication, 'initiateAndHandleConnection').resolves();
-      
+
       const infoSpy = sinon.spy(log, 'info');
 
       daemonServiceStub.returns({
@@ -1465,19 +1465,17 @@ describe('fluxCommunication tests', () => {
 
       // Start fluxDiscovery and wait for it to make connection attempts
       const discoveryPromise = fluxCommunication.fluxDiscovery();
-      
+
       // Wait for the discovery logic to execute and make at least one connection attempt
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Verify the expected log calls were made
       sinon.assert.calledWith(infoSpy, 'Searching for my node on sortedNodeList');
       sinon.assert.calledWith(infoSpy, 'My node was found on index: 9 of 10 nodes');
-      
+
       // Verify that connection process started by checking for peer addition logs
-      const addPeerCalls = infoSpy.getCalls().filter(call => 
-        call.args[0] && call.args[0].includes('Adding random Flux peer')
-      );
-      
+      const addPeerCalls = infoSpy.getCalls().filter((call) => call.args[0] && call.args[0].includes('Adding random Flux peer'));
+
       // The test passes if we see peer addition logs (which happen right before connections)
       expect(addPeerCalls.length).to.be.at.least(1);
     }).timeout(5000);

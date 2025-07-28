@@ -68,6 +68,7 @@ import {
   Chart, LineController, LineElement, CategoryScale, LinearScale, PointElement, Tooltip, Legend, Title, Filler,
 } from 'chart.js';
 import { loader, VueMonacoEditor } from '@guolao/vue-monaco-editor';
+import { getOpenPGP } from '@/utils/openpgp-wrapper';
 
 loader.config({
   paths: {
@@ -99,7 +100,6 @@ let ethereum;
 const axios = require('axios');
 const qs = require('qs');
 const store = require('store');
-const openpgp = require('openpgp');
 const splitargs = require('splitargs');
 const geolocations = require('../../../libs/geolocation');
 
@@ -6685,6 +6685,7 @@ export default {
      */
     async encryptMessage(message, encryptionKeys) {
       try {
+        const openpgp = await getOpenPGP();
         const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         console.log(encryptionKeys);
         console.log(message);

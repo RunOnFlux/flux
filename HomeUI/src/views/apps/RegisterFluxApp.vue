@@ -2360,6 +2360,7 @@ import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 import topologicalSort from '@/utils/topologicalSort';
 import yaml from 'js-yaml';
+import { getOpenPGP } from '@/utils/openpgp-wrapper';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -2383,7 +2384,6 @@ let ethereum;
 const qs = require('qs');
 const axios = require('axios');
 const store = require('store');
-const openpgp = require('openpgp');
 // const https = require('https');
 const timeoptions = require('@/libs/dateFormat');
 
@@ -4109,10 +4109,11 @@ export default {
      */
     async encryptMessage(message, encryptionKeys) {
       try {
+        const openpgp = await getOpenPGP();
         const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         console.log(encryptionKeys);
         console.log(message);
-        const pgpMessage = await openpgp.createMessage({ text: message.replace('\\“', '\\"') });
+        const pgpMessage = await openpgp.createMessage({ text: message.replace('\\"', '\\"') });
         const encryptedMessage = await openpgp.encrypt({
           message: pgpMessage, // input as Message object
           encryptionKeys: publicKeys,
