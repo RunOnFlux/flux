@@ -1,3 +1,4 @@
+import './utils/webcrypto-polyfill';
 import Vue from 'vue';
 import {
   BVConfigPlugin,

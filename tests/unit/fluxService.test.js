@@ -45,7 +45,7 @@ const adminConfig = {
     pgpPublicKey: '',
     blockedPorts: [],
     blockedRepositories: [],
-  }
+  },
 };
 
 const fluxService = proxyquire(
