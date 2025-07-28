@@ -90,6 +90,7 @@ function isPortUserBlocked(port) {
 function isPortBanned(port) {
   const { bannedPorts } = config.fluxapps;
   let portBanned = false;
+  
   bannedPorts.forEach((portOrInterval) => {
     if (typeof portOrInterval === 'string') { // '0-10'
       const minPort = Number(portOrInterval.split('-')[0]);
@@ -101,6 +102,7 @@ function isPortBanned(port) {
       portBanned = true;
     }
   });
+  
   return portBanned;
 }
 
@@ -261,19 +263,22 @@ async function checkAppAvailability(req, res) {
         throw new Error('Unable to verify request authenticity');
       }
 
-      const { fluxapps: { minPort, maxPort } } = config;
+      const { fluxapps: { portMin: minPort, portMax: maxPort } } = config;
 
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const iBP = isPortBanned(+port);
-        if (+port >= minPort && +port <= maxPort && !iBP) {
+        const portNum = +port;
+        const withinRange = portNum >= minPort && portNum <= maxPort;
+        
+        if (withinRange && !iBP) {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port);
           if (!isOpen) {
             throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
           }
         } else {
-          log.error(`Flux App port ${port} is outside allowed range.`);
+          log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
         }
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
@@ -1140,7 +1145,7 @@ function getDOSState(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1169,7 +1174,7 @@ async function allowPort(port) {
  * @returns {object} Command status.
  */
 async function allowOutPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1198,7 +1203,7 @@ async function allowOutPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1232,7 +1237,7 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1263,7 +1268,7 @@ async function deleteAllowPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteDenyPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1294,7 +1299,7 @@ async function deleteDenyPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowOutPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1357,7 +1362,7 @@ async function allowPortApi(req, res) {
  */
 async function isFirewallActive() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
@@ -1376,7 +1381,7 @@ async function isFirewallActive() {
  */
 async function adjustFirewall() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const apiSSLPort = +apiPort + 1;
@@ -1461,7 +1466,7 @@ async function adjustFirewall() {
  */
 async function purgeUFW() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
       const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\'';
@@ -1547,7 +1552,7 @@ async function purgeUFW() {
  * @returns  {Promise<Boolean>}
  */
 async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   const checkIptables = 'sudo iptables --version';
   const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
@@ -1736,7 +1741,7 @@ function lruRateLimit(ip, limitPerSecond = 20) {
  */
 async function allowNodeToBindPrivilegedPorts() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
     await cmdAsync(exec);
   } catch (error) {
@@ -1761,7 +1766,7 @@ async function allowOnlyDockerNetworksToFluxNodeService() {
   const checkDenyRule = `LANG="en_US.UTF-8" && sudo iptables -C ${denyRule}`;
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I ${denyRule}`;
 
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   try {
     const cmd = await cmdAsync(allowDockerNetworks);
@@ -1792,7 +1797,7 @@ async function allowOnlyDockerNetworksToFluxNodeService() {
  * Adds the 169.254 adddress to the loopback interface for use with the flux node service.
  */
 async function addFluxNodeServiceIpToLoopback() {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   // could also check exists first with:
   //   ip -f inet addr show lo | grep 169.254.43.43/32
@@ -1804,7 +1809,7 @@ async function addFluxNodeServiceIpToLoopback() {
     await cmdAsync(addIp);
     ok = true;
   } catch (err) {
-    if (err.message.includes('File exists')) {
+    if (err.message.includes('File exists') || err.message.includes('Address already assigned')) {
       ok = true;
     } else {
       log.error(err);

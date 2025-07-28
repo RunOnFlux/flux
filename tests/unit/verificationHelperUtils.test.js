@@ -25,25 +25,25 @@ const { signMessage } = require('../../ZelBack/src/services/verificationHelper')
 
 const insertUsers = [
   {
-    _id: ObjectId('6108fbb9f04dfe1ef624b819'),
+    _id: new ObjectId('6108fbb9f04dfe1ef624b819'),
     zelid: '1E1NSwDHtvCziYP4CtgiDMcgvgZL64PhkR', // regular user
     loginPhrase: '162797868130153vt9r89dzjjjfg6kf34ntf1d8aa5zqlk04j3zy8z40ni',
     signature: 'IIwyGekXKejWRCnBKMb5Zn2ufi5ylnl3r/wmonoTDm7QCUoe5vZL0SXIwqxO7F8U3Q+kUJapRS2xlUe53KNmC9k=',
   },
   {
-    _id: ObjectId('60cad0767247ac0a779fb3f0'),
+    _id: new ObjectId('60cad0767247ac0a779fb3f0'),
     zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', // admin
     loginPhrase: '16125160820394ddsh5skgwv0ipodku92y0jbwvpyj17bh68lzrjlxq9',
     signature: 'IH9d68fk/dYQtuMlNN7ioc52MJ6ryRT0IYss6h/KCwVWGcbVNFoI8Jh6hIklRq+w2itV/6vs/xzCWp4TUdSWDBc=',
   },
   {
-    _id: ObjectId('620bbc40c04b4966674013a8'),
+    _id: new ObjectId('620bbc40c04b4966674013a8'),
     zelid: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W', // app owner
     loginPhrase: '1644935889016mtmbo4uah32tvvwrmzg4j8qzv04ba8g8n56cevn6b',
     signature: 'H7xcWjpSt8jiAaPbkUsfY3ZutJJmI35MWkGsgWBj/fJHfk7ZKRoggzigdaESLGMDMb2MHlxAapr1sMYDbJkL/H4=',
   },
   {
-    _id: ObjectId('61967125f3178f082a296100'),
+    _id: new ObjectId('61967125f3178f082a296100'),
     zelid: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM', // Flux team
     loginPhrase: '1623904359736pja76q7y68deb4264olbml6o8gyhot2yvj5oevgv9k2',
     signature: 'H4lWS4PcrR1tMo8RCLzeYYrd042tsJC9PteIKZvn091ZAYE4K9ydfri8M1KKWe905NHdS4LPPsClqvA4nY/G+II=',
@@ -51,7 +51,7 @@ const insertUsers = [
 ];
 
 const insertApp = {
-  _id: ObjectId('6147045cd774409b374d253d'),
+  _id: new ObjectId('6147045cd774409b374d253d'),
   name: 'PolkadotNode',
   description: 'Polkadot is a heterogeneous multi-chain interchange.',
   owner: '1KPKzyp9VyB9ouAA4spZ48x8g32sxLVK6W',

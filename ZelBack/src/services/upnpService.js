@@ -27,7 +27,7 @@ function isUPNP() {
  */
 async function isFirewallActive() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
@@ -49,7 +49,7 @@ async function adjustFirewallForUPNP() {
     let { routerIP } = userconfig.initial;
     routerIP = serviceHelper.ensureString(routerIP);
     if (routerIP) {
-      const cmdAsync = util.promisify(nodecmd.get);
+      const cmdAsync = util.promisify(nodecmd.run);
       const firewallActive = await isFirewallActive();
       if (firewallActive) {
         // standard rules for upnp

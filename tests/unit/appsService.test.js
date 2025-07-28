@@ -39,7 +39,7 @@ const dockerPullStreamFake = sinon.fake(async () => true);
 const dockerContainerStatsStreamFake = sinon.fake(async () => true);
 const utilFake = {
   promisify: sinon.fake((arg) => {
-    if (arg === nodecmd.get) return cmdAsyncFake;
+    if (arg === nodecmd.run) return cmdAsyncFake;
     if (arg === systemcrontab.load) return crontabLoadFake;
     if (arg === dockerService.dockerPullStream) return dockerPullStreamFake;
     if (arg === dockerService.dockerContainerStatsStream) return dockerContainerStatsStreamFake;
@@ -156,7 +156,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error, if error is thrown, response passed', async () => {
-      dbStub.throws('error!');
+      dbStub.callsFake(() => { throw new Error('Error'); });
       const res = generateResponse();
       const req = 'appName';
 
@@ -168,7 +168,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error, if error is thrown, no response passed', async () => {
-      dbStub.throws('error!');
+      dbStub.callsFake(() => { throw new Error('Error'); });
       const req = 'appName';
 
       const result = await appsService.installedApps(req);
@@ -227,7 +227,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.throws();
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
       const result = await appsService.listRunningApps();
 
@@ -244,7 +244,7 @@ describe('appsService tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.throws();
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
       await appsService.listRunningApps(undefined, res);
 
@@ -363,7 +363,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.throws();
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
       const result = await appsService.listAllApps();
 
@@ -380,7 +380,7 @@ describe('appsService tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.throws();
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
       await appsService.listAllApps(undefined, res);
 
@@ -499,7 +499,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.throws();
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
       const result = await appsService.listAppsImages();
 
@@ -516,7 +516,7 @@ describe('appsService tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.throws();
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
       await appsService.listAppsImages(undefined, res);
 
@@ -2993,7 +2993,7 @@ describe('appsService tests', () => {
     });
 
     it('should log error if db read fails', async () => {
-      dbStub.throws();
+      dbStub.callsFake(() => { throw new Error('Error'); });
 
       await appsService.startMonitoringOfApps();
 
@@ -3236,7 +3236,7 @@ describe('appsService tests', () => {
     });
 
     it('should log error if db read fails', async () => {
-      dbStub.throws();
+      dbStub.callsFake(() => { throw new Error('Error'); });
 
       await appsService.stopMonitoringOfApps();
 
@@ -3756,7 +3756,7 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'dockerContainerChanges').throws();
+      const dockerStub = sinon.stub(dockerService, 'dockerContainerChanges').callsFake(() => { throw new Error('Error'); });
       const res = generateResponse();
 
       await appsService.appChanges(req, res);
@@ -3849,7 +3849,7 @@ describe('appsService tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').throws();
+      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').callsFake(() => { throw new Error('Error'); });
       const res = generateResponse();
 
       await appsService.createFluxNetworkAPI(req, res);
@@ -4031,7 +4031,7 @@ describe('appsService tests', () => {
 
     it('should error if db throws, no response passed', async () => {
       nodeTierStub.resolves('cumulus');
-      dbStub.throws();
+      dbStub.callsFake(() => { throw new Error('Error'); });
 
       const result = await appsService.appsResources();
 
@@ -4047,7 +4047,7 @@ describe('appsService tests', () => {
 
     it('should error if db throws, response passed', async () => {
       nodeTierStub.resolves('cumulus');
-      dbStub.throws();
+      dbStub.callsFake(() => { throw new Error('Error'); });
       const res = generateResponse();
 
       await appsService.appsResources(undefined, res);

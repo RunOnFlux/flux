@@ -1069,6 +1069,7 @@ import * as firebaseui from 'firebaseui';
 import 'firebaseui/dist/firebaseui.css';
 
 import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
+import { getOpenPGP } from '@/utils/openpgp-wrapper';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -1094,7 +1095,6 @@ let ethereum;
 const qs = require('qs');
 const axios = require('axios');
 const store = require('store');
-const openpgp = require('openpgp');
 const timeoptions = require('@/libs/dateFormat');
 
 export default {
@@ -2352,6 +2352,7 @@ export default {
     */
     const encryptMessage = async (message, encryptionKeys) => {
       try {
+        const openpgp = await getOpenPGP();
         const encKeys = encryptionKeys.map((key) => key.nodekey);
         const publicKeys = await Promise.all(encKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         const pgpMessage = await openpgp.createMessage({ text: message.replace('\\“', '\\"') });

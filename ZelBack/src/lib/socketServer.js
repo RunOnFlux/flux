@@ -35,8 +35,13 @@ class FluxWebsocketServer {
     this.#routeMatchers = Object.entries(this.#routes).map((entry) => {
       const [route, handler] = entry;
 
-      const matcher = match(route, { decode: decodeURIComponent });
-      return { matcher, handler };
+      try {
+        const matcher = match(route, { decode: decodeURIComponent });
+        return { matcher, handler };
+      } catch (error) {
+        log.error('ERROR: Failed to create matcher for route:', JSON.stringify(route), 'Error:', error.message);
+        throw error;
+      }
     });
 
     this.#socketServer.on('connection', (ws, request) => {
