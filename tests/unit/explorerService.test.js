@@ -1,7 +1,7 @@
 const sinon = require('sinon');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const appsService = require('../../ZelBack/src/services/appsService');
+const appGlobalService = require('../../ZelBack/src/services/apps/appGlobalService');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceAddressRpcs');
@@ -747,9 +747,9 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'insertManyToDatabase');
       dbStubUpdate = sinon.stub(dbHelper, 'updateOneInDatabase');
       dbStubCollectionStats = sinon.stub(dbHelper, 'collectionStats');
-      expireGlobalApplicationsStub = sinon.stub(appsService, 'expireGlobalApplications');
-      checkAndRemoveApplicationInstanceStub = sinon.stub(appsService, 'checkAndRemoveApplicationInstance');
-      restorePortsSupportStub = sinon.stub(appsService, 'restorePortsSupport');
+      expireGlobalApplicationsStub = sinon.stub(appGlobalService, 'expireGlobalApplications');
+      checkAndRemoveApplicationInstanceStub = sinon.stub(appGlobalService, 'checkAndRemoveApplicationInstance');
+      restorePortsSupportStub = sinon.stub(appGlobalService, 'restorePortsSupport');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
@@ -1704,8 +1704,8 @@ describe('explorerService tests', () => {
         count: 15,
         avgObjSize: 1111,
       });
-      sinon.stub(appsService, 'expireGlobalApplications').returns(true);
-      sinon.stub(appsService, 'checkAndRemoveApplicationInstance').returns(true);
+      sinon.stub(appGlobalService, 'expireGlobalApplications').returns(true);
+      sinon.stub(appGlobalService, 'checkAndRemoveApplicationInstance').returns(true);
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').returns({
         status: 'success',
         data: {

@@ -102,8 +102,20 @@ function isStaticIP() {
   return staticIp;
 }
 
+/**
+ * Method responsible for getting formatted node geolocation information
+ */
+function nodeFullGeolocation() {
+  const geolocation = module.exports.getNodeGeolocation();
+  if (!geolocation) {
+    throw new Error('Geolocation not available');
+  }
+  return `${geolocation.continentCode}_${geolocation.countryCode}_${geolocation.regionName}`;
+}
+
 module.exports = {
   setNodeGeolocation,
   getNodeGeolocation,
   isStaticIP,
+  nodeFullGeolocation,
 };

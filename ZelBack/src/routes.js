@@ -16,7 +16,14 @@ const idService = require('./services/idService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
-const appsService = require('./services/appsService');
+const appGlobalService = require('./services/apps/appGlobalService');
+const appValidationService = require('./services/apps/appValidationService');
+const appInstallationService = require('./services/apps/appInstallationService');
+const appMonitoringService = require('./services/apps/appMonitoringService');
+const appContainerService = require('./services/apps/appContainerService');
+const appPricingService = require('./services/apps/appPricingService');
+const appFileService = require('./services/apps/appFileService');
+const appCommunicationService = require('./services/apps/appCommunicationService');
 const explorerService = require('./services/explorerService');
 const fluxshareService = require('./services/fluxshareService');
 const generalService = require('./services/generalService');
@@ -305,97 +312,97 @@ module.exports = (app) => {
   });
 
   app.get('/apps/listrunningapps', cache('5 seconds'), (req, res) => {
-    appsService.listRunningApps(req, res);
+    appContainerService.listRunningApps(req, res);
   });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
-    appsService.listAllApps(req, res);
+    appContainerService.listAllApps(req, res);
   });
   app.get('/apps/listappsimages', cache('30 seconds'), (req, res) => {
-    appsService.listAppsImages(req, res);
+    appContainerService.listAppsImages(req, res);
   });
   app.get('/apps/installedapps/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.installedApps(req, res);
+    appFileService.installedApps(req, res);
   });
   app.get('/apps/availableapps', cache('30 seconds'), (req, res) => {
-    appsService.availableApps(req, res);
+    appContainerService.availableApps(req, res);
   });
   app.get('/apps/fluxusage', cache('30 seconds'), (req, res) => {
-    appsService.fluxUsage(req, res);
+    appMonitoringService.fluxUsage(req, res);
   });
   app.get('/apps/appsresources', cache('30 seconds'), (req, res) => {
-    appsService.appsResources(req, res);
+    appMonitoringService.appsResources(req, res);
   });
   app.get('/apps/registrationinformation', cache('30 seconds'), (req, res) => {
-    appsService.registrationInformation(req, res);
+    appGlobalService.registrationInformation(req, res);
   });
   app.get('/apps/temporarymessages/:hash?', cache('5 seconds'), (req, res) => {
-    appsService.getAppsTemporaryMessages(req, res);
+    appCommunicationService.getAppsTemporaryMessages(req, res);
   });
   app.get('/apps/permanentmessages/:hash?/:owner?/:appname?', cache('2 minutes'), (req, res) => {
-    appsService.getAppsPermanentMessages(req, res);
+    appCommunicationService.getAppsPermanentMessages(req, res);
   });
   app.get('/apps/globalappsspecifications/:hash?/:owner?/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.getGlobalAppsSpecifications(req, res);
+    appGlobalService.getGlobalAppsSpecifications(req, res);
   });
   app.get('/apps/latestspecificationversion', cache('5 minutes'), (req, res) => {
-    appsService.getlatestApplicationSpecificationAPI(req, res);
+    appGlobalService.getlatestApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/updatetolatestspecs/:appname', cache('30 seconds'), (req, res) => {
-    appsService.updateApplicationSpecificationAPI(req, res);
+    appGlobalService.updateApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appspecifications/:appname/:decrypt?', (req, res) => {
-    appsService.getApplicationSpecificationAPI(req, res);
+    appGlobalService.getApplicationSpecificationAPI(req, res);
   });
   app.get('/apps/appowner/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.getApplicationOwnerAPI(req, res);
+    appGlobalService.getApplicationOwnerAPI(req, res);
   });
   app.get('/apps/apporiginalowner/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.getApplicationOriginalOwner(req, res);
+    appGlobalService.getApplicationOriginalOwner(req, res);
   });
   app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
-    appsService.getAppHashes(req, res);
+    appCommunicationService.getAppHashes(req, res);
   });
   app.get('/apps/location/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.getAppsLocation(req, res);
+    appGlobalService.getAppsLocation(req, res);
   });
   app.get('/apps/locations', cache('30 seconds'), (req, res) => {
-    appsService.getAppsLocations(req, res);
+    appGlobalService.getAppsLocations(req, res);
   });
   app.get('/apps/installinglocation/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.getAppInstallingLocation(req, res);
+    appGlobalService.getAppInstallingLocation(req, res);
   });
   app.get('/apps/installinglocations', cache('30 seconds'), (req, res) => {
-    appsService.getAppsInstallingLocations(req, res);
+    appGlobalService.getAppsInstallingLocations(req, res);
   });
   app.get('/apps/installingerrorslocation/:appname?', cache('30 seconds'), (req, res) => {
-    appsService.getAppInstallingErrorsLocation(req, res);
+    appGlobalService.getAppInstallingErrorsLocation(req, res);
   });
   app.get('/apps/installingerrorslocations', cache('30 seconds'), (req, res) => {
-    appsService.getAppsInstallingErrorsLocations(req, res);
+    appGlobalService.getAppsInstallingErrorsLocations(req, res);
   });
   app.post('/apps/calculateprice', (req, res) => { // returns price in flux for both new registration of app and update of app
-    appsService.getAppPrice(req, res);
+    appPricingService.getAppPrice(req, res);
   });
   app.post('/apps/calculatefiatandfluxprice', (req, res) => { // returns price in usd and flux for both new registration of app and update of app
-    appsService.getAppFiatAndFluxPrice(req, res);
+    appPricingService.getAppFiatAndFluxPrice(req, res);
   });
   app.get('/apps/whitelistedrepositories', cache('30 seconds'), (req, res) => {
     generalService.whitelistedRepositories(req, res);
   });
   app.post('/apps/verifyappregistrationspecifications', (req, res) => { // returns formatted app specifications
-    appsService.verifyAppRegistrationParameters(req, res);
+    appValidationService.verifyAppRegistrationParameters(req, res);
   });
   app.post('/apps/verifyappupdatespecifications', (req, res) => { // returns formatted app specifications
-    appsService.verifyAppUpdateParameters(req, res);
+    appValidationService.verifyAppUpdateParameters(req, res);
   });
   app.get('/apps/deploymentinformation', cache('30 seconds'), (req, res) => {
-    appsService.deploymentInformation(req, res);
+    appGlobalService.deploymentInformation(req, res);
   });
   app.get('/apps/enterprisenodes', cache('30 seconds'), (req, res) => {
     enterpriseNodesService.getEnterpriseNodesAPI(req, res);
   });
   app.get('/apps/getappspecsusdprice', cache('30 minutes'), (req, res) => {
-    appsService.getAppSpecsUSDPrice(req, res);
+    appPricingService.getAppSpecsUSDPrice(req, res);
   });
 
   // app.get('/explorer/allutxos', (req, res) => {
@@ -653,11 +660,11 @@ module.exports = (app) => {
     backupRestoreService.downloadLocalFile(req, res);
   });
   app.post('/apps/appendbackuptask', (req, res) => {
-    appsService.appendBackupTask(req, res);
+    appFileService.appendBackupTask(req, res);
   });
 
   app.post('/apps/appendrestoretask', (req, res) => {
-    appsService.appendRestoreTask(req, res);
+    appFileService.appendRestoreTask(req, res);
   });
 
   app.post('/ioutils/fileupload/:type?/:appname?/:component?/:folder?/:filename?', (req, res) => {
@@ -1108,85 +1115,85 @@ module.exports = (app) => {
   });
 
   app.get('/apps/checkhashes', (req, res) => {
-    appsService.triggerAppHashesCheckAPI(req, res);
+    appCommunicationService.triggerAppHashesCheckAPI(req, res);
   });
   app.get('/apps/requestmessage/:hash', (req, res) => {
-    appsService.requestAppMessageAPI(req, res);
+    appCommunicationService.requestAppMessageAPI(req, res);
   });
   app.get('/apps/appstart/:appname?/:global?', (req, res) => {
-    appsService.appStart(req, res);
+    appContainerService.appStart(req, res);
   });
   app.get('/apps/appstop/:appname?/:global?', (req, res) => {
-    appsService.appStop(req, res);
+    appContainerService.appStop(req, res);
   });
   app.get('/apps/apprestart/:appname?/:global?', (req, res) => {
-    appsService.appRestart(req, res);
+    appContainerService.appRestart(req, res);
   });
   app.get('/apps/apppause/:appname?/:global?', (req, res) => {
-    appsService.appPause(req, res);
+    appContainerService.appPause(req, res);
   });
   app.get('/apps/appunpause/:appname?/:global?', (req, res) => {
-    appsService.appUnpause(req, res);
+    appContainerService.appUnpause(req, res);
   });
   app.get('/apps/apptop/:appname?', (req, res) => {
-    appsService.appTop(req, res);
+    appContainerService.appTop(req, res);
   });
   app.get('/apps/applog/:appname?/:lines?', (req, res) => {
-    appsService.appLog(req, res);
+    appContainerService.appLog(req, res);
   });
   app.get('/apps/applogpolling/:appname?/:lines?/:since?', (req, res) => {
-    appsService.appLogPolling(req, res);
+    appContainerService.appLogPolling(req, res);
   });
   app.get('/apps/appinspect/:appname?', (req, res) => {
-    appsService.appInspect(req, res);
+    appContainerService.appInspect(req, res);
   });
   app.get('/apps/appstats/:appname?', (req, res) => {
-    appsService.appStats(req, res);
+    appContainerService.appStats(req, res);
   });
   app.get('/apps/appmonitor/:appname?/:range?', (req, res) => {
-    appsService.appMonitor(req, res);
+    appContainerService.appMonitor(req, res);
   });
   app.get('/apps/appmonitorstream/:appname?', (req, res) => {
-    appsService.appMonitorStream(req, res);
+    appContainerService.appMonitorStream(req, res);
   });
   app.get('/apps/appchanges/:appname?', (req, res) => {
-    appsService.appChanges(req, res);
+    appContainerService.appChanges(req, res);
   });
   app.post('/apps/appexec', (req, res) => {
-    appsService.appExec(req, res);
+    appContainerService.appExec(req, res);
   });
   app.get('/apps/appremove/:appname?/:force?/:global?', (req, res) => {
-    appsService.removeAppLocallyApi(req, res);
+    appInstallationService.removeAppLocallyApi(req, res);
   });
   app.get('/apps/installapplocally/:appname?', (req, res) => {
-    appsService.installAppLocally(req, res);
+    appInstallationService.installAppLocally(req, res);
   });
   app.get('/apps/testappinstall/:appname?', (req, res) => {
-    appsService.testAppInstall(req, res);
+    appInstallationService.testAppInstall(req, res);
   });
   app.get('/apps/createfluxnetwork', (req, res) => {
-    appsService.createFluxNetworkAPI(req, res);
+    appInstallationService.createFluxNetworkAPI(req, res);
   });
   app.get('/apps/rescanglobalappsinformation/:blockheight?/:removelastinformation?', (req, res) => {
-    appsService.rescanGlobalAppsInformationAPI(req, res);
+    appGlobalService.rescanGlobalAppsInformationAPI(req, res);
   });
   app.get('/apps/reindexglobalappsinformation', (req, res) => {
-    appsService.reindexGlobalAppsInformationAPI(req, res);
+    appGlobalService.reindexGlobalAppsInformationAPI(req, res);
   });
   app.get('/apps/reindexglobalappslocation', (req, res) => {
-    appsService.reindexGlobalAppsLocationAPI(req, res);
+    appGlobalService.reindexGlobalAppsLocationAPI(req, res);
   });
   app.get('/apps/redeploy/:appname?/:force?/:global?', (req, res) => {
-    appsService.redeployAPI(req, res);
+    appInstallationService.redeployAPI(req, res);
   });
   app.get('/apps/reconstructhashes', (req, res) => {
-    appsService.reconstructAppMessagesHashCollectionAPI(req, res);
+    appGlobalService.reconstructAppMessagesHashCollectionAPI(req, res);
   });
   app.get('/apps/startmonitoring/:appname?', (req, res) => {
-    appsService.startAppMonitoringAPI(req, res);
+    appMonitoringService.startAppMonitoringAPI(req, res);
   });
   app.get('/apps/stopmonitoring/:appname?/:deletedata?', (req, res) => {
-    appsService.stopAppMonitoringAPI(req, res);
+    appMonitoringService.stopAppMonitoringAPI(req, res);
   });
 
   // POST PUBLIC methods route
@@ -1271,16 +1278,16 @@ module.exports = (app) => {
   });
 
   app.post('/apps/checkdockerexistance', (req, res) => {
-    appsService.checkDockerAccessibility(req, res);
+    appContainerService.checkDockerAccessibility(req, res);
   });
   app.post('/apps/appregister', (req, res) => {
-    appsService.registerAppGlobalyApi(req, res);
+    appGlobalService.registerAppGlobalyApi(req, res);
   });
   app.post('/apps/appupdate', (req, res) => {
-    appsService.updateAppGlobalyApi(req, res);
+    appGlobalService.updateAppGlobalyApi(req, res);
   });
   app.post('/apps/getpublickey', (req, res) => {
-    appsService.getPublicKey(req, res);
+    appGlobalService.getPublicKey(req, res);
   });
 
   // POST PROTECTED API - FluxNode owner level
@@ -1430,22 +1437,22 @@ module.exports = (app) => {
   });
   // Volume Browser
   app.get('/apps/getfolderinfo/:appname?/:component?/:folder?', (req, res) => {
-    appsService.getAppsFolder(req, res);
+    appFileService.getAppsFolder(req, res);
   });
   app.get('/apps/createfolder/:appname?/:component?/:folder?', (req, res) => {
-    appsService.createAppsFolder(req, res);
+    appFileService.createAppsFolder(req, res);
   });
   app.get('/apps/renameobject/:appname?/:component?/:oldpath?/:newname?', (req, res) => {
-    appsService.renameAppsObject(req, res);
+    appFileService.renameAppsObject(req, res);
   });
   app.get('/apps/removeobject/:appname?/:component?/:object?', (req, res) => {
-    appsService.removeAppsObject(req, res);
+    appFileService.removeAppsObject(req, res);
   });
   app.get('/apps/downloadfile/:appname?/:component?/:file?', (req, res) => {
-    appsService.downloadAppsFile(req, res);
+    appFileService.downloadAppsFile(req, res);
   });
   app.get('/apps/downloadfolder/:appname?/:component?/:folder?', (req, res) => {
-    appsService.downloadAppsFolder(req, res);
+    appFileService.downloadAppsFolder(req, res);
   });
   app.get('/explorer/issynced', cache('30 seconds'), (req, res) => {
     explorerService.isExplorerSynced(req, res);

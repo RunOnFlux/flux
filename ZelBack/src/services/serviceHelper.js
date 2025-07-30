@@ -220,8 +220,8 @@ async function getApplicationOwner(appName) {
     return appSpecs.owner;
   }
   // eslint-disable-next-line global-require
-  const appsService = require('./appsService');
-  const allApps = await appsService.availableApps();
+  const appGlobalService = require('./apps/appGlobalService');
+  const allApps = await appGlobalService.availableApps();
   const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   if (appInfo) {
     return appInfo.owner;

@@ -317,6 +317,32 @@ async function executeUpnpBench() {
   }
 }
 
+// Node specifications storage
+let nodeSpecs = {
+  cpuCores: 0,
+  ram: 0,
+  ssdStorage: 0,
+};
+
+/**
+ * Set node specifications for testing/benchmarking purposes
+ * @param {number} cpuCores Number of CPU cores
+ * @param {number} ram Amount of RAM in MB
+ * @param {number} ssdStorage Amount of SSD storage in MB
+ */
+function setNodeSpecs(cpuCores, ram, ssdStorage) {
+  nodeSpecs.cpuCores = cpuCores;
+  nodeSpecs.ram = ram;
+  nodeSpecs.ssdStorage = ssdStorage;
+}
+
+/**
+ * Get current node specifications
+ */
+function getNodeSpecs() {
+  return nodeSpecs;
+}
+
 if (require.main === module) {
   getInfo().then((res) => console.log(res));
 }
@@ -347,4 +373,8 @@ module.exports = {
   getPublicKey,
   decryptRSAMessage,
   encryptMessage,
+  
+  // == Node Specs ==
+  setNodeSpecs,
+  getNodeSpecs,
 };

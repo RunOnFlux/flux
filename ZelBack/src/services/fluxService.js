@@ -17,7 +17,9 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
-const appsService = require('./appsService');
+const appMonitoringService = require('./apps/appMonitoringService');
+const appContainerService = require('./apps/appContainerService');
+const appGlobalService = require('./apps/appGlobalService');
 const generalService = require('./generalService');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
@@ -1196,7 +1198,7 @@ async function getFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.flux.dos = dosResult.data;
-    const dosAppsResult = await appsService.getAppsDOSState();
+    const dosAppsResult = await appMonitoringService.getAppsDOSState();
     if (dosResult.status === 'error') {
       throw dosAppsResult.data;
     }
@@ -1238,22 +1240,22 @@ async function getFluxInfo(req, res) {
     }
     info.benchmark.bench = benchmarkBenchRes.data;
 
-    const apppsFluxUsage = await appsService.fluxUsage();
+    const apppsFluxUsage = await appMonitoringService.fluxUsage();
     if (apppsFluxUsage.status === 'error') {
       throw apppsFluxUsage.data;
     }
     info.apps.fluxusage = apppsFluxUsage.data;
-    const appsRunning = await appsService.listRunningApps();
+    const appsRunning = await appContainerService.listRunningApps();
     if (appsRunning.status === 'error') {
       throw appsRunning.data;
     }
     info.apps.runningapps = appsRunning.data;
-    const appsResources = await appsService.appsResources();
+    const appsResources = await appMonitoringService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
     }
     info.apps.resources = appsResources.data;
-    const appHashes = await appsService.getAppHashes();
+    const appHashes = await appGlobalService.getAppHashes();
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
