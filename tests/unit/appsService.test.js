@@ -16,12 +16,9 @@ const verificationHelper = require('../../ZelBack/src/services/verificationHelpe
 // benchmarkService will be created with proxyquire below
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const log = require('../../ZelBack/src/lib/log');
+const messageHelper = require('../../ZelBack/src/services/messageHelper');
 
 // Import new modular app services
-const appContainerService = require('../../ZelBack/src/services/apps/appContainerService');
-const appMonitoringService = require('../../ZelBack/src/services/apps/appMonitoringService');
-const appInstallationService = require('../../ZelBack/src/services/apps/appInstallationService');
-const appFileService = require('../../ZelBack/src/services/apps/appFileService');
 const appProgressState = require('../../ZelBack/src/services/apps/appProgressState');
 
 chai.use(chaiAsPromised);
@@ -55,21 +52,12 @@ const utilFake = {
   }),
 };
 
-const adminConfig = {
-  initial: {
-    ipaddress: '83.51.212.243',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    testnet: true,
-  },
-  lockedSystemResources: {
-    hdd: 50,
-  },
-};
 // Use proxyquire to mock dependencies - use same objects that tests will stub
 const appFileServiceProxy = proxyquire('../../ZelBack/src/services/apps/appFileService', {
   '../dbHelper': dbHelper,
   '../serviceHelper': serviceHelper,
   '../verificationHelper': verificationHelper,
+  '../messageHelper': messageHelper,
 });
 
 const appContainerServiceProxy = proxyquire('../../ZelBack/src/services/apps/appContainerService', {
@@ -77,6 +65,7 @@ const appContainerServiceProxy = proxyquire('../../ZelBack/src/services/apps/app
   '../serviceHelper': serviceHelper,
   '../dbHelper': dbHelper,
   '../verificationHelper': verificationHelper,
+  '../messageHelper': messageHelper,
 });
 
 const benchmarkService = proxyquire('../../ZelBack/src/services/benchmarkService', {
@@ -87,6 +76,7 @@ const benchmarkService = proxyquire('../../ZelBack/src/services/benchmarkService
 const appMonitoringServiceProxy = proxyquire('../../ZelBack/src/services/apps/appMonitoringService', {
   '../benchmarkService': benchmarkService,
   '../serviceHelper': serviceHelper,
+  '../messageHelper': messageHelper,
   util: utilFake,
 });
 
@@ -99,6 +89,7 @@ const appInstallationServiceProxy = proxyquire('../../ZelBack/src/services/apps/
   '../benchmarkService': benchmarkService,
   '../generalService': generalService,
   '../geolocationService': geolocationService,
+  '../messageHelper': messageHelper,
 });
 
 describe('Apps Services tests', () => {
