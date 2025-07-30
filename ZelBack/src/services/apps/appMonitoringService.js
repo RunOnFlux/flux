@@ -1644,7 +1644,7 @@ async function monitorNodeStatus() {
   }
 }
 
-const appDOSState = require('./appDOSState');
+const appDOSState = require('./appDosState');
 const appProgressState = require('./appProgressState');
 const appFileService = require('./appFileService');
 const appContainerService = require('./appContainerService');
