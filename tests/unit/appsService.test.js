@@ -443,6 +443,7 @@ describe('Apps Services tests', () => {
     });
 
     it('should return running apps, no response passed', async () => {
+      dockerServiceStub.reset();
       dockerServiceStub.returns(apps);
 
       const result = await appContainerServiceProxy.listAllApps();
@@ -452,7 +453,7 @@ describe('Apps Services tests', () => {
         data: [
           {
             Names: [
-              '/flux_zeltest',
+              'flux_zeltest',
             ],
             HostConfig: 'someconfig',
             NetworkSettings: 'mySettings',
@@ -462,7 +463,7 @@ describe('Apps Services tests', () => {
           },
           {
             Names: [
-              '/flux_testapp',
+              'flux_testapp',
             ],
             HostConfig: 'someconfig',
             NetworkSettings: 'mySettings',
@@ -578,6 +579,7 @@ describe('Apps Services tests', () => {
     });
 
     it('should return running apps, no response passed', async () => {
+      dockerServiceStub.reset();
       dockerServiceStub.returns(apps);
 
       const result = await appContainerServiceProxy.listAppsImages();
