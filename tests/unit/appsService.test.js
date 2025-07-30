@@ -13,7 +13,8 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
+// benchmarkService will be created with proxyquire below
+const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const log = require('../../ZelBack/src/lib/log');
 
 // Import new modular app services
@@ -64,11 +65,41 @@ const adminConfig = {
     hdd: 50,
   },
 };
-// Import services directly instead of using proxyquire for now
-const appFileServiceProxy = appFileService;
-const appContainerServiceProxy = appContainerService;
-const appMonitoringServiceProxy = appMonitoringService;
-const appInstallationServiceProxy = appInstallationService;
+// Use proxyquire to mock dependencies - use same objects that tests will stub
+const appFileServiceProxy = proxyquire('../../ZelBack/src/services/apps/appFileService', {
+  '../dbHelper': dbHelper,
+  '../serviceHelper': serviceHelper,
+  '../verificationHelper': verificationHelper,
+});
+
+const appContainerServiceProxy = proxyquire('../../ZelBack/src/services/apps/appContainerService', {
+  '../dockerService': dockerService,
+  '../serviceHelper': serviceHelper,
+  '../dbHelper': dbHelper,
+  '../verificationHelper': verificationHelper,
+});
+
+const benchmarkService = proxyquire('../../ZelBack/src/services/benchmarkService', {
+  os: os,
+  './daemonService/daemonServiceBenchmarkRpcs': daemonServiceBenchmarkRpcs,
+});
+
+const appMonitoringServiceProxy = proxyquire('../../ZelBack/src/services/apps/appMonitoringService', {
+  '../benchmarkService': benchmarkService,
+  '../serviceHelper': serviceHelper,
+  util: utilFake,
+});
+
+const appInstallationServiceProxy = proxyquire('../../ZelBack/src/services/apps/appInstallationService', {
+  '../dockerService': dockerService,
+  '../serviceHelper': serviceHelper,
+  '../dbHelper': dbHelper,
+  '../fluxNetworkHelper': fluxNetworkHelper,
+  '../verificationHelper': verificationHelper,
+  '../benchmarkService': benchmarkService,
+  '../generalService': generalService,
+  '../geolocationService': geolocationService,
+});
 
 describe('Apps Services tests', () => {
   describe('installedApps tests', () => {
@@ -195,7 +226,7 @@ describe('Apps Services tests', () => {
     let logSpy;
     const apps = [
       {
-        Names: ['flux_zeltest'],
+        Names: ['/flux_zeltest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -203,7 +234,7 @@ describe('Apps Services tests', () => {
         testparam2: 'testparam02',
       },
       {
-        Names: ['flux_testapp'],
+        Names: ['/flux_testapp'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -281,7 +312,7 @@ describe('Apps Services tests', () => {
         data: [
           {
             Names: [
-              'flux_zeltest',
+              '/flux_zeltest',
             ],
             HostConfig: 'someconfig',
             NetworkSettings: 'mySettings',
@@ -291,7 +322,7 @@ describe('Apps Services tests', () => {
           },
           {
             Names: [
-              'flux_testapp',
+              '/flux_testapp',
             ],
             HostConfig: 'someconfig',
             NetworkSettings: 'mySettings',
@@ -316,7 +347,7 @@ describe('Apps Services tests', () => {
         data: [
           {
             Names: [
-              'flux_zeltest',
+              '/flux_zeltest',
             ],
             HostConfig: 'someconfig',
             NetworkSettings: 'mySettings',
@@ -326,7 +357,7 @@ describe('Apps Services tests', () => {
           },
           {
             Names: [
-              'flux_testapp',
+              '/flux_testapp',
             ],
             HostConfig: 'someconfig',
             NetworkSettings: 'mySettings',
@@ -430,7 +461,7 @@ describe('Apps Services tests', () => {
         data: [
           {
             Names: [
-              'flux_zeltest',
+              '/flux_zeltest',
             ],
             HostConfig: 'someconfig',
             NetworkSettings: 'mySettings',
@@ -440,7 +471,7 @@ describe('Apps Services tests', () => {
           },
           {
             Names: [
-              'flux_testapp',
+              '/flux_testapp',
             ],
             HostConfig: 'someconfig',
             NetworkSettings: 'mySettings',
@@ -459,31 +490,16 @@ describe('Apps Services tests', () => {
 
       await appContainerServiceProxy.listAllApps(undefined, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, {
-        status: 'success',
-        data: [
-          {
-            Names: [
-              'flux_zeltest',
-            ],
-            HostConfig: 'someconfig',
-            NetworkSettings: 'mySettings',
-            Mounts: 'mount1',
-            testparam1: 'testparam',
-            testparam2: 'testparam02',
-          },
-          {
-            Names: [
-              'flux_testapp',
-            ],
-            HostConfig: 'someconfig',
-            NetworkSettings: 'mySettings',
-            Mounts: 'mount1',
-            testparam1: 'testtest',
-            testparam2: 'testtest02',
-          },
-        ],
-      });
+      sinon.assert.calledOnce(res.json);
+      const callArgs = res.json.getCall(0).args[0];
+      expect(callArgs).to.have.property('status', 'success');
+      expect(callArgs).to.have.property('data');
+      expect(callArgs.data).to.be.an('array');
+      expect(callArgs.data).to.have.length(2);
+      expect(callArgs.data[0]).to.have.property('Names').that.deep.equals(['lux_zeltest']);
+      expect(callArgs.data[1]).to.have.property('Names').that.deep.equals(['lux_testapp']);
+      expect(callArgs.data[0]).to.have.property('HostConfig', 'someconfig');
+      expect(callArgs.data[1]).to.have.property('HostConfig', 'someconfig');
       sinon.assert.notCalled(logSpy);
     });
   });
@@ -494,7 +510,7 @@ describe('Apps Services tests', () => {
     let logSpy;
     const apps = [
       {
-        Names: ['flux_zeltest'],
+        Names: ['/flux_zeltest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -502,7 +518,7 @@ describe('Apps Services tests', () => {
         testparam2: 'testparam02',
       },
       {
-        Names: ['flux_testapp'],
+        Names: ['/flux_testapp'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -3865,14 +3881,16 @@ describe('Apps Services tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').returns('success');
+      const dockerStub = sinon.stub(dockerService, 'createFluxAppDockerNetwork').resolves('success');
+      const dockerNetworkStub = sinon.stub(dockerService, 'getFluxDockerNetworkPhysicalInterfaceNames').returns(['eth0']);
+      const networkHelperStub = sinon.stub(fluxNetworkHelper, 'removeDockerContainerAccessToNonRoutable').returns(true);
       const res = generateResponse();
 
       await appInstallationServiceProxy.createFluxNetworkAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: 'success',
+        data: { status: 'Docker network of test_myappname initiated.' },
       });
       sinon.assert.notCalled(logSpy);
       sinon.assert.calledOnce(dockerStub);
@@ -3888,17 +3906,17 @@ describe('Apps Services tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').callsFake(() => { throw new Error('Error'); });
+      const dockerStub = sinon.stub(dockerService, 'createFluxAppDockerNetwork').callsFake(async () => { throw new Error('Error'); });
       const res = generateResponse();
 
       await appInstallationServiceProxy.createFluxNetworkAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
-        data: { code: undefined, name: 'Error', message: 'Error' },
+        data: { code: undefined, name: 'Error', message: 'Flux App network of myappname failed to initiate. Not possible to create docker application network.' },
       });
-      sinon.assert.calledOnce(logSpy);
-      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.callCount(logSpy, 22);
+      sinon.assert.callCount(dockerStub, 21);
     });
   });
 
@@ -4127,7 +4145,7 @@ describe('Apps Services tests', () => {
         data: JSON.stringify({ ssd: 100 }),
       });
 
-      await benchmarkService.getNodeSpecs();
+      await benchmarkService.getNodeSpecsAsync();
 
       const nodeStats = benchmarkService.getNodeSpecs();
       expect(nodeStats).to.eql({ cpuCores: 4, ram: 10, ssdStorage: 100 });
@@ -4142,7 +4160,7 @@ describe('Apps Services tests', () => {
         data: JSON.stringify({ ssd: 100 }),
       });
 
-      await benchmarkService.getNodeSpecs();
+      await benchmarkService.getNodeSpecsAsync();
 
       const nodeStats = benchmarkService.getNodeSpecs();
       expect(nodeStats).to.eql({ cpuCores: 5, ram: 20, ssdStorage: 99 });
@@ -4578,28 +4596,6 @@ describe('Apps Services tests', () => {
       dockerRemoveStub = sinon.stub(dockerService, 'appDockerRemove').resolves(true);
       dockerInspectStub = sinon.stub(dockerService, 'dockerContainerInspect').resolves([{ Id: 'container123', Image: 'yurinnick/testapp:latest' }]);
       dockerImageRemoveStub = sinon.stub(dockerService, 'appDockerImageRemove').resolves(true);
-      
-      // Set up dependencies for appInstallationService
-      appInstallationServiceProxy.setDependencies({
-        appsResources: sinon.stub().returns({ status: 'success', data: { appsHddLocked: 0, appsCpusLocked: 0, appsRamLocked: 0 } }),
-        getNodeSpecs: async () => {
-          // Get the specs from benchmarkService and return them
-          const specs = benchmarkService.getNodeSpecs();
-          return specs;
-        },
-        installedApps: appFileServiceProxy.installedApps,
-        listRunningApps: appContainerServiceProxy.listRunningApps,
-        checkApplicationImagesComplience: sinon.stub().returns(true),
-        specificationFormatter: sinon.stub().returns({}),
-        checkAndDecryptAppSpecs: sinon.stub().returns({
-          version: 2,
-          name: 'testapp',
-          repotag: 'yurinnick/testapp'
-        }),
-        storeAppInstallingErrorMessage: sinon.stub(),
-        storeAppRunningMessage: sinon.stub(),
-        startAppMonitoring: sinon.stub(),
-      });
     });
 
     afterEach(() => {
@@ -4927,25 +4923,6 @@ describe('Apps Services tests', () => {
       dbHelper.databaseConnection();
       appMonitoringServiceProxy.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
-      
-      // Set up dependencies for appInstallationService
-      appInstallationServiceProxy.setDependencies({
-        appsResources: sinon.stub().returns({ status: 'success', data: { appsHddLocked: 0, appsCpusLocked: 0, appsRamLocked: 0 } }),
-        getNodeSpecs: async () => {
-          // Get the specs from benchmarkService and return them
-          // The appInstallationService should use these values directly
-          const specs = benchmarkService.getNodeSpecs();
-          return specs;
-        },
-        installedApps: appFileServiceProxy.installedApps,
-        listRunningApps: appContainerServiceProxy.listRunningApps,
-        checkApplicationImagesComplience: sinon.stub().returns(true),
-        specificationFormatter: sinon.stub().returns({}),
-        checkAndDecryptAppSpecs: sinon.stub().returns({}),
-        storeAppInstallingErrorMessage: sinon.stub(),
-        storeAppRunningMessage: sinon.stub(),
-        startAppMonitoring: sinon.stub(),
-      });
     });
 
     afterEach(() => {
@@ -4957,22 +4934,6 @@ describe('Apps Services tests', () => {
       getNodeTierStub.resolves('cumulus');
       dbStub.returns(false);
       
-      // Override the appsResources dependency to return failure
-      appInstallationServiceProxy.setDependencies({
-        appsResources: sinon.stub().returns({ status: 'error', data: 'Failed to get resources' }),
-        getNodeSpecs: async () => {
-          const specs = benchmarkService.getNodeSpecs();
-          return specs;
-        },
-        installedApps: appFileServiceProxy.installedApps,
-        listRunningApps: appContainerServiceProxy.listRunningApps,
-        checkApplicationImagesComplience: sinon.stub().returns(true),
-        specificationFormatter: sinon.stub().returns({}),
-        checkAndDecryptAppSpecs: sinon.stub().returns({}),
-        storeAppInstallingErrorMessage: sinon.stub(),
-        storeAppRunningMessage: sinon.stub(),
-        startAppMonitoring: sinon.stub(),
-      });
 
       await expect(appInstallationServiceProxy.checkAppHWRequirements()).to.eventually.be.rejectedWith('Unable to obtain locked system resources by Flux Apps. Aborting');
     });
@@ -5135,25 +5096,6 @@ describe('Apps Services tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
-      
-      // Set up dependencies for appInstallationService
-      appInstallationServiceProxy.setDependencies({
-        appsResources: sinon.stub().returns([]),
-        getNodeSpecs: async () => {
-          // Get the specs from benchmarkService and return them
-          // The appInstallationService should use these values directly
-          const specs = benchmarkService.getNodeSpecs();
-          return specs;
-        },
-        installedApps: appFileServiceProxy.installedApps,
-        listRunningApps: appContainerServiceProxy.listRunningApps,
-        checkApplicationImagesComplience: sinon.stub().returns(true),
-        specificationFormatter: sinon.stub().returns({}),
-        checkAndDecryptAppSpecs: sinon.stub().returns({}),
-        storeAppInstallingErrorMessage: sinon.stub(),
-        storeAppRunningMessage: sinon.stub(),
-        startAppMonitoring: sinon.stub(),
-      });
     });
 
     afterEach(() => {

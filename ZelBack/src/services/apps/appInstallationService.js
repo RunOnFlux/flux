@@ -525,7 +525,7 @@ async function createFluxNetworkAPI(req, res) {
       const response = messageHelper.createDataMessage(fluxNetResponse);
       res.json(response);
     } else {
-      const errMessage = messageHelper.createErrorMessage(authorized);
+      const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
     }
   } catch (error) {
@@ -2203,9 +2203,9 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
 
-    // do this temporarily - otherwise we have to move a bunch of functions around
-    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-    appSpecifications = specificationFormatter(appSpecifications);
+    // Use checkAndDecryptAppSpecs from appValidationService
+    appSpecifications = await appValidationService.checkAndDecryptAppSpecs(appSpecifications);
+    appSpecifications = appFileService.specificationFormatter(appSpecifications);
 
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
@@ -2280,13 +2280,13 @@ async function softRemoveAppLocally(app, res) {
   // remove app from local machine.
   // find in database, stop app, remove container, close port, remove from database
   // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
-  if (removalInProgress) {
+  if (appProgressState.removalInProgress) {
     throw new Error('Another application is undergoing removal');
   }
-  if (installationInProgress) {
+  if (appProgressState.installationInProgress) {
     throw new Error('Another application is undergoing installation');
   }
-  removalInProgress = true;
+  appProgressState.removalInProgress = true;
   if (!app) {
     throw new Error('No Flux App specified');
   }
@@ -2311,9 +2311,9 @@ async function softRemoveAppLocally(app, res) {
 
   let appId = dockerService.getAppIdentifier(app);
 
-  // do this temporarily - otherwise we have to move a bunch of functions around
-  appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-  appSpecifications = specificationFormatter(appSpecifications);
+  // Use checkAndDecryptAppSpecs from appValidationService
+  appSpecifications = await appValidationService.checkAndDecryptAppSpecs(appSpecifications);
+  appSpecifications = appFileService.specificationFormatter(appSpecifications);
 
   if (appSpecifications.version >= 4 && !isComponent) {
     // it is a composed application
@@ -2359,7 +2359,7 @@ async function softRemoveAppLocally(app, res) {
     }
   }
 
-  removalInProgress = false;
+  appProgressState.removalInProgress = false;
 }
 
 /**

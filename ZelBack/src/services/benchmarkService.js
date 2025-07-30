@@ -1,5 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const os = require('os');
 
 const config = require('config');
 const userconfig = require('../../../config/userconfig');
@@ -11,6 +12,7 @@ const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const fluxRpc = require('./utils/fluxRpc');
+const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -337,9 +339,54 @@ function setNodeSpecs(cpuCores, ram, ssdStorage) {
 }
 
 /**
- * Get current node specifications
+ * Get current node specifications (synchronous)
  */
 function getNodeSpecs() {
+  return nodeSpecs;
+}
+
+/**
+ * Get current node specifications, auto-populating if not set (async)
+ */
+async function getNodeSpecsAsync() {
+  // If nodeSpecs are not populated, populate them first
+  if (nodeSpecs.cpuCores === 0 && nodeSpecs.ram === 0 && nodeSpecs.ssdStorage === 0) {
+    await initializeNodeSpecs();
+  }
+  
+  return nodeSpecs;
+}
+
+/**
+ * Initialize node specifications by reading from system if not already set
+ */
+async function initializeNodeSpecs() {
+  // If nodeSpecs are already populated, return them as-is
+  if (nodeSpecs.cpuCores !== 0 || nodeSpecs.ram !== 0 || nodeSpecs.ssdStorage !== 0) {
+    return nodeSpecs;
+  }
+
+  try {
+    // Get CPU cores count
+    const cpuCores = os.cpus().length;
+    
+    // Get RAM in MB
+    const ram = Math.round(os.totalmem() / (1024 * 1024));
+    
+    // Get SSD storage from daemon benchmarks
+    let ssdStorage = 0;
+    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+    if (benchmarkResponse.status === 'success') {
+      const benchmarkData = JSON.parse(benchmarkResponse.data);
+      ssdStorage = benchmarkData.ssd || 0;
+    }
+    
+    // Set the node specifications
+    setNodeSpecs(cpuCores, ram, ssdStorage);
+  } catch (error) {
+    log.error('Error getting node specifications:', error);
+  }
+
   return nodeSpecs;
 }
 
@@ -377,4 +424,6 @@ module.exports = {
   // == Node Specs ==
   setNodeSpecs,
   getNodeSpecs,
+  getNodeSpecsAsync,
+  initializeNodeSpecs,
 };
