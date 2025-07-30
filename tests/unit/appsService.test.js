@@ -64,11 +64,11 @@ const adminConfig = {
     hdd: 50,
   },
 };
-// Proxy modules for testing with mocked dependencies
-const appContainerServiceProxy = proxyquire('../../ZelBack/src/services/apps/appContainerService', { util: utilFake, '../../../../config/userconfig': adminConfig });
-const appMonitoringServiceProxy = proxyquire('../../ZelBack/src/services/apps/appMonitoringService', { util: utilFake, '../../../../config/userconfig': adminConfig });
-const appInstallationServiceProxy = proxyquire('../../ZelBack/src/services/apps/appInstallationService', { util: utilFake, '../../../../config/userconfig': adminConfig });
-const appFileServiceProxy = proxyquire('../../ZelBack/src/services/apps/appFileService', { util: utilFake, '../../../../config/userconfig': adminConfig });
+// Import services directly instead of using proxyquire for now
+const appFileServiceProxy = appFileService;
+const appContainerServiceProxy = appContainerService;
+const appMonitoringServiceProxy = appMonitoringService;
+const appInstallationServiceProxy = appInstallationService;
 
 describe('Apps Services tests', () => {
   describe('installedApps tests', () => {
@@ -167,7 +167,7 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error, if error is thrown, response passed', async () => {
-      dbStub.callsFake(() => { throw new Error('Error'); });
+      dbStub.callsFake(async () => { throw new Error('Error'); });
       const res = generateResponse();
       const req = 'appName';
 
@@ -179,7 +179,7 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error, if error is thrown, no response passed', async () => {
-      dbStub.callsFake(() => { throw new Error('Error'); });
+      dbStub.callsFake(async () => { throw new Error('Error'); });
       const req = 'appName';
 
       const result = await appFileServiceProxy.installedApps(req);
@@ -238,7 +238,7 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
 
       const result = await appContainerServiceProxy.listRunningApps();
 
@@ -255,7 +255,7 @@ describe('Apps Services tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
 
       await appContainerServiceProxy.listRunningApps(undefined, res);
 
@@ -345,7 +345,7 @@ describe('Apps Services tests', () => {
     let logSpy;
     const apps = [
       {
-        Names: ['flux_zeltest'],
+        Names: ['/flux_zeltest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -353,7 +353,7 @@ describe('Apps Services tests', () => {
         testparam2: 'testparam02',
       },
       {
-        Names: ['flux_testapp'],
+        Names: ['/flux_testapp'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -361,7 +361,7 @@ describe('Apps Services tests', () => {
         testparam2: 'testtest02',
       },
       {
-        Names: ['somethingelse'],
+        Names: ['/somethingelse'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -388,7 +388,7 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
 
       const result = await appContainerServiceProxy.listAllApps();
 
@@ -405,7 +405,7 @@ describe('Apps Services tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
 
       await appContainerServiceProxy.listAllApps(undefined, res);
 
@@ -490,6 +490,7 @@ describe('Apps Services tests', () => {
 
   describe('listAppsImages tests', () => {
     let dockerServiceStub;
+    let verificationHelperStub;
     let logSpy;
     const apps = [
       {
@@ -526,6 +527,7 @@ describe('Apps Services tests', () => {
 
     beforeEach(async () => {
       dockerServiceStub = sinon.stub(dockerService, 'dockerListImages');
+      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
@@ -536,7 +538,7 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
 
       const result = await appContainerServiceProxy.listAppsImages();
 
@@ -553,7 +555,7 @@ describe('Apps Services tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
 
       await appContainerServiceProxy.listAppsImages(undefined, res);
 
@@ -4127,7 +4129,7 @@ describe('Apps Services tests', () => {
 
       await benchmarkService.getNodeSpecs();
 
-      const nodeStats = benchmarkService.returnNodeSpecs();
+      const nodeStats = benchmarkService.getNodeSpecs();
       expect(nodeStats).to.eql({ cpuCores: 4, ram: 10, ssdStorage: 100 });
     });
 
@@ -4142,7 +4144,7 @@ describe('Apps Services tests', () => {
 
       await benchmarkService.getNodeSpecs();
 
-      const nodeStats = benchmarkService.returnNodeSpecs();
+      const nodeStats = benchmarkService.getNodeSpecs();
       expect(nodeStats).to.eql({ cpuCores: 5, ram: 20, ssdStorage: 99 });
     });
   });

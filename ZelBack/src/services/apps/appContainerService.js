@@ -1163,29 +1163,28 @@ async function listRunningApps(req, res) {
  * @returns {object} Message.
  */
 async function listAllApps(req, res) {
-  const dockerListParameters = {
-    all: true,
-  };
-  dockerService.dockerListContainers(dockerListParameters)
-    .then((data) => {
-      const apps = data.filter((container) => container.Names[0].includes('flux_'));
-      const modifiedApps = apps.map((app) => {
-        // eslint-disable-next-line no-param-reassign
-        app.Names = app.Names.map((name) => name.substring(1));
-        return app;
-      });
-      const dataResponse = messageHelper.createDataMessage(modifiedApps);
-      return res ? res.json(dataResponse) : dataResponse;
-    })
-    .catch((error) => {
-      const errMessage = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      log.error(error);
-      return res ? res.json(errMessage) : errMessage;
+  try {
+    const dockerListParameters = {
+      all: true,
+    };
+    const data = await dockerService.dockerListContainers(dockerListParameters);
+    const apps = data.filter((container) => container.Names[0].includes('flux_'));
+    const modifiedApps = apps.map((app) => {
+      // eslint-disable-next-line no-param-reassign
+      app.Names = app.Names.map((name) => name.substring(1));
+      return app;
     });
+    const dataResponse = messageHelper.createDataMessage(modifiedApps);
+    return res ? res.json(dataResponse) : dataResponse;
+  } catch (error) {
+    const errMessage = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    log.error(error);
+    return res ? res.json(errMessage) : errMessage;
+  }
 }
 
 /**
@@ -1197,20 +1196,19 @@ async function listAllApps(req, res) {
 async function listAppsImages(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
   if (authorized === true) {
-    return dockerService.dockerListImages()
-      .then((data) => {
-        const response = messageHelper.createDataMessage(data);
-        return res ? res.json(response) : response;
-      })
-      .catch((error) => {
-        const errMessage = messageHelper.createErrorMessage(
-          error.message || error,
-          error.name,
-          error.code,
-        );
-        log.error(error);
-        return res ? res.json(errMessage) : errMessage;
-      });
+    try {
+      const data = await dockerService.dockerListImages();
+      const response = messageHelper.createDataMessage(data);
+      return res ? res.json(response) : response;
+    } catch (error) {
+      const errMessage = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      log.error(error);
+      return res ? res.json(errMessage) : errMessage;
+    }
   } 
   const errMessage = messageHelper.errUnauthorizedMessage();
   return res ? res.json(errMessage) : errMessage;
