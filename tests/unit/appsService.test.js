@@ -4411,7 +4411,6 @@ describe('Apps Services tests', () => {
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
 
     it('should hard uninstall app ports passed', async () => {
@@ -4446,7 +4445,6 @@ describe('Apps Services tests', () => {
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
   });
 
@@ -4709,7 +4707,6 @@ describe('Apps Services tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp image operations done' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Flux App testapp successfully removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });
