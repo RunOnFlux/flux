@@ -52,7 +52,7 @@ module.exports = {
     },
   },
   configureWebpack: {
-    mode: process.env.NODE_ENV,
+    mode: process.env.NODE_ENV === 'test' ? 'development' : (process.env.NODE_ENV || 'development'),
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './HomeUI/src/'),
@@ -69,7 +69,7 @@ module.exports = {
       },
     },
     plugins,
-    externals(context, request, callback) {
+    externals({ request }, callback) {
       if (/xlsx|canvg|pdfmake/.test(request)) {
         return callback(null, `commonjs ${request}`);
       }

@@ -28,8 +28,6 @@ function databaseConnection() {
 async function connectMongoDb(url) {
   const connectUrl = url || mongoUrl;
   const mongoSettings = {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
     maxPoolSize: 100,
   };
   const db = await MongoClient.connect(connectUrl, mongoSettings);
