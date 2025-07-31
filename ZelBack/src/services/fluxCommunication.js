@@ -386,6 +386,86 @@ async function handleAppRemovedMessage(message, fromIP, port) {
   }
 }
 
+async function handleNodeDownMessage(message, fromIP, port) {
+  const nodeConnectivityService = require('./nodeConnectivityService');
+
+  try {
+    const { ip: downNodeIP, broadcastAt } = message.data;
+
+    if (!downNodeIP || typeof downNodeIP !== 'string') {
+      log.warn(`handleNodeDownMessage: Invalid nodedown message from ${fromIP}:${port} - missing or invalid IP`);
+      return;
+    }
+
+    // Check if message is less than 5 minutes old
+    const currentTime = Date.now();
+    const messageAge = currentTime - broadcastAt;
+    const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+    if (!broadcastAt || messageAge > fiveMinutes) {
+      log.warn(`handleNodeDownMessage: Ignoring old nodedown message from ${fromIP}:${port} - message age: ${messageAge}ms`);
+      return;
+    }
+
+    log.info(`handleNodeDownMessage: Received nodedown message for IP ${downNodeIP} from ${fromIP}:${port}`);
+
+    // Verify connectivity to the reported down node
+    const isReachable = await nodeConnectivityService.checkNodeConnectivity(downNodeIP, 16127, 10000);
+
+    if (!isReachable) {
+      log.info(`handleNodeDownMessage: Confirmed ${downNodeIP} is unreachable, removing app locations`);
+      const removedCount = await nodeConnectivityService.removeAppLocationsByIp(downNodeIP);
+
+      if (removedCount > 0) {
+        log.info(`handleNodeDownMessage: Removed ${removedCount} app locations for unreachable node ${downNodeIP}`);
+
+        // Rebroadcast the message to other peers (excluding the sender)
+        const currentTimeStamp = Date.now();
+        const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
+
+        if (timestampOK) {
+          const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+          const daemonHeight = syncStatus.data.height || 0;
+          let messageString = serviceHelper.ensureString(message);
+
+          if (daemonHeight >= config.messagesBroadcastRefactorStart) {
+            const dataObj = {
+              messageHashPresent: hash(message.data),
+            };
+            messageString = JSON.stringify(dataObj);
+          }
+
+          const wsListOut = [];
+          outgoingConnections.forEach((client) => {
+            if (client.ip === fromIP && client.port === port) {
+              // do not broadcast to this peer
+            } else {
+              wsListOut.push(client);
+            }
+          });
+          fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
+
+          await serviceHelper.delay(500);
+
+          const wsList = [];
+          incomingConnections.forEach((client) => {
+            if (client.ip === fromIP && client.port === port) {
+              // do not broadcast to this peer
+            } else {
+              wsList.push(client);
+            }
+          });
+          fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+        }
+      }
+    } else {
+      log.info(`handleNodeDownMessage: Node ${downNodeIP} is actually reachable, ignoring nodedown message`);
+    }
+  } catch (error) {
+    log.error(`handleNodeDownMessage: Error processing nodedown message: ${error.message}`);
+  }
+}
+
 /**
  * To handle incoming connection. Several types of verification are performed.
  * @param {object} websocket Web socket.
@@ -558,6 +638,8 @@ function handleIncomingConnection(websocket, optionalPort) {
               setImmediate(() => handleAppInstallingMessage(msgObj, peer.ip, peer.port));
             } else if (msgObj.data.type === 'fluxappinstallingerror') {
               setImmediate(() => handleAppInstallingErrorMessage(msgObj, peer.ip, peer.port));
+            } else if (msgObj.data.type === 'nodedown') {
+              setImmediate(() => handleNodeDownMessage(msgObj, peer.ip, peer.port));
             } else {
               log.warn(`Unrecognised message type of ${msgObj.data.type}`);
             }
@@ -944,6 +1026,8 @@ async function initiateAndHandleConnection(connection) {
               handleAppInstallingMessage(msgObj, ip, port);
             } else if (msgObj.data.type === 'fluxappinstallingerror') {
               handleAppInstallingErrorMessage(msgObj, ip, port);
+            } else if (msgObj.data.type === 'nodedown') {
+              handleNodeDownMessage(msgObj, ip, port);
             } else {
               log.warn(`Unrecognised message type of ${msgObj.data.type}`);
             }
