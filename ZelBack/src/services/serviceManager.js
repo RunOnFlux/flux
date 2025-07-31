@@ -89,6 +89,12 @@ async function startFluxFunctions() {
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     log.info('Local database prepared');
+    log.info('Loading DOS states from database...');
+    await fluxNetworkHelper.loadDosStatesFromDatabase();
+    log.info('DOS states loaded');
+    log.info('Checking Ubuntu version compatibility...');
+    await fluxNetworkHelper.checkUbuntuVersionAndSetDOS();
+    log.info('Ubuntu version check completed');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages
     const databaseTemp = db.db(config.database.appsglobal.database);
