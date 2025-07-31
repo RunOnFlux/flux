@@ -72,7 +72,8 @@ function getAllFiles(dirPath, arrayOfFiles) {
   files.forEach((file) => {
     let isDirectory = false;
     try {
-      isDirectory = fs.statSync(`${dirPath}/${file}`).isDirectory();
+      const stat = fs.statSync(`${dirPath}/${file}`);
+      isDirectory = stat.isDirectory && typeof stat.isDirectory === 'function' ? stat.isDirectory() : false;
     } catch (error) {
       log.warn(error);
     }

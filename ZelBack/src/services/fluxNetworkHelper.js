@@ -90,7 +90,7 @@ function isPortUserBlocked(port) {
 function isPortBanned(port) {
   const { bannedPorts } = config.fluxapps;
   let portBanned = false;
-  
+
   bannedPorts.forEach((portOrInterval) => {
     if (typeof portOrInterval === 'string') { // '0-10'
       const minPort = Number(portOrInterval.split('-')[0]);
@@ -102,7 +102,7 @@ function isPortBanned(port) {
       portBanned = true;
     }
   });
-  
+
   return portBanned;
 }
 
@@ -270,7 +270,7 @@ async function checkAppAvailability(req, res) {
         const iBP = isPortBanned(+port);
         const portNum = +port;
         const withinRange = portNum >= minPort && portNum <= maxPort;
-        
+
         if (withinRange && !iBP) {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port);
@@ -719,14 +719,15 @@ async function ipChangesOverLimit() {
       }
       if (ipChangeData.count >= 2) {
         // eslint-disable-next-line global-require
-        const appsService = require('./appsService');
-        let apps = await appsService.installedApps();
+        const appFileService = require('./apps/appFileService');
+        const appInstallationService = require('./apps/appInstallationService');
+        let apps = await appFileService.installedApps();
         if (apps.status === 'success' && apps.data.length > 0) {
           apps = apps.data;
           // eslint-disable-next-line no-restricted-syntax
           for (const app of apps) {
             // eslint-disable-next-line no-await-in-loop
-            await appsService.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
+            await appInstallationService.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(500);
           }
@@ -803,25 +804,27 @@ async function adjustExternalIP(ip) {
         log.error(dosMessage);
       }
       // eslint-disable-next-line global-require
-      const appsService = require('./appsService');
-      let apps = await appsService.installedApps();
+      const appFileService = require('./apps/appFileService');
+      const appInstallationService = require('./apps/appInstallationService');
+      const appContainerService = require('./apps/appContainerService');
+      let apps = await appFileService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
         let appsRemoved = 0;
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
           // eslint-disable-next-line no-await-in-loop
-          const runningAppList = await appsService.appLocation(app.name);
+          const runningAppList = await appContainerService.appLocation(app.name);
           const findMyIP = runningAppList.find((instance) => instance.ip.split(':')[0] === ip);
           if (findMyIP) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
             // eslint-disable-next-line no-await-in-loop
-            await appsService.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+            await appInstallationService.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
             appsRemoved += 1;
           } else {
             // once app specs v8 is done we check if app have specs that is using fluxnode service.
             // eslint-disable-next-line no-await-in-loop
-            await appsService.appDockerRestart(app.name);
+            await appContainerService.appRestart(app.name);
           }
         }
         if (apps.length > appsRemoved) {

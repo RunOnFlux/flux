@@ -4,7 +4,7 @@ global.userconfig = require('../../config/userconfig');
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const chai = require('chai');
 
-const appService = require('../../ZelBack/src/services/appsService');
+const appValidationService = require('../../ZelBack/src/services/apps/appValidationService');
 const generalService = require('../../ZelBack/src/services/generalService');
 
 const { expect } = chai;
@@ -58,7 +58,7 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 5,
     };
-    expect(appService.checkHWParameters(fluxAppSpecs)).to.be.equal(true);
+    expect(appValidationService.checkHWParameters(fluxAppSpecs)).to.be.equal(true);
   });
 
   it('Verifies HW specs are badly asssigned', () => {
@@ -98,7 +98,7 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 5,
     };
-    const specs = function () { appService.checkHWParameters(fluxAppSpecs); };
+    const specs = function () { appValidationService.checkHWParameters(fluxAppSpecs); };
     expect(specs).to.throw();
   });
 
@@ -139,21 +139,21 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 21,
     };
-    const hwSpecs = function () { appService.checkHWParameters(fluxAppSpecs); };
+    const hwSpecs = function () { appValidationService.checkHWParameters(fluxAppSpecs); };
     expect(hwSpecs).to.throw();
   });
 
-  it('Verifies repository format validation (spaces)', async function () {
+  it('Verifies repository format validation (spaces)', async () => {
     const fluxAppSpecs = {
       repotagC: ' bunnyanalyst/fluxrun:latest',
       repotagD: 'bunnyanalyst/fluxrun:latest ',
     };
 
-    const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((err) => err);
+    const repC = await appValidationService.verifyRepository(fluxAppSpecs.repotagC).catch((err) => err);
     expect(repC).to.be.an.instanceof(Error);
     expect(repC.message).to.be.equal('Image tag: " bunnyanalyst/fluxrun:latest" should not contain space characters.');
 
-    const repD = await appService.verifyRepository(fluxAppSpecs.repotagD).catch((err) => err);
+    const repD = await appValidationService.verifyRepository(fluxAppSpecs.repotagD).catch((err) => err);
     expect(repD).to.be.an.instanceof(Error);
     expect(repD.message).to.be.equal('Image tag: "bunnyanalyst/fluxrun:latest " should not contain space characters.');
   });
@@ -161,16 +161,16 @@ describe('checkHWParameters', () => {
   it('Verifies repository network validation', async function () {
     // Use a longer timeout only for network-dependent tests
     this.timeout(10000);
-    
+
     const fluxAppSpecs = {
       repotag: 'yurinnick/folding-at-home:latest',
       repotagB: 'yurinnick/folding-at-home:latestaaa',
     };
-    
-    const repA = await appService.verifyRepository(fluxAppSpecs.repotag).catch(() => true);
+
+    const repA = await appValidationService.verifyRepository(fluxAppSpecs.repotag).catch(() => true);
     expect(repA).to.be.equal(undefined);
 
-    const repB = await appService.verifyRepository(fluxAppSpecs.repotagB).catch((err) => err);
+    const repB = await appValidationService.verifyRepository(fluxAppSpecs.repotagB).catch((err) => err);
     expect(repB).to.be.an.instanceof(Error);
     expect(repB.message).to.be.equal('Bad HTTP Status 404: yurinnick/folding-at-home:latestaaa not available');
   });
@@ -271,7 +271,7 @@ describe('checkHWParameters', () => {
       timestamp,
       signature,
     };
-    expect(await appService.verifyAppHash(message)).to.be.equal(true);
+    expect(await appValidationService.verifyAppHash(message)).to.be.equal(true);
   });
 
   it('Message is correctly signed', async () => {
@@ -317,6 +317,6 @@ describe('checkHWParameters', () => {
     const messageToVerify = type + version + JSON.stringify(fluxAppSpecs) + timestamp;
     console.log(messageToVerify);
     const signature = 'H7AP+VrFUTrmi+DqG8x0nllBFXB+oD09AkSE/JEpemeOTzMglftjTtPaEY3rMW/FUezEiad0WZNgxiInFrUn6S8=';
-    expect(await appService.verifyAppMessageSignature(type, version, fluxAppSpecs, timestamp, signature)).to.be.equal(true);
+    expect(await appValidationService.verifyAppMessageSignature(type, version, fluxAppSpecs, timestamp, signature)).to.be.equal(true);
   });
 });
