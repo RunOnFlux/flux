@@ -360,7 +360,7 @@ module.exports = (app) => {
     appGlobalService.getApplicationOriginalOwner(req, res);
   });
   app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
-    appCommunicationService.getAppHashes(req, res);
+    appGlobalService.getAppHashes(req, res);
   });
   app.get('/apps/location/:appname?', cache('30 seconds'), (req, res) => {
     appGlobalService.getAppsLocation(req, res);
@@ -1115,7 +1115,7 @@ module.exports = (app) => {
   });
 
   app.get('/apps/checkhashes', (req, res) => {
-    appCommunicationService.triggerAppHashesCheckAPI(req, res);
+    appGlobalService.triggerAppHashesCheckAPI(req, res);
   });
   app.get('/apps/requestmessage/:hash', (req, res) => {
     appCommunicationService.requestAppMessageAPI(req, res);
