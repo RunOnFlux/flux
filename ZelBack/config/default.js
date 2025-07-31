@@ -20,6 +20,7 @@ module.exports = {
         loggedUsers: 'loggedusers',
         activeLoginPhrases: 'activeloginphrases',
         activeSignatures: 'activesignatures',
+        dosStates: 'dosstates',
       },
     },
     daemon: {

@@ -24,6 +24,7 @@ const {
 } = require('./utils/establishedConnections');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
+const dbHelper = require('./dbHelper');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -425,6 +426,37 @@ function setMyFluxIp(value) {
 }
 
 /**
+ * Save DOS state to database.
+ * @param {string} type Type of DOS state ('network' or 'apps')
+ * @param {number} state DOS state value
+ * @param {string|null} message DOS message
+ */
+async function saveDosStateToDatabase(type, state, message) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = database.collection(config.database.local.collections.dosStates);
+
+    const dosStateDoc = {
+      type,
+      state,
+      message,
+      updatedAt: new Date(),
+    };
+
+    await collection.replaceOne(
+      { type },
+      dosStateDoc,
+      { upsert: true },
+    );
+
+    log.info(`DOS state saved: ${type} = ${state}, message: ${message}`);
+  } catch (error) {
+    log.error(`Failed to save DOS state to database: ${error.message}`);
+  }
+}
+
+/**
  * Setter for dosMessage.
  * Main goal for this is testing availability.
  *
@@ -432,6 +464,10 @@ function setMyFluxIp(value) {
  */
 function setDosMessage(message) {
   dosMessage = message;
+  // Persist to database asynchronously
+  saveDosStateToDatabase('network', dosState, dosMessage).catch((error) => {
+    log.error(`Failed to persist network DOS state: ${error.message}`);
+  });
 }
 
 /**
@@ -452,6 +488,10 @@ function getDosMessage() {
  */
 function setDosStateValue(value) {
   dosState = value;
+  // Persist to database asynchronously
+  saveDosStateToDatabase('network', dosState, dosMessage).catch((error) => {
+    log.error(`Failed to persist network DOS state: ${error.message}`);
+  });
 }
 
 /**
@@ -462,6 +502,107 @@ function setDosStateValue(value) {
  */
 function getDosStateValue() {
   return dosState;
+}
+
+/**
+ * Check if the node is running on Ubuntu 20.04 by reading /etc/os-release
+ * @returns {Promise<boolean>} True if running on Ubuntu 20.04, otherwise false
+ */
+async function isRunningOnUbuntu20() {
+  try {
+    const osReleaseContent = await fs.readFile('/etc/os-release', 'utf8');
+    const lines = osReleaseContent.split('\n');
+
+    let isUbuntu = false;
+    let versionId = '';
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const line of lines) {
+      if (line.startsWith('ID=')) {
+        isUbuntu = line.includes('ubuntu');
+      }
+      if (line.startsWith('VERSION_ID=')) {
+        versionId = line.split('=')[1].replace(/"/g, '');
+      }
+    }
+
+    return isUbuntu && versionId.startsWith('20.');
+  } catch (error) {
+    log.error(`Error detecting Ubuntu version: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Check Ubuntu version and set DOS state if running on Ubuntu 20
+ * This function should be called during node initialization
+ */
+async function checkUbuntuVersionAndSetDOS() {
+  try {
+    const isUbuntu20 = await isRunningOnUbuntu20();
+
+    if (isUbuntu20) {
+      log.warn('Ubuntu 20.04 detected - Setting DOS state due to deprecated OS version');
+      dosState = 100; // Set high DOS state to disable node functionality
+      setDosMessage('Node running on deprecated Ubuntu 20.04 - please upgrade to a supported Ubuntu version (22.04 or later)');
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    log.error(`Error in Ubuntu version check: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Persist current network DOS state to database (non-blocking).
+ */
+function persistNetworkDosState() {
+  saveDosStateToDatabase('network', dosState, dosMessage).catch((error) => {
+    log.error(`Failed to persist network DOS state: ${error.message}`);
+  });
+}
+
+/**
+ * Load DOS states from database on startup.
+ */
+async function loadDosStatesFromDatabase() {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.local.database);
+    const collection = database.collection(config.database.local.collections.dosStates);
+
+    const dosStates = await collection.find({}).toArray();
+
+    dosStates.forEach((dosStateDoc) => {
+      if (dosStateDoc.type === 'network') {
+        dosState = dosStateDoc.state || 0;
+        dosMessage = dosStateDoc.message;
+        log.info(`Loaded network DOS state: ${dosState}, message: ${dosMessage}`);
+      } else if (dosStateDoc.type === 'apps') {
+        // Load app DOS state separately to avoid circular dependency
+        setImmediate(() => {
+          try {
+            // eslint-disable-next-line global-require
+            const appDOSState = require('./apps/appDosState');
+            appDOSState.dosState = dosStateDoc.state || 0;
+            appDOSState.dosMessage = dosStateDoc.message || '';
+            appDOSState.dosMountMessage = dosStateDoc.mountMessage || '';
+            appDOSState.dosDuplicateAppMessage = dosStateDoc.duplicateAppMessage || '';
+            log.info(`Loaded apps DOS state: ${appDOSState.dosState}, message: ${appDOSState.dosMessage}`);
+          } catch (error) {
+            log.warn(`Failed to load app DOS state: ${error.message}`);
+          }
+        });
+      }
+    });
+  } catch (error) {
+    log.warn(`Failed to load DOS states from database: ${error.message}`);
+    // Initialize with default values on error
+    dosState = 0;
+    dosMessage = null;
+  }
 }
 
 /**
@@ -720,6 +861,7 @@ async function ipChangesOverLimit() {
       if (ipChangeData.count >= 2) {
         // eslint-disable-next-line global-require
         const appFileService = require('./apps/appFileService');
+        // eslint-disable-next-line global-require
         const appInstallationService = require('./apps/appInstallationService');
         let apps = await appFileService.installedApps();
         if (apps.status === 'success' && apps.data.length > 0) {
@@ -805,7 +947,9 @@ async function adjustExternalIP(ip) {
       }
       // eslint-disable-next-line global-require
       const appFileService = require('./apps/appFileService');
+      // eslint-disable-next-line global-require
       const appInstallationService = require('./apps/appInstallationService');
+      // eslint-disable-next-line global-require
       const appContainerService = require('./apps/appContainerService');
       let apps = await appFileService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
@@ -922,6 +1066,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       log.error(dosMessage);
       return false;
     }
+    persistNetworkDosState();
     if (retryNumber <= 6) {
       const newRetryIndex = retryNumber + 1;
       return checkMyFluxAvailability(newRetryIndex);
@@ -948,14 +1093,14 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           log.info('FluxBench reported the same Ip that was already in use');
         } else {
           log.info('FluxBench reported a invalid IP');
-          setDosMessage('Error getting publicIp from FluxBench');
           dosState += 15;
+          setDosMessage('Error getting publicIp from FluxBench');
           log.error('FluxBench wasnt able to detect flux node public ip');
         }
       } else {
         log.info('FluxBench reported returned error on getpublicipcall');
-        setDosMessage('Error getting publicIp from FluxBench');
         dosState += 15;
+        setDosMessage('Error getting publicIp from FluxBench');
         log.error(dosMessage);
         return false;
       }
@@ -966,6 +1111,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
       log.error(dosMessage);
       return false;
     }
+    persistNetworkDosState();
     if (retryNumber <= 6) {
       const newRetryIndex = retryNumber + 1;
       return checkMyFluxAvailability(newRetryIndex);
@@ -987,6 +1133,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
           log.error(dosMessage);
           return false;
         }
+        persistNetworkDosState();
         await adjustExternalIP(localIp);
         return true; // availability ok
       }
@@ -1102,7 +1249,8 @@ async function checkDeterministicNodesCollisions() {
       if (dosState > 10) {
         setDosMessage(dosMessage || 'Flux IP detection failed');
         log.error(dosMessage);
-      } else {
+      }
+      if (dosState <= 10) {
         const measuredUptime = fluxUptime();
         if (measuredUptime.status === 'success' && measuredUptime.data > (config.fluxapps.minUpTime)) {
           const benchIpResponse = await benchmarkService.getPublicIp();
@@ -1115,6 +1263,7 @@ async function checkDeterministicNodesCollisions() {
           }
         }
       }
+      persistNetworkDosState();
     }
     setTimeout(() => {
       checkDeterministicNodesCollisions();
@@ -1866,6 +2015,7 @@ module.exports = {
   setDosMessage,
   setDosStateValue,
   getDosStateValue,
+  loadDosStatesFromDatabase,
   fluxUptime,
   fluxSystemUptime,
   isCommunicationEstablished,
@@ -1882,4 +2032,6 @@ module.exports = {
   allowOnlyDockerNetworksToFluxNodeService,
   addFluxNodeServiceIpToLoopback,
   keepUPNPPortsOpen,
+  isRunningOnUbuntu20,
+  checkUbuntuVersionAndSetDOS,
 };
