@@ -1136,11 +1136,11 @@ async function listRunningApps(req, res) {
         return res ? res.json(errMessage) : errMessage;
       }
     }
-    
+
     const dockerListParameters = {
       all: false,
     };
-    
+
     const data = await dockerService.dockerListContainers(dockerListParameters);
     const fluxApps = data.filter((container) => container.Names[0].includes('flux_'));
     const response = messageHelper.createDataMessage(fluxApps);
@@ -1209,7 +1209,7 @@ async function listAppsImages(req, res) {
       log.error(error);
       return res ? res.json(errMessage) : errMessage;
     }
-  } 
+  }
   const errMessage = messageHelper.errUnauthorizedMessage();
   return res ? res.json(errMessage) : errMessage;
 }
@@ -1230,7 +1230,7 @@ module.exports = {
   appStats,
   appExec,
   appChanges,
-  
+
   // Container listing functions
   listRunningApps,
   listAllApps,

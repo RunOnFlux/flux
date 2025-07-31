@@ -10,7 +10,7 @@
  *
  * Dependencies are properly resolved through individual service imports:
  * - Validation functions: appValidationService
- * - Communication functions: appCommunicationService  
+ * - Communication functions: appCommunicationService
  * - Installation functions: appInstallationService
  * - File operations: appFileService
  * - Container operations: appContainerService

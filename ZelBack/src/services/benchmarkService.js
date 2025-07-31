@@ -320,7 +320,7 @@ async function executeUpnpBench() {
 }
 
 // Node specifications storage
-let nodeSpecs = {
+const nodeSpecs = {
   cpuCores: 0,
   ram: 0,
   ssdStorage: 0,
@@ -353,7 +353,7 @@ async function getNodeSpecsAsync() {
   if (nodeSpecs.cpuCores === 0 && nodeSpecs.ram === 0 && nodeSpecs.ssdStorage === 0) {
     await initializeNodeSpecs();
   }
-  
+
   return nodeSpecs;
 }
 
@@ -369,10 +369,10 @@ async function initializeNodeSpecs() {
   try {
     // Get CPU cores count
     const cpuCores = os.cpus().length;
-    
+
     // Get RAM in MB
     const ram = Math.round(os.totalmem() / (1024 * 1024));
-    
+
     // Get SSD storage from daemon benchmarks
     let ssdStorage = 0;
     const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
@@ -380,7 +380,7 @@ async function initializeNodeSpecs() {
       const benchmarkData = JSON.parse(benchmarkResponse.data);
       ssdStorage = benchmarkData.ssd || 0;
     }
-    
+
     // Set the node specifications
     setNodeSpecs(cpuCores, ram, ssdStorage);
   } catch (error) {
@@ -420,7 +420,7 @@ module.exports = {
   getPublicKey,
   decryptRSAMessage,
   encryptMessage,
-  
+
   // == Node Specs ==
   setNodeSpecs,
   getNodeSpecs,

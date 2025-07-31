@@ -440,7 +440,7 @@ function specificationFormatter(appSpecification) {
 }
 
 /**
- * Helper function needed for pricing calculations - placeholder implementation  
+ * Helper function needed for pricing calculations - placeholder implementation
  * NOTE: This function should be imported from the main appsService.js
  */
 async function checkAndDecryptAppSpecs(appSpecification, options = {}) {

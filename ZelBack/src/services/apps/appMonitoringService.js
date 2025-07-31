@@ -331,7 +331,7 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
   try {
     let apps = appSpecsToMonitor;
     if (!apps) {
-            const installedAppsRes = await appFileService.installedApps();
+      const installedAppsRes = await appFileService.installedApps();
       if (installedAppsRes.status !== 'success') {
         throw new Error('Failed to get installed Apps');
       }
@@ -362,7 +362,7 @@ async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
   try {
     let apps = appSpecsToMonitor;
     if (!apps) {
-            const installedAppsRes = await appFileService.installedApps();
+      const installedAppsRes = await appFileService.installedApps();
       if (installedAppsRes.status !== 'success') {
         throw new Error('Failed to get installed Apps');
       }
@@ -416,7 +416,7 @@ async function startAppMonitoringAPI(req, res) {
         res.json(errMessage);
         return;
       }
-            const installedAppsRes = await appFileService.installedApps(mainAppName);
+      const installedAppsRes = await appFileService.installedApps(mainAppName);
       if (installedAppsRes.status !== 'success') {
         throw new Error('Failed to get installed Apps');
       }

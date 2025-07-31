@@ -214,7 +214,7 @@ async function checkAppHWRequirements(appSpecs) {
   }
 
   const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
-  const currentNodeSpecs = await appMonitoringService.getNodeSpecs();
+  const currentNodeSpecs = benchmarkService.getNodeSpecs();
   const totalSpaceOnNode = currentNodeSpecs.ssdStorage;
   if (totalSpaceOnNode === 0) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
@@ -578,8 +578,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
   });
 
-  await appMonitoringService.getNodeSpecs();
-  const totalSpaceOnNode = nodeSpecs.ssdStorage;
+  const currentNodeSpecs = benchmarkService.getNodeSpecs();
+  const totalSpaceOnNode = currentNodeSpecs.ssdStorage;
   const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const resourcesLocked = await appMonitoringService.appsResources();
   if (resourcesLocked.status !== 'success') {
@@ -1986,6 +1986,9 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     if (res.flush) res.flush();
   }
 
+  // Stop monitoring for the app
+  appMonitoringService.stopAppMonitoring(monitoredName, true);
+
   // Remove ports and unmount volumes would go here but require additional dependencies
   // These operations are typically handled by external functions not included in this extraction
 }
@@ -2124,6 +2127,9 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     res.write(serviceHelper.ensureString(portStatus2));
     if (res.flush) res.flush();
   }
+
+  // Stop monitoring for the app
+  appMonitoringService.stopAppMonitoring(monitoredName, true);
 }
 
 /**
@@ -2480,10 +2486,9 @@ async function removeAppLocallyApi(req, res) {
     }
 
     log.info(`removeAppLocallyApi: ${appname}, force: ${force}, global: ${global}`);
-    
+
     // Call the main removal function
     await removeAppLocally(appname, res, force, true, false);
-    
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
