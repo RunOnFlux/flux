@@ -25,6 +25,7 @@ const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
 const fluxNodeService = require('./fluxNodeService');
+const nodeConnectivityService = require('./nodeConnectivityService');
 // const throughputLogger = require('./utils/throughputLogger');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
@@ -165,6 +166,8 @@ async function startFluxFunctions() {
       appContainerService.stopAllNonFluxRunningApps();
       appMonitoringService.startMonitoringOfApps();
       appGlobalService.restoreAppsPortsSupport();
+      nodeConnectivityService.startConnectivityMonitoring();
+      log.info('Node connectivity monitoring service started');
     }, 1 * 60 * 1000);
     setInterval(() => {
       appGlobalService.restorePortsSupport(); // restore fluxos and apps ports/upnp

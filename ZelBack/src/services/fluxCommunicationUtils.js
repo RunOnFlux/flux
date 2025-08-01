@@ -158,6 +158,11 @@ async function verifyFluxBroadcast(broadcast) {
       error = `Invalid fluxappremoved message, ip: ${payload.ip} pubkey: ${pubKey}`;
       break;
 
+    case 'nodedown':
+      target = payload.ip;
+      error = `Invalid nodedown message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
     // zelappregister zelappupdate fluxappregister fluxappupdate fluxapprequest
     default: {
       // this used to just take the first node. I.e:

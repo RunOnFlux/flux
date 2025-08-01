@@ -1480,4 +1480,298 @@ describe('fluxCommunication tests', () => {
       expect(addPeerCalls.length).to.be.at.least(1);
     }).timeout(5000);
   });
+
+  describe('handleNodeDownMessage tests', () => {
+    let nodeConnectivityServiceStub;
+    let sendToAllPeersStub;
+    let sendToAllIncomingConnectionsStub;
+    let daemonServiceStub;
+    let fluxCommunicationUtilsStub;
+
+    beforeEach(() => {
+      // Clear connections
+      outgoingConnections.length = 0;
+      incomingConnections.length = 0;
+
+      // Create test connections
+      outgoingConnections.push({ ip: '1.1.1.1', port: 16127 });
+      outgoingConnections.push({ ip: '2.2.2.2', port: 16127 });
+      incomingConnections.push({ ip: '3.3.3.3', port: 16127 });
+      incomingConnections.push({ ip: '4.4.4.4', port: 16127 });
+
+      // Stub required modules
+      const nodeConnectivityService = require('../../ZelBack/src/services/nodeConnectivityService');
+      nodeConnectivityServiceStub = {
+        checkNodeConnectivity: sinon.stub(nodeConnectivityService, 'checkNodeConnectivity'),
+        removeAppLocationsByIp: sinon.stub(nodeConnectivityService, 'removeAppLocationsByIp'),
+      };
+
+      sendToAllPeersStub = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves();
+      sendToAllIncomingConnectionsStub = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves();
+
+      daemonServiceStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({
+        data: { height: 2000000 },
+      });
+
+      fluxCommunicationUtilsStub = sinon.stub(fluxCommunicationUtils, 'verifyTimestampInFluxBroadcast').returns(true);
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should handle valid nodedown message when node is unreachable', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          broadcastAt: Date.now(),
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      nodeConnectivityServiceStub.checkNodeConnectivity.resolves(false); // Node is unreachable
+      nodeConnectivityServiceStub.removeAppLocationsByIp.resolves(3); // 3 apps removed
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      // Verify connectivity was checked
+      expect(nodeConnectivityServiceStub.checkNodeConnectivity).to.have.been.calledWith('192.168.1.100', 16127, 10000);
+
+      // Verify apps were removed
+      expect(nodeConnectivityServiceStub.removeAppLocationsByIp).to.have.been.calledWith('192.168.1.100');
+
+      // Verify message was rebroadcast
+      expect(sendToAllPeersStub).to.have.been.called;
+      expect(sendToAllIncomingConnectionsStub).to.have.been.called;
+
+      // Verify sender was excluded from rebroadcast
+      const outgoingPeersList = sendToAllPeersStub.firstCall.args[1];
+      expect(outgoingPeersList).to.have.lengthOf(1);
+      expect(outgoingPeersList[0].ip).to.equal('2.2.2.2');
+
+      const incomingPeersList = sendToAllIncomingConnectionsStub.firstCall.args[1];
+      expect(incomingPeersList).to.have.lengthOf(2);
+    });
+
+    it('should not remove apps or rebroadcast when node is reachable', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          broadcastAt: Date.now(),
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      nodeConnectivityServiceStub.checkNodeConnectivity.resolves(true); // Node is reachable
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      // Verify connectivity was checked
+      expect(nodeConnectivityServiceStub.checkNodeConnectivity).to.have.been.calledWith('192.168.1.100', 16127, 10000);
+
+      // Verify no apps were removed
+      expect(nodeConnectivityServiceStub.removeAppLocationsByIp).to.not.have.been.called;
+
+      // Verify no rebroadcast occurred
+      expect(sendToAllPeersStub).to.not.have.been.called;
+      expect(sendToAllIncomingConnectionsStub).to.not.have.been.called;
+    });
+
+    it('should not rebroadcast if no apps were removed', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          broadcastAt: Date.now(),
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      nodeConnectivityServiceStub.checkNodeConnectivity.resolves(false); // Node is unreachable
+      nodeConnectivityServiceStub.removeAppLocationsByIp.resolves(0); // No apps removed
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      // Verify no rebroadcast occurred
+      expect(sendToAllPeersStub).to.not.have.been.called;
+      expect(sendToAllIncomingConnectionsStub).to.not.have.been.called;
+    });
+
+    it('should handle invalid nodedown message with missing IP', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          // missing ip field
+          broadcastAt: Date.now(),
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      const logWarnStub = sinon.stub(log, 'warn');
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      expect(logWarnStub).to.have.been.calledWith('handleNodeDownMessage: Invalid nodedown message from 1.1.1.1:16127 - missing or invalid IP');
+      expect(nodeConnectivityServiceStub.checkNodeConnectivity).to.not.have.been.called;
+    });
+
+    it('should reject nodedown messages older than 5 minutes', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          broadcastAt: Date.now() - (6 * 60 * 1000), // 6 minutes old
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      const logWarnStub = sinon.stub(log, 'warn');
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      expect(logWarnStub).to.have.been.called;
+      const warnCall = logWarnStub.firstCall.args[0];
+      expect(warnCall).to.include('Ignoring old nodedown message from 1.1.1.1:16127');
+      expect(nodeConnectivityServiceStub.checkNodeConnectivity).to.not.have.been.called;
+    });
+
+    it('should reject nodedown messages without broadcastAt', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          // missing broadcastAt
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      const logWarnStub = sinon.stub(log, 'warn');
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      expect(logWarnStub).to.have.been.called;
+      const warnCall = logWarnStub.firstCall.args[0];
+      expect(warnCall).to.include('Ignoring old nodedown message from 1.1.1.1:16127');
+      expect(nodeConnectivityServiceStub.checkNodeConnectivity).to.not.have.been.called;
+    });
+
+    it('should accept nodedown messages less than 5 minutes old', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          broadcastAt: Date.now() - (2 * 60 * 1000), // 2 minutes old
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      nodeConnectivityServiceStub.checkNodeConnectivity.resolves(false);
+      nodeConnectivityServiceStub.removeAppLocationsByIp.resolves(3);
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      // Should process normally
+      expect(nodeConnectivityServiceStub.checkNodeConnectivity).to.have.been.calledWith('192.168.1.100', 16127, 10000);
+      expect(nodeConnectivityServiceStub.removeAppLocationsByIp).to.have.been.calledWith('192.168.1.100');
+    });
+
+    it('should not rebroadcast if timestamp verification fails', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          broadcastAt: Date.now() - 300000, // Old broadcastAt
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      fluxCommunicationUtilsStub.returns(false); // Timestamp verification fails
+      nodeConnectivityServiceStub.checkNodeConnectivity.resolves(false);
+      nodeConnectivityServiceStub.removeAppLocationsByIp.resolves(3);
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      // Verify apps were still removed
+      expect(nodeConnectivityServiceStub.removeAppLocationsByIp).to.have.been.called;
+
+      // But no rebroadcast should occur
+      expect(sendToAllPeersStub).to.not.have.been.called;
+      expect(sendToAllIncomingConnectionsStub).to.not.have.been.called;
+    });
+
+    it('should handle errors gracefully', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          broadcastAt: Date.now(),
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      nodeConnectivityServiceStub.checkNodeConnectivity.rejects(new Error('Connection check failed'));
+      const logErrorStub = sinon.stub(log, 'error');
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      expect(logErrorStub).to.have.been.calledWith('handleNodeDownMessage: Error processing nodedown message: Connection check failed');
+    });
+
+    it('should use message hash for broadcast when daemon height is above refactor start', async () => {
+      const message = {
+        data: {
+          type: 'nodedown',
+          ip: '192.168.1.100',
+          broadcastAt: Date.now(),
+        },
+        signature: 'testsig',
+        pubKey: 'testpubkey',
+        version: 1,
+      };
+
+      // Set daemon height above messagesBroadcastRefactorStart
+      daemonServiceStub.returns({
+        data: { height: 1751251 }, // Above config.messagesBroadcastRefactorStart
+      });
+
+      nodeConnectivityServiceStub.checkNodeConnectivity.resolves(false);
+      nodeConnectivityServiceStub.removeAppLocationsByIp.resolves(3);
+
+      await fluxCommunication.handleNodeDownMessage(message, '1.1.1.1', 16127);
+
+      // Verify the message sent contains messageHashPresent
+      const sentMessage = sendToAllPeersStub.firstCall.args[0];
+      const parsedMessage = JSON.parse(sentMessage);
+      expect(parsedMessage).to.have.property('messageHashPresent');
+      expect(parsedMessage.messageHashPresent).to.be.a('string');
+    });
+  });
+
+  // Note: The nodedown message validation (ensuring it comes from a valid flux node)
+  // is already handled at a higher level in the message processing pipeline by
+  // fluxCommunicationUtils.verifyFluxBroadcast() before handleNodeDownMessage is called.
+  // This validation ensures that:
+  // - The message contains a valid IP that belongs to a known flux node
+  // - The message is properly signed by a valid flux node
+  // - Only messages passing these checks reach the individual message handlers
 });

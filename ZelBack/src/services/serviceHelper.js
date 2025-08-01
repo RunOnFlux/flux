@@ -616,6 +616,25 @@ async function dirInfo(dir, options = {}) {
   return response;
 }
 
+/**
+ * Get a specified number of random elements from an array
+ * @param {Array} array - Source array
+ * @param {number} count - Number of elements to return
+ * @returns {Array} - Array of random elements
+ */
+function getRandomElements(array, count) {
+  if (!Array.isArray(array) || array.length === 0) {
+    return [];
+  }
+
+  if (count >= array.length) {
+    return [...array];
+  }
+
+  const shuffled = [...array].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, count);
+}
+
 module.exports = {
   axiosGet,
   axiosPost,
@@ -639,4 +658,5 @@ module.exports = {
   runCommand,
   validIpv4Address,
   normalizeNodeIpApiPort,
+  getRandomElements,
 };
