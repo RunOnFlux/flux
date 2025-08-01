@@ -1,0 +1,22 @@
+{
+  "repositories": [
+    "nginx:latest",
+    "mysql:8.0",
+    "redis:alpine",
+    "postgres:14",
+    "mongo:5.0",
+    "traefik:v2.9",
+    "grafana/grafana:latest",
+    "influxdb:2.0",
+    "prom/prometheus:latest",
+    "elasticsearch:8.0.0"
+  ],
+  "description": "Add Docker repositories you want to monitor for bandwidth usage here",
+  "examples": {
+    "web_servers": ["nginx:latest", "apache:2.4", "caddy:latest"],
+    "databases": ["mysql:8.0", "postgres:14", "mongo:5.0", "redis:alpine"],
+    "monitoring": ["grafana/grafana:latest", "prom/prometheus:latest", "influxdb:2.0"],
+    "reverse_proxy": ["traefik:v2.9", "haproxy:latest"],
+    "search": ["elasticsearch:8.0.0", "opensearchproject/opensearch:latest"]
+  }
+}
