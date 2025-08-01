@@ -162,7 +162,7 @@ async function askPeersToVerifyNode(ip, port = 16127) {
     }
 
     log.info(`nodeConnectivityService: Asking ${allPeers.length} peers to verify connectivity for ${ip}:${port}`);
-
+    let apiReachable = false;
     // Check peers one at a time - return early if any reports node as reachable
     for (const peer of allPeers) {
       try {
@@ -172,6 +172,7 @@ async function askPeersToVerifyNode(ip, port = 16127) {
         });
 
         if (response.data && response.data.status === 'success' && response.data.data) {
+          apiReachable = true;
           const isReachable = response.data.data.reachable;
           log.info(`nodeConnectivityService: Peer ${peer.ip} reports ${ip} as ${isReachable ? 'reachable' : 'unreachable'}`);
 
@@ -185,6 +186,11 @@ async function askPeersToVerifyNode(ip, port = 16127) {
       } catch (error) {
         log.warn(`nodeConnectivityService: Failed to contact peer ${peer.ip}: ${error.message}`);
       }
+    }
+
+    if (!apiReachable) {
+      log.info(`nodeConnectivityService: All contacted peers were unreachable.`);
+      return true;
     }
 
     log.info(`nodeConnectivityService: All contacted peers report ${ip} as unreachable`);
