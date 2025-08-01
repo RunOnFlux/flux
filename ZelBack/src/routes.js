@@ -32,6 +32,7 @@ const syncthingService = require('./services/syncthingService');
 const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
+const nodeConnectivityService = require('./services/nodeConnectivityService');
 const IOUtils = require('./services/IOUtils');
 
 function isLocal(req, res, next) {
@@ -309,6 +310,9 @@ module.exports = (app) => {
   });
   app.post('/flux/keepupnpportsopen', (req, res) => {
     fluxNetworkHelper.keepUPNPPortsOpen(req, res);
+  });
+  app.post('/flux/checkconnectivity', (req, res) => {
+    nodeConnectivityService.checkNodeConnectivityApi(req, res);
   });
 
   app.get('/apps/listrunningapps', cache('5 seconds'), (req, res) => {
