@@ -1817,5 +1817,5 @@ export default {
 }
 .no-wrap {
   white-space: nowrap !important;
-}  
+}
 </style>
