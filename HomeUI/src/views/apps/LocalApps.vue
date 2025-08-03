@@ -2935,4 +2935,7 @@ export default {
   font-weight: 800;
   color: #FF0000;
 }
+.no-wrap {
+  white-space: nowrap !important;
+}
 </style>
