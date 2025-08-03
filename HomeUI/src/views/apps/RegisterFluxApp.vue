@@ -3363,9 +3363,11 @@ export default {
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
       }
-      this.specificationVersion = 8;
-      this.composeTemplate = this.composeTemplatev8;
-      this.appRegistrationSpecification = this.appRegistrationSpecificationV8Template;
+      if (!this.$router.currentRoute.params.appspecs) {
+        this.specificationVersion = 8;
+        this.composeTemplate = this.composeTemplatev8;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationV8Template;
+      }
       this.appRegistrationSpecification.compose.forEach((component) => {
         const ports = this.getRandomPort();
         // eslint-disable-next-line no-param-reassign
