@@ -34,15 +34,6 @@ const generalService = require('../generalService');
 const log = require('../../lib/log');
 const cacheManager = require('../utils/cacheManager').default;
 
-// Lazy loading to avoid circular dependencies
-let appValidationService;
-let appCommunicationService; 
-let appInstallationService;
-let appFileService;
-let appContainerService;
-let appMonitoringService;
-let appPricingService;
-
 const fluxDirPath = path.join(__dirname, '../../../../');
 
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
@@ -52,41 +43,14 @@ const localAppsInformation = config.database.appslocal.collections.appsInformati
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
 const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
-const globalAppsInstallingLocations = config.database.appsglobal.collections.appsInstallingLocations;
 const globalAppsInstallingErrorsLocations = config.database.appsglobal.collections.appsInstallingErrorsLocations;
 
 const spawnErrorsLongerAppCache = cacheManager.appSpawnErrorCache;
 const trySpawningGlobalAppCache = cacheManager.appSpawnCache;
 
-const isArcane = Boolean(process.env.FLUXOS_PATH);
-
-// Variable to track reindexing status
-let reindexRunning = false;
-
-// Hash numbers search tracking
 const hashesNumberOfSearchs = new Map();
 
-// Lazy load services to avoid circular dependencies
-function getServices() {
-  if (!appValidationService) {
-    appValidationService = require('./appValidationService');
-    appCommunicationService = require('./appCommunicationService');
-    appInstallationService = require('./appInstallationService');
-    appFileService = require('./appFileService');
-    appContainerService = require('./appContainerService');
-    appMonitoringService = require('./appMonitoringService');
-    appPricingService = require('./appPricingService');
-  }
-  return {
-    appValidationService,
-    appCommunicationService,
-    appInstallationService,
-    appFileService,
-    appContainerService,
-    appMonitoringService,
-    appPricingService,
-  };
-}
+// Need to import userconfig - this will be resolved from the parent service
 let userconfig;
 try {
   // eslint-disable-next-line import/no-dynamic-require
@@ -96,125 +60,9 @@ try {
   userconfig = { initial: { zelid: '' } };
 }
 
-// Delegated functions that call the appropriate services
-function checkAndDecryptAppSpecs(...args) {
-  const { appValidationService: service } = getServices();
-  return service.checkAndDecryptAppSpecs(...args);
-}
-
-function specificationFormatter(...args) {
-  const { appValidationService: service } = getServices();
-  return service.specificationFormatter(...args);
-}
-
-function verifyAppSpecifications(...args) {
-  const { appValidationService: service } = getServices();
-  return service.verifyAppSpecifications(...args);
-}
-
-function checkAppSecrets(...args) {
-  const { appValidationService: service } = getServices();
-  return service.checkAppSecrets(...args);
-}
-
-function checkApplicationRegistrationNameConflicts(...args) {
-  const { appValidationService: service } = getServices();
-  return service.checkApplicationRegistrationNameConflicts(...args);
-}
-
-function verifyAppMessageSignature(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.verifyAppMessageSignature(...args);
-}
-
-function requestAppMessage(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.requestAppMessage(...args);
-}
-
-function checkAppTemporaryMessageExistence(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.checkAppTemporaryMessageExistence(...args);
-}
-
-function verifyAppMessageUpdateSignature(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.verifyAppMessageUpdateSignature(...args);
-}
-
-function checkApplicationUpdateNameRepositoryConflicts(...args) {
-  const { appValidationService: service } = getServices();
-  return service.checkApplicationUpdateNameRepositoryConflicts(...args);
-}
-
-function checkAppMessageExistence(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.checkAppMessageExistence(...args);
-}
-
-function storeAppPermanentMessage(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.storeAppPermanentMessage(...args);
-}
-
-function appHashHasMessage(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.appHashHasMessage(...args);
-}
-
-function appPricePerMonth(...args) {
-  const { appPricingService: service } = getServices();
-  return service.appPricePerMonth(...args);
-}
-
-function requestAppsMessage(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.requestAppsMessage(...args);
-}
-
-function storeAppTemporaryMessage(...args) {
-  const { appCommunicationService: service } = getServices();
-  return service.storeAppTemporaryMessage(...args);
-}
-
-function checkForAppFluxUpdates(...args) {
-  const { appMonitoringService: service } = getServices();
-  return service.checkForAppFluxUpdates(...args);
-}
-
-function removeAppLocally(...args) {
-  const { appInstallationService: service } = getServices();
-  return service.removeAppLocally(...args);
-}
-
-function runAppContainer(...args) {
-  const { appContainerService: service } = getServices();
-  return service.runAppContainer(...args);
-}
-
-function installApplicationFromSettings(...args) {
-  const { appInstallationService: service } = getServices();
-  return service.installApplicationFromSettings(...args);
-}
-
-function ensureAppUniquePorts(...args) {
-  const { appValidationService: service } = getServices();
-  return service.ensureAppUniquePorts(...args);
-}
-
-function availableApps(...args) {
-  const { appContainerService: service } = getServices();
-  return service.availableApps(...args);
-}
-
-function getPreviousAppSpecifications(...args) {
-  const { appValidationService: service } = getServices();
-  return service.getPreviousAppSpecifications(...args);
-}
-
-// Variables for tracking continuous hash checks
-let continuousFluxAppHashesCheckRunning = false;
-let firstContinuousFluxAppHashesCheckRun = false;
+// These functions will need to be imported from other services or the main appsService
+// For now, we'll reference them directly when the service is integrated
+// const appsService = require('../appsService'); // Will be available at runtime
 
 /**
  * To get specifications for global apps.
@@ -2640,375 +2488,45 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
     res.json(errorResponse);
   }
 }
+module.exports = {
+  // API endpoints
+  registerAppGlobalyApi,
+  updateAppGlobalyApi,
+  getGlobalAppsSpecifications,
+  availableApps,
+  getlatestApplicationSpecificationAPI,
+  reindexGlobalAppsLocationAPI,
+  reindexGlobalAppsInformationAPI,
+  rescanGlobalAppsInformationAPI,
+  triggerAppHashesCheckAPI,
+  getAppHashes,
+  getApplicationSpecificationAPI,
+  updateApplicationSpecificationAPI,
+  getApplicationOwnerAPI,
+  getApplicationOriginalOwner,
+  reconstructAppMessagesHashCollectionAPI,
 
-/**
- * Helper function to get app locations from database
- * @param {string} appname Optional app name to filter by
- * @returns {Array} Array of app locations
- */
-async function appLocation(appname) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.appsglobal.database);
-  let query = {};
-  if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
-  }
-  const projection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      hash: 1,
-      ip: 1,
-      broadcastedAt: 1,
-      expireAt: 1,
-      runningSince: 1,
-      osUptime: 1,
-      staticIp: 1,
-    },
-  };
-  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
-  return results;
-}
+  // Core functions
+  getAllGlobalApplications,
+  reindexGlobalAppsInformation,
+  rescanGlobalAppsInformation,
+  reindexGlobalAppsLocation,
+  trySpawningGlobalApplication,
+  expireGlobalApplications,
+  reconstructAppMessagesHashCollection,
+  checkAndSyncAppHashes,
+  continuousFluxAppHashesCheck,
+  checkAndRequestApp,
+  checkAndRequestMultipleApps,
+  updateAppSpecifications,
+  updateAppSpecsForRescanReindex,
 
-/**
- * Helper function to get app installing locations from database
- * @param {string} appname Optional app name to filter by
- * @returns {Array} Array of app installing locations
- */
-async function appInstallingLocation(appname) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.appsglobal.database);
-  let query = {};
-  if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
-  }
-  const projection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      ip: 1,
-      broadcastedAt: 1,
-      expireAt: 1,
-    },
-  };
-  const results = await dbHelper.findInDatabase(database, globalAppsInstallingLocations, query, projection);
-  return results;
-}
-
-/**
- * Helper function to get app installing errors locations from database
- * @param {string} appname Optional app name to filter by
- * @returns {Array} Array of app installing errors locations
- */
-async function appInstallingErrorsLocation(appname) {
-  const dbopen = dbHelper.databaseConnection();
-  const database = dbopen.db(config.database.appsglobal.database);
-  let query = {};
-  if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
-  }
-  const projection = {
-    projection: {
-      _id: 0,
-      name: 1,
-      hash: 1,
-      ip: 1,
-      error: 1,
-      broadcastedAt: 1,
-      cachedAt: 1,
-      expireAt: 1,
-    },
-  };
-  const results = await dbHelper.findInDatabase(database, globalAppsInstallingErrorsLocations, query, projection);
-  return results;
-}
-
-/**
- * Helper function to get chain params price updates
- * @returns {Array} Array of price updates
- */
-async function getChainParamsPriceUpdates() {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.chainparams.database);
-    const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
-    const query = { version: 'p' };
-    const projection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const priceMessages = await dbHelper.findInDatabase(database, chainParamsMessagesCollection, query, projection);
-    const priceForks = [];
-    config.fluxapps.price.forEach((price) => {
-      priceForks.push(price);
-    });
-    priceMessages.forEach((data) => {
-      const splittedMess = data.message.split('_');
-      if (splittedMess[4]) {
-        const dataPoint = {
-          height: +data.height,
-          cpu: +splittedMess[1],
-          ram: +splittedMess[2],
-          hdd: +splittedMess[3],
-          minPrice: +splittedMess[4],
-          port: +splittedMess[5] || 2,
-          scope: +splittedMess[6] || 6,
-          staticip: +splittedMess[7] || 3,
-        };
-        priceForks.push(dataPoint);
-      }
-    });
-    priceForks.sort((a, b) => a.height - b.height);
-    return priceForks;
-  } catch (error) {
-    log.error(error);
-    return config.fluxapps.price;
-  }
-}
-
-/**
- * API endpoint to get registration information
- * @param {object} req Request object
- * @param {object} res Response object
- */
-function registrationInformation(req, res) {
-  try {
-    const data = config.fluxapps;
-    const response = messageHelper.createDataMessage(data);
-    res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API endpoint to get deployment information
- * @param {object} req Request object
- * @param {object} res Response object
- */
-async function deploymentInformation(req, res) {
-  try {
-    // respond with information needed for application deployment regarding specification limitation and prices
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    const daemonHeight = syncStatus.data.height;
-    let deployAddr = config.fluxapps.address;
-    if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
-      deployAddr = config.fluxapps.addressMultisig;
-    }
-    if (daemonHeight >= config.fluxapps.multisigAddressChange) {
-      deployAddr = config.fluxapps.addressMultisigB;
-    }
-    // search in chainparams db for chainmessages of p version
-    const appPrices = await getChainParamsPriceUpdates();
-    const { fluxapps: { minPort, maxPort } } = config;
-    const information = {
-      price: appPrices,
-      appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
-      address: deployAddr,
-      portMin: minPort,
-      portMax: maxPort,
-    };
-    const response = messageHelper.createDataMessage(information);
-    res.json(response);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API endpoint to get app locations for a specific app
- * @param {object} req Request object
- * @param {object} res Response object
- */
-async function getAppsLocation(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    if (!appname) {
-      throw new Error('No Flux App name specified');
-    }
-    const results = await appLocation(appname);
-    const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API endpoint to get all app locations
- * @param {object} req Request object
- * @param {object} res Response object
- */
-async function getAppsLocations(req, res) {
-  try {
-    const results = await appLocation();
-    const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API endpoint to get app installing location for a specific app
- * @param {object} req Request object
- * @param {object} res Response object
- */
-async function getAppInstallingLocation(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    if (!appname) {
-      throw new Error('No Flux App name specified');
-    }
-    const results = await appInstallingLocation(appname);
-    const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API endpoint to get all app installing locations
- * @param {object} req Request object
- * @param {object} res Response object
- */
-async function getAppsInstallingLocations(req, res) {
-  try {
-    const results = await appInstallingLocation();
-    const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API endpoint to get app installing errors location for a specific app
- * @param {object} req Request object
- * @param {object} res Response object
- */
-async function getAppInstallingErrorsLocation(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    if (!appname) {
-      throw new Error('No Flux App name specified');
-    }
-    const results = await appInstallingErrorsLocation(appname);
-    const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API endpoint to get all app installing errors locations
- * @param {object} req Request object
- * @param {object} res Response object
- */
-async function getAppsInstallingErrorsLocations(req, res) {
-  try {
-    const results = await appInstallingErrorsLocation();
-    const resultsResponse = messageHelper.createDataMessage(results);
-    res.json(resultsResponse);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
-}
-
-/**
- * API endpoint to get public key for app verification
- * @param {object} req Request object
- * @param {object} res Response object
- */
-async function getPublicKey(req, res) {
-  let body = '';
-  req.on('data', (data) => {
-    body += data;
-  });
-  req.on('end', async () => {
-    try {
-      const authorized = await verificationHelper.verifyPrivilege('user', req);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        return res.json(errMessage);
-      }
-
-      const processedBody = serviceHelper.ensureObject(body);
-      let appSpecification = processedBody;
-      appSpecification = serviceHelper.ensureObject(appSpecification);
-
-      if (!appSpecification.name) {
-        throw new Error('Application name is required');
-      }
-
-      const pubKey = await generalService.getPublicKey(appSpecification.name);
-      const response = messageHelper.createDataMessage(pubKey);
-      res.json(response);
-    } catch (error) {
-      log.error(error);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      res.json(errorResponse);
-    }
-  });
-}
+  // Helper functions
+  getApplicationGlobalSpecifications,
+  getApplicationLocalSpecifications,
+  getApplicationSpecifications,
+  getStrictApplicationSpecifications,
+};
 
 module.exports = {
   // API endpoints
@@ -3027,15 +2545,6 @@ module.exports = {
   getApplicationOwnerAPI,
   getApplicationOriginalOwner,
   reconstructAppMessagesHashCollectionAPI,
-  registrationInformation,
-  deploymentInformation,
-  getAppsLocation,
-  getAppsLocations,
-  getAppInstallingLocation,
-  getAppsInstallingLocations,
-  getAppInstallingErrorsLocation,
-  getAppsInstallingErrorsLocations,
-  getPublicKey,
 
   // Core functions
   getAllGlobalApplications,
