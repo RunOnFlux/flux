@@ -9,11 +9,7 @@ const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
-const appCommunicationService = require('./apps/appCommunicationService');
-const appMonitoringService = require('./apps/appMonitoringService');
-const appFileService = require('./apps/appFileService');
-const appGlobalService = require('./apps/appGlobalService');
-const appContainerService = require('./apps/appContainerService');
+const appsService = require('./appsService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const fluxService = require('./fluxService');
@@ -48,9 +44,9 @@ async function startFluxFunctions() {
         upnpService.adjustFirewallForUPNP();
       }, (60 * 60 * 1000) + 1000); // every 60m.
       setTimeout(() => {
-        appCommunicationService.callOtherNodeToKeepUpnpPortsOpen();
+        appsService.callOtherNodeToKeepUpnpPortsOpen();
         setInterval(() => {
-          appCommunicationService.callOtherNodeToKeepUpnpPortsOpen();
+          appsService.callOtherNodeToKeepUpnpPortsOpen();
         }, 8 * 60 * 1000);
       }, 1 * 60 * 1000);
     }
@@ -159,15 +155,15 @@ async function startFluxFunctions() {
       await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       log.info('Rechecking firewall app rules');
       await fluxNetworkHelper.purgeUFW();
-      appFileService.testAppMount(); // test if our node can mount a volume
+      appsService.testAppMount(); // test if our node can mount a volume
     }, 30 * 1000);
     setTimeout(() => {
-      appContainerService.stopAllNonFluxRunningApps();
-      appMonitoringService.startMonitoringOfApps();
-      appGlobalService.restoreAppsPortsSupport();
+      appsService.stopAllNonFluxRunningApps();
+      appsService.startMonitoringOfApps();
+      appsService.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
     setInterval(() => {
-      appGlobalService.restorePortsSupport(); // restore fluxos and apps ports/upnp
+      appsService.restorePortsSupport(); // restore fluxos and apps ports/upnp
     }, 10 * 60 * 1000); // every 10 minutes
     log.info('Starting setting Node Geolocation');
     geolocationService.setNodeGeolocation();
@@ -222,7 +218,7 @@ async function startFluxFunctions() {
         }
         // check if valueSat is null, if so run fixExplorer as of typo bug
         let wrongAppMessage = false;
-        const appMessage = await appCommunicationService.checkAppMessageExistence('e7e2e129dd24b8bcc5a93800c425da81f69c3dcdf02d1d5b3ce09ce2e1c94d67');
+        const appMessage = await appsService.checkAppMessageExistence('e7e2e129dd24b8bcc5a93800c425da81f69c3dcdf02d1d5b3ce09ce2e1c94d67');
         if (appMessage && !appMessage.valueSat) {
           wrongAppMessage = true;
           log.info('Fixing explorer due to wrong app message');
@@ -251,56 +247,56 @@ async function startFluxFunctions() {
       }
     }, 2 * 60 * 1000);
     setTimeout(() => {
-      appMonitoringService.checkApplicationsCpuUSage();
+      appsService.checkApplicationsCpuUSage();
       setInterval(() => {
-        appMonitoringService.checkApplicationsCpuUSage();
+        appsService.checkApplicationsCpuUSage();
       }, 15 * 60 * 1000);
     }, 15 * 60 * 1000);
     setTimeout(() => {
       // appsService.checkForNonAllowedAppsOnLocalNetwork();
-      appMonitoringService.checkMyAppsAvailability();
+      appsService.checkMyAppsAvailability();
     }, 3 * 60 * 1000);
     setTimeout(() => {
-      appMonitoringService.monitorNodeStatus();
+      appsService.monitorNodeStatus();
     }, 1.5 * 60 * 1000);
     setTimeout(() => {
-      appCommunicationService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
+      appsService.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
       setInterval(() => { // every 60 mins messages stay on db for 65m
-        appCommunicationService.checkAndNotifyPeersOfRunningApps();
+        appsService.checkAndNotifyPeersOfRunningApps();
       }, 60 * 60 * 1000);
     }, 2 * 60 * 1000);
     setTimeout(() => {
-      appGlobalService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every 2 minutes
+      appsService.syncthingApps(); // rechecks and possibly adjust syncthing configuration every 2 minutes
       setTimeout(() => {
-        appGlobalService.masterSlaveApps(); // stop and starts apps using syncthing g: when a new master is required or was changed.
+        appsService.masterSlaveApps(); // stop and starts apps using syncthing g: when a new master is required or was changed.
       }, 30 * 1000);
       setTimeout(() => {
-        appMonitoringService.monitorSharedDBApps(); // Monitor SharedDB Apps.
+        appsService.monitorSharedDBApps(); // Monitor SharedDB Apps.
       }, 60 * 1000);
     }, 3 * 60 * 1000);
     setTimeout(() => {
       setInterval(() => { // every 30 mins (15 blocks)
-        appGlobalService.continuousFluxAppHashesCheck();
+        appsService.continuousFluxAppHashesCheck();
       }, 30 * 60 * 1000);
-      appGlobalService.continuousFluxAppHashesCheck();
+      appsService.continuousFluxAppHashesCheck();
     }, (Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000); // start between 15m and 30m after fluxOs start
     setTimeout(() => {
       // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       // 125 minutes should give enough time for node receive currently two times the apprunning messages
       log.info('Starting to spawn applications');
-      appGlobalService.trySpawningGlobalApplication();
+      appsService.trySpawningGlobalApplication();
     }, (Math.floor(Math.random() * (135 - 125 + 1)) + 125) * 60 * 1000); // start between 125 and 135m after fluxos starts;
     setInterval(() => {
-      appMonitoringService.checkApplicationsCompliance();
+      appsService.checkApplicationsCompliance();
     }, 60 * 60 * 1000); //  every hour
     setTimeout(() => {
-      appGlobalService.forceAppRemovals(); // force cleanup of apps every day
+      appsService.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
-        appGlobalService.forceAppRemovals();
+        appsService.forceAppRemovals();
       }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
     setTimeout(() => {
-      appFileService.checkStorageSpaceForApps();
+      appsService.checkStorageSpaceForApps();
     }, 20 * 60 * 1000);
     setInterval(() => {
       backupRestoreService.cleanLocalBackup();

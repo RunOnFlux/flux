@@ -17,9 +17,7 @@ const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnode
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
-const appMonitoringService = require('./apps/appMonitoringService');
-const appContainerService = require('./apps/appContainerService');
-const appGlobalService = require('./apps/appGlobalService');
+const appsService = require('./appsService');
 const generalService = require('./generalService');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
@@ -1198,7 +1196,7 @@ async function getFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.flux.dos = dosResult.data;
-    const dosAppsResult = await appMonitoringService.getAppsDOSState();
+    const dosAppsResult = await appsService.getAppsDOSState();
     if (dosResult.status === 'error') {
       throw dosAppsResult.data;
     }
@@ -1240,22 +1238,22 @@ async function getFluxInfo(req, res) {
     }
     info.benchmark.bench = benchmarkBenchRes.data;
 
-    const apppsFluxUsage = await appMonitoringService.fluxUsage();
+    const apppsFluxUsage = await appsService.fluxUsage();
     if (apppsFluxUsage.status === 'error') {
       throw apppsFluxUsage.data;
     }
     info.apps.fluxusage = apppsFluxUsage.data;
-    const appsRunning = await appContainerService.listRunningApps();
+    const appsRunning = await appsService.listRunningApps();
     if (appsRunning.status === 'error') {
       throw appsRunning.data;
     }
     info.apps.runningapps = appsRunning.data;
-    const appsResources = await appMonitoringService.appsResources();
+    const appsResources = await appsService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
     }
     info.apps.resources = appsResources.data;
-    const appHashes = await appGlobalService.getAppHashes();
+    const appHashes = await appsService.getAppHashes();
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }

@@ -13,13 +13,8 @@ const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
-// benchmarkService will be created with proxyquire below
-const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const log = require('../../ZelBack/src/lib/log');
-const messageHelper = require('../../ZelBack/src/services/messageHelper');
-
-// Import new modular app services
-const appProgressState = require('../../ZelBack/src/services/apps/appProgressState');
 
 chai.use(chaiAsPromised);
 const { expect } = chai;
@@ -52,47 +47,19 @@ const utilFake = {
   }),
 };
 
-// Use proxyquire to mock dependencies - use same objects that tests will stub
-const appFileServiceProxy = proxyquire('../../ZelBack/src/services/apps/appFileService', {
-  '../dbHelper': dbHelper,
-  '../serviceHelper': serviceHelper,
-  '../verificationHelper': verificationHelper,
-  '../messageHelper': messageHelper,
-});
+const adminConfig = {
+  initial: {
+    ipaddress: '83.51.212.243',
+    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    testnet: true,
+  },
+  lockedSystemResources: {
+    hdd: 50,
+  },
+};
+const appsService = proxyquire('../../ZelBack/src/services/appsService', { util: utilFake, '../../../config/userconfig': adminConfig });
 
-const appContainerServiceProxy = proxyquire('../../ZelBack/src/services/apps/appContainerService', {
-  '../dockerService': dockerService,
-  '../serviceHelper': serviceHelper,
-  '../dbHelper': dbHelper,
-  '../verificationHelper': verificationHelper,
-  '../messageHelper': messageHelper,
-});
-
-const benchmarkService = proxyquire('../../ZelBack/src/services/benchmarkService', {
-  os,
-  './daemonService/daemonServiceBenchmarkRpcs': daemonServiceBenchmarkRpcs,
-});
-
-const appMonitoringServiceProxy = proxyquire('../../ZelBack/src/services/apps/appMonitoringService', {
-  '../benchmarkService': benchmarkService,
-  '../serviceHelper': serviceHelper,
-  '../messageHelper': messageHelper,
-  util: utilFake,
-});
-
-const appInstallationServiceProxy = proxyquire('../../ZelBack/src/services/apps/appInstallationService', {
-  '../dockerService': dockerService,
-  '../serviceHelper': serviceHelper,
-  '../dbHelper': dbHelper,
-  '../fluxNetworkHelper': fluxNetworkHelper,
-  '../verificationHelper': verificationHelper,
-  '../benchmarkService': benchmarkService,
-  '../generalService': generalService,
-  '../geolocationService': geolocationService,
-  '../messageHelper': messageHelper,
-});
-
-describe('Apps Services tests', () => {
+describe('appsService tests', () => {
   describe('installedApps tests', () => {
     let dbStub;
     let logSpy;
@@ -127,7 +94,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      await appFileServiceProxy.installedApps(req, res);
+      await appsService.installedApps(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { app1: 'info', app2: 'info2' } });
       sinon.assert.calledWithMatch(dbStub, sinon.match.object, 'zelappsinformation', {}, { projection: { _id: 0 } });
@@ -147,7 +114,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      const result = await appFileServiceProxy.installedApps(req);
+      const result = await appsService.installedApps(req);
 
       expect(result).to.eql({ status: 'success', data: { app1: 'info', app2: 'info2' } });
       sinon.assert.calledWithMatch(dbStub, sinon.match.object, 'zelappsinformation', {}, { projection: { _id: 0 } });
@@ -168,7 +135,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      await appFileServiceProxy.installedApps(req, res);
+      await appsService.installedApps(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { app1: 'info', app2: 'info2' } });
       sinon.assert.calledWithMatch(dbStub, sinon.match.object, 'zelappsinformation', {}, { projection: { _id: 0 } });
@@ -182,18 +149,18 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       const req = 'appName';
 
-      await appFileServiceProxy.installedApps(req, res);
+      await appsService.installedApps(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { app1: 'info', app2: 'info2' } });
       sinon.assert.calledWithMatch(dbStub, sinon.match.object, 'zelappsinformation', {}, { projection: { _id: 0 } });
     });
 
     it('should return error, if error is thrown, response passed', async () => {
-      dbStub.callsFake(async () => { throw new Error('Error'); });
+      dbStub.callsFake(() => { throw new Error('Error'); });
       const res = generateResponse();
       const req = 'appName';
 
-      await appFileServiceProxy.installedApps(req, res);
+      await appsService.installedApps(req, res);
 
       sinon.assert.calledOnce(res.json);
       sinon.assert.calledOnce(logSpy);
@@ -201,10 +168,10 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error, if error is thrown, no response passed', async () => {
-      dbStub.callsFake(async () => { throw new Error('Error'); });
+      dbStub.callsFake(() => { throw new Error('Error'); });
       const req = 'appName';
 
-      const result = await appFileServiceProxy.installedApps(req);
+      const result = await appsService.installedApps(req);
 
       expect(result).to.be.an('object');
       sinon.assert.calledOnce(logSpy);
@@ -217,7 +184,7 @@ describe('Apps Services tests', () => {
     let logSpy;
     const apps = [
       {
-        Names: ['/flux_zeltest'],
+        Names: ['1zeltest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -225,7 +192,7 @@ describe('Apps Services tests', () => {
         testparam2: 'testparam02',
       },
       {
-        Names: ['/flux_testapp'],
+        Names: ['1fluxtest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -260,9 +227,9 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      const result = await appContainerServiceProxy.listRunningApps();
+      const result = await appsService.listRunningApps();
 
       expect(result).to.eql({
         status: 'error',
@@ -277,9 +244,9 @@ describe('Apps Services tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      await appContainerServiceProxy.listRunningApps(undefined, res);
+      await appsService.listRunningApps(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -293,31 +260,24 @@ describe('Apps Services tests', () => {
     });
 
     it('should return running apps, no response passed', async () => {
-      dockerServiceStub.reset();
       dockerServiceStub.returns(apps);
 
-      const result = await appContainerServiceProxy.listRunningApps();
+      const result = await appsService.listRunningApps();
 
       expect(result).to.eql({
         status: 'success',
         data: [
           {
             Names: [
-              '/flux_zeltest',
+              '1zeltest',
             ],
-            HostConfig: 'someconfig',
-            NetworkSettings: 'mySettings',
-            Mounts: 'mount1',
             testparam1: 'testparam',
             testparam2: 'testparam02',
           },
           {
             Names: [
-              '/flux_testapp',
+              '1fluxtest',
             ],
-            HostConfig: 'someconfig',
-            NetworkSettings: 'mySettings',
-            Mounts: 'mount1',
             testparam1: 'testtest',
             testparam2: 'testtest02',
           },
@@ -327,32 +287,25 @@ describe('Apps Services tests', () => {
     });
 
     it('should return running apps, response passed', async () => {
-      dockerServiceStub.reset();
       dockerServiceStub.returns(apps);
       const res = generateResponse();
 
-      await appContainerServiceProxy.listRunningApps(undefined, res);
+      await appsService.listRunningApps(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
         data: [
           {
             Names: [
-              '/flux_zeltest',
+              '1zeltest',
             ],
-            HostConfig: 'someconfig',
-            NetworkSettings: 'mySettings',
-            Mounts: 'mount1',
             testparam1: 'testparam',
             testparam2: 'testparam02',
           },
           {
             Names: [
-              '/flux_testapp',
+              '1fluxtest',
             ],
-            HostConfig: 'someconfig',
-            NetworkSettings: 'mySettings',
-            Mounts: 'mount1',
             testparam1: 'testtest',
             testparam2: 'testtest02',
           },
@@ -367,7 +320,7 @@ describe('Apps Services tests', () => {
     let logSpy;
     const apps = [
       {
-        Names: ['/flux_zeltest'],
+        Names: ['1zeltest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -375,7 +328,7 @@ describe('Apps Services tests', () => {
         testparam2: 'testparam02',
       },
       {
-        Names: ['/flux_testapp'],
+        Names: ['1fluxtest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -383,7 +336,7 @@ describe('Apps Services tests', () => {
         testparam2: 'testtest02',
       },
       {
-        Names: ['/somethingelse'],
+        Names: ['somethingelse'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -410,9 +363,9 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      const result = await appContainerServiceProxy.listAllApps();
+      const result = await appsService.listAllApps();
 
       expect(result).to.eql({
         status: 'error',
@@ -427,9 +380,9 @@ describe('Apps Services tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      await appContainerServiceProxy.listAllApps(undefined, res);
+      await appsService.listAllApps(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -443,31 +396,24 @@ describe('Apps Services tests', () => {
     });
 
     it('should return running apps, no response passed', async () => {
-      dockerServiceStub.reset();
       dockerServiceStub.returns(apps);
 
-      const result = await appContainerServiceProxy.listAllApps();
+      const result = await appsService.listAllApps();
 
       expect(result).to.eql({
         status: 'success',
         data: [
           {
             Names: [
-              'flux_zeltest',
+              '1zeltest',
             ],
-            HostConfig: 'someconfig',
-            NetworkSettings: 'mySettings',
-            Mounts: 'mount1',
             testparam1: 'testparam',
             testparam2: 'testparam02',
           },
           {
             Names: [
-              'flux_testapp',
+              '1fluxtest',
             ],
-            HostConfig: 'someconfig',
-            NetworkSettings: 'mySettings',
-            Mounts: 'mount1',
             testparam1: 'testtest',
             testparam2: 'testtest02',
           },
@@ -480,29 +426,37 @@ describe('Apps Services tests', () => {
       dockerServiceStub.returns(apps);
       const res = generateResponse();
 
-      await appContainerServiceProxy.listAllApps(undefined, res);
+      await appsService.listAllApps(undefined, res);
 
-      sinon.assert.calledOnce(res.json);
-      const callArgs = res.json.getCall(0).args[0];
-      expect(callArgs).to.have.property('status', 'success');
-      expect(callArgs).to.have.property('data');
-      expect(callArgs.data).to.be.an('array');
-      expect(callArgs.data).to.have.length(2);
-      expect(callArgs.data[0]).to.have.property('Names').that.deep.equals(['lux_zeltest']);
-      expect(callArgs.data[1]).to.have.property('Names').that.deep.equals(['lux_testapp']);
-      expect(callArgs.data[0]).to.have.property('HostConfig', 'someconfig');
-      expect(callArgs.data[1]).to.have.property('HostConfig', 'someconfig');
+      sinon.assert.calledOnceWithExactly(res.json, {
+        status: 'success',
+        data: [
+          {
+            Names: [
+              '1zeltest',
+            ],
+            testparam1: 'testparam',
+            testparam2: 'testparam02',
+          },
+          {
+            Names: [
+              '1fluxtest',
+            ],
+            testparam1: 'testtest',
+            testparam2: 'testtest02',
+          },
+        ],
+      });
       sinon.assert.notCalled(logSpy);
     });
   });
 
   describe('listAppsImages tests', () => {
     let dockerServiceStub;
-    let verificationHelperStub;
     let logSpy;
     const apps = [
       {
-        Names: ['/flux_zeltest'],
+        Names: ['1zeltest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -510,7 +464,7 @@ describe('Apps Services tests', () => {
         testparam2: 'testparam02',
       },
       {
-        Names: ['/flux_testapp'],
+        Names: ['1fluxtest'],
         HostConfig: 'someconfig',
         NetworkSettings: 'mySettings',
         Mounts: 'mount1',
@@ -535,7 +489,6 @@ describe('Apps Services tests', () => {
 
     beforeEach(async () => {
       dockerServiceStub = sinon.stub(dockerService, 'dockerListImages');
-      verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
@@ -546,9 +499,9 @@ describe('Apps Services tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      const result = await appContainerServiceProxy.listAppsImages();
+      const result = await appsService.listAppsImages();
 
       expect(result).to.eql({
         status: 'error',
@@ -563,9 +516,9 @@ describe('Apps Services tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(async () => { throw new Error('Error'); });
+      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
 
-      await appContainerServiceProxy.listAppsImages(undefined, res);
+      await appsService.listAppsImages(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -579,10 +532,9 @@ describe('Apps Services tests', () => {
     });
 
     it('should return running apps, no response passed', async () => {
-      dockerServiceStub.reset();
       dockerServiceStub.returns(apps);
 
-      const result = await appContainerServiceProxy.listAppsImages();
+      const result = await appsService.listAppsImages();
 
       expect(result).to.eql({
         status: 'success',
@@ -595,7 +547,7 @@ describe('Apps Services tests', () => {
       dockerServiceStub.returns(apps);
       const res = generateResponse();
 
-      await appContainerServiceProxy.listAppsImages(undefined, res);
+      await appsService.listAppsImages(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -634,7 +586,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appStart(req, res);
+      await appsService.appStart(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -657,7 +609,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      const result = await appContainerServiceProxy.appStart(req);
+      const result = await appsService.appStart(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -682,7 +634,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appStart(req, res);
+      await appsService.appStart(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -706,7 +658,7 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(false);
 
-      const result = await appContainerServiceProxy.appStart(req);
+      const result = await appsService.appStart(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -731,7 +683,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStart').returns('some data');
 
-      const result = await appContainerServiceProxy.appStart(req);
+      const result = await appsService.appStart(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -757,7 +709,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStart').returns('some data');
 
-      const result = await appContainerServiceProxy.appStart(req);
+      const result = await appsService.appStart(req);
 
       expect(result).to.eql({
         data: {
@@ -787,7 +739,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStart').returns('some data');
 
-      const result = await appContainerServiceProxy.appStart(req);
+      const result = await appsService.appStart(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -813,7 +765,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStart').returns('some data');
 
-      const result = await appContainerServiceProxy.appStart(req);
+      const result = await appsService.appStart(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -844,7 +796,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStart').returns('some data');
 
-      const result = await appContainerServiceProxy.appStart(req);
+      const result = await appsService.appStart(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -884,7 +836,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appStop(req, res);
+      await appsService.appStop(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -907,7 +859,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      const result = await appContainerServiceProxy.appStop(req);
+      const result = await appsService.appStop(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -932,7 +884,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appStop(req, res);
+      await appsService.appStop(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -956,7 +908,7 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(false);
 
-      const result = await appContainerServiceProxy.appStop(req);
+      const result = await appsService.appStop(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -981,7 +933,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStop').returns('some data');
 
-      const result = await appContainerServiceProxy.appStop(req);
+      const result = await appsService.appStop(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1007,7 +959,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStop').returns('some data');
 
-      const result = await appContainerServiceProxy.appStop(req);
+      const result = await appsService.appStop(req);
 
       expect(result).to.eql({
         data: {
@@ -1037,7 +989,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStop').returns('some data');
 
-      const result = await appContainerServiceProxy.appStop(req);
+      const result = await appsService.appStop(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1063,7 +1015,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStop').returns('some data');
 
-      const result = await appContainerServiceProxy.appStop(req);
+      const result = await appsService.appStop(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1094,7 +1046,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerStop').returns('some data');
 
-      const result = await appContainerServiceProxy.appStop(req);
+      const result = await appsService.appStop(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1134,7 +1086,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appRestart(req, res);
+      await appsService.appRestart(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1157,7 +1109,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      const result = await appContainerServiceProxy.appRestart(req);
+      const result = await appsService.appRestart(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -1182,7 +1134,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appRestart(req, res);
+      await appsService.appRestart(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1206,7 +1158,7 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(false);
 
-      const result = await appContainerServiceProxy.appRestart(req);
+      const result = await appsService.appRestart(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -1231,7 +1183,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerRestart').returns('some data');
 
-      const result = await appContainerServiceProxy.appRestart(req);
+      const result = await appsService.appRestart(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1256,7 +1208,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerRestart').returns('some data');
 
-      const result = await appContainerServiceProxy.appRestart(req);
+      const result = await appsService.appRestart(req);
 
       expect(result).to.eql({
         data: {
@@ -1286,7 +1238,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerRestart').returns('some data');
 
-      const result = await appContainerServiceProxy.appRestart(req);
+      const result = await appsService.appRestart(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1311,7 +1263,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerRestart').returns('some data');
 
-      const result = await appContainerServiceProxy.appRestart(req);
+      const result = await appsService.appRestart(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1341,7 +1293,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerRestart').returns('some data');
 
-      const result = await appContainerServiceProxy.appRestart(req);
+      const result = await appsService.appRestart(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1381,7 +1333,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appKill(req, res);
+      await appsService.appKill(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1404,7 +1356,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      const result = await appContainerServiceProxy.appKill(req);
+      const result = await appsService.appKill(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -1429,7 +1381,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appKill(req, res);
+      await appsService.appKill(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1453,7 +1405,7 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(false);
 
-      const result = await appContainerServiceProxy.appKill(req);
+      const result = await appsService.appKill(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -1478,7 +1430,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerKill').returns('some data');
 
-      const result = await appContainerServiceProxy.appKill(req);
+      const result = await appsService.appKill(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1503,7 +1455,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerKill').returns('some data');
 
-      const result = await appContainerServiceProxy.appKill(req);
+      const result = await appsService.appKill(req);
 
       expect(result).to.eql({
         data: {
@@ -1533,7 +1485,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerKill').returns('some data');
 
-      const result = await appContainerServiceProxy.appKill(req);
+      const result = await appsService.appKill(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1558,7 +1510,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerKill').returns('some data');
 
-      const result = await appContainerServiceProxy.appKill(req);
+      const result = await appsService.appKill(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1588,7 +1540,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerKill').returns('some data');
 
-      const result = await appContainerServiceProxy.appKill(req);
+      const result = await appsService.appKill(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1628,7 +1580,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appPause(req, res);
+      await appsService.appPause(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1651,7 +1603,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      const result = await appContainerServiceProxy.appPause(req);
+      const result = await appsService.appPause(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -1676,7 +1628,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appPause(req, res);
+      await appsService.appPause(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1700,7 +1652,7 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(false);
 
-      const result = await appContainerServiceProxy.appPause(req);
+      const result = await appsService.appPause(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -1725,7 +1677,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerPause').returns('some data');
 
-      const result = await appContainerServiceProxy.appPause(req);
+      const result = await appsService.appPause(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1750,7 +1702,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerPause').returns('some data');
 
-      const result = await appContainerServiceProxy.appPause(req);
+      const result = await appsService.appPause(req);
 
       expect(result).to.eql({
         data: {
@@ -1779,7 +1731,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerPause').returns('some data');
 
-      const result = await appContainerServiceProxy.appPause(req);
+      const result = await appsService.appPause(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1804,7 +1756,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerPause').returns('some data');
 
-      const result = await appContainerServiceProxy.appPause(req);
+      const result = await appsService.appPause(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1834,7 +1786,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerPause').returns('some data');
 
-      const result = await appContainerServiceProxy.appPause(req);
+      const result = await appsService.appPause(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1874,7 +1826,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appUnpause(req, res);
+      await appsService.appUnpause(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1897,7 +1849,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      const result = await appContainerServiceProxy.appUnpause(req);
+      const result = await appsService.appUnpause(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -1922,7 +1874,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appUnpause(req, res);
+      await appsService.appUnpause(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -1946,7 +1898,7 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(false);
 
-      const result = await appContainerServiceProxy.appUnpause(req);
+      const result = await appsService.appUnpause(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -1971,7 +1923,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerUnpause').returns('some data');
 
-      const result = await appContainerServiceProxy.appUnpause(req);
+      const result = await appsService.appUnpause(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -1996,7 +1948,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerUnpause').returns('some data');
 
-      const result = await appContainerServiceProxy.appUnpause(req);
+      const result = await appsService.appUnpause(req);
 
       expect(result).to.eql({
         data: {
@@ -2025,7 +1977,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerUnpause').returns('some data');
 
-      const result = await appContainerServiceProxy.appUnpause(req);
+      const result = await appsService.appUnpause(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -2050,7 +2002,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerUnpause').returns('some data');
 
-      const result = await appContainerServiceProxy.appUnpause(req);
+      const result = await appsService.appUnpause(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -2080,7 +2032,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerUnpause').returns('some data');
 
-      const result = await appContainerServiceProxy.appUnpause(req);
+      const result = await appsService.appUnpause(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -2120,7 +2072,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appTop(req, res);
+      await appsService.appTop(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2143,7 +2095,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      const result = await appContainerServiceProxy.appTop(req);
+      const result = await appsService.appTop(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -2168,7 +2120,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appTop(req, res);
+      await appsService.appTop(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2192,7 +2144,7 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(false);
 
-      const result = await appContainerServiceProxy.appTop(req);
+      const result = await appsService.appTop(req);
 
       expect(result).to.eql({
         status: 'error',
@@ -2217,7 +2169,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerTop').returns('some data');
 
-      const result = await appContainerServiceProxy.appTop(req);
+      const result = await appsService.appTop(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -2242,7 +2194,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const dockerStub = sinon.stub(dockerService, 'appDockerTop').returns('some data');
 
-      const result = await appContainerServiceProxy.appTop(req);
+      const result = await appsService.appTop(req);
 
       expect(result).to.eql({
         status: 'success',
@@ -2282,7 +2234,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appLog(req, res);
+      await appsService.appLog(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2307,7 +2259,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appLog(req, res);
+      await appsService.appLog(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2335,7 +2287,7 @@ describe('Apps Services tests', () => {
       sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
       const res = generateResponse();
 
-      await appContainerServiceProxy.appLog(req, res);
+      await appsService.appLog(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -2360,7 +2312,7 @@ describe('Apps Services tests', () => {
       sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
       const res = generateResponse();
 
-      await appContainerServiceProxy.appLog(req, res);
+      await appsService.appLog(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -2384,7 +2336,7 @@ describe('Apps Services tests', () => {
       sinon.stub(serviceHelper, 'dockerBufferToString').returns('some data');
       const res = generateResponse();
 
-      await appContainerServiceProxy.appLog(req, res);
+      await appsService.appLog(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -2424,7 +2376,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appInspect(req, res);
+      await appsService.appInspect(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2449,7 +2401,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appInspect(req, res);
+      await appsService.appInspect(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2476,7 +2428,7 @@ describe('Apps Services tests', () => {
       const dockerStub = sinon.stub(dockerService, 'dockerContainerInspect').returns('some data');
       const res = generateResponse();
 
-      await appContainerServiceProxy.appInspect(req, res);
+      await appsService.appInspect(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -2500,7 +2452,7 @@ describe('Apps Services tests', () => {
       const dockerStub = sinon.stub(dockerService, 'dockerContainerInspect').returns('some data');
       const res = generateResponse();
 
-      await appContainerServiceProxy.appInspect(req, res);
+      await appsService.appInspect(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -2540,7 +2492,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appStats(req, res);
+      await appsService.appStats(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2565,7 +2517,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appStats(req, res);
+      await appsService.appStats(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2607,7 +2559,7 @@ describe('Apps Services tests', () => {
 
       const res = generateResponse();
 
-      await appContainerServiceProxy.appStats(req, res);
+      await appsService.appStats(req, res);
       sinon.assert.notCalled(logSpy);
       sinon.assert.calledOnceWithExactly(dockerContainerStatsStub, 'test_myappname');
       sinon.assert.calledTwice(dockerContainerInspectStub);
@@ -2648,7 +2600,7 @@ describe('Apps Services tests', () => {
 
       const res = generateResponse();
 
-      await appContainerServiceProxy.appStats(req, res);
+      await appsService.appStats(req, res);
       sinon.assert.notCalled(logSpy);
       sinon.assert.calledOnceWithExactly(dockerContainerStatsStub, 'myappname');
       sinon.assert.calledTwice(dockerContainerInspectStub);
@@ -2677,7 +2629,7 @@ describe('Apps Services tests', () => {
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
@@ -2692,7 +2644,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appMonitoringServiceProxy.appMonitor(req, res);
+      await appsService.appMonitor(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2717,7 +2669,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appMonitoringServiceProxy.appMonitor(req, res);
+      await appsService.appMonitor(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2742,14 +2694,14 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(true);
       const res = generateResponse();
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'test_myappname',
           statsStore: 1000,
         },
       );
 
-      await appMonitoringServiceProxy.appMonitor(req, res);
+      await appsService.appMonitor(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 1000 });
       sinon.assert.notCalled(logSpy);
@@ -2767,14 +2719,14 @@ describe('Apps Services tests', () => {
       };
       verificationHelperStub.returns(true);
       const res = generateResponse();
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myappname',
           statsStore: 1000,
         },
       );
 
-      await appMonitoringServiceProxy.appMonitor(req, res);
+      await appsService.appMonitor(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: 1000 });
       sinon.assert.notCalled(logSpy);
@@ -2793,7 +2745,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const res = generateResponse();
 
-      await appMonitoringServiceProxy.appMonitor(req, res);
+      await appsService.appMonitor(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2834,7 +2786,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appMonitoringServiceProxy.appMonitorStream(req, res);
+      await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2859,7 +2811,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appMonitoringServiceProxy.appMonitorStream(req, res);
+      await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -2885,7 +2837,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const res = generateResponse();
 
-      await appMonitoringServiceProxy.appMonitorStream(req, res);
+      await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
       sinon.assert.calledWithExactly(
@@ -2913,7 +2865,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(true);
       const res = generateResponse();
 
-      await appMonitoringServiceProxy.appMonitorStream(req, res);
+      await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
       sinon.assert.calledWithExactly(
@@ -2940,7 +2892,7 @@ describe('Apps Services tests', () => {
       const directoryPath = `${dirpath}ZelApps/${appName}`;
       const exec = `sudo du -s --block-size=1 ${directoryPath}`;
 
-      await appMonitoringServiceProxy.getAppFolderSize(appName);
+      await appsService.getAppFolderSize(appName);
 
       sinon.assert.calledWithExactly(cmdAsyncFake, exec);
     });
@@ -2948,23 +2900,23 @@ describe('Apps Services tests', () => {
 
   describe('startAppMonitoring tests', () => {
     beforeEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
     it('should throw error if no app name was passed', () => {
-      expect(appMonitoringServiceProxy.startAppMonitoring.bind(appMonitoringServiceProxy)).to.throw('No App specified');
+      expect(appsService.startAppMonitoring.bind(appsService)).to.throw('No App specified');
     });
 
     it('should set apps monitored of a new app', () => {
       const appName = 'myAppName';
-      appMonitoringServiceProxy.startAppMonitoring(appName);
+      appsService.startAppMonitoring(appName);
 
-      const appsMonitored = appMonitoringServiceProxy.getAppsMonitored();
+      const appsMonitored = appsService.getAppsMonitored();
       expect(appsMonitored.myAppName).to.be.an('object');
       expect(appsMonitored.myAppName.statsStore).to.be.an('array');
       expect(appsMonitored.myAppName.oneMinuteInterval).to.be.an('object');
@@ -2979,12 +2931,12 @@ describe('Apps Services tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
@@ -3005,9 +2957,9 @@ describe('Apps Services tests', () => {
         },
       ];
 
-      await appMonitoringServiceProxy.startMonitoringOfApps(apps);
+      await appsService.startMonitoringOfApps(apps);
 
-      const appsMonitored = appMonitoringServiceProxy.getAppsMonitored();
+      const appsMonitored = appsService.getAppsMonitored();
       expect(appsMonitored.myAppNamev3).to.be.an('object');
       expect(appsMonitored.myAppNamev2).to.be.an('object');
       expect(appsMonitored.compname1_myAppNamev4).to.be.an('object');
@@ -3031,9 +2983,9 @@ describe('Apps Services tests', () => {
         },
       ]);
 
-      await appMonitoringServiceProxy.startMonitoringOfApps();
+      await appsService.startMonitoringOfApps();
 
-      const appsMonitored = appMonitoringServiceProxy.getAppsMonitored();
+      const appsMonitored = appsService.getAppsMonitored();
       expect(appsMonitored.myAppNamev3).to.be.an('object');
       expect(appsMonitored.myAppNamev2).to.be.an('object');
       expect(appsMonitored.compname1_myAppNamev4).to.be.an('object');
@@ -3043,7 +2995,7 @@ describe('Apps Services tests', () => {
     it('should log error if db read fails', async () => {
       dbStub.callsFake(() => { throw new Error('Error'); });
 
-      await appMonitoringServiceProxy.startMonitoringOfApps();
+      await appsService.startMonitoringOfApps();
 
       sinon.assert.calledTwice(logSpy);
     });
@@ -3057,12 +3009,12 @@ describe('Apps Services tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
@@ -3083,21 +3035,21 @@ describe('Apps Services tests', () => {
         },
       ];
       dbStub.returns(apps);
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myAppNamev3',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -3105,7 +3057,7 @@ describe('Apps Services tests', () => {
 
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -3114,9 +3066,9 @@ describe('Apps Services tests', () => {
         },
       );
 
-      await appMonitoringServiceProxy.stopMonitoringOfApps();
+      await appsService.stopMonitoringOfApps();
 
-      const appsMonitored = appMonitoringServiceProxy.getAppsMonitored();
+      const appsMonitored = appsService.getAppsMonitored();
       expect(appsMonitored.myAppNamev3).to.be.an('object');
       expect(appsMonitored.myAppNamev2).to.be.an('object');
       expect(appsMonitored.compname1_myAppNamev4).to.be.an('object');
@@ -3139,7 +3091,7 @@ describe('Apps Services tests', () => {
           compose: [{ name: 'compname1' }, { name: 'compname2' }],
         },
       ];
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myAppNamev3',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -3147,21 +3099,21 @@ describe('Apps Services tests', () => {
 
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -3170,9 +3122,9 @@ describe('Apps Services tests', () => {
         },
       );
 
-      await appMonitoringServiceProxy.stopMonitoringOfApps(apps);
+      await appsService.stopMonitoringOfApps(apps);
 
-      const appsMonitored = appMonitoringServiceProxy.getAppsMonitored();
+      const appsMonitored = appsService.getAppsMonitored();
       expect(appsMonitored.myAppNamev3).to.be.an('object');
       expect(appsMonitored.myAppNamev2).to.be.an('object');
       expect(appsMonitored.compname1_myAppNamev4).to.be.an('object');
@@ -3196,28 +3148,28 @@ describe('Apps Services tests', () => {
         },
       ];
       dbStub.returns(apps);
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myAppNamev3',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -3225,9 +3177,9 @@ describe('Apps Services tests', () => {
         },
       );
 
-      await appMonitoringServiceProxy.stopMonitoringOfApps(undefined, true);
+      await appsService.stopMonitoringOfApps(undefined, true);
 
-      const appsMonitored = appMonitoringServiceProxy.getAppsMonitored();
+      const appsMonitored = appsService.getAppsMonitored();
       expect(appsMonitored).to.be.empty;
     });
 
@@ -3247,21 +3199,21 @@ describe('Apps Services tests', () => {
           compose: [{ name: 'compname1' }, { name: 'compname2' }],
         },
       ];
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myAppNamev3',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'myAppNamev2',
           oneMinuteInterval: setInterval(() => { }, 60000),
           statsStore: 1000,
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'compname1_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -3269,7 +3221,7 @@ describe('Apps Services tests', () => {
 
         },
       );
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.setAppsMonitored(
         {
           appName: 'compname2_myAppNamev4',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -3277,16 +3229,16 @@ describe('Apps Services tests', () => {
         },
       );
 
-      await appMonitoringServiceProxy.stopMonitoringOfApps(apps, true);
+      await appsService.stopMonitoringOfApps(apps, true);
 
-      const appsMonitored = appMonitoringServiceProxy.getAppsMonitored();
+      const appsMonitored = appsService.getAppsMonitored();
       expect(appsMonitored).to.be.empty;
     });
 
     it('should log error if db read fails', async () => {
       dbStub.callsFake(() => { throw new Error('Error'); });
 
-      await appMonitoringServiceProxy.stopMonitoringOfApps();
+      await appsService.stopMonitoringOfApps();
 
       sinon.assert.calledTwice(logSpy);
     });
@@ -3308,13 +3260,13 @@ describe('Apps Services tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
@@ -3330,7 +3282,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appMonitoringServiceProxy.startAppMonitoringAPI(req, res);
+      await appsService.startAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3357,7 +3309,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appMonitoringServiceProxy.startAppMonitoringAPI(req, res);
+      await appsService.startAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3400,7 +3352,7 @@ describe('Apps Services tests', () => {
       ];
       dbStub.returns(apps);
 
-      await appMonitoringServiceProxy.startAppMonitoringAPI(req, res);
+      await appsService.startAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -3433,7 +3385,7 @@ describe('Apps Services tests', () => {
       ];
       dbStub.returns(apps);
 
-      await appMonitoringServiceProxy.startAppMonitoringAPI(req, res);
+      await appsService.startAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -3464,13 +3416,13 @@ describe('Apps Services tests', () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logSpy = sinon.spy(log, 'error');
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
@@ -3486,7 +3438,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appMonitoringServiceProxy.stopAppMonitoringAPI(req, res);
+      await appsService.stopAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3513,7 +3465,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appMonitoringServiceProxy.stopAppMonitoringAPI(req, res);
+      await appsService.stopAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3556,7 +3508,7 @@ describe('Apps Services tests', () => {
       ];
       dbStub.returns(apps);
 
-      await appMonitoringServiceProxy.stopAppMonitoringAPI(req, res);
+      await appsService.stopAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -3599,7 +3551,7 @@ describe('Apps Services tests', () => {
       ];
       dbStub.returns(apps);
 
-      await appMonitoringServiceProxy.stopAppMonitoringAPI(req, res);
+      await appsService.stopAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -3632,7 +3584,7 @@ describe('Apps Services tests', () => {
       ];
       dbStub.returns(apps);
 
-      await appMonitoringServiceProxy.stopAppMonitoringAPI(req, res);
+      await appsService.stopAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -3666,7 +3618,7 @@ describe('Apps Services tests', () => {
       ];
       dbStub.returns(apps);
 
-      await appMonitoringServiceProxy.stopAppMonitoringAPI(req, res);
+      await appsService.stopAppMonitoringAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -3710,7 +3662,7 @@ describe('Apps Services tests', () => {
       };
       const res = generateResponse();
 
-      await appContainerServiceProxy.appChanges(req, res);
+      await appsService.appChanges(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3735,7 +3687,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       verificationHelperStub.returns(false);
 
-      await appContainerServiceProxy.appChanges(req, res);
+      await appsService.appChanges(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3761,7 +3713,7 @@ describe('Apps Services tests', () => {
       const dockerStub = sinon.stub(dockerService, 'dockerContainerChanges').returns('some data');
       const res = generateResponse();
 
-      await appContainerServiceProxy.appChanges(req, res);
+      await appsService.appChanges(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -3784,7 +3736,7 @@ describe('Apps Services tests', () => {
       const dockerStub = sinon.stub(dockerService, 'dockerContainerChanges').returns('some data');
       const res = generateResponse();
 
-      await appContainerServiceProxy.appChanges(req, res);
+      await appsService.appChanges(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
@@ -3807,7 +3759,7 @@ describe('Apps Services tests', () => {
       const dockerStub = sinon.stub(dockerService, 'dockerContainerChanges').callsFake(() => { throw new Error('Error'); });
       const res = generateResponse();
 
-      await appContainerServiceProxy.appChanges(req, res);
+      await appsService.appChanges(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3850,7 +3802,7 @@ describe('Apps Services tests', () => {
       verificationHelperStub.returns(false);
       const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').returns('success');
 
-      await appInstallationServiceProxy.createFluxNetworkAPI(req, res);
+      await appsService.createFluxNetworkAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -3874,16 +3826,14 @@ describe('Apps Services tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'createFluxAppDockerNetwork').resolves('success');
-      const dockerNetworkStub = sinon.stub(dockerService, 'getFluxDockerNetworkPhysicalInterfaceNames').returns(['eth0']);
-      const networkHelperStub = sinon.stub(fluxNetworkHelper, 'removeDockerContainerAccessToNonRoutable').returns(true);
+      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').returns('success');
       const res = generateResponse();
 
-      await appInstallationServiceProxy.createFluxNetworkAPI(req, res);
+      await appsService.createFluxNetworkAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'success',
-        data: { status: 'Docker network of test_myappname initiated.' },
+        data: 'success',
       });
       sinon.assert.notCalled(logSpy);
       sinon.assert.calledOnce(dockerStub);
@@ -3899,17 +3849,17 @@ describe('Apps Services tests', () => {
         },
       };
       verificationHelperStub.returns(true);
-      const dockerStub = sinon.stub(dockerService, 'createFluxAppDockerNetwork').callsFake(async () => { throw new Error('Error'); });
+      const dockerStub = sinon.stub(dockerService, 'createFluxDockerNetwork').callsFake(() => { throw new Error('Error'); });
       const res = generateResponse();
 
-      await appInstallationServiceProxy.createFluxNetworkAPI(req, res);
+      await appsService.createFluxNetworkAPI(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
-        data: { code: undefined, name: 'Error', message: 'Flux App network of myappname failed to initiate. Not possible to create docker application network.' },
+        data: { code: undefined, name: 'Error', message: 'Error' },
       });
-      sinon.assert.callCount(logSpy, 22);
-      sinon.assert.callCount(dockerStub, 21);
+      sinon.assert.calledOnce(logSpy);
+      sinon.assert.calledOnce(dockerStub);
     });
   });
 
@@ -3927,13 +3877,13 @@ describe('Apps Services tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
       nodeTierStub = sinon.stub(generalService, 'nodeTier');
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
@@ -3947,7 +3897,7 @@ describe('Apps Services tests', () => {
           version: 3, tiered: false, cpu: 1000, ram: 256000, hdd: 100000,
         },
       ]);
-      const result = await appMonitoringServiceProxy.appsResources();
+      const result = await appsService.appsResources();
 
       expect(result).to.eql({
         status: 'success',
@@ -3969,7 +3919,7 @@ describe('Apps Services tests', () => {
           version: 3, tiered: true, cpu: 1000, ram: 256000, hdd: 100000, cpucumulus: 2000, ramcumulus: 100000, hddcumulus: 200000,
         },
       ]);
-      const result = await appMonitoringServiceProxy.appsResources();
+      const result = await appsService.appsResources();
 
       expect(result).to.eql({
         status: 'success',
@@ -4001,7 +3951,7 @@ describe('Apps Services tests', () => {
           }],
         },
       ]);
-      const result = await appMonitoringServiceProxy.appsResources();
+      const result = await appsService.appsResources();
 
       expect(result).to.eql({
         status: 'success',
@@ -4033,7 +3983,7 @@ describe('Apps Services tests', () => {
           }],
         },
       ]);
-      const result = await appMonitoringServiceProxy.appsResources();
+      const result = await appsService.appsResources();
 
       expect(result).to.eql({
         status: 'success',
@@ -4067,7 +4017,7 @@ describe('Apps Services tests', () => {
       ]);
       const res = generateResponse();
 
-      await appMonitoringServiceProxy.appsResources(undefined, res);
+      await appsService.appsResources(undefined, res);
 
       sinon.assert.calledWithExactly(res.json, {
         status: 'success',
@@ -4083,7 +4033,7 @@ describe('Apps Services tests', () => {
       nodeTierStub.resolves('cumulus');
       dbStub.callsFake(() => { throw new Error('Error'); });
 
-      const result = await appMonitoringServiceProxy.appsResources();
+      const result = await appsService.appsResources();
 
       expect(result).to.eql({
         status: 'error',
@@ -4100,7 +4050,7 @@ describe('Apps Services tests', () => {
       dbStub.callsFake(() => { throw new Error('Error'); });
       const res = generateResponse();
 
-      await appMonitoringServiceProxy.appsResources(undefined, res);
+      await appsService.appsResources(undefined, res);
 
       sinon.assert.calledWithExactly(res.json, {
         status: 'error',
@@ -4122,12 +4072,12 @@ describe('Apps Services tests', () => {
       osStubCpu = sinon.stub(os, 'cpus');
       osStubRam = sinon.stub(os, 'totalmem');
       daemonServiceBenchmarkRpcsStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
-      benchmarkService.setNodeSpecs(0, 0, 0);
+      appsService.setNodeSpecs(0, 0, 0);
     });
 
     afterEach(() => {
       sinon.restore();
-      benchmarkService.setNodeSpecs(0, 0, 0);
+      appsService.setNodeSpecs(0, 0, 0);
     });
 
     it('Should set node stats properly if they are not alerady set', async () => {
@@ -4138,14 +4088,14 @@ describe('Apps Services tests', () => {
         data: JSON.stringify({ ssd: 100 }),
       });
 
-      await benchmarkService.getNodeSpecsAsync();
+      await appsService.getNodeSpecs();
 
-      const nodeStats = benchmarkService.getNodeSpecs();
+      const nodeStats = appsService.returnNodeSpecs();
       expect(nodeStats).to.eql({ cpuCores: 4, ram: 10, ssdStorage: 100 });
     });
 
     it('Should set node stats properly if they are alerady set', async () => {
-      benchmarkService.setNodeSpecs(5, 20, 99);
+      appsService.setNodeSpecs(5, 20, 99);
       osStubCpu.returns([1, 1, 1, 1]);
       osStubRam.returns(10 * 1024 * 1024);
       daemonServiceBenchmarkRpcsStub.returns({
@@ -4153,9 +4103,9 @@ describe('Apps Services tests', () => {
         data: JSON.stringify({ ssd: 100 }),
       });
 
-      await benchmarkService.getNodeSpecsAsync();
+      await appsService.getNodeSpecs();
 
-      const nodeStats = benchmarkService.getNodeSpecs();
+      const nodeStats = appsService.returnNodeSpecs();
       expect(nodeStats).to.eql({ cpuCores: 5, ram: 20, ssdStorage: 99 });
     });
   });
@@ -4175,8 +4125,8 @@ describe('Apps Services tests', () => {
     };
 
     beforeEach(async () => {
-      appMonitoringServiceProxy.clearAppsMonitored();
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.clearAppsMonitored();
+      appsService.setAppsMonitored(
         {
           appName: 'testapp',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -4192,7 +4142,7 @@ describe('Apps Services tests', () => {
 
     afterEach(() => {
       sinon.restore();
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
     });
 
     it('should hard uninstall app, no ports passed, ', async () => {
@@ -4208,7 +4158,7 @@ describe('Apps Services tests', () => {
       appDockerRemoveStub.resolves(true);
       appDockerImageRemoveStub.resolves(true);
 
-      await appInstallationServiceProxy.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
+      await appsService.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
 
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
@@ -4216,6 +4166,17 @@ describe('Apps Services tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} container removed` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
 
     it('should hard uninstall app ports passed', async () => {
@@ -4232,7 +4193,7 @@ describe('Apps Services tests', () => {
       appDockerRemoveStub.resolves(true);
       appDockerImageRemoveStub.resolves(true);
 
-      await appInstallationServiceProxy.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
+      await appsService.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
 
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
@@ -4240,6 +4201,17 @@ describe('Apps Services tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} container removed` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
   });
 
@@ -4258,19 +4230,19 @@ describe('Apps Services tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
     it('should throw error if app name is not specified', async () => {
       const res = generateResponse();
 
-      await appInstallationServiceProxy.removeAppLocally(undefined, res);
+      await appsService.removeAppLocally(undefined, res);
 
       sinon.assert.calledOnceWithExactly(res.write, JSON.stringify({ status: 'error', data: { name: 'Error', message: 'No App specified' } }));
       sinon.assert.calledOnce(res.end);
@@ -4282,18 +4254,13 @@ describe('Apps Services tests', () => {
       dbStub.returns(undefined);
       const force = true;
 
-      await appInstallationServiceProxy.removeAppLocally(appName, res, force);
+      await appsService.removeAppLocally(appName, res, force);
 
-      // The test expects the app to be found and removed properly
-      // Since the stub returns undefined for the app, it will fail to find it
-      sinon.assert.calledWith(res.write, JSON.stringify({
-        status: 'error',
-        data: {
-          code: undefined,
-          name: 'Error',
-          message: 'Flux App not found in global specifications either',
-        },
-      }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App FoldingAtHomeB container...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App FoldingAtHomeB container removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up FoldingAtHomeB data...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App FoldingAtHomeB was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App FoldingAtHomeB was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
 
@@ -4330,17 +4297,13 @@ describe('Apps Services tests', () => {
       });
       const force = true;
 
-      await appInstallationServiceProxy.removeAppLocally(appName, res, force);
+      await appsService.removeAppLocally(appName, res, force);
 
-      // The removeAppLocally function calls appUninstallHard which produces these messages
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp image...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp image operations done' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up testapp data...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });
@@ -4360,8 +4323,8 @@ describe('Apps Services tests', () => {
     };
 
     beforeEach(async () => {
-      appMonitoringServiceProxy.clearAppsMonitored();
-      appMonitoringServiceProxy.setAppsMonitored(
+      appsService.clearAppsMonitored();
+      appsService.setAppsMonitored(
         {
           appName: 'testapp',
           oneMinuteInterval: setInterval(() => { }, 60000),
@@ -4377,7 +4340,7 @@ describe('Apps Services tests', () => {
 
     afterEach(() => {
       sinon.restore();
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
     });
 
     it('should hard uninstall app, no ports passed, ', async () => {
@@ -4393,7 +4356,7 @@ describe('Apps Services tests', () => {
       appDockerRemoveStub.resolves(true);
       appDockerImageRemoveStub.resolves(true);
 
-      await appInstallationServiceProxy.appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+      await appsService.appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
 
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
@@ -4402,7 +4365,7 @@ describe('Apps Services tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} ports closed` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
@@ -4411,6 +4374,7 @@ describe('Apps Services tests', () => {
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
 
     it('should hard uninstall app ports passed', async () => {
@@ -4427,7 +4391,7 @@ describe('Apps Services tests', () => {
       appDockerRemoveStub.resolves(true);
       appDockerImageRemoveStub.resolves(true);
 
-      await appInstallationServiceProxy.appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+      await appsService.appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
 
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
@@ -4436,7 +4400,7 @@ describe('Apps Services tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} ports closed` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
@@ -4445,6 +4409,7 @@ describe('Apps Services tests', () => {
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Cleaning up data volume of testapp...' }));
       sinon.assert.neverCalledWith(res.write, JSON.stringify({ status: 'Volume of testapp cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
   });
 
@@ -4467,7 +4432,7 @@ describe('Apps Services tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
       dockerServiceStub = sinon.stub(dockerService, 'getAppIdentifier');
       appDockerStopStub = sinon.stub(dockerService, 'appDockerStop');
@@ -4476,15 +4441,15 @@ describe('Apps Services tests', () => {
     });
 
     afterEach(async () => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
-      appProgressState.removalInProgress = false;
+      appsService.removalInProgressReset();
     });
 
     it('should throw error if app name is not specified', async () => {
       const res = generateResponse();
 
-      await expect(appInstallationServiceProxy.softRemoveAppLocally(undefined, res)).to.eventually.be.rejectedWith('No Flux App specified');
+      await expect(appsService.softRemoveAppLocally(undefined, res)).to.eventually.be.rejectedWith('No Flux App specified');
     });
 
     it('return error, no app in db', async () => {
@@ -4492,7 +4457,7 @@ describe('Apps Services tests', () => {
       const appName = 'testapp';
       dbStub.returns(undefined);
 
-      await expect(appInstallationServiceProxy.softRemoveAppLocally(appName, res)).to.eventually.be.rejectedWith('Flux App not found');
+      await expect(appsService.softRemoveAppLocally(appName, res)).to.eventually.be.rejectedWith('Flux App not found');
     });
 
     it('should soft remove app locally, app name is specified, app in DB', async () => {
@@ -4531,7 +4496,7 @@ describe('Apps Services tests', () => {
         height: 0, // height of tx on which it was
       });
 
-      await appInstallationServiceProxy.softRemoveAppLocally(appName, res);
+      await appsService.softRemoveAppLocally(appName, res);
 
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
@@ -4547,10 +4512,6 @@ describe('Apps Services tests', () => {
   describe('removeAppLocallyApi tests', () => {
     let dbStub;
     let verificationHelperStub;
-    let dockerStopStub;
-    let dockerRemoveStub;
-    let dockerInspectStub;
-    let dockerImageRemoveStub;
 
     const generateResponse = () => {
       const res = { test: 'testing' };
@@ -4565,19 +4526,13 @@ describe('Apps Services tests', () => {
     beforeEach(async () => {
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findOneInDatabase');
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-
-      // Set up Docker stubs
-      dockerStopStub = sinon.stub(dockerService, 'appDockerStop').resolves(true);
-      dockerRemoveStub = sinon.stub(dockerService, 'appDockerRemove').resolves(true);
-      dockerInspectStub = sinon.stub(dockerService, 'dockerContainerInspect').resolves([{ Id: 'container123', Image: 'yurinnick/testapp:latest' }]);
-      dockerImageRemoveStub = sinon.stub(dockerService, 'appDockerImageRemove').resolves(true);
     });
 
     afterEach(() => {
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       sinon.restore();
     });
 
@@ -4593,7 +4548,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      await appInstallationServiceProxy.removeAppLocallyApi(req, res);
+      await appsService.removeAppLocallyApi(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -4617,7 +4572,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      await appInstallationServiceProxy.removeAppLocallyApi(req, res);
+      await appsService.removeAppLocallyApi(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -4642,7 +4597,7 @@ describe('Apps Services tests', () => {
         },
       };
 
-      await appInstallationServiceProxy.removeAppLocallyApi(req, res);
+      await appsService.removeAppLocallyApi(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, {
         status: 'error',
@@ -4696,17 +4651,15 @@ describe('Apps Services tests', () => {
         height: 0, // height of tx on which it was
       });
 
-      await appInstallationServiceProxy.removeAppLocallyApi(req, res);
+      await appsService.removeAppLocallyApi(req, res);
 
       await serviceHelper.delay(500);
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp image...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp image operations done' }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });
@@ -4725,7 +4678,7 @@ describe('Apps Services tests', () => {
       };
       const myNodeTier = 'stratus';
 
-      const result = appInstallationServiceProxy.totalAppHWRequirements(appSpecs, myNodeTier);
+      const result = appsService.totalAppHWRequirements(appSpecs, myNodeTier);
 
       expect(result).to.eql({ cpu: 256000, ram: 50, hdd: 100 });
     });
@@ -4739,7 +4692,7 @@ describe('Apps Services tests', () => {
       };
       const myNodeTier = 'stratus';
 
-      const result = appInstallationServiceProxy.totalAppHWRequirements(appSpecs, myNodeTier);
+      const result = appsService.totalAppHWRequirements(appSpecs, myNodeTier);
 
       expect(result).to.eql({ cpu: 256000, ram: 50, hdd: 100 });
     });
@@ -4767,7 +4720,7 @@ describe('Apps Services tests', () => {
       };
       const myNodeTier = 'stratus';
 
-      const result = appInstallationServiceProxy.totalAppHWRequirements(appSpecs, myNodeTier);
+      const result = appsService.totalAppHWRequirements(appSpecs, myNodeTier);
 
       expect(result).to.eql({ cpu: 768000, ram: 150, hdd: 300 });
     });
@@ -4788,7 +4741,7 @@ describe('Apps Services tests', () => {
       geolocationServiceStub.returns(undefined);
 
       // eslint-disable-next-line func-names
-      const result = function () { geolocationService.nodeFullGeolocation(); };
+      const result = function () { appsService.nodeFullGeolocation(); };
       expect(result).to.throw();
       sinon.assert.calledOnce(geolocationServiceStub);
     });
@@ -4800,7 +4753,7 @@ describe('Apps Services tests', () => {
         regionName: 'PA',
       });
 
-      const result = geolocationService.nodeFullGeolocation();
+      const result = appsService.nodeFullGeolocation();
 
       sinon.assert.calledOnce(geolocationServiceStub);
       expect(result).to.eql('2_US_PA');
@@ -4826,7 +4779,7 @@ describe('Apps Services tests', () => {
       };
 
       // eslint-disable-next-line func-names
-      const result = function () { appInstallationServiceProxy.checkAppGeolocationRequirements(appSpec); };
+      const result = function () { appsService.checkAppGeolocationRequirements(appSpec); };
       expect(result).to.throw();
       sinon.assert.calledOnce(geolocationServiceStub);
     });
@@ -4836,7 +4789,7 @@ describe('Apps Services tests', () => {
         version: 4,
       };
 
-      const result = appInstallationServiceProxy.checkAppGeolocationRequirements(appSpec);
+      const result = appsService.checkAppGeolocationRequirements(appSpec);
 
       expect(result).to.equal(true);
     });
@@ -4852,7 +4805,7 @@ describe('Apps Services tests', () => {
         geolocation: ['acEU_CZ_PRG'],
       };
 
-      const result = appInstallationServiceProxy.checkAppGeolocationRequirements(appSpec);
+      const result = appsService.checkAppGeolocationRequirements(appSpec);
 
       sinon.assert.calledOnce(geolocationServiceStub);
       expect(result).to.eql(true);
@@ -4870,7 +4823,7 @@ describe('Apps Services tests', () => {
       };
 
       // eslint-disable-next-line func-names
-      const result = function () { appInstallationServiceProxy.checkAppGeolocationRequirements(appSpec); };
+      const result = function () { appsService.checkAppGeolocationRequirements(appSpec); };
       expect(result).to.throw();
       sinon.assert.calledOnce(geolocationServiceStub);
     });
@@ -4887,7 +4840,7 @@ describe('Apps Services tests', () => {
       };
 
       // eslint-disable-next-line func-names
-      const result = function () { appInstallationServiceProxy.checkAppGeolocationRequirements(appSpec); };
+      const result = function () { appsService.checkAppGeolocationRequirements(appSpec); };
       expect(result).to.throw();
       sinon.assert.calledOnce(geolocationServiceStub);
     });
@@ -4901,20 +4854,20 @@ describe('Apps Services tests', () => {
       getNodeTierStub = sinon.stub(generalService, 'nodeTier');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
-      appMonitoringServiceProxy.clearAppsMonitored();
+      appsService.clearAppsMonitored();
       dbStub = sinon.stub(dbHelper, 'findInDatabase');
     });
 
     afterEach(() => {
       sinon.restore();
-      benchmarkService.setNodeSpecs(0, 0, 0);
+      appsService.setNodeSpecs(0, 0, 0);
     });
 
     it('should throw error if resourcesLocked fails', async () => {
-      getNodeTierStub.resolves('cumulus');
+      getNodeTierStub.resolves(false);
       dbStub.returns(false);
 
-      await expect(appInstallationServiceProxy.checkAppHWRequirements()).to.eventually.be.rejectedWith('Unable to obtain locked system resources by Flux Apps. Aborting');
+      await expect(appsService.checkAppHWRequirements()).to.eventually.be.rejectedWith('Unable to obtain locked system resources by Flux Apps. Aborting');
     });
 
     it('should throw error if there would be insufficient space on node for the app - 0 on the node', async () => {
@@ -4933,9 +4886,9 @@ describe('Apps Services tests', () => {
         ram: 50,
         version: 3,
       };
-      benchmarkService.setNodeSpecs(0, 0, 0);
+      appsService.setNodeSpecs(0, 0, 0);
 
-      await expect(appInstallationServiceProxy.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient space on Flux Node to spawn an application');
+      await expect(appsService.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient space on Flux Node to spawn an application');
     });
 
     it('should throw error if there would be insufficient space on node for the app', async () => {
@@ -4954,9 +4907,9 @@ describe('Apps Services tests', () => {
         ram: 50,
         version: 3,
       };
-      benchmarkService.setNodeSpecs(10, 20, 90);
+      appsService.setNodeSpecs(10, 20, 90);
 
-      await expect(appInstallationServiceProxy.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient space on Flux Node to spawn an application');
+      await expect(appsService.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient space on Flux Node to spawn an application');
     });
 
     it('should throw error if there would be insufficient cpu power on node for the app', async () => {
@@ -4975,9 +4928,9 @@ describe('Apps Services tests', () => {
         ram: 50,
         version: 3,
       };
-      benchmarkService.setNodeSpecs(10, 20, 2000000);
+      appsService.setNodeSpecs(10, 20, 2000000);
 
-      await expect(appInstallationServiceProxy.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient CPU power on Flux Node to spawn an application');
+      await expect(appsService.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient CPU power on Flux Node to spawn an application');
     });
 
     it('should throw error if there would be insufficient ram on node for the app', async () => {
@@ -4996,9 +4949,9 @@ describe('Apps Services tests', () => {
         ram: 50,
         version: 3,
       };
-      benchmarkService.setNodeSpecs(10000, 50, 2000000);
+      appsService.setNodeSpecs(10000, 50, 2000000);
 
-      await expect(appInstallationServiceProxy.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient RAM on Flux Node to spawn an application');
+      await expect(appsService.checkAppHWRequirements(appSpecs)).to.eventually.be.rejectedWith('Insufficient RAM on Flux Node to spawn an application');
     });
 
     it('should return true if all reqs are met', async () => {
@@ -5017,9 +4970,9 @@ describe('Apps Services tests', () => {
         ram: 50,
         version: 3,
       };
-      benchmarkService.setNodeSpecs(10000, 256000, 2000000);
+      appsService.setNodeSpecs(10000, 256000, 2000000);
 
-      const result = await appInstallationServiceProxy.checkAppHWRequirements(appSpecs);
+      const result = await appsService.checkAppHWRequirements(appSpecs);
 
       expect(result).to.eql(true);
     });
@@ -5068,8 +5021,8 @@ describe('Apps Services tests', () => {
     let dbStub;
 
     beforeEach(async () => {
-      appProgressState.removalInProgress = false;
-      appProgressState.installationInProgress = false;
+      appsService.removalInProgressReset();
+      appsService.installationInProgressReset();
       logSpy = sinon.spy(log, 'error');
       nodeTierStub = sinon.stub(generalService, 'nodeTier');
       await dbHelper.initiateDB();
@@ -5079,16 +5032,16 @@ describe('Apps Services tests', () => {
 
     afterEach(() => {
       sinon.restore();
-      appProgressState.removalInProgress = false;
-      appProgressState.installationInProgress = false;
+      appsService.removalInProgressReset();
+      appsService.installationInProgressReset();
     });
 
     it('should return error if removal is in progress', async () => {
       const componentSpecs = false;
       const res = generateResponse();
-      appProgressState.removalInProgress = true;
+      appsService.setRemovalInProgressToTrue();
 
-      await appInstallationServiceProxy.registerAppLocally(appSpec, componentSpecs, res);
+      await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
       sinon.assert.calledOnceWithExactly(logSpy, {
         status: 'warning',
@@ -5103,9 +5056,9 @@ describe('Apps Services tests', () => {
     it('should return error if another installation is in progress', async () => {
       const componentSpecs = false;
       const res = generateResponse();
-      appProgressState.installationInProgress = true;
+      appsService.setInstallationInProgressTrue();
 
-      await appInstallationServiceProxy.registerAppLocally(appSpec, componentSpecs, res);
+      await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
       sinon.assert.calledOnceWithExactly(logSpy, {
         status: 'warning',
@@ -5122,7 +5075,7 @@ describe('Apps Services tests', () => {
       const res = generateResponse();
       nodeTierStub.resolves(undefined);
 
-      const result = await appInstallationServiceProxy.registerAppLocally(appSpec, componentSpecs, res);
+      const result = await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
       sinon.assert.calledOnceWithExactly(res.write, JSON.stringify({
         status: 'error',
@@ -5150,7 +5103,7 @@ describe('Apps Services tests', () => {
       };
       getBenchmarksStub.resolves(getBenchmarkResponseData);
 
-      const result = await appInstallationServiceProxy.registerAppLocally(appSpec, componentSpecs, res);
+      const result = await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
       sinon.assert.calledOnceWithExactly(logSpy, {
         status: 'error',
@@ -5206,7 +5159,7 @@ describe('Apps Services tests', () => {
       nodeTierStub.resolves('cumulus');
       dbStub.returns('test_appname');
 
-      await appInstallationServiceProxy.registerAppLocally(appSpec, componentSpecs, res);
+      await appsService.registerAppLocally(appSpec, componentSpecs, res);
 
       sinon.assert.calledOnceWithExactly(logSpy, 'Flux App testapp already installed');
       sinon.assert.calledWithExactly(res.write, 'Flux App testapp already installed');

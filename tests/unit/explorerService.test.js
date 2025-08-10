@@ -1,8 +1,7 @@
 const sinon = require('sinon');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const appGlobalService = require('../../ZelBack/src/services/apps/appGlobalService');
-const appMonitoringService = require('../../ZelBack/src/services/apps/appMonitoringService');
+const appsService = require('../../ZelBack/src/services/appsService');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceAddressRpcs');
@@ -739,6 +738,7 @@ describe('explorerService tests', () => {
     let logInfoSpy;
     let expireGlobalApplicationsStub;
     let checkAndRemoveApplicationInstanceStub;
+    let restorePortsSupportStub;
     let daemonServiceBlockchainRpcsStub;
     let daemonServiceMiscRpcsStub;
 
@@ -747,8 +747,9 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'insertManyToDatabase');
       dbStubUpdate = sinon.stub(dbHelper, 'updateOneInDatabase');
       dbStubCollectionStats = sinon.stub(dbHelper, 'collectionStats');
-      expireGlobalApplicationsStub = sinon.stub(appGlobalService, 'expireGlobalApplications');
-      checkAndRemoveApplicationInstanceStub = sinon.stub(appMonitoringService, 'checkAndRemoveApplicationInstance');
+      expireGlobalApplicationsStub = sinon.stub(appsService, 'expireGlobalApplications');
+      checkAndRemoveApplicationInstanceStub = sinon.stub(appsService, 'checkAndRemoveApplicationInstance');
+      restorePortsSupportStub = sinon.stub(appsService, 'restorePortsSupport');
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
@@ -827,6 +828,7 @@ describe('explorerService tests', () => {
 
       sinon.assert.calledOnce(expireGlobalApplicationsStub);
       sinon.assert.notCalled(checkAndRemoveApplicationInstanceStub);
+      sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(
         dbStubUpdate,
         sinon.match.object,
@@ -890,6 +892,7 @@ describe('explorerService tests', () => {
 
       sinon.assert.notCalled(expireGlobalApplicationsStub);
       sinon.assert.calledOnce(checkAndRemoveApplicationInstanceStub);
+      sinon.assert.notCalled(restorePortsSupportStub);
       sinon.assert.calledOnceWithMatch(
         dbStubUpdate,
         sinon.match.object,
@@ -1701,8 +1704,8 @@ describe('explorerService tests', () => {
         count: 15,
         avgObjSize: 1111,
       });
-      sinon.stub(appGlobalService, 'expireGlobalApplications').returns(true);
-      sinon.stub(appMonitoringService, 'checkAndRemoveApplicationInstance').returns(true);
+      sinon.stub(appsService, 'expireGlobalApplications').returns(true);
+      sinon.stub(appsService, 'checkAndRemoveApplicationInstance').returns(true);
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').returns({
         status: 'success',
         data: {
