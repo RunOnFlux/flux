@@ -119,6 +119,8 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     }
     // run test on apiport + 1
     await client.getPublicIp();
+
+    await serviceHelper.delay(500);
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get public ip');
@@ -127,6 +129,8 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   }
   try {
     await client.getGateway();
+
+    await serviceHelper.delay(500);
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get Gateway');
@@ -140,6 +144,8 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
       ttl: 0,
       description: 'Flux_UPNP_Mapping_Test',
     });
+
+    await serviceHelper.delay(500);
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed Create Mapping');
@@ -148,6 +154,8 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
   }
   try {
     await client.getMappings();
+
+    await serviceHelper.delay(500);
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed get Mappings');
@@ -158,6 +166,8 @@ async function verifyUPNPsupport(apiport = config.server.apiport) {
     await client.removeMapping({
       public: +apiport + 3,
     });
+
+    await serviceHelper.delay(500);
   } catch (error) {
     log.error(error);
     log.error('VerifyUPNPsupport - Failed Remove Mapping');
@@ -182,24 +192,36 @@ async function setupUPNP(apiport = config.server.apiport) {
       ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
       description: 'Flux_Backend_API',
     });
+
+    await serviceHelper.delay(500);
+
     await client.createMapping({
       public: +apiport + 1,
       private: +apiport + 1,
       ttl: 0, // Some routers force low ttl if 0, indefinite/default is used. Flux refreshes this every 6 blocks ~ 12 minutes
       description: 'Flux_Backend_API_SSL',
     });
+
+    await serviceHelper.delay(500);
+
     await client.createMapping({
       public: +apiport - 1,
       private: +apiport - 1,
       ttl: 0,
       description: 'Flux_Home_UI',
     });
+
+    await serviceHelper.delay(500);
+
     await client.createMapping({
       public: +apiport + 2,
       private: +apiport + 2,
       ttl: 0,
       description: 'Flux_Syncthing',
     });
+
+    await serviceHelper.delay(500);
+
     return true;
   } catch (error) {
     log.error(error);
@@ -222,6 +244,9 @@ async function mapUpnpPort(port, description) {
       protocol: 'TCP',
       description,
     });
+
+    await serviceHelper.delay(500);
+
     await client.createMapping({
       public: port,
       private: port,
@@ -229,6 +254,9 @@ async function mapUpnpPort(port, description) {
       protocol: 'UDP',
       description,
     });
+
+    await serviceHelper.delay(500);
+
     return true;
   } catch (error) {
     log.error(error);
@@ -247,10 +275,16 @@ async function removeMapUpnpPort(port) {
       public: port,
       protocol: 'TCP',
     });
+
+    await serviceHelper.delay(500);
+
     await client.removeMapping({
       public: port,
       protocol: 'UDP',
     });
+
+    await serviceHelper.delay(500);
+
     return true;
   } catch (error) {
     log.error(error);
@@ -280,6 +314,7 @@ async function mapPortApi(req, res) {
         protocol: 'TCP',
         description: 'Flux_manual_entry',
       });
+
       await client.createMapping({
         public: port,
         private: port,
