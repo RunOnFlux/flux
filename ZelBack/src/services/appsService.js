@@ -6765,7 +6765,13 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
   if (!appSpecs) {
     throw new Error(`Previous specifications for ${specifications.name} update message does not exists! This should not happen.`);
   }
-  return appSpecs;
+  const heightForDecrypt = latestPermanentRegistrationMessage.height;
+  // eslint-disable-next-line no-use-before-define
+  const decryptedPrev = await checkAndDecryptAppSpecs(appSpecs, { daemonHeight: heightForDecrypt });
+  // eslint-disable-next-line no-use-before-define
+  const formattedPrev = specificationFormatter(decryptedPrev);
+  
+  return formattedPrev;
 }
 
 /**
