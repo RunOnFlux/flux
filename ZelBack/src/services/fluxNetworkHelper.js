@@ -90,7 +90,7 @@ function isPortUserBlocked(port) {
 function isPortBanned(port) {
   const { bannedPorts } = config.fluxapps;
   let portBanned = false;
-  
+
   bannedPorts.forEach((portOrInterval) => {
     if (typeof portOrInterval === 'string') { // '0-10'
       const minPort = Number(portOrInterval.split('-')[0]);
@@ -102,7 +102,7 @@ function isPortBanned(port) {
       portBanned = true;
     }
   });
-  
+
   return portBanned;
 }
 
@@ -270,7 +270,7 @@ async function checkAppAvailability(req, res) {
         const iBP = isPortBanned(+port);
         const portNum = +port;
         const withinRange = portNum >= minPort && portNum <= maxPort;
-        
+
         if (withinRange && !iBP) {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port);
@@ -482,6 +482,59 @@ async function getMyFluxIPandPort() {
 
   setMyFluxIp(ip);
   return ip;
+}
+
+/**
+ * Check if current operating system has reached end of life.
+ * @returns {object|null} Returns EOL OS config if found, null otherwise
+ */
+function checkEOLOperatingSystem() {
+  try {
+    const platform = os.platform();
+    // eslint-disable-next-line global-require
+    const fsSync = require('fs');
+
+    // Get OS version info
+    let osName = '';
+    let osVersion = '';
+
+    if (platform === 'linux') {
+      // Try to read /etc/os-release for accurate Linux distribution info
+      try {
+        const osReleaseContent = fsSync.readFileSync('/etc/os-release', 'utf8');
+        const lines = osReleaseContent.split('\n');
+
+        lines.forEach((line) => {
+          if (line.startsWith('NAME=')) {
+            osName = line.split('=')[1].replace(/"/g, '').trim();
+          }
+          if (line.startsWith('VERSION_ID=')) {
+            osVersion = line.split('=')[1].replace(/"/g, '').trim();
+          }
+        });
+      } catch (readError) {
+        log.warn('Could not read /etc/os-release:', readError.message);
+      }
+    }
+
+    // Check against EOL operating systems configuration
+    const eolSystems = config.eolOperatingSystems || [];
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const eolSystem of eolSystems) {
+      if (osName.toLowerCase().includes(eolSystem.name.toLowerCase())) {
+        if (eolSystem.versions.includes(osVersion)) {
+          log.error(`Detected EOL operating system: ${osName} ${osVersion}`);
+          return eolSystem;
+        }
+      }
+    }
+
+    return null;
+  } catch (error) {
+    log.error('Error checking EOL operating system:', error);
+    return null;
+  }
 }
 
 /**
@@ -883,6 +936,15 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   }
   const fluxBenchVersionAllowed = await checkFluxbenchVersionAllowed();
   if (!fluxBenchVersionAllowed) {
+    return false;
+  }
+
+  // Check for EOL operating system
+  const eolOS = checkEOLOperatingSystem();
+  if (eolOS) {
+    dosState += eolOS.dosIncrement || 50;
+    setDosMessage(eolOS.message || 'Operating system has reached end of life');
+    log.error(`EOL OS detected - DOS state increased by ${eolOS.dosIncrement || 50}`);
     return false;
   }
 
@@ -1851,6 +1913,7 @@ module.exports = {
   closeIncomingConnection,
   checkFluxbenchVersionAllowed,
   checkMyFluxAvailability,
+  checkEOLOperatingSystem,
   adjustExternalIP,
   allowPort,
   allowOutPort,

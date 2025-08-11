@@ -143,7 +143,7 @@ describe('checkHWParameters', () => {
     expect(hwSpecs).to.throw();
   });
 
-  it('Verifies repository format validation (spaces)', async function () {
+  it('Verifies repository format validation (spaces)', async () => {
     const fluxAppSpecs = {
       repotagC: ' bunnyanalyst/fluxrun:latest',
       repotagD: 'bunnyanalyst/fluxrun:latest ',
@@ -161,12 +161,12 @@ describe('checkHWParameters', () => {
   it('Verifies repository network validation', async function () {
     // Use a longer timeout only for network-dependent tests
     this.timeout(10000);
-    
+
     const fluxAppSpecs = {
       repotag: 'yurinnick/folding-at-home:latest',
       repotagB: 'yurinnick/folding-at-home:latestaaa',
     };
-    
+
     const repA = await appService.verifyRepository(fluxAppSpecs.repotag).catch(() => true);
     expect(repA).to.be.equal(undefined);
 

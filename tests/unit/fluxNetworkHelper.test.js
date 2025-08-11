@@ -1979,4 +1979,261 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithExactly(errorLogSpy, 'IPTABLES: Error allowing traffic on Flux interface docker0. Error');
     });
   });
+
+  describe('checkEOLOperatingSystem tests', () => {
+    let logErrorStub;
+    let logWarnStub;
+    // eslint-disable-next-line global-require
+    const config = require('config');
+    // eslint-disable-next-line global-require
+    const fsModule = require('fs');
+    // eslint-disable-next-line global-require
+    const osModule = require('os');
+
+    beforeEach(() => {
+      logErrorStub = sinon.stub(log, 'error');
+      logWarnStub = sinon.stub(log, 'warn');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return null when OS is not Linux', () => {
+      sinon.stub(osModule, 'platform').returns('win32');
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+      sinon.assert.notCalled(logErrorStub);
+    });
+
+    it('should detect Ubuntu 20.04 as EOL', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION="20.04.6 LTS (Focal Fossa)"
+ID=ubuntu
+ID_LIKE=debian
+PRETTY_NAME="Ubuntu 20.04.6 LTS"
+VERSION_ID="20.04"
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+VERSION_CODENAME=focal
+UBUNTU_CODENAME=focal`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.not.be.null;
+      expect(result.name).to.equal('Ubuntu');
+      expect(result.versions).to.include('20.04');
+      expect(result.dosIncrement).to.equal(50);
+      expect(result.message).to.equal('Operating system has reached end of life and is no longer supported');
+      sinon.assert.calledWith(logErrorStub, 'Detected EOL operating system: Ubuntu 20.04');
+    });
+
+    it('should detect Ubuntu 20.10 as EOL', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION="20.10 (Groovy Gorilla)"
+VERSION_ID="20.10"
+PRETTY_NAME="Ubuntu 20.10"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.not.be.null;
+      expect(result.name).to.equal('Ubuntu');
+      expect(result.versions).to.include('20.10');
+      expect(result.dosIncrement).to.equal(50);
+      sinon.assert.calledWith(logErrorStub, 'Detected EOL operating system: Ubuntu 20.10');
+    });
+
+    it('should detect Ubuntu 18.04 as EOL', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION="18.04.6 LTS (Bionic Beaver)"
+VERSION_ID="18.04"
+PRETTY_NAME="Ubuntu 18.04.6 LTS"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.not.be.null;
+      expect(result.name).to.equal('Ubuntu');
+      expect(result.versions).to.include('18.04');
+      expect(result.dosIncrement).to.equal(50);
+      sinon.assert.calledWith(logErrorStub, 'Detected EOL operating system: Ubuntu 18.04');
+    });
+
+    it('should detect CentOS 7 as EOL', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="CentOS Linux"
+VERSION="7 (Core)"
+VERSION_ID="7"
+PRETTY_NAME="CentOS Linux 7 (Core)"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.not.be.null;
+      expect(result.name).to.equal('CentOS');
+      expect(result.versions).to.include('7');
+      expect(result.dosIncrement).to.equal(50);
+      sinon.assert.calledWith(logErrorStub, 'Detected EOL operating system: CentOS Linux 7');
+    });
+
+    it('should detect Debian 10 as EOL', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Debian GNU/Linux"
+VERSION="10 (buster)"
+VERSION_ID="10"
+PRETTY_NAME="Debian GNU/Linux 10 (buster)"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.not.be.null;
+      expect(result.name).to.equal('Debian');
+      expect(result.versions).to.include('10');
+      expect(result.dosIncrement).to.equal(50);
+      sinon.assert.calledWith(logErrorStub, 'Detected EOL operating system: Debian GNU/Linux 10');
+    });
+
+    it('should return null for Ubuntu 22.04 (not EOL)', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION="22.04.1 LTS (Jammy Jellyfish)"
+VERSION_ID="22.04"
+PRETTY_NAME="Ubuntu 22.04.1 LTS"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+      sinon.assert.notCalled(logErrorStub);
+    });
+
+    it('should return null for Ubuntu 24.04 (not EOL)', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION="24.04 LTS (Noble Numbat)"
+VERSION_ID="24.04"
+PRETTY_NAME="Ubuntu 24.04 LTS"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+      sinon.assert.notCalled(logErrorStub);
+    });
+
+    it('should handle missing /etc/os-release file gracefully', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').throws(new Error('ENOENT: no such file or directory'));
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+      sinon.assert.calledWith(logWarnStub, 'Could not read /etc/os-release:', 'ENOENT: no such file or directory');
+    });
+
+    it('should handle malformed /etc/os-release content', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns('malformed content without proper format');
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+      sinon.assert.notCalled(logErrorStub);
+    });
+
+    it('should return null for Debian 11 (not EOL)', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Debian GNU/Linux"
+VERSION="11 (bullseye)"
+VERSION_ID="11"
+PRETTY_NAME="Debian GNU/Linux 11 (bullseye)"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+      sinon.assert.notCalled(logErrorStub);
+    });
+
+    it('should return null for CentOS 8 Stream (not EOL)', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="CentOS Stream"
+VERSION="8"
+VERSION_ID="8"
+PRETTY_NAME="CentOS Stream 8"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+      sinon.assert.notCalled(logErrorStub);
+    });
+
+    it('should handle empty EOL configuration', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION_ID="20.04"`);
+
+      // Temporarily modify config
+      const originalEolSystems = config.eolOperatingSystems;
+      config.eolOperatingSystems = [];
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+
+      // Restore config
+      config.eolOperatingSystems = originalEolSystems;
+    });
+
+    it('should handle missing EOL configuration', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION_ID="20.04"`);
+
+      // Temporarily modify config
+      const originalEolSystems = config.eolOperatingSystems;
+      delete config.eolOperatingSystems;
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+
+      // Restore config
+      config.eolOperatingSystems = originalEolSystems;
+    });
+
+    it('should handle case-insensitive OS name matching', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="UBUNTU"
+VERSION_ID="20.04"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.not.be.null;
+      expect(result.name).to.equal('Ubuntu');
+      sinon.assert.calledWith(logErrorStub, 'Detected EOL operating system: UBUNTU 20.04');
+    });
+
+    it('should handle partial OS name matching', () => {
+      sinon.stub(osModule, 'platform').returns('linux');
+      sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu Server"
+VERSION_ID="20.04"`);
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.not.be.null;
+      expect(result.name).to.equal('Ubuntu');
+      sinon.assert.calledWith(logErrorStub, 'Detected EOL operating system: Ubuntu Server 20.04');
+    });
+
+    it('should handle exceptions during check', () => {
+      sinon.stub(osModule, 'platform').throws(new Error('Unexpected error'));
+
+      const result = fluxNetworkHelper.checkEOLOperatingSystem();
+
+      expect(result).to.be.null;
+      sinon.assert.calledWith(logErrorStub, 'Error checking EOL operating system:', sinon.match.instanceOf(Error));
+    });
+  });
 });

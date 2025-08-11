@@ -78,6 +78,27 @@ module.exports = {
   minimumFluxOSAllowedVersion: '5.43.0',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '26.1.2',
+  eolOperatingSystems: [
+    {
+      name: 'Ubuntu',
+      versions: ['18.04', '20.04', '20.10'], // Ubuntu 18.04 EOL April 2023, 20.04 LTS EOL April 2025, 20.10 EOL July 2021
+      dosIncrement: 50, // DOS state increment for EOL OS
+      message: 'Operating system has reached end of life and is no longer supported',
+    },
+    {
+      name: 'CentOS',
+      versions: ['7'], // CentOS 7 EOL June 2024
+      dosIncrement: 50,
+      message: 'Operating system has reached end of life and is no longer supported',
+    },
+    {
+      name: 'Debian',
+      versions: ['10'], // Debian 10 (Buster) EOL June 2024
+      dosIncrement: 50,
+      message: 'Operating system has reached end of life and is no longer supported',
+    },
+    // Additional OS versions can be added here
+  ],
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
   deterministicNodesStart: 558000,
   messagesBroadcastRefactorStart: 1751250, // expected block at 13th Octobor 2024
