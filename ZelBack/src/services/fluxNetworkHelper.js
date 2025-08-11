@@ -34,6 +34,7 @@ let storedFluxBenchAllowed = null;
 let ipChangeData = null;
 let dosTooManyIpChanges = false;
 let maxNumberOfIpChanges = 0;
+let cachedEOLOSResult = null;
 
 const myCache = cacheManager.ipCache;
 const lruRateCache = cacheManager.rateLimitCache;
@@ -485,10 +486,16 @@ async function getMyFluxIPandPort() {
 }
 
 /**
- * Check if current operating system has reached end of life.
+ * Check if current operating system has reached end of life (cached).
+ * This check is performed only once and the result is cached since OS version doesn't change during runtime.
  * @returns {object|null} Returns EOL OS config if found, null otherwise
  */
 function checkEOLOperatingSystem() {
+  // Return cached result if already checked
+  if (cachedEOLOSResult !== null) {
+    return cachedEOLOSResult === false ? null : cachedEOLOSResult;
+  }
+
   try {
     const platform = os.platform();
     // eslint-disable-next-line global-require
@@ -525,16 +532,28 @@ function checkEOLOperatingSystem() {
       if (osName.toLowerCase().includes(eolSystem.name.toLowerCase())) {
         if (eolSystem.versions.includes(osVersion)) {
           log.error(`Detected EOL operating system: ${osName} ${osVersion}`);
+          cachedEOLOSResult = eolSystem;
           return eolSystem;
         }
       }
     }
 
+    // Cache the result (no EOL OS detected)
+    cachedEOLOSResult = false; // Use false instead of null to distinguish between "not checked" and "checked but not EOL"
     return null;
   } catch (error) {
     log.error('Error checking EOL operating system:', error);
+    cachedEOLOSResult = false; // Cache the error state
     return null;
   }
+}
+
+/**
+ * Reset the cached EOL OS result (for testing purposes).
+ * @returns {void}
+ */
+function resetEOLOSCache() {
+  cachedEOLOSResult = null;
 }
 
 /**
@@ -1926,6 +1945,7 @@ module.exports = {
   setDosMessage,
   setDosStateValue,
   getDosStateValue,
+  resetEOLOSCache,
   fluxUptime,
   fluxSystemUptime,
   isCommunicationEstablished,

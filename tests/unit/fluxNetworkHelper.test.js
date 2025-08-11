@@ -1993,6 +1993,8 @@ describe('fluxNetworkHelper tests', () => {
     beforeEach(() => {
       logErrorStub = sinon.stub(log, 'error');
       logWarnStub = sinon.stub(log, 'warn');
+      // Reset the cached result before each test
+      fluxNetworkHelper.resetEOLOSCache();
     });
 
     afterEach(() => {
@@ -2234,6 +2236,46 @@ VERSION_ID="20.04"`);
 
       expect(result).to.be.null;
       sinon.assert.calledWith(logErrorStub, 'Error checking EOL operating system:', sinon.match.instanceOf(Error));
+    });
+
+    it('should cache the result and not perform check again', () => {
+      const osStub = sinon.stub(osModule, 'platform').returns('linux');
+      const fsStub = sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION_ID="20.04"`);
+
+      // First call - should perform the check
+      const result1 = fluxNetworkHelper.checkEOLOperatingSystem();
+      expect(result1).to.not.be.null;
+      expect(result1.name).to.equal('Ubuntu');
+
+      // Second call - should return cached result without calling OS/FS functions again
+      sinon.resetHistory(); // Reset call history but keep stubs
+      const result2 = fluxNetworkHelper.checkEOLOperatingSystem();
+      expect(result2).to.not.be.null;
+      expect(result2.name).to.equal('Ubuntu');
+
+      // Verify OS/FS functions were not called again
+      sinon.assert.notCalled(osStub);
+      sinon.assert.notCalled(fsStub);
+    });
+
+    it('should cache non-EOL result and not perform check again', () => {
+      const osStub = sinon.stub(osModule, 'platform').returns('linux');
+      const fsStub = sinon.stub(fsModule, 'readFileSync').returns(`NAME="Ubuntu"
+VERSION_ID="22.04"`);
+
+      // First call - should perform the check
+      const result1 = fluxNetworkHelper.checkEOLOperatingSystem();
+      expect(result1).to.be.null;
+
+      // Second call - should return cached result without calling OS/FS functions again
+      sinon.resetHistory(); // Reset call history but keep stubs
+      const result2 = fluxNetworkHelper.checkEOLOperatingSystem();
+      expect(result2).to.be.null;
+
+      // Verify OS/FS functions were not called again
+      sinon.assert.notCalled(osStub);
+      sinon.assert.notCalled(fsStub);
     });
   });
 });
