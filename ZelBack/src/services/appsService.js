@@ -12383,16 +12383,7 @@ async function getAppFluxOnChainPrice(appSpecification) {
  */
 async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   // check if it's a free app update offered by the network
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  // may throw
-  let query = { name: appSpecFormatted.name };
-  const projection = {
-    projection: {
-      _id: 0,
-    },
-  };
-  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  const appInfo = await getApplicationGlobalSpecifications(appSpecFormatted.name);
   if (appInfo && appInfo.expire && appInfo.height && appSpecFormatted.expire) {
     const blocksToExtend = (appSpecFormatted.expire + Number(daemonHeight)) - appInfo.height - appInfo.expire;
     if (((!appSpecFormatted.nodes && !appInfo.nodes) || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length))
