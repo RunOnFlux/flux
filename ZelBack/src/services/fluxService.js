@@ -35,6 +35,9 @@ const stream = require('node:stream');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
+// Cache for OS distribution information
+let cachedOSDistInfo = null;
+
 // remove this when nodes are off 14.18.1
 function promiseAnyPolyfill(promisesArray) {
   const promiseErrors = new Array(promisesArray.length);
@@ -1138,6 +1141,54 @@ function getFluxTimezone(req, res) {
 }
 
 /**
+ * Helper function to get Linux distribution information (cached)
+ * @returns {Promise<object>} Object containing distribution name and version
+ */
+async function getOSDistributionInfo() {
+  // Return cached value if available
+  if (cachedOSDistInfo) {
+    return cachedOSDistInfo;
+  }
+
+  try {
+    if (os.platform() === 'linux') {
+      const osReleaseContent = await fs.readFile('/etc/os-release', 'utf8');
+      const lines = osReleaseContent.split('\n');
+      const osInfo = {};
+      
+      lines.forEach((line) => {
+        const [key, value] = line.split('=');
+        if (key && value) {
+          osInfo[key] = value.replace(/"/g, '');
+        }
+      });
+      
+      cachedOSDistInfo = {
+        distribution: osInfo.NAME || 'Unknown',
+        version: osInfo.VERSION_ID || osInfo.VERSION || 'Unknown',
+        prettyName: osInfo.PRETTY_NAME || `${osInfo.NAME} ${osInfo.VERSION_ID}`,
+      };
+    } else {
+      // For non-Linux systems, return basic OS info
+      cachedOSDistInfo = {
+        distribution: os.type(),
+        version: os.release(),
+        prettyName: `${os.type()} ${os.release()}`,
+      };
+    }
+  } catch (error) {
+    // Fallback if /etc/os-release doesn't exist or can't be read
+    cachedOSDistInfo = {
+      distribution: os.type(),
+      version: os.release(),
+      prettyName: `${os.type()} ${os.release()}`,
+    };
+  }
+  
+  return cachedOSDistInfo;
+}
+
+/**
  * To get info (version, status etc.) for daemon, node, benchmark, FluxOS and apps.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1170,6 +1221,10 @@ async function getFluxInfo(req, res) {
     info.flux.syncthingVersion = syncthingVersion.data.version;
     const dockerVersion = await dockerService.dockerVersion();
     info.flux.dockerVersion = dockerVersion.Version;
+    const osDistInfo = await getOSDistributionInfo();
+    info.flux.os = osDistInfo.distribution;
+    info.flux.osVersion = osDistInfo.version;
+    info.flux.osPrettyName = osDistInfo.prettyName;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
