@@ -1815,4 +1815,7 @@ export default {
   overflow-wrap: break-word;
   word-break: break-word;
 }
+.no-wrap {
+  white-space: nowrap !important;
+}
 </style>

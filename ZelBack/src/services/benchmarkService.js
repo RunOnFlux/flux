@@ -311,7 +311,7 @@ async function executeUpnpBench() {
     return;
   }
   const isUPNP = upnpService.isUPNP();
-  if (!isArcane && ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP)) {
+  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
     log.info('Calling FluxBench startMultiPortBench');
     log.info(await startMultiPortBench());
   }
