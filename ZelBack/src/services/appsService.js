@@ -12399,6 +12399,8 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
           }
         }
         if (!changes) {
+          const db = dbHelper.databaseConnection();
+          const database = db.db(config.database.appsglobal.database);
           query = { 'appSpecifications.name': appSpecFormatted.name };
           const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           let messagesInLasDays = permanentAppMessage.filter((message) => (message.type === 'fluxappupdate' || message.type === 'zelappupdate') && message.height > daemonHeight - 3600);
