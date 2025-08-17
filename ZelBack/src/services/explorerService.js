@@ -641,7 +641,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
           // This is: string + number = string
           const initializer = ip + blockDataVerbose.height;
           const benchDelayMs = serviceHelper.randomDelayMs(maxBenchDelay, { initializer });
-          const benchDelayS = Math.round((benchDelayMs + Number.EPSILON) * 100) / 100;
+          const benchDelayS = Math.round((benchDelayMs / 1000) * 100) / 100;
 
           log.info(`Starting multiport bench in: ${benchDelayS}s`);
 
