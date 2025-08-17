@@ -626,6 +626,10 @@ async function processBlock(blockHeight, isInsightExplorer) {
       }
       if (blockDataVerbose.height % config.fluxapps.benchUpnpPeriod === 0) {
         try {
+          // every node behind the same ip will benchmark at the same time. I.e.
+          // we spread the network out (grouped by ip) over an hour so we don't
+          // absolutely hammer the speedtest servers at the same time.
+          const maxBenchDelay = 3_600_000;
           const socketAddress = await fluxNetworkhelper.getMyFluxIPandPort();
 
           // socketAddress can be null. If it is, we just use an empty string. This
@@ -636,10 +640,10 @@ async function processBlock(blockHeight, isInsightExplorer) {
           const ip = socketAddress ? socketAddress.split(':')[0] : '';
           // This is: string + number = string
           const initializer = ip + blockDataVerbose.height;
-          const benchDelayMs = serviceHelper.randomDelay(3_600_000, { initializer });
+          const benchDelayMs = serviceHelper.randomDelay(maxBenchDelay, { initializer });
           const benchDelayS = Math.round((benchDelayMs + Number.EPSILON) * 100) / 100;
 
-          log.info(`Starting multiport bench in: ${benchDelayS}`);
+          log.info(`Starting multiport bench in: ${benchDelayS}s`);
 
           setTimeout(benchmarkService.executeUpnpBench, benchDelayMs);
         } catch (error) {
