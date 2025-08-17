@@ -740,4 +740,60 @@ describe('serviceHelper tests', () => {
       }
     });
   });
+
+  describe('randomDelayMs tests', () => {
+    it('should return the same delay for the same initializer', () => {
+      const initializer = '1.1.1.11976543';
+
+      const result1 = serviceHelper.randomDelayMs(10_000, { initializer });
+      const result2 = serviceHelper.randomDelayMs(10_000, { initializer });
+      expect(result1).to.equal(result2);
+    });
+
+    it('should return a different delay for a different initializer', () => {
+      const initializer1 = '1.1.1.11976543';
+      const initializer2 = '1.1.1.11976544';
+
+      const result1 = serviceHelper.randomDelayMs(10_000, { initializer1 });
+      const result2 = serviceHelper.randomDelayMs(10_000, { initializer2 });
+      expect(result1).to.not.equal(result2);
+    });
+
+    it('should always return a random delay between the min and max', () => {
+      const ip = '1.1.1.1';
+      const block = 2_000_000;
+
+      const minSize = 10_000;
+      const maxSize = 100_000;
+
+      for (let i = 0; i < 10_000; i += 1) {
+        const initializer = ip + (block + i);
+        const result = serviceHelper.randomDelayMs(
+          maxSize,
+          { initializer, minDelayMs: minSize },
+        );
+
+        expect(result).to.be.greaterThanOrEqual(minSize);
+        expect(result).to.be.lessThanOrEqual(maxSize);
+      }
+    });
+
+    it('should return a different random number if no initializer is used', () => {
+      const maxSize = Number.MAX_VALUE;
+
+      const valueCount = 1000;
+      // since we are using random, there is a chance, lol, like a small chance,
+      // that we can get the same number. To make sure this chance is essentially
+      // zero, we allow for 5 same numbers
+      const expectedCount = 995;
+
+      const numbers = Array(valueCount).fill().map(
+        () => serviceHelper.randomDelayMs(maxSize),
+      );
+
+      const unique = new Set(numbers);
+
+      expect(unique.size).to.be.greaterThanOrEqual(expectedCount);
+    });
+  });
 });
