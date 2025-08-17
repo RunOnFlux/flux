@@ -205,9 +205,9 @@ function delay(userInterval) {
  * the same.
  * @param {number} maxDelayMs
  * @param {{initializer?: string, minDelayMs?: number}} options
- * @returns {Promise<void>}
+ * @returns {number}
  */
-function randomDelay(maxDelayMs, options = {}) {
+function randomDelayMs(maxDelayMs, options = {}) {
   const initializer = options.initializer || null;
   const minDelayMs = options.minDelayMs || 0;
 
@@ -223,7 +223,7 @@ function randomDelay(maxDelayMs, options = {}) {
     randFunc() * (maxDelayMs - minDelayMs + 1) + minDelayMs,
   );
 
-  return delay(ms);
+  return ms;
 }
 
 /**
@@ -723,7 +723,7 @@ module.exports = {
   minVersionSatisfy,
   parseVersion,
   parseInterval,
-  randomDelay,
+  randomDelayMs,
   runCommand,
   validIpv4Address,
   normalizeNodeIpApiPort,
