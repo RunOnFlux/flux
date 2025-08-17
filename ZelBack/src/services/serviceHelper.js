@@ -198,9 +198,9 @@ function delay(userInterval) {
 }
 
 /**
- * To delay (sleep) for a random number of ms. By default between 0 and maxDelayMs
+ * To generate a random delay in ms. By default between 0 and maxDelayMs
  *
- * Takes an optional initializer, for seeded random sleep times. If an initializer
+ * Takes an optional initializer, for seeded random delay times. If an initializer
  * is used, this function will return the same random number if the initializer is
  * the same.
  * @param {number} maxDelayMs
