@@ -164,6 +164,10 @@ async function logErrorAndExit(msg, options = {}) {
 
   if (msg) log.error(msg);
 
+  const delayS = Math.round((delay / 1000) * 100) / 100;
+
+  log.info(`Waiting: ${delayS}s, before exiting with code: ${exitCode}`);
+
   await new Promise((r) => { setTimeout(r, delay); });
   process.exit(exitCode);
 }
@@ -180,10 +184,16 @@ async function loadUpnpIfRequired() {
     }
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
       if (verifyUpnp !== true) {
-        await logErrorAndExit(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
+        await logErrorAndExit(
+          `Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`,
+          { exitCode: 1, delay: 120_000 },
+        );
       }
       if (setupUpnp !== true) {
-        await logErrorAndExit(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
+        await logErrorAndExit(
+          `Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`,
+          { exitCode: 1, delay: 120_000 },
+        );
       }
     }
   } catch (error) {
@@ -223,7 +233,7 @@ async function configReload() {
  */
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
-    await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`, { exitCode: 1 });
+    await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`);
   }
 
   process.on('uncaughtException', (err) => {
