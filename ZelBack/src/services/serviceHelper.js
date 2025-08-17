@@ -187,7 +187,7 @@ function parseInterval(userInterval) {
  * To delay by a number of milliseconds.
  * @param {number} userInterval The interval to delay for. See parseInterval
  * for specifics.
- * @returns {Promise} Promise object.
+ * @returns {Promise<void>} Promise object.
  */
 function delay(userInterval) {
   const ms = parseInterval(userInterval);
@@ -205,7 +205,7 @@ function delay(userInterval) {
  * the same.
  * @param {number} maxDelayMs
  * @param {{initializer?: string, minDelayMs?: number}} options
- * @returns
+ * @returns {Promise<void>}
  */
 function randomDelay(maxDelayMs, options = {}) {
   const initializer = options.initializer || null;
@@ -215,7 +215,7 @@ function randomDelay(maxDelayMs, options = {}) {
     ? () => {
       const seed = cyrb128(initializer);
       const rand = splitmix32(seed[0]);
-      return rand;
+      return rand();
     }
     : Math.random;
 
