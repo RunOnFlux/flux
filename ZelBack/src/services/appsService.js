@@ -9564,9 +9564,14 @@ async function checkAndSyncAppHashes() {
         log.info(`checkAndSyncAppHashes - Will process ${apps.length} apps messages`);
         // sort it by height, so we process oldest messages first
         apps.sort((a, b) => a.height - b.height);
+
+        // because there are broken nodes on the network, we need to temporarily skip
+        // any apps that have null for valueSat.
+        const filteredApps = apps.filter((app) => app.valueSat !== null);
+
         let y = 0;
         // eslint-disable-next-line no-restricted-syntax
-        for (const appMessage of apps) {
+        for (const appMessage of filteredApps) {
           y += 1;
           try {
             // eslint-disable-next-line no-await-in-loop
