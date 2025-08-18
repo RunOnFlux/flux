@@ -15839,14 +15839,15 @@ async function monitorNodeStatus() {
 
       const chunkSize = 250;
       let startIndex = 0;
-      let endIndex = chunkSize;
+      let endIndex = Math.min(chunkSize, appsLocationCount);
 
-      while (endIndex < appsLocationCount) {
+      while (startIndex < appsLocationCount) {
         const chunk = appslocations.slice(startIndex, endIndex);
         // eslint-disable-next-line no-await-in-loop
         await iterChunk(chunk);
+
         startIndex = endIndex;
-        endIndex += chunkSize;
+        endIndex += chunk.length;
       }
 
       log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);
