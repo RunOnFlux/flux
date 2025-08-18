@@ -136,6 +136,8 @@ async function getRandomSocketAddress(socketAddress) {
  * @returns {Promise<Fluxnode | null>}
  */
 async function getFluxnodeBySocketAddress(socketAddress) {
+  if (!stateManager) return null;
+
   const node = await stateManager.search(socketAddress, 'socketAddress');
 
   return node;
