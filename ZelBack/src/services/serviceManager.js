@@ -197,9 +197,17 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
-    // ToDo: The below index is created in the Explorer Service. Remove all the database indexing from the Explorer Service.
+
+    // ToDo: Fix all these broken database drops / index creations / removals all over the place. The below dropIndex was removing the
+    // index entirely so there was no index at all!
+
+    // The below index is created in the Explorer Service. Remove all the database indexing from the Explorer Service.
     // It's not the explorer service's responsibility, and other services need these indexes before Explorer Service creates them.
-    // await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' });
+
+    // It should be the dbService's responsibility that the db is in a state fit for use.
+
+    // we have to create it again here... as We have since deleted it since the explorerService created it
+    await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
     // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
