@@ -627,9 +627,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockDataVerbose.height % config.fluxapps.benchUpnpPeriod === 0) {
         try {
           // every node behind the same ip will benchmark at the same time. I.e.
-          // we spread the network out (grouped by ip) over an hour so we don't
+          // we spread the network out (grouped by ip) over 4 hours so we don't
           // absolutely hammer the speedtest servers at the same time.
-          const maxBenchDelay = 3_600_000;
+          const maxBenchDelay = 4 * 3_600_000;
           const socketAddress = await fluxNetworkhelper.getMyFluxIPandPort();
 
           // socketAddress can be null. If it is, we just use an empty string. This
