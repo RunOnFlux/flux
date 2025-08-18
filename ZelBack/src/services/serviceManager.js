@@ -198,15 +198,16 @@ async function startFluxFunctions() {
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
 
-    // ToDo: Fix all these broken database drops / index creations / removals all over the place. The below dropIndex was removing the
+    // ToDo: Fix all these broken database drops / index creations / removals all over the place. The prior dropIndex was removing the
     // index entirely so there was no index at all!
 
-    // The below index is created in the Explorer Service. Remove all the database indexing from the Explorer Service.
+    // The below index is created in the Explorer Service. We need to remove all the database indexing from the Explorer Service.
     // It's not the explorer service's responsibility, and other services need these indexes before Explorer Service creates them.
 
     // It should be the dbService's responsibility that the db is in a state fit for use.
 
-    // we have to create it again here... as We have since deleted it since the explorerService created it
+    // we have to create this index again here, as we need it to repair the db. As we were deleting this on every reboot (and it was only created when scannedHeight was 0)
+    // Creating an index that already exists is a no-op
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
