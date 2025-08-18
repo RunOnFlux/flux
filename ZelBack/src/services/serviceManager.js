@@ -197,7 +197,9 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
-    await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' });
+    // ToDo: The below index is created in the Explorer Service. Remove all the database indexing from the Explorer Service.
+    // It's not the explorer service's responsibility, and other services need these indexes before Explorer Service creates them.
+    // await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
     // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
@@ -215,8 +217,9 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
 
-    // this fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
-    // we can remove this
+    // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
+    // we can remove this. If this is the first run, there will be no index, but also, there will be no broken
+    // records
     await repairNanInAppsMessagesDb();
 
     log.info('Flux Apps installing locations prepared');
