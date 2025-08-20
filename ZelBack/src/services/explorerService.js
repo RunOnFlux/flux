@@ -13,6 +13,7 @@ const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTrans
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const appsService = require('./appsService');
 const benchmarkService = require('./benchmarkService');
+const fluxNetworkhelper = require('./fluxNetworkHelper');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -420,7 +421,7 @@ async function insertAndRequestAppHashes(apps, database) {
       const appsToRemove = [];
       // eslint-disable-next-line no-restricted-syntax
       for (const app of apps) {
-      // eslint-disable-next-line no-await-in-loop
+        // eslint-disable-next-line no-await-in-loop
         const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
         if (messageReceived) {
           appsToRemove.push(app);
@@ -625,7 +626,26 @@ async function processBlock(blockHeight, isInsightExplorer) {
       }
       if (blockDataVerbose.height % config.fluxapps.benchUpnpPeriod === 0) {
         try {
-          benchmarkService.executeUpnpBench();
+          // every node behind the same ip will benchmark at the same time. I.e.
+          // we spread the network out (grouped by ip) over 4 hours so we don't
+          // absolutely hammer the speedtest servers at the same time.
+          const maxBenchDelay = 4 * 3_600_000;
+          const socketAddress = await fluxNetworkhelper.getMyFluxIPandPort();
+
+          // socketAddress can be null. If it is, we just use an empty string. This
+          // has the effect of creating an initializer of just the block number. If
+          // this happens, every node on the network that uses the block number will
+          // run the bench at the same time. However this is an extreme edge case, as
+          // all nodes should just return the ip.
+          const ip = socketAddress ? socketAddress.split(':')[0] : '';
+          // This is: string + number = string
+          const initializer = ip + blockDataVerbose.height;
+          const benchDelayMs = serviceHelper.randomDelayMs(maxBenchDelay, { initializer });
+          const benchDelayS = Math.round((benchDelayMs / 1000) * 100) / 100;
+
+          log.info(`Random seed: ${initializer}. Starting multiport bench in: ${benchDelayS}s`);
+
+          setTimeout(benchmarkService.executeUpnpBench, benchDelayMs);
         } catch (error) {
           log.error(error);
         }
