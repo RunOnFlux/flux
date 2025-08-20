@@ -8,11 +8,15 @@ const config = require('config');
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
 
+/**
+ * @type {mongodb.MongoClient}
+ */
 let openDBConnection = null;
+
 /**
  * Returns MongoDB connection, if it was initiated before, otherwise returns null.
  *
- * @returns openDbConnection
+ * @returns {mongodb.MongoClient}
  */
 function databaseConnection() {
   return openDBConnection;
@@ -23,7 +27,7 @@ function databaseConnection() {
  *
  * @param {string} [url]
  *
- * @returns {object} mongodb.MongoClient
+ * @returns {Promise<mongodb.MongoClient>}
  */
 async function connectMongoDb(url) {
   const connectUrl = url || mongoUrl;
@@ -32,8 +36,8 @@ async function connectMongoDb(url) {
     useUnifiedTopology: true,
     maxPoolSize: 100,
   };
-  const db = await MongoClient.connect(connectUrl, mongoSettings);
-  return db;
+  const client = await MongoClient.connect(connectUrl, mongoSettings);
+  return client;
 }
 
 /**
@@ -73,15 +77,15 @@ async function distinctDatabase(database, collection, distinct, query) {
 /**
  * Returns array of documents from the DB based on the query and the projection.
  *
- * @param {string} database
+ * @param {mongodb.Db} database
  * @param {string} collection
  * @param {object} query
- * @param {object} [projection]
+ * @param {object} options
  *
- * @returns array
+ * @returns {Promise<Arrray>}
  */
-async function findInDatabase(database, collection, query, projection) {
-  const results = await database.collection(collection).find(query, projection).toArray();
+async function findInDatabase(database, collection, query, options) {
+  const results = await database.collection(collection).find(query, options).toArray();
   return results;
 }
 

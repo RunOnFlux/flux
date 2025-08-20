@@ -27,6 +27,112 @@ const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
 
+async function findValueSatNanInAppsMessages() {
+  const {
+    database: {
+      appsglobal: {
+        database: dbName, collections: { appsMessages: collectionName },
+      },
+    },
+  } = config;
+
+  const client = dbHelper.databaseConnection();
+  const db = client.db(dbName);
+  const query = { valueSat: NaN };
+  const options = { projection: { _id: 0, hash: 1 } };
+
+  const result = await dbHelper.findInDatabase(db, collectionName, query, options);
+
+  // ToDo: Fix the db helper so this is configurable
+  const brokenMessageHashes = result.map((item) => item.hash);
+
+  return brokenMessageHashes;
+}
+
+async function findValueSatInAppsHashes() {
+  const {
+    database: {
+      daemon: {
+        database: dbName, collections: { appsHashes: collectionName },
+      },
+    },
+  } = config;
+
+  const client = dbHelper.databaseConnection();
+  const db = client.db(dbName);
+  const query = {};
+  const options = { projection: { _id: 0, hash: 1, value: 1 } };
+
+  const results = await dbHelper.findInDatabase(db, collectionName, query, options);
+
+  const hashToValueMap = new Map();
+
+  results.forEach((result) => {
+    hashToValueMap.set(result.hash, result.value);
+  });
+
+  return hashToValueMap;
+}
+
+async function updateValueSatInAppsMessages(brokenHashes, hashMap) {
+  const {
+    database: {
+      appsglobal: {
+        database: dbName, collections: { appsMessages: collectionName },
+      },
+    },
+  } = config;
+
+  const client = dbHelper.databaseConnection();
+  const db = client.db(dbName);
+
+  const updateChunk = async (hashes) => {
+    const operations = [];
+
+    hashes.forEach((hash) => {
+      const valueSat = hashMap.get(hash);
+
+      if (valueSat) {
+        const operation = {
+          updateOne: {
+            filter: { hash },
+            update: { $set: { valueSat } },
+            upsert: true,
+          },
+        };
+
+        operations.push(operation);
+      }
+    });
+
+    await dbHelper.bulkWriteInDatabase(db, collectionName, operations);
+  };
+
+  const hashCount = brokenHashes.length;
+  const chunkSize = 5000;
+  let startIndex = 0;
+  let endIndex = Math.min(chunkSize, hashCount);
+
+  while (startIndex < hashCount) {
+    const chunk = brokenHashes.slice(startIndex, endIndex);
+    // eslint-disable-next-line no-await-in-loop
+    await updateChunk(chunk);
+
+    startIndex = endIndex;
+    endIndex += chunk.length;
+  }
+}
+
+async function repairNanInAppsMessagesDb() {
+  const brokenHashes = await findValueSatNanInAppsMessages();
+
+  if (!brokenHashes.length) return;
+
+  const hashMap = await findValueSatInAppsHashes();
+
+  await updateValueSatInAppsMessages(brokenHashes, hashMap);
+}
+
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
  */
@@ -91,7 +197,18 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsTemporaryMessages).createIndex({ receivedAt: 1 }, { expireAfterSeconds: 3600 }); // todo longer time? dropIndexes()
     log.info('Temporary database prepared');
     log.info('Preparing Flux Apps locations');
-    await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).dropIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash' }).catch(() => { console.log('Welcome to FluxOS'); }); // drop old index or display message for new installations
+
+    // ToDo: Fix all these broken database drops / index creations / removals all over the place. The prior dropIndex was removing the
+    // index entirely so there was no index at all!
+
+    // The below index is created in the Explorer Service. We need to remove all the database indexing from the Explorer Service.
+    // It's not the explorer service's responsibility, and other services need these indexes before Explorer Service creates them.
+
+    // It should be the dbService's responsibility that the db is in a state fit for use.
+
+    // we have to create this index again here, as we need it to repair the db. As we were deleting this on every reboot (and it was only created when scannedHeight was 0)
+    // Creating an index that already exists is a no-op
+    await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
     // more than 2 hours and 5m. Meaning we have not received status message for a long time. So that node is no longer on a network or app is down.
@@ -108,6 +225,12 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
+
+    // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
+    // we can remove this. If this is the first run, there will be no index, but also, there will be no broken
+    // records
+    await repairNanInAppsMessagesDb();
+
     log.info('Flux Apps installing locations prepared');
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
