@@ -48,7 +48,12 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
-      const result = await upnpService.verifyUPNPsupport();
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.verifyUPNPsupport();
+
+      await clock.tickAsync(2_500);
+      const result = await promise;
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(logSpy);
@@ -61,7 +66,12 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
-      const result = await upnpService.verifyUPNPsupport();
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.verifyUPNPsupport();
+
+      await clock.tickAsync(2_500);
+      const result = await promise;
 
       expect(result).to.equal(false);
       sinon.assert.calledTwice(logSpy);
@@ -75,7 +85,12 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
-      const result = await upnpService.verifyUPNPsupport();
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.verifyUPNPsupport();
+
+      await clock.tickAsync(2_500);
+      const result = await promise;
 
       expect(result).to.equal(false);
       sinon.assert.calledTwice(logSpy);
@@ -89,7 +104,12 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
-      const result = await upnpService.verifyUPNPsupport();
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.verifyUPNPsupport();
+
+      await clock.tickAsync(2_500);
+      const result = await promise;
 
       expect(result).to.equal(false);
       sinon.assert.calledTwice(logSpy);
@@ -103,7 +123,12 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getMappings').throws();
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').returns(Promise.resolve(true));
 
-      const result = await upnpService.verifyUPNPsupport();
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.verifyUPNPsupport();
+
+      await clock.tickAsync(2_500);
+      const result = await promise;
 
       expect(result).to.equal(false);
       sinon.assert.calledTwice(logSpy);
@@ -117,7 +142,12 @@ describe('upnpService tests', () => {
       sinon.stub(natUpnp.Client.prototype, 'getMappings').returns(Promise.resolve(true));
       sinon.stub(natUpnp.Client.prototype, 'removeMapping').throws();
 
-      const result = await upnpService.verifyUPNPsupport();
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.verifyUPNPsupport();
+
+      await clock.tickAsync(2_500);
+      const result = await promise;
 
       expect(result).to.equal(false);
       sinon.assert.calledTwice(logSpy);
@@ -141,7 +171,12 @@ describe('upnpService tests', () => {
     it('should return true if all client responses are valid', async () => {
       createMappingSpy.returns(true);
 
-      const result = await upnpService.setupUPNP(123);
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.setupUPNP(123);
+
+      await clock.tickAsync(2_000);
+      const result = await promise;
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(logSpy);
@@ -163,7 +198,12 @@ describe('upnpService tests', () => {
     it('should return true if all client responses are valid, no parameter passed', async () => {
       createMappingSpy.returns(true);
 
-      const result = await upnpService.setupUPNP();
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.setupUPNP();
+
+      await clock.tickAsync(2_000);
+      const result = await promise;
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(logSpy);
@@ -185,7 +225,12 @@ describe('upnpService tests', () => {
     it('should return error if client response throws', async () => {
       createMappingSpy.throws();
 
-      const result = await upnpService.setupUPNP(123);
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.setupUPNP(123);
+
+      await clock.tickAsync(2_000);
+      const result = await promise;
 
       expect(result).to.equal(false);
       sinon.assert.calledOnce(logSpy);
@@ -208,7 +253,12 @@ describe('upnpService tests', () => {
     it('should return true if all client responses are valid', async () => {
       createMappingSpy.returns(true);
 
-      const result = await upnpService.mapUpnpPort(123, 'some description');
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.mapUpnpPort(123, 'some description');
+
+      await clock.tickAsync(1_000);
+      const result = await promise;
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(logSpy);
@@ -232,7 +282,12 @@ describe('upnpService tests', () => {
     it('should return error if client response throws', async () => {
       createMappingSpy.throws();
 
-      const result = await upnpService.mapUpnpPort(123);
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.mapUpnpPort(123);
+
+      await clock.tickAsync(1_000);
+      const result = await promise;
 
       expect(result).to.equal(false);
       sinon.assert.calledOnce(logSpy);
@@ -255,7 +310,12 @@ describe('upnpService tests', () => {
     it('should return true if all client responses are valid', async () => {
       removeMappingSpy.returns(true);
 
-      const result = await upnpService.removeMapUpnpPort(123, 'some description');
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.removeMapUpnpPort(123, 'some description');
+
+      await clock.tickAsync(1_000);
+      const result = await promise;
 
       expect(result).to.equal(true);
       sinon.assert.notCalled(logSpy);
@@ -267,7 +327,12 @@ describe('upnpService tests', () => {
     it('should return error if client response throws', async () => {
       removeMappingSpy.throws();
 
-      const result = await upnpService.removeMapUpnpPort(123);
+      const clock = sinon.useFakeTimers();
+
+      const promise = upnpService.removeMapUpnpPort(123);
+
+      await clock.tickAsync(1_000);
+      const result = await promise;
 
       expect(result).to.equal(false);
       sinon.assert.calledOnce(logSpy);
