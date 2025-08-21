@@ -220,14 +220,29 @@
               <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
               <div>
                 <p>
-                  To vote you need to first sign a message with Zelcore with your Flux ID corresponding to your Flux Nodes.
+                  To vote you need to first sign a message with your wallet (Zelcore or SSP) with your Flux ID corresponding to your Flux Nodes.
                 </p>
-                <div>
-                  <a @click="initiateSignWS">
+                <div class="wallet-options">
+                  <a
+                    title="Sign with Zelcore"
+                    @click="initiateSignWS"
+                  >
                     <img
-                      class="zelidLogin"
+                      class="walletIcon"
                       src="@/assets/images/FluxID.svg"
                       alt="Flux ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a
+                    title="Sign with SSP"
+                    @click="initSSP"
+                  >
+                    <img
+                      class="walletIcon"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                      alt="SSP"
                       height="100%"
                       width="100%"
                     >
@@ -447,6 +462,10 @@ export default {
     const vm = getCurrentInstance().proxy;
     const config = computed(() => vm.$store.state.flux.config);
 
+    const {
+      skin,
+    } = useAppConfig();
+
     // Use toast
     const toast = useToast();
 
@@ -625,6 +644,23 @@ export default {
           hiddenLink.click();
           document.body.removeChild(hiddenLink);
         }
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
+    const initSSP = async () => {
+      try {
+        if (!window.ssp) {
+          showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: dataToSign.value });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        }
+        signature.value = responseData.signature;
+        userZelid.value = responseData.address;
       } catch (error) {
         showToast('danger', error.message);
       }
@@ -876,6 +912,7 @@ export default {
       vote,
 
       initiateSignWS,
+      initSSP,
       callbackValueSign,
 
       myVote,
@@ -891,6 +928,7 @@ export default {
       onMessage,
 
       userZelid,
+      skin,
     };
   },
 };
@@ -907,6 +945,25 @@ export default {
   height: 100px;
 }
 .zelidLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.wallet-options {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.walletIcon {
+  height: 80px;
+  width: 80px;
+  padding: 5px;
+}
+
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }

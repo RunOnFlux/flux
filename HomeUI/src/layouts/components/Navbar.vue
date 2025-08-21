@@ -40,6 +40,7 @@
           @input="changeBackendURL(customBackend)"
         />
       </b-dropdown>
+      <flux-a-i-toggler />
     </div>
 
     <b-navbar-nav class="nav align-items-center ml-auto">
@@ -65,6 +66,7 @@ import {
 } from 'bootstrap-vue';
 import DarkToggler from '@core/layouts/components/app-navbar/components/DarkToggler.vue';
 import MenuCollapseToggler from '@core/layouts/components/app-navbar/components/MenuCollapseToggler.vue';
+import FluxAIToggler from '@core/layouts/components/app-navbar/components/FluxAIToggler.vue';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
 import Ripple from 'vue-ripple-directive';
 import firebase from '../../libs/firebase';
@@ -86,6 +88,7 @@ export default {
     // Navbar Components
     DarkToggler,
     MenuCollapseToggler,
+    FluxAIToggler,
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
   },

@@ -4757,35 +4757,56 @@ async function verifyAppHash(message) {
   const specifications = message.appSpecifications || message.zelAppSpecifications;
   let messToHash = message.type + message.version + JSON.stringify(specifications) + message.timestamp + message.signature;
   let messageHASH = await generalService.messageHash(messToHash);
+
+  if (messageHASH === message.hash) return true;
+
+  const appSpecsCopy = JSON.parse(JSON.stringify(specifications));
+
+  if (specifications.version <= 3) {
+    // as of specification changes, adjust our appSpecs order of owner and repotag
+    // in new scheme it is always version, name, description, owner, repotag... Old format was version, name, description, repotag, owner
+    delete appSpecsCopy.version;
+    delete appSpecsCopy.name;
+    delete appSpecsCopy.description;
+    delete appSpecsCopy.repotag;
+    delete appSpecsCopy.owner;
+
+    const appSpecOld = {
+      version: specifications.version,
+      name: specifications.name,
+      description: specifications.description,
+      repotag: specifications.repotag,
+      owner: specifications.owner,
+      ...appSpecsCopy,
+    };
+    messToHash = message.type + message.version + JSON.stringify(appSpecOld) + message.timestamp + message.signature;
+    messageHASH = await generalService.messageHash(messToHash);
+  } else if (specifications.version === 7) {
+    // fix for repoauth / secrets order change for apps created after 1750273721000
+    appSpecsCopy.compose.forEach((component) => {
+      // previously the order was secrets / repoauth. Now it's repoauth / secrets.
+      const comp = component;
+      const { secrets, repoauth } = comp;
+
+      delete comp.secrets;
+      delete comp.repoauth;
+
+      // try the old secrets / repoauth
+      comp.secrets = secrets;
+      comp.repoauth = repoauth;
+    });
+
+    messToHash = message.type + message.version + JSON.stringify(appSpecsCopy) + message.timestamp + message.signature;
+    messageHASH = await generalService.messageHash(messToHash);
+  }
+
   if (messageHASH !== message.hash) {
-    if (specifications.version <= 3) {
-      // as of specification changes, adjust our appSpecs order of owner and repotag
-      // in new scheme it is always version, name, description, owner, repotag... Old format was version, name, description, repotag, owner
-      const appSpecsCopy = JSON.parse(JSON.stringify(specifications));
-      delete appSpecsCopy.version;
-      delete appSpecsCopy.name;
-      delete appSpecsCopy.description;
-      delete appSpecsCopy.repotag;
-      delete appSpecsCopy.owner;
-      const appSpecOld = {
-        version: specifications.version,
-        name: specifications.name,
-        description: specifications.description,
-        repotag: specifications.repotag,
-        owner: specifications.owner,
-        ...appSpecsCopy,
-      };
-      messToHash = message.type + message.version + JSON.stringify(appSpecOld) + message.timestamp + message.signature;
-      messageHASH = await generalService.messageHash(messToHash);
-      if (messageHASH !== message.hash) {
-        log.error(`Hashes dont match - expected - ${message.hash} - calculated - ${messageHASH} for the message ${JSON.stringify(message)}`);
-        throw new Error('Invalid Flux App hash received');
-      }
-      return true;
-    }
     log.error(`Hashes dont match - expected - ${message.hash} - calculated - ${messageHASH} for the message ${JSON.stringify(message)}`);
     throw new Error('Invalid Flux App hash received');
   }
+
+  // ToDo: fix this function. Should just return true / false and the upper layer deals with it,
+  // none of this needs to be async, crypto.createHash is synchronous
   return true;
 }
 
@@ -6770,7 +6791,7 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
   const decryptedPrev = await checkAndDecryptAppSpecs(appSpecs, { daemonHeight: heightForDecrypt });
   // eslint-disable-next-line no-use-before-define
   const formattedPrev = specificationFormatter(decryptedPrev);
-  
+
   return formattedPrev;
 }
 
@@ -9543,15 +9564,20 @@ async function checkAndSyncAppHashes() {
         log.info(`checkAndSyncAppHashes - Will process ${apps.length} apps messages`);
         // sort it by height, so we process oldest messages first
         apps.sort((a, b) => a.height - b.height);
+
+        // because there are broken nodes on the network, we need to temporarily skip
+        // any apps that have null for valueSat.
+        const filteredApps = apps.filter((app) => app.valueSat !== null);
+
         let y = 0;
         // eslint-disable-next-line no-restricted-syntax
-        for (const appMessage of apps) {
+        for (const appMessage of filteredApps) {
           y += 1;
           try {
             // eslint-disable-next-line no-await-in-loop
             await storeAppTemporaryMessage(appMessage, true);
             // eslint-disable-next-line no-await-in-loop
-            await checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.value, 2);
+            await checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.valueSat, 2);
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(50);
           } catch (error) {
@@ -10980,9 +11006,9 @@ async function trySpawningGlobalApplication() {
 
       // filter apps that failed to install before
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => !runningApps.data.find((appsRunning) => appsRunning.Names[0].slice(5) === app.name)
-      && !spawnErrorsLongerAppCache.has(app.hash)
-      && !trySpawningGlobalAppCache.has(app.hash)
-      && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
+        && !spawnErrorsLongerAppCache.has(app.hash)
+        && !trySpawningGlobalAppCache.has(app.hash)
+        && !appsToBeCheckedLater.includes((appAux) => appAux.appName === app.name));
       // filter apps that are non enterprise or are marked to install on my node
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => app.nodes.length === 0 || app.nodes.find((ip) => ip === myIP) || app.version >= 8);
       // filter apps that dont have geolocation or that are forbidden to spawn on my node geolocation
@@ -12402,6 +12428,11 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
           const db = dbHelper.databaseConnection();
           const database = db.db(config.database.appsglobal.database);
           query = { 'appSpecifications.name': appSpecFormatted.name };
+          const projection = {
+            projection: {
+              _id: 0,
+            },
+          };
           const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           let messagesInLasDays = permanentAppMessage.filter((message) => (message.type === 'fluxappupdate' || message.type === 'zelappupdate') && message.height > daemonHeight - 3600);
           // we will give a maximum of 10 free updates in 5 days, 8 in two days, 5 in one day
@@ -15818,14 +15849,15 @@ async function monitorNodeStatus() {
 
       const chunkSize = 250;
       let startIndex = 0;
-      let endIndex = chunkSize;
+      let endIndex = Math.min(chunkSize, appsLocationCount);
 
-      while (endIndex < appsLocationCount) {
+      while (startIndex < appsLocationCount) {
         const chunk = appslocations.slice(startIndex, endIndex);
         // eslint-disable-next-line no-await-in-loop
         await iterChunk(chunk);
+
         startIndex = endIndex;
-        endIndex += chunkSize;
+        endIndex += chunk.length;
       }
 
       log.info(`monitorNodeStatus - Found ${appsLocationsNotOnNodelist.length} IP(s) not present on deterministic node list`);

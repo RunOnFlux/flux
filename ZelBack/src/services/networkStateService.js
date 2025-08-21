@@ -107,24 +107,47 @@ function nodeCount() {
  * @returns {Promise<Map<string, Fluxnode>> | null>} Clone of state
  */
 async function getFluxnodesByPubkey(pubkey) {
+  if (!stateManager) return null;
+
   const nodes = await stateManager.search(pubkey, 'pubkey');
 
   return nodes;
 }
 
+/**
+ *
+ * @param {string} socketAddress
+ * @returns {Promise<boolean>}
+ */
 async function socketAddressInNetworkState(socketAddress) {
+  if (!stateManager) return false;
+
   const found = await stateManager.includes(socketAddress, 'socketAddress');
 
   return found;
 }
 
+/**
+ *
+ * @param {string} pubkey
+ * @returns {Promise<boolean>}
+ */
 async function pubkeyInNetworkState(pubkey) {
+  if (!stateManager) return false;
+
   const found = await stateManager.includes(pubkey, 'pubkey');
 
   return found;
 }
 
+/**
+ *
+ * @param {string} socketAddress
+ * @returns {Promise<string | null>}
+ */
 async function getRandomSocketAddress(socketAddress) {
+  if (!stateManager) return null;
+
   const random = await stateManager.getRandomSocketAddress(socketAddress);
 
   return random;
@@ -136,6 +159,8 @@ async function getRandomSocketAddress(socketAddress) {
  * @returns {Promise<Fluxnode | null>}
  */
 async function getFluxnodeBySocketAddress(socketAddress) {
+  if (!stateManager) return null;
+
   const node = await stateManager.search(socketAddress, 'socketAddress');
 
   return node;
