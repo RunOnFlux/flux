@@ -25,6 +25,11 @@ async function initiate() {
     res.send('User-agent: *\nDisallow: /');
   });
 
+  homeApp.get('/health', (req, res) => {
+    res.type('text/plain');
+    res.send('OK');
+  });
+
   homeApp.get('*', (req, res) => {
     res.sendFile(path.join(home, 'index.html'));
   });

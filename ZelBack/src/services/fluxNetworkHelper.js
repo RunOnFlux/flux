@@ -129,7 +129,7 @@ function isPortUPNPBanned(port) {
  * To perform a basic check if port on an ip is opened
  * @param {string} ip IP address.
  * @param {number} port Port.
- * @returns {boolean} Returns true if opened, otherwise false
+ * @returns {Promise<boolean>} Returns true if opened, otherwise false
  */
 async function isPortOpen(ip, port) {
   try {
@@ -147,7 +147,7 @@ async function isPortOpen(ip, port) {
  * To perform a basic check of current FluxOS version.
  * @param {string} ip IP address.
  * @param {string} port Port. Defaults to config.server.apiport.
- * @returns {boolean} False unless FluxOS version meets or exceeds the minimum allowed version.
+ * @returns {Promise<boolean>} False unless FluxOS version meets or exceeds the minimum allowed version.
  */
 async function isFluxAvailable(ip, port = config.server.apiport) {
   const axiosConfig = {
@@ -170,8 +170,12 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     if (!versionMinOK) return false;
 
     const homePort = +port - 1;
-    const fluxResponseUI = await serviceHelper.axiosGet(`http://${ip}:${homePort}`, axiosConfig);
-    const UIok = fluxResponseUI.data.includes('<title>');
+    // There is a new /health endpoint on the frontend express server. Since we have a catch-all route,
+    // nodes on older versions will just return the index.html, so no change. Once all nodes on >= 6.6.1,
+    // remove the title check (and this comment)
+    const fluxResponseUI = await serviceHelper.axiosGet(`http://${ip}:${homePort}/health`, axiosConfig);
+    const { data: UiPayload = '' } = fluxResponseUI;
+    const UIok = UiPayload === 'OK' || UiPayload.includes('<title>');
     if (!UIok) return false;
 
     const syncthingPort = +port + 2;
@@ -886,7 +890,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const resMyAvailability = await serviceHelper.axiosGet(url, axiosConfig).catch(
     (error) => {
       log.error(`checkMyFluxAvailability - ${remoteIp}:${remotePort}`
-      + `is not reachable. ${error.message}`);
+        + `is not reachable. ${error.message}`);
 
       return null;
     },
