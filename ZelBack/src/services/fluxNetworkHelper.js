@@ -173,10 +173,10 @@ async function isFluxAvailable(ip, port = config.server.apiport) {
     // There is a new /health endpoint on the frontend express server. Since we have a catch-all route,
     // nodes on older versions will just return the index.html, so no change. Once all nodes on >= 6.6.1,
     // remove the title check (and this comment)
-    const fluxResponseUI = await serviceHelper.axiosGet(`http://${ip}:${homePort}/health`, axiosConfig);
-    const { data: UiPayload = '' } = fluxResponseUI;
-    const UIok = UiPayload === 'OK' || UiPayload.includes('<title>');
-    if (!UIok) return false;
+    const fluxResponseUi = await serviceHelper.axiosGet(`http://${ip}:${homePort}/health`, axiosConfig);
+    const { data: UiPayload = '' } = fluxResponseUi;
+    const uiAvailable = UiPayload === 'OK' || UiPayload.includes('<title>');
+    if (!uiAvailable) return false;
 
     const syncthingPort = +port + 2;
     const portOpen = await isPortOpen(ip, syncthingPort);
