@@ -105,39 +105,6 @@
       rel="stylesheet"
     />
     <title>FluxOS Dashboard</title>
-    <!-- DNS prefetch for faster loading when needed -->
-    <link rel="dns-prefetch" href="//widget.kapa.ai">
-    <link rel="preconnect" href="https://widget.kapa.ai" crossorigin>
-    <!-- Kapa AI Widget - Lazy Loaded -->
-    <script>
-      // Lazy load Kapa AI widget when button is clicked
-      let kapaLoaded = false;
-      function loadKapaWidget() {
-        if (kapaLoaded) return;
-        kapaLoaded = true;
-        const script = document.createElement('script');
-        script.src = 'https://widget.kapa.ai/kapa-widget.bundle.js';
-        script.setAttribute('data-website-id', '16d7ee8e-1911-40a9-9bed-15eaadbcd99d');
-        script.setAttribute('data-project-name', 'Flux');
-        script.setAttribute('data-button-hide', 'true');
-        script.setAttribute('data-modal-override-open-id-ask-ai', 'flux-ai-button');
-        script.setAttribute('data-user-analytics-fingerprint-enabled', 'true');
-        script.setAttribute('data-search-mode-enabled', 'true');
-        script.setAttribute('data-project-logo', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg');
-        script.setAttribute('data-modal-image', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg');
-        script.setAttribute('data-modal-disclaimer', 'Get instant answers about Flux products, deployment, and app management. Powered by AI trained on official docs, whitepapers, and support resources.');
-        document.head.appendChild(script);
-      }
-      // Load when DOM is ready and set up click handler
-      document.addEventListener('DOMContentLoaded', function() {
-        // Use delegation since the button might be dynamically created
-        document.addEventListener('click', function(e) {
-          if (e.target && e.target.id === 'flux-ai-button') {
-            loadKapaWidget();
-          }
-        });
-      });
-    </script>
   </head>
   <body>
     <noscript>
@@ -167,4 +134,18 @@
       document.body.classList.remove("dark-layout");
     }
   </script>
+  <!-- Kapa AI Widget - loaded after DOM -->
+  <script
+    defer
+    src="https://widget.kapa.ai/kapa-widget.bundle.js"
+    data-website-id="16d7ee8e-1911-40a9-9bed-15eaadbcd99d"
+    data-project-name="Flux"
+    data-button-hide="true"
+    data-modal-override-open-id-ask-ai="flux-ai-button"
+    data-user-analytics-fingerprint-enabled="true"
+    data-search-mode-enabled="true"
+    data-project-logo="https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg"
+    data-modal-image="https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg"
+    data-modal-disclaimer="Get instant answers about Flux products, deployment, and app management. Powered by AI trained on official docs, whitepapers, and support resources."
+  ></script>
 </html>
