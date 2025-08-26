@@ -431,7 +431,7 @@ async function isReindexAppsInformationRequired(
     {
       $match: {
         $expr: {
-          $gte: [
+          $gt: [
             {
               $add: [
                 '$maxHeightMsg.height',
@@ -456,7 +456,7 @@ async function isReindexAppsInformationRequired(
     },
     {
       $match: {
-        expireHeight: { $gte: scannedHeight },
+        expireHeight: { $gt: scannedHeight },
       },
     },
     {
@@ -642,7 +642,7 @@ async function reindexGlobalAppsInformation(
     {
       $match: {
         $expr: {
-          $gte: [
+          $gt: [
             {
               $add: [
                 '$maxHeightMsg.height',
