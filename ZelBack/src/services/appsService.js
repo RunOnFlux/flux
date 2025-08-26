@@ -8122,7 +8122,9 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
     };
     const allPermanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
     const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
-    daemonHeight = lastUpdate.height;
+    // There seems to be some apps that have made there way into localApps but aren't on permanent
+    // messages. If so - we just return height of zero
+    daemonHeight = lastUpdate ? lastUpdate.height : 0;
   }
 
   const enterprise = await decryptEnterpriseFromSession(
