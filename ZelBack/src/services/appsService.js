@@ -2557,7 +2557,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
  * @param {boolean} force Defaults to false. Force determines if a check for app not found is skipped.
  * @param {boolean} endResponse Defaults to true.
  * @param {boolean} sendMessage Defaults to false. When sendMessage is true we broadcast the appremoved message to the network.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   try {
