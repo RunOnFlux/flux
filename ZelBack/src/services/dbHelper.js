@@ -764,7 +764,7 @@ async function validateAppsInformation() {
     response.reindexed = true;
     response.appsToRemove = appsToRemove;
   } catch (err) {
-    log.error('Unable to validate apps information. Error: {err}');
+    log.error(`Unable to validate apps information. Error: ${err}`);
   }
   return response;
 }
