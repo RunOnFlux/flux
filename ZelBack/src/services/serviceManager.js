@@ -129,7 +129,7 @@ async function startFluxFunctions() {
     const appRemover = async () => {
       // eslint-disable-next-line no-restricted-syntax
       for (const appName of appsToRemove) {
-        log.warning(`Application ${appName} is expired, removing`);
+        log.warn(`Application ${appName} is expired, removing`);
         // eslint-disable-next-line no-await-in-loop
         await appsService.removeAppLocally(appName, null, false, true, true);
         // eslint-disable-next-line no-await-in-loop
