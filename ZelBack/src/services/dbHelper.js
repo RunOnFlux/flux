@@ -667,10 +667,11 @@ async function reindexGlobalAppsInformation(
     },
   ];
 
-  const resultCursor = aggregateInDatabase(
+  const resultCursor = await aggregateInDatabase(
     appsGlobalDb,
     globalAppsMessagesCol,
     pipeline,
+    { returnArray: false },
   );
 
   const appsToRemove = await syncAppsInformationCollection(
