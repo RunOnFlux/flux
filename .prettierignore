@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+HomeUI/dist/
+docs/
+dev/
+
+# Configuration files that should maintain their formatting
+package-lock.json
+*.min.js
+*.min.css
+
+# Generated files
+lib/daemonrpc/
+
+# Test outputs
+coverage/
+
+# Ignore the same patterns as ESLint
+ZelApps/
+tests/e2e/
+config/userconfig.js
+
+# Cache directories
+.mypy_cache/
+.cache/
+
+# IDE and system files
+.DS_Store
+.claude/
+
+# Generated/vendor files
+helpers/*.json
