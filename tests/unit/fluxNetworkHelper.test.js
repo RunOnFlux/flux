@@ -77,7 +77,7 @@ describe('fluxNetworkHelper tests', () => {
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-      const expectedAddressHome = 'http://127.0.0.1:16126';
+      const expectedAddressHome = 'http://127.0.0.1:16126/health';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -110,7 +110,7 @@ describe('fluxNetworkHelper tests', () => {
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
       sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-      const expectedAddressHome = 'http://127.0.0.1:16126';
+      const expectedAddressHome = 'http://127.0.0.1:16126/health';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -265,7 +265,7 @@ describe('fluxNetworkHelper tests', () => {
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
       sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-      const expectedAddressHome = 'http://127.0.0.1:16126';
+      const expectedAddressHome = 'http://127.0.0.1:16126/health';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip);
 
@@ -289,7 +289,7 @@ describe('fluxNetworkHelper tests', () => {
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
       sinon.stub(util, 'promisify').returns(() => Promise.resolve());
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-      const expectedAddressHome = 'http://127.0.0.1:16126';
+      const expectedAddressHome = 'http://127.0.0.1:16126/health';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
 
