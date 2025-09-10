@@ -90,7 +90,7 @@ function isPortUserBlocked(port) {
 function isPortBanned(port) {
   const { bannedPorts } = config.fluxapps;
   let portBanned = false;
-  
+
   bannedPorts.forEach((portOrInterval) => {
     if (typeof portOrInterval === 'string') { // '0-10'
       const minPort = Number(portOrInterval.split('-')[0]);
@@ -102,7 +102,7 @@ function isPortBanned(port) {
       portBanned = true;
     }
   });
-  
+
   return portBanned;
 }
 
@@ -274,7 +274,7 @@ async function checkAppAvailability(req, res) {
         const iBP = isPortBanned(+port);
         const portNum = +port;
         const withinRange = portNum >= minPort && portNum <= maxPort;
-        
+
         if (withinRange && !iBP) {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port);
@@ -910,7 +910,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const resMyAvailability = await serviceHelper.axiosGet(url, axiosConfig).catch(
     (error) => {
       log.error(`checkMyFluxAvailability - ${remoteIp}:${remotePort}`
-        + `is not reachable. ${error.message}`);
+        + ` is not reachable. ${error.message}`);
 
       return null;
     },
