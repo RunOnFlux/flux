@@ -25,6 +25,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
+const upnpService = require('./upnpService');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
@@ -1155,14 +1156,14 @@ async function getOSDistributionInfo() {
       const osReleaseContent = await fs.readFile('/etc/os-release', 'utf8');
       const lines = osReleaseContent.split('\n');
       const osInfo = {};
-      
+
       lines.forEach((line) => {
         const [key, value] = line.split('=');
         if (key && value) {
           osInfo[key] = value.replace(/"/g, '');
         }
       });
-      
+
       cachedOSDistInfo = {
         distribution: osInfo.NAME || 'Unknown',
         version: osInfo.VERSION_ID || osInfo.VERSION || 'Unknown',
@@ -1184,7 +1185,7 @@ async function getOSDistributionInfo() {
       prettyName: `${os.type()} ${os.release()}`,
     };
   }
-  
+
   return cachedOSDistInfo;
 }
 
@@ -1231,6 +1232,7 @@ async function getFluxInfo(req, res) {
     }
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
+    info.flux.upnp = upnpService.isUPNP();
     info.flux.maxNumberOfIpChanges = fluxNetworkHelper.getMaxNumberOfIpChanges();
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
