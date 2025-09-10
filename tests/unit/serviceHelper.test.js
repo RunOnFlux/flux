@@ -213,7 +213,7 @@ describe('serviceHelper tests', () => {
       const database = db.db(config.database.appsglobal.database);
       const collection = config.database.appsglobal.collections.appsInformation;
       const insertApp = {
-        _id: ObjectId('6147045cd774409b374d253d'),
+        _id: new ObjectId('6147045cd774409b374d253d'),
         name: 'PolkadotNode',
         description: 'Polkadot is a heterogeneous multi-chain interchange.',
         owner: '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH',
@@ -251,7 +251,7 @@ describe('serviceHelper tests', () => {
   describe('deleteLoginPhrase tests', () => {
     const query = { loginPhrase: { $eq: '1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj' } };
     const loginPhrase = {
-      _id: ObjectId('620bba81c04b4966674013a4'),
+      _id: new ObjectId('620bba81c04b4966674013a4'),
       loginPhrase: '1644935809116x5fpl862o5fnyl29vfpmd9vzmgaddlgqbud8cxks8hj',
       createdAt: new Date('2022-02-15T14:36:49.116Z'),
       expireAt: new Date('2022-02-15T14:51:49.116Z'),

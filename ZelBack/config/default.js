@@ -188,11 +188,11 @@ module.exports = {
     multisigAddressChange: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
-    portMin: 31000, // ports 30000 - 30999 are reserved for local applications
-    portMax: 39999,
+    portMinLegacy: 31000, // ports 30000 - 30999 are reserved for local applications
+    portMaxLegacy: 39999,
     portBlockheightChange: isDevelopment ? 1390000 : 1420000,
-    portMinNew: 1,
-    portMaxNew: 65535,
+    portMin: 1,
+    portMax: 65535,
     bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444, 123, 53],
     enterprisePorts: ['0-1023', 8080, 8081, 8443, 6667],
     upnpBannedPorts: [],
