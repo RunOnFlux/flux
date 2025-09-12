@@ -90,6 +90,7 @@ function isPortUserBlocked(port) {
 function isPortBanned(port) {
   const { bannedPorts } = config.fluxapps;
   let portBanned = false;
+
   bannedPorts.forEach((portOrInterval) => {
     if (typeof portOrInterval === 'string') { // '0-10'
       const minPort = Number(portOrInterval.split('-')[0]);
@@ -101,6 +102,7 @@ function isPortBanned(port) {
       portBanned = true;
     }
   });
+
   return portBanned;
 }
 
@@ -126,21 +128,38 @@ function isPortUPNPBanned(port) {
 }
 
 /**
- * To perform a basic check if port on an ip is opened
- * @param {string} ip IP address.
- * @param {number} port Port.
+ * To perform a basic check if TCP port on an ip is open. I.e. that we receive a
+ * SYN-ACK in response to a SYN. If connected, we send an RST and close the port.
+ * @param {string} ip IP address
+ * @param {number} port Port
+ * @param {{timeout?:Number}} options
  * @returns {Promise<boolean>} Returns true if opened, otherwise false
  */
-async function isPortOpen(ip, port) {
-  try {
-    const exec = `nc -w 5 -z -v ${ip} ${port} </dev/null; echo $?`;
-    const cmdAsync = util.promisify(nodecmd.get);
-    const result = await cmdAsync(exec);
-    return !+result;
-  } catch (error) {
-    log.error(error);
-    return false;
-  }
+async function isPortOpen(ip, port, options = {}) {
+  const timeout = options.timeout || 5_000;
+
+  const call = new Promise((resolve, reject) => {
+    const socket = new net.Socket();
+
+    const timer = setTimeout(() => {
+      socket.destroy();
+    }, timeout);
+
+    socket.connect(port, ip, () => {
+      clearTimeout(timer);
+      socket.resetAndDestroy();
+      resolve(true);
+    });
+
+    socket.on('error', () => {
+      clearTimeout(timer);
+      reject();
+    });
+  });
+
+  const connected = await call.catch(() => false);
+
+  return connected;
 }
 
 /**
@@ -248,21 +267,22 @@ async function checkAppAvailability(req, res) {
         throw new Error('Unable to verify request authenticity');
       }
 
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height;
-      const minPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMinNew : config.fluxapps.portMin - 1000;
-      const maxPort = daemonHeight >= config.fluxapps.portBlockheightChange ? config.fluxapps.portMaxNew : config.fluxapps.portMax;
+      const { fluxapps: { portMin: minPort, portMax: maxPort } } = config;
+
       // eslint-disable-next-line no-restricted-syntax
       for (const port of ports) {
         const iBP = isPortBanned(+port);
-        if (+port >= minPort && +port <= maxPort && !iBP) {
+        const portNum = +port;
+        const withinRange = portNum >= minPort && portNum <= maxPort;
+
+        if (withinRange && !iBP) {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await isPortOpen(ip, port);
           if (!isOpen) {
             throw new Error(`Flux Applications on ${ip}:${ipPort} are not available. Failed port: ${port}`);
           }
         } else {
-          log.error(`Flux App port ${port} is outside allowed range.`);
+          log.error(`Flux App port ${port} is outside allowed range. minPort: ${minPort}, maxPort: ${maxPort}, isBanned: ${iBP}`);
         }
       }
       const successResponse = messageHelper.createSuccessMessage(`Flux Applications on ${ip}:${ipPort} are available.`);
@@ -890,7 +910,7 @@ async function checkMyFluxAvailability(retryNumber = 0) {
   const resMyAvailability = await serviceHelper.axiosGet(url, axiosConfig).catch(
     (error) => {
       log.error(`checkMyFluxAvailability - ${remoteIp}:${remotePort}`
-        + `is not reachable. ${error.message}`);
+        + ` is not reachable. ${error.message}`);
 
       return null;
     },
@@ -1129,7 +1149,7 @@ function getDOSState(req, res) {
  * @returns {object} Command status.
  */
 async function allowPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1158,7 +1178,7 @@ async function allowPort(port) {
  * @returns {object} Command status.
  */
 async function allowOutPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1187,7 +1207,7 @@ async function allowOutPort(port) {
  * @returns {object} Command status.
  */
 async function denyPort(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1197,7 +1217,7 @@ async function denyPort(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1221,7 +1241,7 @@ async function denyPort(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1231,7 +1251,7 @@ async function deleteAllowPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1252,7 +1272,7 @@ async function deleteAllowPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteDenyPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1262,7 +1282,7 @@ async function deleteDenyPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1283,7 +1303,7 @@ async function deleteDenyPortRule(port) {
  * @returns {object} Command status.
  */
 async function deleteAllowOutPortRule(port) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
   const cmdStat = {
     status: false,
     message: null,
@@ -1293,7 +1313,7 @@ async function deleteAllowOutPortRule(port) {
     return cmdStat;
   }
   const portBanned = isPortBanned(+port);
-  if (+port < (config.fluxapps.portMinNew) || +port > config.fluxapps.portMaxNew || portBanned) {
+  if (portBanned || +port < config.fluxapps.portMin || +port > config.fluxapps.portMax) {
     cmdStat.message = 'Port out of deletable app ports range';
     return cmdStat;
   }
@@ -1342,11 +1362,11 @@ async function allowPortApi(req, res) {
 
 /**
  * To check if a firewall is active.
- * @returns {boolean} True if a firewall is active. Otherwise false.
+ * @returns {Promise<boolean>} True if a firewall is active. Otherwise false.
  */
 async function isFirewallActive() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const execA = 'LANG="en_US.UTF-8" && sudo ufw status | grep Status';
     const cmdresA = await cmdAsync(execA);
     if (serviceHelper.ensureString(cmdresA).includes('Status: active')) {
@@ -1365,7 +1385,7 @@ async function isFirewallActive() {
  */
 async function adjustFirewall() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const apiSSLPort = +apiPort + 1;
@@ -1450,7 +1470,7 @@ async function adjustFirewall() {
  */
 async function purgeUFW() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const firewallActive = await isFirewallActive();
     if (firewallActive) {
       const execB = 'LANG="en_US.UTF-8" && sudo ufw status | grep \'DENY\'';
@@ -1536,7 +1556,7 @@ async function purgeUFW() {
  * @returns  {Promise<Boolean>}
  */
 async function removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces) {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   const checkIptables = 'sudo iptables --version';
   const iptablesInstalled = await cmdAsync(checkIptables).catch(() => {
@@ -1725,7 +1745,7 @@ function lruRateLimit(ip, limitPerSecond = 20) {
  */
 async function allowNodeToBindPrivilegedPorts() {
   try {
-    const cmdAsync = util.promisify(nodecmd.get);
+    const cmdAsync = util.promisify(nodecmd.run);
     const exec = "sudo setcap 'cap_net_bind_service=+ep' `which node`";
     await cmdAsync(exec);
   } catch (error) {
@@ -1750,7 +1770,7 @@ async function allowOnlyDockerNetworksToFluxNodeService() {
   const checkDenyRule = `LANG="en_US.UTF-8" && sudo iptables -C ${denyRule}`;
   const denyAllElse = `LANG="en_US.UTF-8" && sudo iptables -I ${denyRule}`;
 
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   try {
     const cmd = await cmdAsync(allowDockerNetworks);
@@ -1781,7 +1801,7 @@ async function allowOnlyDockerNetworksToFluxNodeService() {
  * Adds the 169.254 adddress to the loopback interface for use with the flux node service.
  */
 async function addFluxNodeServiceIpToLoopback() {
-  const cmdAsync = util.promisify(nodecmd.get);
+  const cmdAsync = util.promisify(nodecmd.run);
 
   // could also check exists first with:
   //   ip -f inet addr show lo | grep 169.254.43.43/32
@@ -1793,7 +1813,7 @@ async function addFluxNodeServiceIpToLoopback() {
     await cmdAsync(addIp);
     ok = true;
   } catch (err) {
-    if (err.message.includes('File exists')) {
+    if (err.message.includes('File exists') || err.message.includes('Address already assigned')) {
       ok = true;
     } else {
       log.error(err);

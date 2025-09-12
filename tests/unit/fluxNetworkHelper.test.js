@@ -20,6 +20,9 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+
+const net = require('node:net');
+
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
@@ -75,9 +78,11 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+        callback();
+      });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-      const expectedAddressHome = 'http://127.0.0.1:16126';
+      const expectedAddressHome = 'http://127.0.0.1:16126/health';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -108,9 +113,11 @@ describe('fluxNetworkHelper tests', () => {
         },
       };
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(fluxAvailabilitySuccessResponse);
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((port, ip, callback) => {
+        callback();
+      });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-      const expectedAddressHome = 'http://127.0.0.1:16126';
+      const expectedAddressHome = 'http://127.0.0.1:16126/health';
       const expectedMessage = {
         status: 'success',
         data: {
@@ -263,9 +270,11 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+        callback();
+      });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-      const expectedAddressHome = 'http://127.0.0.1:16126';
+      const expectedAddressHome = 'http://127.0.0.1:16126/health';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip);
 
@@ -287,9 +296,11 @@ describe('fluxNetworkHelper tests', () => {
         },
       });
       stub = sinon.stub(serviceHelper, 'axiosGet').resolves(mockResponse);
-      sinon.stub(util, 'promisify').returns(() => Promise.resolve());
+      sinon.stub(net.Socket.prototype, 'connect').callsFake((_port, _ip, callback) => {
+        callback();
+      });
       const expectedAddress = 'http://127.0.0.1:16127/flux/version';
-      const expectedAddressHome = 'http://127.0.0.1:16126';
+      const expectedAddressHome = 'http://127.0.0.1:16126/health';
 
       const isFluxAvailableResult = await fluxNetworkHelper.isFluxAvailable(ip, port);
 
@@ -1224,7 +1235,8 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should properly enable a new port in string format', async () => {
-      await fluxNetworkHelper.denyPort(port);
+      // Mock util.promisify to return a function that simulates UFW command success
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n'));
 
       const result = await fluxNetworkHelper.allowPort(port);
 
@@ -1233,7 +1245,8 @@ describe('fluxNetworkHelper tests', () => {
     }).timeout(5000);
 
     it('should properly enable a new port in number format', async () => {
-      await fluxNetworkHelper.denyPort(port);
+      // Mock util.promisify to return a function that simulates UFW command success
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n'));
 
       const result = await fluxNetworkHelper.allowPort(+port);
 
@@ -1242,7 +1255,8 @@ describe('fluxNetworkHelper tests', () => {
     }).timeout(5000);
 
     it('should skip updating if policy already exists', async () => {
-      await fluxNetworkHelper.allowPort(port);
+      // Mock util.promisify to return a function that simulates UFW command "existing"
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve('existing'));
 
       const result = await fluxNetworkHelper.allowPort(port);
 
@@ -1269,7 +1283,8 @@ describe('fluxNetworkHelper tests', () => {
     const port = '32111';
 
     beforeEach(async () => {
-      await fluxNetworkHelper.allowPort(port);
+      // Mock util.promisify for beforeEach setup
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n'));
     });
 
     afterEach(() => {
@@ -1291,7 +1306,9 @@ describe('fluxNetworkHelper tests', () => {
     }).timeout(5000);
 
     it('should skip updating if policy already exists', async () => {
-      await fluxNetworkHelper.denyPort(port);
+      // Restore and re-stub to return "existing" for this test
+      sinon.restore();
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve('existing'));
 
       const result = await fluxNetworkHelper.denyPort(port);
 
@@ -1306,6 +1323,8 @@ describe('fluxNetworkHelper tests', () => {
     });
 
     it('should return status: false if the command response does not include words "udpdated", "existing" or "added"', async () => {
+      // Restore and re-stub to return a different value for this test
+      sinon.restore();
       sinon.stub(util, 'promisify').returns(() => 'testing');
 
       const result = await fluxNetworkHelper.denyPort(12345);
@@ -1326,7 +1345,8 @@ describe('fluxNetworkHelper tests', () => {
 
     beforeEach(async () => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      await fluxNetworkHelper.denyPort(port);
+      // Mock util.promisify for beforeEach setup
+      sinon.stub(util, 'promisify').returns(() => Promise.resolve('Rules updated\nRules updated (v6)\nRules updated\nRules updated (v6)\n'));
     });
 
     afterEach(() => {
@@ -1407,7 +1427,10 @@ describe('fluxNetworkHelper tests', () => {
 
     it('should return an error message if allowPort status is false', async () => {
       const errorMessage = 'This is error message';
+      // Restore and re-stub to return error message for this test
+      sinon.restore();
       sinon.stub(util, 'promisify').returns(() => errorMessage);
+      verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       verifyPrivilegeStub.returns(true);
       const res = generateResponse();
       const req = {

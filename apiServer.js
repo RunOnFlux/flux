@@ -238,12 +238,7 @@ async function initiate() {
 
   process.on('uncaughtException', (err) => {
     const dnsErrors = ['ENOTFOUND', 'EAI_AGAIN', 'ESERVFAIL'];
-    // the express server port in use is uncatchable for some reason
-    // remove this in future
-    if (err.code === 'EADDRINUSE') {
-      // if shutting down clean, nodemon won't restart
-      logErrorAndExit('Flux api server port in use, shutting down.');
-    } else if (dnsErrors.includes(err.code) && err.hostname) {
+    if (dnsErrors.includes(err.code) && err.hostname) {
       log.error('Uncaught DNS Lookup Error!!, swallowing.');
       log.error(err);
       return;
@@ -277,10 +272,23 @@ async function initiate() {
     mode: 'https', key, cert, expressApp: httpServer.app,
   });
 
-  await httpServer.listen(apiPort);
-  log.info(`Flux listening on port ${apiPort}!`);
+  const httpError = await httpServer.listen(apiPort).catch((err) => err);
 
-  await httpsServer.listen(apiPortHttps);
+  if (httpError) {
+    // if shutting down clean, nodemon won't restart
+    logErrorAndExit(`Flux api server unable to start. ${httpError}`);
+    return '';
+  }
+
+  const httpsError = await httpsServer.listen(apiPortHttps).catch((err) => err);
+
+  if (httpsError) {
+    // if shutting down clean, nodemon won't restart
+    logErrorAndExit(`Flux api server unable to start. ${httpsError}`);
+    return '';
+  }
+
+  log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
 
   setAxiosDefaults([httpServer.socketIo, httpsServer.socketIo]);
