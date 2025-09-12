@@ -12882,13 +12882,13 @@ async function deploymentInformation(req, res) {
     }
     // search in chainparams db for chainmessages of p version
     const appPrices = await getChainParamsPriceUpdates();
-    const { fluxapps: { minPort, maxPort } } = config;
+    const { fluxapps: { portMin, portMax } } = config;
     const information = {
       price: appPrices,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
       address: deployAddr,
-      portMin: minPort,
-      portMax: maxPort,
+      portMin,
+      portMax,
       enterprisePorts: config.fluxapps.enterprisePorts,
       bannedPorts: config.fluxapps.bannedPorts,
       maxImageSize: config.fluxapps.maxImageSize,
