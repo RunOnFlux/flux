@@ -8,17 +8,17 @@
   "editor.tabSize": 2,
   "editor.insertSpaces": true,
   "editor.detectIndentation": false,
-
-  // ESLint configuration for ESLint 9.x
-  "eslint.useFlatConfig": true,
   // this is required for vscode
-  "eslint.experimental.useFlatConfig": true,
+  "eslint.useFlatConfig": true,
   "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact", "vue", "html"],
   "eslint.format.enable": false,
   "eslint.lintTask.enable": true,
   "eslint.debug": true,
   "eslint.workingDirectories": ["."],
-
+  "eslint.problems.shortenToSingleLine": true,
+  "problems.showCurrentInStatus": true,
+  "eslint.run": "onType",
+  "problems.decorations.enabled": true,
   // Prettier configuration
   "prettier.enable": true,
   "prettier.printWidth": 120,
@@ -27,7 +27,6 @@
   "prettier.semi": true,
   "prettier.tabWidth": 2,
   "prettier.useTabs": false,
-
   // File type specific formatters
   "[javascript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -66,13 +65,11 @@
   "[markdown]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
-
   // Files configuration
   "files.eol": "\n",
   "files.trimTrailingWhitespace": true,
   "files.insertFinalNewline": true,
   "files.trimFinalNewlines": true,
-
   // Exclude patterns for performance
   "files.watcherExclude": {
     "**/.git/objects/**": true,
@@ -81,7 +78,6 @@
     "**/HomeUI/dist/**": true,
     "**/docs/**": true
   },
-
   "search.exclude": {
     "**/node_modules": true,
     "**/HomeUI/dist": true,
