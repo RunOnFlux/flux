@@ -160,6 +160,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-alias": "~1.1.2",
     "eslint-plugin-import": "~2.32.0",
+    "eslint-webpack-plugin": "^5.0.2",
     "eslint-plugin-vue": "~9.19.2",
     "firebase": "~10.9.0",
     "firebaseui": "~6.1.0",
@@ -203,5 +204,8 @@
     "vuex": "~3.6.2",
     "webpack": "~5.100.2",
     "webpack-bundle-analyzer": "~4.10.2"
+  },
+  "overrides": {
+    "eslint-webpack-plugin": "^5.0.2"
   }
 }
