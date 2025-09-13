@@ -1,4 +1,4 @@
-const path = require('path');
+const path = require('node:path');
 const globals = require('globals');
 const { includeIgnoreFile } = require('@eslint/compat');
 const js = require('@eslint/js');
@@ -54,15 +54,7 @@ const prettierConfig = [
 
 module.exports = [
   {
-    ignores: [
-      'HomeUI/dist/',
-      'config/userconfig.js',
-      'lib/daemonrpc/',
-      'tests/e2e/',
-      'ZelApps/',
-      'docs/',
-      'dev/',
-    ],
+    ignores: ['HomeUI/dist/', 'config/userconfig.js', 'lib/daemonrpc/', 'tests/e2e/', 'ZelApps/', 'docs/', 'dev/'],
   },
   // Include .gitignore patterns
   includeIgnoreFile(gitignorePath),
@@ -109,22 +101,10 @@ module.exports = [
           peerDependencies: false,
         },
       ],
-      camelcase: [
-        'error',
-        { properties: 'never', ignoreDestructuring: true, ignoreImports: true },
-      ],
-      'import-x/extensions': [
-        'error',
-        'ignorePackages',
-        { js: 'never' },
-      ],
+      camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
+      'import-x/extensions': ['error', 'ignorePackages', { js: 'never' }],
       'import-x/order': 'off',
-      complexity: [
-        'warn',
-        {
-          max: 25,
-        },
-      ],
+      complexity: ['warn', { max: 25 }],
     },
     settings: {
       'import-x/resolver': {
@@ -136,10 +116,7 @@ module.exports = [
             ['@', path.resolve(__dirname, './HomeUI/src')],
             ['@themeConfig', path.resolve(__dirname, './HomeUI/themeConfig.js')],
             ['@core', path.resolve(__dirname, './HomeUI/src/@core')],
-            [
-              '@validations',
-              path.resolve(__dirname, './HomeUI/src/@core/utils/validations/validations.js'),
-            ],
+            ['@validations', path.resolve(__dirname, './HomeUI/src/@core/utils/validations/validations.js')],
             ['@axios', path.resolve(__dirname, './HomeUI/src/libs/axios')],
             ['ZelBack', path.resolve(__dirname, './ZelBack')],
             ['Config', path.resolve(__dirname, './config')],
@@ -208,15 +185,8 @@ module.exports = [
           peerDependencies: false,
         },
       ],
-      camelcase: [
-        'error',
-        { properties: 'never', ignoreDestructuring: true, ignoreImports: true },
-      ],
-      'import-x/extensions': [
-        'error',
-        'ignorePackages',
-        { vue: 'always', js: 'never' },
-      ],
+      camelcase: ['error', { properties: 'never', ignoreDestructuring: true, ignoreImports: true }],
+      'import-x/extensions': ['error', 'ignorePackages', { vue: 'always', js: 'never' }],
       'import-x/order': 'off',
       complexity: [
         'warn',
@@ -242,10 +212,7 @@ module.exports = [
             ['@', path.resolve(__dirname, './HomeUI/src')],
             ['@themeConfig', path.resolve(__dirname, './HomeUI/themeConfig.js')],
             ['@core', path.resolve(__dirname, './HomeUI/src/@core')],
-            [
-              '@validations',
-              path.resolve(__dirname, './HomeUI/src/@core/utils/validations/validations.js'),
-            ],
+            ['@validations', path.resolve(__dirname, './HomeUI/src/@core/utils/validations/validations.js')],
             ['@axios', path.resolve(__dirname, './HomeUI/src/libs/axios')],
             ['ZelBack', path.resolve(__dirname, './ZelBack')],
             ['Config', path.resolve(__dirname, './config')],
