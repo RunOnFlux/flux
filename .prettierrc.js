@@ -38,8 +38,11 @@ module.exports = {
     {
       files: ['*.vue'],
       options: {
-        // Vue files can have slightly longer lines for template readability
+        // Slightly longer lines for Vue templates (they tend to be longer)
         printWidth: 140,
+        // Vue specific HTML formatting
+        htmlWhitespaceSensitivity: 'ignore',
+        vueIndentScriptAndStyle: true,
       },
     },
     {
