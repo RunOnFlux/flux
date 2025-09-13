@@ -1,9 +1,56 @@
 const path = require('path');
 const globals = require('globals');
-const importPlugin = require('eslint-plugin-import');
+const { includeIgnoreFile } = require('@eslint/compat');
+const js = require('@eslint/js');
+const { configs, plugins, rules } = require('eslint-config-airbnb-extended');
+const { rules: prettierConfigRules } = require('eslint-config-prettier');
+const prettierPlugin = require('eslint-plugin-prettier');
 const babelParser = require('@babel/eslint-parser');
 const vue = require('eslint-plugin-vue');
 const vueParser = require('vue-eslint-parser');
+
+const gitignorePath = path.resolve('.', '.gitignore');
+
+const jsConfig = [
+  // ESLint Recommended Rules
+  {
+    name: 'js/config',
+    ...js.configs.recommended,
+  },
+  // Stylistic Plugin
+  plugins.stylistic,
+  // Import X Plugin
+  plugins.importX,
+  // Airbnb Base Recommended Config
+  ...configs.base.recommended,
+  // Strict Import Config
+  rules.base.importsStrict,
+];
+
+const nodeConfig = [
+  // Node Plugin
+  plugins.node,
+  // Airbnb Node Recommended Config
+  ...configs.node.recommended,
+];
+
+const prettierConfig = [
+  // Prettier Plugin
+  {
+    name: 'prettier/plugin/config',
+    plugins: {
+      prettier: prettierPlugin,
+    },
+  },
+  // Prettier Config
+  {
+    name: 'prettier/config',
+    rules: {
+      ...prettierConfigRules,
+      'prettier/prettier': 'error',
+    },
+  },
+];
 
 module.exports = [
   {
@@ -17,7 +64,14 @@ module.exports = [
       'dev/',
     ],
   },
-  // JavaScript files configuration ONLY (no Vue files)
+  // Include .gitignore patterns
+  includeIgnoreFile(gitignorePath),
+  // JavaScript Config
+  ...jsConfig,
+  // Node Config
+  ...nodeConfig,
+  // Prettier Config
+  ...prettierConfig,
   {
     files: ['**/*.js'],
     languageOptions: {
@@ -31,10 +85,9 @@ module.exports = [
       parser: babelParser,
       parserOptions: {
         requireConfigFile: false,
+        ecmaVersion: 2022,
+        sourceType: 'module',
       },
-    },
-    plugins: {
-      import: importPlugin,
     },
     rules: {
       'max-len': [
@@ -48,7 +101,7 @@ module.exports = [
       'no-console': 'off',
       'linebreak-style': ['error', 'unix'],
       'prefer-destructuring': ['error', { object: true, array: false }],
-      'import/no-extraneous-dependencies': [
+      'import-x/no-extraneous-dependencies': [
         'error',
         {
           devDependencies: true,
@@ -60,12 +113,12 @@ module.exports = [
         'error',
         { properties: 'never', ignoreDestructuring: true, ignoreImports: true },
       ],
-      'import/extensions': [
+      'import-x/extensions': [
         'error',
         'ignorePackages',
         { js: 'never' },
       ],
-      'import/order': 'off',
+      'import-x/order': 'off',
       complexity: [
         'warn',
         {
@@ -74,7 +127,7 @@ module.exports = [
       ],
     },
     settings: {
-      'import/resolver': {
+      'import-x/resolver': {
         node: {
           extensions: ['.js', '.jsx', '.vue'],
         },
@@ -102,7 +155,7 @@ module.exports = [
     languageOptions: {
       globals: {
         ...globals.es2020,
-        ...globals.commonjs,
+        ...globals.browser,
         ...globals.node,
         ...globals.mocha,
         userconfig: true,
@@ -115,7 +168,7 @@ module.exports = [
     },
     plugins: {
       vue,
-      import: importPlugin,
+      'import-x': plugins.importX.plugins['import-x'],
     },
     rules: {
       // Vue recommended rules
@@ -147,7 +200,7 @@ module.exports = [
       'no-console': 'off',
       'linebreak-style': ['error', 'unix'],
       'prefer-destructuring': ['error', { object: true, array: false }],
-      'import/no-extraneous-dependencies': [
+      'import-x/no-extraneous-dependencies': [
         'error',
         {
           devDependencies: true,
@@ -159,12 +212,12 @@ module.exports = [
         'error',
         { properties: 'never', ignoreDestructuring: true, ignoreImports: true },
       ],
-      'import/extensions': [
+      'import-x/extensions': [
         'error',
         'ignorePackages',
         { vue: 'always', js: 'never' },
       ],
-      'import/order': 'off',
+      'import-x/order': 'off',
       complexity: [
         'warn',
         {
@@ -180,7 +233,7 @@ module.exports = [
       'vuejs-accessibility/form-control-has-label': 'off',
     },
     settings: {
-      'import/resolver': {
+      'import-x/resolver': {
         node: {
           extensions: ['.js', '.jsx', '.vue'],
         },
