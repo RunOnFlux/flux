@@ -24,6 +24,7 @@ const {
 } = require('./utils/establishedConnections');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
+const serviceRegistry = require('./serviceRegistry');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -722,8 +723,7 @@ async function ipChangesOverLimit() {
         maxNumberOfIpChanges = ipChangeData.count;
       }
       if (ipChangeData.count >= 2) {
-        // eslint-disable-next-line global-require
-        const appsService = require('./appsService');
+        const appsService = serviceRegistry.get('appsService');
         let apps = await appsService.installedApps();
         if (apps.status === 'success' && apps.data.length > 0) {
           apps = apps.data;
@@ -806,8 +806,7 @@ async function adjustExternalIP(ip) {
         setDosMessage('IP changes over the limit allowed, one in 20 hours');
         log.error(dosMessage);
       }
-      // eslint-disable-next-line global-require
-      const appsService = require('./appsService');
+      const appsService = serviceRegistry.get('appsService');
       let apps = await appsService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
@@ -838,8 +837,7 @@ async function adjustExternalIP(ip) {
             broadcastedAt,
           };
           // broadcast messages about ip changed to all peers
-          // eslint-disable-next-line global-require
-          const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+          const fluxCommunicationMessagesSender = serviceRegistry.get('fluxCommunicationMessagesSender');
           await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(newIpChangedMessage);
           await serviceHelper.delay(500);
           await fluxCommunicationMessagesSender.broadcastMessageToIncoming(newIpChangedMessage);

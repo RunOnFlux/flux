@@ -4,6 +4,7 @@ const config = require('config');
 // are imported
 const cacheManager = require('./utils/cacheManager').default;
 const log = require('../lib/log');
+const serviceRegistry = require('./serviceRegistry');
 const dbHelper = require('./dbHelper');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
@@ -21,6 +22,19 @@ const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
 const fluxNodeService = require('./fluxNodeService');
+
+// Register services to avoid circular dependencies
+serviceRegistry.register('appsService', appsService);
+serviceRegistry.register('fluxService', fluxService);
+serviceRegistry.register('fluxCommunication', fluxCommunication);
+serviceRegistry.register('dockerService', dockerService);
+serviceRegistry.register('dbHelper', dbHelper);
+serviceRegistry.register('explorerService', explorerService);
+serviceRegistry.register('networkStateService', networkStateService);
+serviceRegistry.register('fluxNetworkHelper', fluxNetworkHelper);
+// Register fluxCommunicationMessagesSender using lazy loading
+// eslint-disable-next-line global-require
+serviceRegistry.registerLazy('fluxCommunicationMessagesSender', () => require('./fluxCommunicationMessagesSender'));
 // const throughputLogger = require('./utils/throughputLogger');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;

@@ -9,6 +9,7 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 const cacheManager = require('./utils/cacheManager').default;
+const serviceRegistry = require('./serviceRegistry');
 
 const myMessageCache = cacheManager.tempMessageCache;
 
@@ -302,8 +303,7 @@ async function sendMessageToWS(message, ws) {
 async function respondWithAppMessage(msgObj, ws) {
   try {
     // check if we have it database of permanent appMessages
-    // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
+    const appsService = serviceRegistry.get('appsService');
     const appsMessages = [];
     if (!msgObj.data) {
       throw new Error('Invalid Flux App Request message');
