@@ -1,4 +1,4 @@
-const path = require('path');
+const path = require('node:path');
 const CopyPlugin = require('copy-webpack-plugin');
 const { ProvidePlugin } = require('webpack');
 // const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer');
@@ -11,9 +11,7 @@ const { ProvidePlugin } = require('webpack');
 
 const plugins = [
   new CopyPlugin({
-    patterns: [
-      { from: path.resolve(__dirname, 'HomeUI', 'public') },
-    ],
+    patterns: [{ from: path.resolve(__dirname, 'HomeUI', 'public') }],
   }),
   new ProvidePlugin({
     Buffer: ['buffer', 'Buffer'],
@@ -42,6 +40,9 @@ const plugins = [
 // }
 
 module.exports = {
+  // this disables / enables linting when running homebuild
+  // once the files have been formatted, we can reenable
+  // lintOnSave: 'error',
   lintOnSave: false,
   css: {
     loaderOptions: {
