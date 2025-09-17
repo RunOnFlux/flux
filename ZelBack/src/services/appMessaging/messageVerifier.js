@@ -251,7 +251,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 
     await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, messageToStore);
 
-    log.info(`Temporary app message stored for ${message.appName || 'unknown'}`);
+    log.info(`Temporary app message stored for ${message.name || 'unknown'}`);
     return { status: 'success', message: 'Temporary message stored' };
   } catch (error) {
     log.error(`Error storing temporary app message: ${error.message}`);
@@ -276,7 +276,7 @@ async function storeAppPermanentMessage(message) {
 
     await dbHelper.insertOneToDatabase(database, globalAppsMessages, messageToStore);
 
-    log.info(`Permanent app message stored for ${message.appName || 'unknown'}`);
+    log.info(`Permanent app message stored for ${message.name || 'unknown'}`);
     return { status: 'success', message: 'Permanent message stored' };
   } catch (error) {
     log.error(`Error storing permanent app message: ${error.message}`);
@@ -328,7 +328,7 @@ async function storeAppInstallingMessage(message) {
 
     await dbHelper.insertOneToDatabase(database, globalAppsInstallingLocations, installingMessage);
 
-    log.info(`App installing message stored for ${message.appName || 'unknown'}`);
+    log.info(`App installing message stored for ${message.name || 'unknown'}`);
     return { status: 'success', message: 'Installing message stored' };
   } catch (error) {
     log.error(`Error storing app installing message: ${error.message}`);
@@ -354,7 +354,7 @@ async function storeAppInstallingErrorMessage(message) {
 
     await dbHelper.insertOneToDatabase(database, globalAppsInstallingLocations, errorMessage);
 
-    log.error(`App installing error message stored for ${message.appName || 'unknown'}: ${message.error || 'Unknown error'}`);
+    log.error(`App installing error message stored for ${message.name || 'unknown'}: ${message.error || 'Unknown error'}`);
     return { status: 'success', message: 'Error message stored' };
   } catch (error) {
     log.error(`Error storing app installing error message: ${error.message}`);
@@ -380,7 +380,7 @@ async function storeIPChangedMessage(message) {
 
     await dbHelper.insertOneToDatabase(database, globalAppsLocations, ipChangeMessage);
 
-    log.info(`IP changed message stored for ${message.appName || 'unknown'}`);
+    log.info(`IP changed message stored for ${message.name || 'unknown'}`);
     return { status: 'success', message: 'IP change message stored' };
   } catch (error) {
     log.error(`Error storing IP changed message: ${error.message}`);
@@ -406,7 +406,7 @@ async function storeAppRemovedMessage(message) {
 
     await dbHelper.insertOneToDatabase(database, globalAppsLocations, removedMessage);
 
-    log.info(`App removed message stored for ${message.appName || 'unknown'}`);
+    log.info(`App removed message stored for ${message.name || 'unknown'}`);
     return { status: 'success', message: 'Removed message stored' };
   } catch (error) {
     log.error(`Error storing app removed message: ${error.message}`);

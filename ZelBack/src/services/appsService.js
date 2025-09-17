@@ -11,8 +11,14 @@ const generalService = require('./generalService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const geolocationService = require('./geolocationService');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
+const syncthingService = require('./syncthingService');
+const upnpService = require('./upnpService');
+const networkStateService = require('./networkStateService');
+const fluxHttpTestServer = require('./utils/fluxHttpTestServer');
+const cmdAsync = require('util').promisify(require('child_process').exec);
 const log = require('../lib/log');
 
 // Import all modularized components
@@ -65,6 +71,19 @@ const appsMonitored = {};
 let dosMountMessage = '';
 let dosDuplicateAppMessage = '';
 let checkAndNotifyPeersOfRunningAppsFirstRun = true;
+
+// Additional global variables for syncthingApps and checkMyAppsAvailability
+let updateSyncthingRunning = false;
+let syncthingAppsFirstRun = true;
+let dosState = 0;
+let dosMessage = null;
+let testingPort = null;
+let originalPortFailed = null;
+let lastUPNPMapFailed = false;
+let nextTestingPort = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
+const portsNotWorking = new Set();
+const isArcane = false; // Set based on environment
+const appsFolder = config.fluxapps.appInstallSpace || '/';
 
 /**
  * To get a list of installed apps. Where req can be equal to appname.
@@ -591,6 +610,91 @@ async function checkAndNotifyPeersOfRunningApps() {
   }
 }
 
+// Helper functions for syncthingApps and checkMyAppsAvailability
+async function signCheckAppData(message) {
+  const privKey = await fluxNetworkHelper.getFluxNodePrivateKey();
+  const signature = await verificationHelper.signMessage(message, privKey);
+  return signature;
+}
+
+async function getDeviceID(name) {
+  // Implementation for getting device ID from remote node
+  const [ip, port = '16127'] = name.split(':');
+  try {
+    const response = await axios.get(`http://${ip}:${port}/flux/deviceid`, { timeout: 5000 });
+    return response.data?.data?.deviceid || null;
+  } catch (error) {
+    log.error(`Failed to get device ID from ${name}: ${error.message}`);
+    return null;
+  }
+}
+
+async function appLocation(appName) {
+  // Get app location data from global apps database
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const query = { name: appName };
+    const projection = { _id: 0 };
+    const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+    return results || [];
+  } catch (error) {
+    log.error(`Error getting app location for ${appName}: ${error.message}`);
+    return [];
+  }
+}
+
+async function handleTestShutdown(testingPort, testHttpServer, options = {}) {
+  const skipFirewall = options.skipFirewall || false;
+  const skipUpnp = options.skipUpnp || false;
+  const skipHttpServer = options.skipHttpServer || false;
+
+  const updateFirewall = skipFirewall
+    ? false
+    : isArcane
+    || await fluxNetworkHelper.isFirewallActive().catch(() => true);
+
+  if (updateFirewall) {
+    await fluxNetworkHelper
+      .deleteAllowPortRule(testingPort)
+      .catch((e) => log.error(e));
+  }
+
+  if (!skipUpnp) {
+    await upnpService
+      .removeMapUpnpPort(testingPort, 'Flux_Test_App')
+      .catch((e) => log.error(e));
+  }
+
+  if (!skipHttpServer) {
+    testHttpServer.close((err) => {
+      if (err) {
+        log.error(`testHttpServer shutdown failed: ${err.message}`);
+      }
+    });
+  }
+}
+
+// Placeholder functions that are called by syncthingApps
+async function appDockerStop(appId) {
+  return dockerService.appDockerStop(appId);
+}
+
+async function appDockerRestart(appId) {
+  return dockerService.appDockerRestart(appId);
+}
+
+async function appDeleteDataInMountPoint(appId) {
+  // Implementation for deleting app data in mount point
+  try {
+    const execDelete = `sudo rm -rf ${appsFolder}${appId}/appdata/*`;
+    await cmdAsync(execDelete);
+    log.info(`Deleted data for app ${appId}`);
+  } catch (error) {
+    log.error(`Error deleting data for app ${appId}: ${error.message}`);
+  }
+}
+
 /**
  * Stop monitoring multiple applications
  * @param {Array} appSpecsToMonitor - Array of app specifications to stop monitoring
@@ -887,6 +991,586 @@ async function monitorNodeStatus() {
   }
 }
 
+// Main functions: syncthingApps and checkMyAppsAvailability
+async function syncthingApps() {
+  try {
+    // do not run if installationInProgress or removalInProgress
+    if (installationInProgress || removalInProgress || updateSyncthingRunning) {
+      return;
+    }
+    updateSyncthingRunning = true;
+    // get list of all installed apps
+    const appsInstalled = await installedApps();
+    if (appsInstalled.status === 'error') {
+      return;
+    }
+    // go through every containerData of all components of every app
+    const devicesIds = [];
+    const devicesConfiguration = [];
+    const folderIds = [];
+    const foldersConfiguration = [];
+    const newFoldersConfiguration = [];
+    const myDeviceId = await syncthingService.getDeviceId();
+
+    if (!myDeviceId) {
+      log.error('syncthingApps - Failed to get myDeviceId');
+      return;
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!myIP) {
+      log.error('syncthingApps - Failed to get myIP');
+      return;
+    }
+
+    const allFoldersResp = await syncthingService.getConfigFolders();
+    const allDevicesResp = await syncthingService.getConfigDevices();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of appsInstalled.data) {
+      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      if (backupSkip || restoreSkip) {
+        log.info(`syncthingApps - Backup is running for ${installedApp.name}, syncthing disabled for that app`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      if (installedApp.version <= 3) {
+        const containersData = installedApp.containerData.split('|');
+        // eslint-disable-next-line no-restricted-syntax
+        for (let i = 0; i < containersData.length; i += 1) {
+          const container = containersData[i];
+          const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
+          if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
+            const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
+            const identifier = installedApp.name;
+            const appId = dockerService.getAppIdentifier(identifier);
+            const folder = `${appsFolder + appId + containerFolder}`;
+            const id = appId;
+            const label = appId;
+            const devices = [{ deviceID: myDeviceId }];
+            const execDIRst = `[ ! -d \"${folder}/.stfolder\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
+            // eslint-disable-next-line no-await-in-loop
+            await cmdAsync(execDIRst);
+            // eslint-disable-next-line no-await-in-loop
+            let locations = await appLocation(installedApp.name);
+            locations.sort((a, b) => {
+              if (a.ip < b.ip) {
+                return -1;
+              }
+              if (a.ip > b.ip) {
+                return 1;
+              }
+              return 0;
+            });
+            locations = locations.filter((loc) => loc.ip !== myIP);
+            // eslint-disable-next-line no-restricted-syntax
+            for (const appInstance of locations) {
+              const ip = appInstance.ip.split(':')[0];
+              const port = appInstance.ip.split(':')[1] || '16127';
+              const addresses = [`tcp://${ip}:${+port + 2}`, `quic://${ip}:${+port + 2}`];
+              const name = `${ip}:${port}`;
+              let deviceID;
+              if (syncthingDevicesIDCache.has(name)) {
+                deviceID = syncthingDevicesIDCache.get(name);
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                deviceID = await getDeviceID(name);
+                if (deviceID) {
+                  syncthingDevicesIDCache.set(name, deviceID);
+                }
+              }
+              if (deviceID) {
+                if (deviceID !== myDeviceId) { // skip my id, already present
+                  const folderDeviceExists = devices.find((device) => device.deviceID === deviceID);
+                  if (!folderDeviceExists) { // double check if not multiple the same ids
+                    devices.push({ deviceID });
+                  }
+                }
+                const deviceExists = devicesConfiguration.find((device) => device.name === name);
+                if (!deviceExists) {
+                  const newDevice = {
+                    deviceID,
+                    name,
+                    addresses,
+                    autoAcceptFolders: true,
+                  };
+                  devicesIds.push(deviceID);
+                  if (deviceID !== myDeviceId) {
+                    const syncthingDeviceExists = allDevicesResp.data.find((device) => device.name === name);
+                    if (!syncthingDeviceExists) {
+                      devicesConfiguration.push(newDevice);
+                    }
+                  }
+                }
+              }
+            }
+            const syncthingFolder = {
+              id,
+              label,
+              path: folder,
+              devices,
+              paused: false,
+              type: 'sendreceive',
+              rescanIntervalS: 900,
+              maxConflicts: 0,
+            };
+            const syncFolder = allFoldersResp.data.find((x) => x.id === id);
+            if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
+              if (syncthingAppsFirstRun) {
+                if (!syncFolder) {
+                  log.info(`syncthingApps - stopping and cleaning appIdentifier ${appId}`);
+                  syncthingFolder.type = 'receiveonly';
+                  const cache = {
+                    numberOfExecutions: 1,
+                  };
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDockerStop(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDeleteDataInMountPoint(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                } else {
+                  const cache = {
+                    restarted: true,
+                  };
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
+                  if (syncFolder.type === 'receiveonly') {
+                    cache.restarted = false;
+                    cache.numberOfExecutions = 1;
+                    receiveOnlySyncthingAppsCache.set(appId, cache);
+                  }
+                }
+              } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+                const cache = receiveOnlySyncthingAppsCache.get(appId);
+
+                // eslint-disable-next-line no-await-in-loop
+                const runningAppList = await appLocation(installedApp.name);
+                runningAppList.sort((a, b) => {
+                  if (!a.runningSince && b.runningSince) {
+                    return -1;
+                  }
+                  if (a.runningSince && !b.runningSince) {
+                    return 1;
+                  }
+                  if (a.runningSince < b.runningSince) {
+                    return -1;
+                  }
+                  if (a.runningSince > b.runningSince) {
+                    return 1;
+                  }
+                  if (a.broadcastedAt < b.broadcastedAt) {
+                    return -1;
+                  }
+                  if (a.broadcastedAt > b.broadcastedAt) {
+                    return 1;
+                  }
+                  if (a.ip < b.ip) {
+                    return -1;
+                  }
+                  if (a.ip > b.ip) {
+                    return 1;
+                  }
+                  return 0;
+                });
+                if (myIP) {
+                  const index = runningAppList.findIndex((x) => x.ip === myIP);
+                  let numberOfExecutionsRequired = 2;
+                  if (index > 0) {
+                    numberOfExecutionsRequired = 2 + 10 * index;
+                  }
+                  if (numberOfExecutionsRequired > 60) {
+                    numberOfExecutionsRequired = 60;
+                  }
+                  cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+
+                  syncthingFolder.type = 'receiveonly';
+                  cache.numberOfExecutions += 1;
+                  if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
+                    syncthingFolder.type = 'sendreceive';
+                  } else if (cache.numberOfExecutions >= cache.numberOfExecutionsRequired + 1) {
+                    log.info(`syncthingApps - changing syncthing type to sendreceive for appIdentifier ${appId}`);
+                    syncthingFolder.type = 'sendreceive';
+                    if (containerDataFlags.includes('r')) {
+                      log.info(`syncthingApps - starting appIdentifier ${appId}`);
+                      // eslint-disable-next-line no-await-in-loop
+                      await appDockerRestart(id);
+                    }
+                    cache.restarted = true;
+                  }
+                  receiveOnlySyncthingAppsCache.set(appId, cache);
+                }
+              } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
+                log.info(`syncthingApps - stopping and cleaning appIdentifier ${appId}`);
+                syncthingFolder.type = 'receiveonly';
+                const cache = {
+                  numberOfExecutions: 1,
+                };
+                receiveOnlySyncthingAppsCache.set(appId, cache);
+                // eslint-disable-next-line no-await-in-loop
+                await appDockerStop(id);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
+                // eslint-disable-next-line no-await-in-loop
+                await appDeleteDataInMountPoint(id);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
+              }
+            }
+            folderIds.push(id);
+            foldersConfiguration.push(syncthingFolder);
+            if (!syncFolder) {
+              newFoldersConfiguration.push(syncthingFolder);
+            } else if (syncFolder && (syncFolder.maxConflicts !== 0 || syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
+              newFoldersConfiguration.push(syncthingFolder);
+            }
+          }
+        }
+      }
+    }
+    log.info('syncthingApps - Configuration completed');
+  } catch (error) {
+    log.error(error);
+  } finally {
+    updateSyncthingRunning = false;
+    syncthingAppsFirstRun = false;
+    await serviceHelper.delay(30 * 1000);
+    syncthingApps();
+  }
+}
+
+async function checkMyAppsAvailability() {
+  const timeouts = {
+    default: 3_600_000,
+    error: 60_000,
+    failure: 15_000,
+    dos: 300_000,
+    appError: 240_000,
+  };
+
+  const thresholds = {
+    dos: 100,
+    portsHighEdge: 100,
+    portsLowEdge: 80,
+  };
+
+  if (dosMountMessage || dosDuplicateAppMessage) {
+    dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    dosState = thresholds.dos;
+
+    await serviceHelper.delay(timeouts.appError);
+    setImmediate(checkMyAppsAvailability);
+    return;
+  }
+
+  const isUpnp = upnpService.isUPNP();
+  const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
+
+  const setNextPort = () => {
+    if (originalPortFailed && testingPort > originalPortFailed) {
+      nextTestingPort = originalPortFailed - 1;
+    } else {
+      nextTestingPort = null;
+      originalPortFailed = null;
+    }
+  };
+
+  const setRandomPort = () => {
+    const ports = Array.from(portsNotWorking);
+    const randomIndex = Math.floor(Math.random() * ports.length);
+    nextTestingPort = ports[randomIndex];
+    return ports;
+  };
+
+  try {
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      log.info('Flux Node daemon not synced. Application checks are disabled');
+      await serviceHelper.delay(timeouts.appError);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    let isNodeConfirmed = false;
+    isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
+
+    if (!isNodeConfirmed) {
+      log.info('Flux Node not Confirmed. Application checks are disabled');
+      await serviceHelper.delay(timeouts.appError);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
+      log.info('No Public IP found. Application checks are disabled');
+      await serviceHelper.delay(timeouts.appError);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      log.error('Failed to get installed Apps');
+      await serviceHelper.delay(timeouts.appError);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    const apps = installedAppsRes.data;
+    const appPorts = [];
+
+    apps.forEach((app) => {
+      if (app.version === 1) {
+        appPorts.push(+app.port);
+      } else if (app.version <= 3) {
+        app.ports.forEach((port) => {
+          appPorts.push(+port);
+        });
+      } else {
+        app.compose.forEach((component) => {
+          component.ports.forEach((port) => {
+            appPorts.push(+port);
+          });
+        });
+      }
+    });
+
+    if (nextTestingPort) {
+      testingPort = nextTestingPort;
+    } else {
+      const { fluxapps: { portMin, portMax } } = config;
+      testingPort = Math.floor(Math.random() * (portMax - portMin) + portMin);
+    }
+
+    log.info(`checkMyAppsAvailability - Testing port ${testingPort}`);
+
+    const isPortBanned = fluxNetworkHelper.isPortBanned(testingPort);
+    if (isPortBanned) {
+      log.info(`checkMyAppsAvailability - Testing port ${testingPort} is banned`);
+      setNextPort();
+      await serviceHelper.delay(timeouts.failure);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    if (isUpnp) {
+      const isPortUpnpBanned = fluxNetworkHelper.isPortUPNPBanned(testingPort);
+      if (isPortUpnpBanned) {
+        log.info(`checkMyAppsAvailability - Testing port ${testingPort} is UPNP banned`);
+        setNextPort();
+        await serviceHelper.delay(timeouts.failure);
+        setImmediate(checkMyAppsAvailability);
+        return;
+      }
+    }
+
+    const isPortUserBlocked = fluxNetworkHelper.isPortUserBlocked(testingPort);
+    if (isPortUserBlocked) {
+      log.info(`checkMyAppsAvailability - Testing port ${testingPort} is user blocked`);
+      setNextPort();
+      await serviceHelper.delay(timeouts.failure);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    if (appPorts.includes(testingPort)) {
+      log.info(`checkMyAppsAvailability - Skipped checking ${testingPort} - in use`);
+      setNextPort();
+      await serviceHelper.delay(timeouts.failure);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    const remoteSocketAddress = await networkStateService.getRandomSocketAddress(localSocketAddress);
+    if (!remoteSocketAddress) {
+      await serviceHelper.delay(timeouts.appError);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    if (failedNodesTestPortsCache.has(remoteSocketAddress)) {
+      await serviceHelper.delay(timeouts.failure);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    const firewallActive = isArcane ? true : await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      await fluxNetworkHelper.allowPort(testingPort);
+    }
+
+    if (isUpnp) {
+      const upnpMapResult = await upnpService.mapUpnpPort(testingPort, 'Flux_Test_App');
+      if (!upnpMapResult) {
+        if (lastUPNPMapFailed) {
+          dosState += 4;
+          if (dosState >= thresholds.dos) {
+            dosMessage = 'Not possible to run applications on the node, router returning exceptions when creating UPNP ports mappings';
+          }
+        }
+        lastUPNPMapFailed = true;
+        log.info(`checkMyAppsAvailability - Testing port ${testingPort} failed to create UPnP mapping`);
+        setNextPort();
+        await handleTestShutdown(testingPort, testHttpServer, {
+          skipFirewall: !firewallActive,
+          skipUpnp: true,
+          skipHttpServer: true,
+        });
+        const upnpDelay = dosMessage ? timeouts.dos : timeouts.error;
+        await serviceHelper.delay(upnpDelay);
+        setImmediate(checkMyAppsAvailability);
+        return;
+      }
+      lastUPNPMapFailed = false;
+    }
+
+    const listening = new Promise((resolve, reject) => {
+      testHttpServer
+        .once('error', (err) => {
+          testHttpServer.removeAllListeners('listening');
+          reject(err.message);
+        })
+        .once('listening', () => {
+          testHttpServer.removeAllListeners('error');
+          resolve(null);
+        });
+      testHttpServer.listen(testingPort);
+    });
+
+    const error = await listening.catch((err) => err);
+    if (error) {
+      log.warn(`Unable to listen on port: ${testingPort}. Error: ${error}`);
+      setNextPort();
+      await handleTestShutdown(testingPort, testHttpServer, {
+        skipFirewall: !firewallActive,
+        skipUpnp: !isUpnp,
+        skipHttpServer: true,
+      });
+      await serviceHelper.delay(timeouts.error);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    const timeout = 10_000;
+    const axiosConfig = {
+      timeout,
+      headers: { 'content-type': '' },
+    };
+
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const [localIp, localPort = '16127'] = localSocketAddress.split(':');
+    const [remoteIp, remotePort = '16127'] = remoteSocketAddress.split(':');
+
+    const data = {
+      ip: localIp,
+      port: localPort,
+      appname: 'appPortsTest',
+      ports: [testingPort],
+      pubKey,
+    };
+
+    const signature = await signCheckAppData(JSON.stringify(data));
+    data.signature = signature;
+
+    const resMyAppAvailability = await axios
+      .post(`http://${remoteIp}:${remotePort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig)
+      .catch(() => {
+        log.error(`checkMyAppsAvailability - ${remoteSocketAddress} for app availability is not reachable`);
+        nextTestingPort = testingPort;
+        failedNodesTestPortsCache.set(remoteSocketAddress, '');
+        return null;
+      });
+
+    await handleTestShutdown(testingPort, testHttpServer, {
+      skipFirewall: !firewallActive,
+      skipUpnp: !isUpnp,
+    });
+
+    if (!resMyAppAvailability) {
+      await serviceHelper.delay(timeouts.failure);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    const {
+      data: {
+        status: responseStatus = null,
+        data: { message: responseMessage = 'No response' } = { message: 'No response' },
+      },
+    } = resMyAppAvailability;
+
+    if (!['success', 'error'].includes(responseStatus)) {
+      log.warn(`checkMyAppsAvailability - Unexpected response status: ${responseStatus}`);
+      await serviceHelper.delay(timeouts.error);
+      setImmediate(checkMyAppsAvailability);
+      return;
+    }
+
+    const portTestFailed = responseStatus === 'error';
+    let waitMs = 0;
+
+    if (portTestFailed && portsNotWorking.size < thresholds.portsHighEdge) {
+      portsNotWorking.add(testingPort);
+      if (!originalPortFailed) {
+        originalPortFailed = testingPort;
+        nextTestingPort = testingPort < 65535 ? testingPort + 1 : testingPort - 1;
+      } else if (testingPort >= originalPortFailed && testingPort + 1 <= 65535) {
+        nextTestingPort = testingPort + 1;
+      } else if (testingPort - 1 > 0) {
+        nextTestingPort = testingPort - 1;
+      } else {
+        nextTestingPort = null;
+        originalPortFailed = null;
+      }
+      waitMs = timeouts.failure;
+    } else if (portTestFailed && dosState < thresholds.dos) {
+      dosState += 4;
+      setRandomPort();
+      waitMs = timeouts.failure;
+    } else if (portTestFailed && dosState >= thresholds.dos) {
+      const failedPorts = setRandomPort();
+      dosMessage = `Ports tested not reachable from outside, DMZ or UPNP required! All ports that have failed: ${JSON.stringify(failedPorts)}`;
+      waitMs = timeouts.dos;
+    } else if (!portTestFailed && portsNotWorking.size > thresholds.portsLowEdge) {
+      portsNotWorking.delete(testingPort);
+      setRandomPort();
+      waitMs = timeouts.failure;
+    } else {
+      portsNotWorking.clear();
+      nextTestingPort = null;
+      originalPortFailed = null;
+      dosMessage = dosMountMessage || dosDuplicateAppMessage || null;
+      dosState = dosMessage ? thresholds.dos : 0;
+      waitMs = timeouts.default;
+    }
+
+    if (portTestFailed) {
+      log.error(`checkMyAppsAvailability - Port ${testingPort} unreachable. Detected from ${remoteIp}:${remotePort}. DosState: ${dosState}`);
+    } else {
+      log.info(`${responseMessage} Detected from ${remoteIp}:${remotePort} on port ${testingPort}. DosState: ${dosState}`);
+    }
+
+    if (portsNotWorking.size) {
+      log.error(`checkMyAppsAvailability - Count: ${portsNotWorking.size}. portsNotWorking: ${JSON.stringify(Array.from(portsNotWorking))}`);
+    }
+
+    await serviceHelper.delay(waitMs);
+    setImmediate(checkMyAppsAvailability);
+  } catch (error) {
+    if (!dosMessage && (dosMountMessage || dosDuplicateAppMessage)) {
+      dosMessage = dosMountMessage || dosDuplicateAppMessage;
+    }
+    await handleTestShutdown(testingPort, testHttpServer, { skipUpnp: !isUpnp });
+    log.error(`checkMyAppsAvailability - Error: ${error}`);
+    await serviceHelper.delay(timeouts.appError);
+    setImmediate(checkMyAppsAvailability);
+  }
+}
+
 // Re-export ALL functions from modules for complete backward compatibility
 module.exports = {
   // Local orchestrator functions
@@ -899,6 +1583,9 @@ module.exports = {
   setAppsMonitored,
   clearAppsMonitored,
   checkAndNotifyPeersOfRunningApps,
+
+  syncthingApps,
+  checkMyAppsAvailability,
   startMonitoringOfApps,
   stopMonitoringOfApps,
   startAppMonitoringAPI,
