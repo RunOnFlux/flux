@@ -1,6 +1,8 @@
 const config = require('config');
 const util = require('util');
 const df = require('node-df');
+const path = require('node:path');
+const nodecmd = require('node-cmd');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
@@ -14,10 +16,17 @@ const {
   globalAppsMessages,
 } = require('../utils/appConstants');
 
+// Path constants
+const cmdAsync = util.promisify(nodecmd.run);
+const fluxDirPath = path.join(__dirname, '../../../../');
+const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+const appsFolder = `${appsFolderPath}/`;
+
 // Global state management
 let installationInProgress = false;
 let removalInProgress = false;
 let restoreInProgress = [];
+let dosMountMessage = '';
 
 /**
  * Create app volume with space checking
@@ -491,17 +500,127 @@ async function appendRestoreTask(req, res) {
  */
 async function removeTestAppMount(specifiedVolume) {
   try {
-    if (!specifiedVolume) {
-      log.warn('No volume specified for removal');
+    const appId = 'flux_fluxTestVol';
+    log.info('Mount Test: Unmounting volume');
+    const execUnmount = `sudo umount ${appsFolder + appId}`;
+    await cmdAsync(execUnmount).then(() => {
+      log.info('Mount Test: Volume unmounted');
+    }).catch((e) => {
+      log.error(e);
+      log.error('Mount Test: An error occured while unmounting volume. Continuing. Most likely false positive.');
+    });
+
+    log.info('Mount Test: Cleaning up data');
+    const execDelete = `sudo rm -rf ${appsFolder + appId}`;
+    await cmdAsync(execDelete).catch((e) => {
+      log.error(e);
+      log.error('Mount Test: An error occured while cleaning up data. Continuing. Most likely false positive.');
+    });
+    log.info('Mount Test: Data cleaned');
+    log.info('Mount Test: Cleaning up data volume');
+    const volumeToRemove = specifiedVolume || `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
+    const execVolumeDelete = `sudo rm -rf ${volumeToRemove}`;
+    await cmdAsync(execVolumeDelete).catch((e) => {
+      log.error(e);
+      log.error('Mount Test: An error occured while cleaning up volume. Continuing. Most likely false positive.');
+    });
+    log.info('Mount Test: Volume cleaned');
+  } catch (error) {
+    log.error('Mount Test Removal: Error');
+    log.error(error);
+  }
+}
+
+/**
+ * Test application mounting capability
+ * @returns {Promise<void>}
+ */
+async function testAppMount() {
+  try {
+    // before running, try to remove first
+    await removeTestAppMount();
+    const appSize = 1;
+    const overHeadRequired = 2;
+    const dfAsync = util.promisify(df);
+    const appId = 'flux_fluxTestVol';
+
+    log.info('Mount Test: started');
+    log.info('Mount Test: Searching available space...');
+
+    // we want whole numbers in GB
+    const options = {
+      prefixMultiplier: 'GB',
+      isDisplayPrefixMultiplier: false,
+      precision: 0,
+    };
+
+    const dfres = await dfAsync(options);
+    const okVolumes = [];
+    dfres.forEach((volume) => {
+      if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
+        okVolumes.push(volume);
+      } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
+        okVolumes.push(volume);
+      }
+    });
+
+    // check if space is not sharded in some bad way. Always count the fluxSystemReserve
+    let useThisVolume = null;
+    const totalVolumes = okVolumes.length;
+    for (let i = 0; i < totalVolumes; i += 1) {
+      // check available volumes one by one. If a sufficient is found. Use this one.
+      if (okVolumes[i].available > appSize + overHeadRequired) {
+        useThisVolume = okVolumes[i];
+        break;
+      }
+    }
+    if (!useThisVolume) {
+      // no useable volume has such a big space for the app
+      log.warn('Mount Test: Insufficient space on Flux Node. No useable volume found.');
+      // node marked OK
+      dosMountMessage = ''; // No Space Found actually
       return;
     }
 
-    // Remove the test mount
-    await dockerService.dockerVolumeRemove(specifiedVolume);
-    log.info(`Test app mount ${specifiedVolume} removed successfully`);
+    // now we know there is a space and we have a volume we can operate with. Let's do volume magic
+    log.info('Mount Test: Space found');
+    log.info('Mount Test: Allocating space...');
+
+    let volumePath = `${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted/
+    if (useThisVolume.mount === '/') {
+      volumePath = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;// if root mount then temp file is in flux folder/appvolumes
+    }
+
+    const execDD = `sudo fallocate -l ${appSize}G ${volumePath}`;
+
+    await cmdAsync(execDD);
+
+    log.info('Mount Test: Space allocated');
+    log.info('Mount Test: Creating filesystem...');
+
+    const execFS = `sudo mke2fs -t ext4 ${volumePath}`;
+    await cmdAsync(execFS);
+    log.info('Mount Test: Filesystem created');
+    log.info('Mount Test: Making directory...');
+
+    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
+    await cmdAsync(execDIR);
+    log.info('Mount Test: Directory made');
+    log.info('Mount Test: Mounting volume...');
+
+    const execMount = `sudo mount -o loop ${volumePath} ${appsFolder + appId}`;
+    await cmdAsync(execMount);
+    log.info('Mount Test: Volume mounted. Test completed.');
+    dosMountMessage = '';
+    // run removal
+    removeTestAppMount(volumePath);
   } catch (error) {
-    log.error(`Error removing test app mount: ${error.message}`);
-    throw error;
+    log.error('Mount Test: Error...');
+    log.error(error);
+    // node marked OK
+    dosMountMessage = 'Unavailability to mount applications volumes. Impossible to run applications.';
+    // run removal
+    removeTestAppMount();
   }
 }
 
@@ -636,6 +755,7 @@ module.exports = {
   appendBackupTask,
   appendRestoreTask,
   removeTestAppMount,
+  testAppMount,
   checkApplicationUpdateNameRepositoryConflicts,
   setInstallationInProgress,
   setRemovalInProgress,
