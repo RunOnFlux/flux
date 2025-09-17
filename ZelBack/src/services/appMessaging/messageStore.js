@@ -79,7 +79,7 @@ async function storeAppRunningMessage(message) {
 
     await dbHelper.insertOneToDatabase(database, globalAppsLocations, locationMessage);
 
-    log.info(`App running message stored for ${message.appName || 'unknown'}`);
+    log.info(`App running message stored for ${message.name || 'unknown'}`);
     return { status: 'success', message: 'Running message stored' };
   } catch (error) {
     log.error(`Error storing app running message: ${error.message}`);
