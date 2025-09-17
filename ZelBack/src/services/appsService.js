@@ -699,6 +699,7 @@ module.exports = {
   appPause: appController.appPause,
   appUnpause: appController.appUnpause,
   appDockerRestart: appController.appDockerRestart,
+  stopAllNonFluxRunningApps: appController.stopAllNonFluxRunningApps,
 
   // Re-exported from appInspector
   appTop: appInspector.appTop,
@@ -773,6 +774,7 @@ module.exports = {
   restoreFluxPortsSupport: portManager.restoreFluxPortsSupport,
   restoreAppsPortsSupport: portManager.restoreAppsPortsSupport,
   restorePortsSupport: portManager.restorePortsSupport,
+  callOtherNodeToKeepUpnpPortsOpen: async () => portManager.callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, installedApps),
   getAllUsedPorts: portManager.getAllUsedPorts,
   isPortAvailable: portManager.isPortAvailable,
   findNextAvailablePort: portManager.findNextAvailablePort,

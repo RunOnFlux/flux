@@ -1,5 +1,10 @@
 const config = require('config');
+const axios = require('axios');
 const dbHelper = require('../dbHelper');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
+const networkStateService = require('../networkStateService');
+const verificationHelper = require('../verificationHelper');
+const log = require('../../lib/log');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
 
 /**
@@ -289,6 +294,109 @@ async function findNextAvailablePort(startPort, endPort, excludeApp = null) {
   return null;
 }
 
+/**
+ * Sign application data for verification
+ * @param {string} message - Message to sign
+ * @returns {Promise<string>} Signature
+ */
+async function signCheckAppData(message) {
+  const privKey = await fluxNetworkHelper.getFluxNodePrivateKey();
+  const signature = await verificationHelper.signMessage(message, privKey);
+  return signature;
+}
+
+/**
+ * Periodically call other nodes to establish a connection with the ports I have open on UPNP to remain OPEN
+ * @param {object} failedNodesTestPortsCache - Cache for failed nodes
+ * @param {function} installedApps - Function to get installed apps
+ * @returns {Promise<void>}
+ */
+async function callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, installedApps) {
+  try {
+    const apiPort = config.server.apiport;
+    let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!myIP) {
+      return;
+    }
+
+    const randomSocketAddress = await networkStateService.getRandomSocketAddress(myIP);
+
+    if (!randomSocketAddress) return;
+
+    const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
+
+    myIP = myIP.split(':')[0];
+
+    if (myIP === askingIP) {
+      callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, installedApps);
+      return;
+    }
+    if (failedNodesTestPortsCache.has(askingIP)) {
+      callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, installedApps);
+      return;
+    }
+
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      return;
+    }
+    const apps = installedAppsRes.data;
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    const ports = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      if (app.version === 1) {
+        ports.push(+app.port);
+      } else if (app.version <= 3) {
+        app.ports.forEach((port) => {
+          ports.push(+port);
+        });
+      } else {
+        app.compose.forEach((component) => {
+          component.ports.forEach((port) => {
+            ports.push(+port);
+          });
+        });
+      }
+    }
+
+    // We don't add the api port, as the remote node will callback to our
+    // api port to make sure it can connect before testing any other ports
+    // this is so that we know the remote end can reach us. I also removed
+    // -2,-3,-4, +3 as they are currently not used.
+    ports.push(apiPort - 1);
+    ports.push(apiPort - 5);
+    ports.push(apiPort + 1);
+    ports.push(apiPort + 2);
+
+    const axiosConfig = {
+      timeout: 5_000,
+    };
+
+    const dataUPNP = {
+      ip: myIP,
+      apiPort,
+      ports,
+      pubKey,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+
+    const stringData = JSON.stringify(dataUPNP);
+    const signature = await signCheckAppData(stringData);
+    dataUPNP.signature = signature;
+
+    const logMsg = `callOtherNodeToKeepUpnpPortsOpen - calling ${askingIP}:${askingIpPort} to test ports: ${ports}`;
+    log.info(logMsg);
+
+    const url = `http://${askingIP}:${askingIpPort}/flux/keepupnpportsopen`;
+    await axios.post(url, dataUPNP, axiosConfig).catch(() => {
+      // callOtherNodeToKeepUpnpPortsOpen();
+    });
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   appPortsUnique,
   ensureAppUniquePorts,
@@ -301,4 +409,6 @@ module.exports = {
   getAllUsedPorts,
   isPortAvailable,
   findNextAvailablePort,
+  signCheckAppData,
+  callOtherNodeToKeepUpnpPortsOpen,
 };
