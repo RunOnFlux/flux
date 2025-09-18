@@ -1745,7 +1745,6 @@ module.exports = {
   requestAppMessage: messageVerifier.requestAppMessage,
   requestAppsMessage: messageVerifier.requestAppsMessage,
   requestAppMessageAPI: messageVerifier.requestAppMessageAPI,
-  storeAppPermanentMessage: messageStore.storeAppPermanentMessage,
   storeAppInstallingErrorMessage: messageStore.storeAppInstallingErrorMessage,
   storeIPChangedMessage: messageStore.storeIPChangedMessage,
   storeAppRemovedMessage: messageStore.storeAppRemovedMessage,
@@ -1831,13 +1830,7 @@ module.exports = {
   },
 
   // System Integration
-  getNodeSpecs: systemIntegration.getNodeSpecs,
-  setNodeSpecs: systemIntegration.setNodeSpecs,
-  returnNodeSpecs: systemIntegration.returnNodeSpecs,
   systemArchitecture: systemIntegration.systemArchitecture,
-  totalAppHWRequirements: systemIntegration.totalAppHWRequirements,
-  checkAppStaticIpRequirements: systemIntegration.checkAppStaticIpRequirements,
-  checkAppNodesRequirements: systemIntegration.checkAppNodesRequirements,
   checkAppHWRequirements: async (appSpecs) => {
     // Original implementation that calls appsResources
     const tier = await generalService.nodeTier();
@@ -1877,12 +1870,7 @@ module.exports = {
     }
     return true;
   },
-  checkAppRequirements: systemIntegration.checkAppRequirements,
-  checkHWParameters: systemIntegration.checkHWParameters,
-  checkComposeHWParameters: systemIntegration.checkComposeHWParameters,
   createFluxNetworkAPI: systemIntegration.createFluxNetworkAPI,
-  startMonitoringOfApps: systemIntegration.startMonitoringOfApps,
-  stopMonitoringOfApps: systemIntegration.stopMonitoringOfApps,
 
   // State Management Functions
   removalInProgressReset: advancedWorkflows.removalInProgressReset,
@@ -1891,10 +1879,6 @@ module.exports = {
   setInstallationInProgressTrue: advancedWorkflows.setInstallationInProgressTrue,
   checkAndRemoveApplicationInstance: advancedWorkflows.checkAndRemoveApplicationInstance,
   reinstallOldApplications: advancedWorkflows.reinstallOldApplications,
-
-  // Additional functions
-  appsResources,
-  clearAppsMonitored,
 
   // Constants and utilities
   appConstants,
