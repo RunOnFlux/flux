@@ -338,69 +338,50 @@ async function cleanupOldTemporaryMessages(maxAge = 24 * 60 * 60 * 1000) {
 /**
  * Store app removed message
  * @param {object} message - Message to store
- * @returns {Promise<boolean>} Whether message should be rebroadcast
+ * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
 async function storeAppRemovedMessage(message) {
   /* message object
   * @param type string
   * @param version number
-  * @param name string
   * @param ip string
+  * @param appName string
   * @param broadcastedAt number
   */
-  try {
-    if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-      || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
-      log.error('Invalid Flux App Removed message for storing');
-      return false;
-    }
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.appName !== 'string') {
+    return new Error('Invalid Flux App Removed message for storing');
+  }
 
-    if (message.version !== 1) {
-      log.error(`Invalid Flux App Removed message for storing version ${message.version} not supported`);
-      return false;
-    }
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux App Removed message for storing version ${message.version} not supported`);
+  }
 
-    const validTill = message.broadcastedAt + (15 * 60 * 1000); // 15 minutes
-    if (validTill < Date.now()) {
-      log.warn(`Rejecting old/not valid fluxappremoved message, message:${JSON.stringify(message)}`);
-      // reject old message
-      return false;
-    }
+  if (!message.ip) {
+    return new Error('Invalid Flux App Removed message ip cannot be empty');
+  }
 
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+  if (!message.appName) {
+    return new Error('Invalid Flux App Removed message appName cannot be empty');
+  }
 
-    const newAppRemovedMessage = {
-      name: message.name,
-      ip: message.ip,
-      broadcastedAt: new Date(message.broadcastedAt),
-      expireAt: new Date(validTill),
-      status: 'removed',
-    };
+  log.info('New Flux App Removed message received.');
+  log.info(message);
 
-    // Check if we already have this removal message
-    const queryFind = { name: newAppRemovedMessage.name, ip: newAppRemovedMessage.ip, status: 'removed' };
-    const projection = { _id: 0 };
-    const existingMessage = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-
-    if (existingMessage && existingMessage.broadcastedAt && existingMessage.broadcastedAt >= newAppRemovedMessage.broadcastedAt) {
-      // found a message that was already stored/probably from duplicated message processed
-      return false;
-    }
-
-    // Update or insert the removal message
-    const queryUpdate = { name: newAppRemovedMessage.name, ip: newAppRemovedMessage.ip };
-    const update = { $set: newAppRemovedMessage };
-    const options = { upsert: true };
-
-    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-
-    log.info(`App removed message stored for ${message.name} on ${message.ip}`);
-    return true; // rebroadcast to peers
-  } catch (error) {
-    log.error(`Error storing app removed message: ${error.message}`);
+  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+  if (validTill < Date.now()) {
+    // reject old message
     return false;
   }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { ip: message.ip, name: message.appName };
+  const projection = {};
+  await dbHelper.findOneAndDeleteInDatabase(database, globalAppsLocations, query, projection);
+
+  // all stored, rebroadcast
+  return true;
 }
 
 /**

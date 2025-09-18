@@ -11,6 +11,7 @@ const dockerService = require('../dockerService');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const generalService = require('../generalService');
 const {
   localAppsInformation,
   globalAppsInformation,
@@ -18,8 +19,8 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 
-// We need to avoid circular dependency, so we'll implement installedApps locally
-function installedApps() {
+// We need to avoid circular dependency, so we'll implement getInstalledAppsForDocker locally
+function getInstalledAppsForDocker() {
   try {
     return dockerService.dockerListContainers({
       all: true,
@@ -31,7 +32,28 @@ function installedApps() {
   }
 }
 
-// Path constants
+// Get installed apps from database
+async function getInstalledAppsFromDb() {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const appsQuery = {};
+    const appsProjection = {
+      projection: { _id: 0 },
+    };
+    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    return messageHelper.createDataMessage(apps);
+  } catch (error) {
+    log.error(error);
+    return messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+  }
+}
+
+// Get strict application specifications\nasync function getStrictApplicationSpecifications(appName) {\n  try {\n    const db = dbHelper.databaseConnection();\n    const database = db.db(config.database.appsglobal.database);\n\n    const query = { name: appName };\n    const projection = {\n      projection: {\n        _id: 0,\n      },\n    };\n    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);\n    return appInfo;\n  } catch (error) {\n    log.error(`Error getting strict app specifications for ${appName}:`, error);\n    return null;\n  }\n}\n\n// Path constants
 const cmdAsync = util.promisify(nodecmd.run);
 const fluxDirPath = path.join(__dirname, '../../../../');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -895,36 +917,68 @@ async function checkAndRemoveApplicationInstance() {
  */
 async function reinstallOldApplications() {
   try {
-    // Get locally installed apps
-    const localApps = installedApps();
-    if (!localApps || localApps.length === 0) {
+    // Check if synced first
+    const synced = await generalService.checkSynced();
+    if (synced !== true) {
+      log.info('Checking application status paused. Not yet synced');
       return;
     }
 
-    // Get global app specifications
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-    const globalApps = await dbHelper.findInDatabase(database, globalAppsInformation, {}, { projection: { _id: 0 } });
+    // Get locally installed apps from database
+    const installedAppsRes = await getInstalledAppsFromDb();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
 
-    for (const localApp of localApps) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of appsInstalled) {
       try {
-        const globalApp = globalApps.find(app => app.name === localApp.Names[0].replace(`/${config.fluxapps.appNamePrefix}`, ''));
+        // get current app specifications for the app name
+        // eslint-disable-next-line no-await-in-loop
+        const appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+        const randomNumber = Math.floor((Math.random() * config.fluxapps.redeploy.probability)); // probability based redeploy
 
-        if (globalApp && localApp.version !== globalApp.version) {
-          log.info(`App ${globalApp.name} has newer version available (local: ${localApp.version}, global: ${globalApp.version})`);
+        if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
+          log.warn(`Application ${installedApp.name} version is obsolete.`);
 
-          // TODO: Implement app update logic
-          // This would involve:
-          // 1. Stopping the old app
-          // 2. Removing old app data if needed
-          // 3. Installing new version
-          // 4. Starting new app
+          if (randomNumber === 0) {
+            // check if the app spec was changed
+            const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
+            const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
+            delete auxAppSpecifications.description;
+            delete auxAppSpecifications.expire;
+            delete auxAppSpecifications.hash;
+            delete auxAppSpecifications.height;
+            delete auxAppSpecifications.instances;
+            delete auxAppSpecifications.owner;
 
-          // For now, just log the available update
-          log.info(`Update available for ${globalApp.name}`);
+            delete auxInstalledApp.description;
+            delete auxInstalledApp.expire;
+            delete auxInstalledApp.hash;
+            delete auxInstalledApp.height;
+            delete auxInstalledApp.instances;
+            delete auxInstalledApp.owner;
+
+            if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
+              log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
+              // connect to mongodb
+              const dbopen = dbHelper.databaseConnection();
+              const appsDatabase = dbopen.db(config.database.appslocal.database);
+              const appsQuery = { name: appSpecifications.name };
+              const options = {
+                upsert: true,
+              };
+              // eslint-disable-next-line no-await-in-loop
+              await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
+            } else {
+              // TODO: Implement full reinstall logic
+              log.info(`Application ${installedApp.name} needs to be reinstalled with new specifications`);
+            }
+          }
         }
       } catch (error) {
-        log.error(`Error checking app version for ${localApp.Names[0]}:`, error);
+        log.error(`Error checking app version for ${installedApp.name}:`, error);
       }
     }
   } catch (error) {

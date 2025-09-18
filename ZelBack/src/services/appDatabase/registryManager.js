@@ -11,6 +11,7 @@ const {
   globalAppsMessages,
   globalAppsLocations,
   globalAppsInstallingLocations,
+  globalAppsInstallingErrorsLocations,
   appsHashesCollection,
 } = require('../utils/appConstants');
 
@@ -639,6 +640,43 @@ async function expireGlobalApplications() {
 }
 
 /**
+ * To update app specifications.
+ * @param {object} appSpecs App specifications.
+ */
+async function updateAppSpecifications(appSpecs) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+
+    const query = { name: appSpecs.name };
+    const update = { $set: appSpecs };
+    const options = {
+      upsert: true,
+    };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    if (appInfo) {
+      if (appInfo.height < appSpecs.height) {
+        await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      }
+    } else {
+      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+    }
+    const queryDeleteAppErrors = { name: appSpecs.name };
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
+  } catch (error) {
+    // retry
+    log.error(error);
+    await serviceHelper.delay(60 * 1000);
+    updateAppSpecifications(appSpecs);
+  }
+}
+
+/**
  * Rebuild the global apps information collection from messages collection
  * @returns {Promise<string>} Success message
  */
@@ -763,6 +801,7 @@ module.exports = {
   getGlobalAppsSpecifications,
   availableApps,
   checkApplicationRegistrationNameConflicts,
+  updateAppSpecifications,
   updateAppSpecsForRescanReindex,
   storeAppSpecificationInPermanentStorage,
   removeAppSpecificationFromStorage,
