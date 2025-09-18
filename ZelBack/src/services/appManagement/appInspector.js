@@ -642,6 +642,266 @@ function getAppsDOSState(req, res) {
   return res ? res.json(response) : response;
 }
 
+/**
+ * Check if applications are throttling CPU and adjust CPU limits
+ * @param {object} appsMonitored - Applications monitoring data
+ * @param {Function} installedApps - Function to get installed apps
+ * @returns {Promise<void>}
+ */
+async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    let stats;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      if (app.version <= 3) {
+        stats = appsMonitored[app.name].lastHourstatsStore;
+        // eslint-disable-next-line no-await-in-loop
+        const inspect = await dockerService.dockerContainerInspect(app.name);
+        if (inspect && stats && stats.length > 4) {
+          const nanoCpus = inspect.HostConfig.NanoCpus;
+          let cpuThrottlingRuns = 0;
+          let cpuThrottling = false;
+          const cpuPercentage = nanoCpus / app.cpu / 1e9;
+          // eslint-disable-next-line no-restricted-syntax
+          for (const stat of stats) {
+            const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
+            const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
+            const cpu = ((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / app.cpu || 0;
+            const realCpu = cpu / cpuPercentage;
+            if (realCpu >= 92) {
+              cpuThrottlingRuns += 1;
+            }
+          }
+          if (cpuThrottlingRuns >= stats.length * 0.8) {
+            // cpu was high on 80% of the checks
+            cpuThrottling = true;
+          }
+          appsMonitored[app.name].lastHourstatsStore = [];
+          log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
+          log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+          if (cpuThrottling && app.cpu > 1) {
+            if (cpuPercentage === 1) {
+              if (app.cpu > 2) {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.8));
+              } else {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
+              }
+              log.info(`checkApplicationsCpuUSage ${app.name} lowering cpu.`);
+            }
+          } else if (cpuPercentage <= 0.8) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
+            log.info(`checkApplicationsCpuUSage ${app.name} adjusting cpu to 85%.`);
+          } else if (cpuPercentage < 1) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
+            log.info(`checkApplicationsCpuUSage ${app.name} restoring cpu to 100%.`);
+          }
+        } else if (app.version >= 4) {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const component of app.compose) {
+            const monitoredName = `${component.name}_${app.name}`;
+            stats = appsMonitored[monitoredName].lastHourstatsStore;
+            // eslint-disable-next-line no-await-in-loop
+            const inspect = await dockerService.dockerContainerInspect(monitoredName);
+            if (inspect && stats && stats.length > 4) {
+              const nanoCpus = inspect.HostConfig.NanoCpus;
+              let cpuThrottlingRuns = 0;
+              let cpuThrottling = false;
+              const cpuPercentage = nanoCpus / component.cpu / 1e9;
+              // eslint-disable-next-line no-restricted-syntax
+              for (const stat of stats) {
+                const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
+                const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
+                const cpu = ((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / component.cpu || 0;
+                const realCpu = cpu / cpuPercentage;
+                if (realCpu >= 92) {
+                  cpuThrottlingRuns += 1;
+                }
+              }
+              if (cpuThrottlingRuns >= stats.length * 0.8) {
+                // cpu was high on 80% of the checks
+                cpuThrottling = true;
+              }
+              appsMonitored[monitoredName].lastHourstatsStore = [];
+              log.info(`checkApplicationsCpuUSage ${monitoredName} cpu high load: ${cpuThrottling}`);
+              log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+              if (cpuThrottling && component.cpu > 1) {
+                if (cpuPercentage === 1) {
+                  if (component.cpu > 2) {
+                    // eslint-disable-next-line no-await-in-loop
+                    await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.8));
+                  } else {
+                    // eslint-disable-next-line no-await-in-loop
+                    await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.9));
+                  }
+                  log.info(`checkApplicationsCpuUSage ${monitoredName} lowering cpu.`);
+                }
+              } else if (cpuPercentage <= 0.8) {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.85));
+                log.info(`checkApplicationsCpuUSage ${monitoredName} adjusting cpu to 85%.`);
+              } else if (cpuPercentage < 1) {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9));
+                log.info(`checkApplicationsCpuUSage ${monitoredName} restoring cpu to 100%.`);
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Monitor shared database applications and handle uninstall signals
+ * @param {Function} installedApps - Function to get installed apps
+ * @param {Function} removeAppLocally - Function to remove app locally
+ * @returns {Promise<void>}
+ */
+async function monitorSharedDBApps(installedApps, removeAppLocally) {
+  try {
+    // get list of all installed apps
+    const appsInstalled = await installedApps();
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of appsInstalled.data.filter((app) => app.version > 3)) {
+      const componentUsingSharedDB = installedApp.compose.find((comp) => comp.repotag.includes('runonflux/shared-db'));
+      if (componentUsingSharedDB) {
+        log.info(`monitorSharedDBApps: Found app ${installedApp.name} using sharedDB`);
+        if (componentUsingSharedDB.ports && componentUsingSharedDB.ports.length > 0) {
+          const apiPort = componentUsingSharedDB.ports[componentUsingSharedDB.ports.length - 1]; // it's the last port from the shareddb that is the api port
+          // eslint-disable-next-line no-await-in-loop
+          const url = `http://localhost:${apiPort}/status`;
+          log.info(`monitorSharedDBApps: ${installedApp.name} going to check operator status on url ${url}`);
+          // eslint-disable-next-line no-await-in-loop
+          const operatorStatus = await serviceHelper.axiosGet(url).catch((error) => log.error(`monitorSharedDBApps: ${installedApp.name} operatorStatus error: ${error}`));
+          if (operatorStatus && operatorStatus.data) {
+            if (operatorStatus.data.status === 'UNINSTALL') {
+              log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is UNINSTALL, going to uninstall the app`);
+              // eslint-disable-next-line no-await-in-loop
+              await removeAppLocally(installedApp.name, null, true, false, true);
+            } else {
+              log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is ${operatorStatus.data.status}`);
+            }
+          } else {
+            log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is not set`);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(`monitorSharedDBApps: ${error}`);
+  } finally {
+    await serviceHelper.delay(5 * 60 * 1000);
+    monitorSharedDBApps(installedApps, removeAppLocally);
+  }
+}
+
+/**
+ * Check storage space usage of applications and enforce limits
+ * @param {Function} installedApps - Function to get installed apps
+ * @param {Function} removeAppLocally - Function to remove app locally
+ * @param {Function} softRedeploy - Function to soft redeploy app
+ * @param {Array} appsStorageViolations - Array tracking storage violations
+ * @returns {Promise<void>}
+ */
+async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations) {
+  const config = require('config');
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const dockerSystemDF = await dockerService.dockerGetUsage();
+    const allowedMaximum = (config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap) * 1000 * 1024 * 1024;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      if (app.version >= 4) {
+        let totalSize = 0;
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of app.compose) {
+          // compose
+          const identifier = `${component.name}_${app.name}`;
+          const contId = dockerService.getAppDockerNameIdentifier(identifier);
+          const contExists = dockerSystemDF.Containers.find((cont) => cont.Names[0] === contId);
+          if (contExists) {
+            totalSize += contExists.SizeRootFs;
+          }
+        }
+        const maxAllowedSize = app.compose.length * allowedMaximum;
+        if (totalSize > maxAllowedSize) { // here we allow that one component can take more space than allowed as long as total per entire app is lower than total allowed
+          // soft redeploy, todo remove the entire app if multiple violations
+          appsStorageViolations.push(app.name);
+          const occurancies = appsStorageViolations.filter((appName) => (appName) === app.name).length;
+          if (occurancies > 3) { // if more than 3 violations, then remove the app
+            log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Removing...`);
+            // eslint-disable-next-line no-await-in-loop
+            await removeAppLocally(app.name).catch((error) => {
+              log.error(error);
+            });
+            const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
+            appsStorageViolations.length = 0;
+            appsStorageViolations.push(...adjArray);
+          } else {
+            log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Soft redeploying...`);
+            // eslint-disable-next-line no-await-in-loop
+            await softRedeploy(app).catch((error) => {
+              log.error(error);
+            });
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2 * 60 * 1000); // 2 mins
+        }
+      } else {
+        const identifier = app.name;
+        const contId = dockerService.getAppDockerNameIdentifier(identifier);
+        const contExists = dockerSystemDF.Containers.find((cont) => cont.Names[0] === contId);
+        if (contExists) {
+          if (contExists.SizeRootFs > allowedMaximum) {
+            // soft redeploy, todo remove the entire app if multiple violations
+            appsStorageViolations.push(app.name);
+            const occurancies = appsStorageViolations.filter((appName) => (appName) === app.name).length;
+            if (occurancies > 3) { // if more than 3 violations, then remove the app
+              log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Removing...`);
+              // eslint-disable-next-line no-await-in-loop
+              await removeAppLocally(app.name).catch((error) => {
+                log.error(error);
+              });
+              const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
+              appsStorageViolations.length = 0;
+              appsStorageViolations.push(...adjArray);
+            } else {
+              log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
+              // eslint-disable-next-line no-await-in-loop
+              await softRedeploy(app).catch((error) => {
+                log.error(error);
+              });
+            }
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(2 * 60 * 1000); // 2 mins
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   appTop,
   appLog,
@@ -659,4 +919,7 @@ module.exports = {
   stopAppMonitoring,
   listAppsImages,
   getAppsDOSState,
+  checkApplicationsCpuUSage,
+  monitorSharedDBApps,
+  checkStorageSpaceForApps,
 };

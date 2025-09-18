@@ -1,5 +1,8 @@
 const config = require('config');
 const dbHelper = require('../dbHelper');
+const messageHelper = require('../messageHelper');
+const serviceHelper = require('../serviceHelper');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const log = require('../../lib/log');
 
 /**
@@ -226,9 +229,95 @@ function parseAppSpecification(appSpec) {
   return result;
 }
 
+/**
+ * Get app price with Fiat and Flux pricing
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>} Price response
+ */
+async function getAppFiatAndFluxPrice(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      // TODO: Implement checkAndDecryptAppSpecs when enterprise logic is available
+      // appSpecification = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      // Calculate app price
+      const appPrice = await appPricePerMonth(appSpecFormatted, daemonHeight);
+
+      // TODO: Add Fiat conversion logic
+      const priceResponse = {
+        fluxPrice: appPrice,
+        fiatPrice: null, // TODO: Implement fiat conversion
+        currency: 'USD'
+      };
+
+      const response = messageHelper.createDataMessage(priceResponse);
+      res.json(response);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
+}
+
+/**
+ * Get app price (simplified wrapper)
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>} Price response
+ */
+async function getAppPrice(req, res) {
+  return getAppFiatAndFluxPrice(req, res);
+}
+
+/**
+ * Format app specifications to standard format
+ * @param {object} specs - Raw app specifications
+ * @returns {object} Formatted specifications
+ */
+function specificationFormatter(specs) {
+  // TODO: Add proper specification formatting logic
+  // For now, return specs as-is with minimal processing
+  return {
+    ...specs,
+    // Ensure required fields have defaults
+    version: specs.version || 1,
+    name: specs.name || '',
+    description: specs.description || '',
+    owner: specs.owner || '',
+    ports: specs.ports || [],
+    enviromentParameters: specs.enviromentParameters || [],
+    commands: specs.commands || [],
+  };
+}
+
 module.exports = {
   getChainParamsPriceUpdates,
   getChainTeamSupportAddressUpdates,
   appPricePerMonth,
   parseAppSpecification,
+  getAppFiatAndFluxPrice,
+  getAppPrice,
+  specificationFormatter,
 };

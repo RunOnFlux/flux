@@ -1,6 +1,7 @@
 const config = require('config');
 const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
+const messageHelper = require('../messageHelper');
 const pgpService = require('../pgpService');
 const imageVerifier = require('../utils/imageVerifier');
 const dbHelper = require('../dbHelper');
@@ -348,6 +349,94 @@ function clearBlockedRepositoriesCache() {
   cacheUserBlockedRepos = null;
 }
 
+/**
+ * Check Docker accessibility for repository
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>} Docker accessibility result
+ */
+async function checkDockerAccessibility(req, res) {
+  try {
+    let body = '';
+    req.on('data', (data) => {
+      body += data;
+    });
+    req.on('end', async () => {
+      try {
+        const processedBody = serviceHelper.ensureObject(body);
+        if (!processedBody.repotag) {
+          throw new Error('Missing repository tag');
+        }
+
+        // Verify repository accessibility without full verification
+        // This is a lighter check compared to full repository verification
+        const repoResult = await verifyRepository(processedBody.repotag, {
+          skipVerification: true,
+          repoauth: processedBody.repoauth
+        });
+
+        const successResponse = messageHelper.createSuccessMessage('Docker repository is accessible');
+        res.json(successResponse);
+      } catch (error) {
+        log.error(`Docker accessibility check failed: ${error.message}`);
+        const errorResponse = messageHelper.createErrorMessage(
+          error.message || error,
+          error.name,
+          error.code,
+        );
+        res.json(errorResponse);
+      }
+    });
+  } catch (error) {
+    log.error(`Docker accessibility check error: ${error.message}`);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * Check applications compliance and remove blacklisted apps
+ * @param {Function} installedApps - Function to get installed apps
+ * @param {Function} removeAppLocally - Function to remove app locally
+ * @returns {Promise<void>}
+ */
+async function checkApplicationsCompliance(installedApps, removeAppLocally) {
+  try {
+    // get list of locally installed apps.
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    const appsToRemoveNames = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      // eslint-disable-next-line no-await-in-loop
+      const isAppBlocked = await checkApplicationImagesBlocked(app);
+      if (isAppBlocked) {
+        if (!appsToRemoveNames.includes(app.name)) {
+          appsToRemoveNames.push(app.name);
+        }
+      }
+    }
+    // remove appsToRemoveNames apps from locally running
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of appsToRemoveNames) {
+      log.warn(`Application ${appName} is blacklisted, removing`);
+      // eslint-disable-next-line no-await-in-loop
+      await removeAppLocally(appName, null, false, true, true);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(3 * 60 * 1000); // wait for 3 mins so we don't have more removals at the same time
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   verifyRepository,
   getBlockedRepositores,
@@ -357,4 +446,6 @@ module.exports = {
   checkApplicationImagesBlocked,
   validateImageSecurity,
   clearBlockedRepositoriesCache,
+  checkDockerAccessibility,
+  checkApplicationsCompliance,
 };

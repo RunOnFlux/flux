@@ -1,5 +1,6 @@
 const config = require('config');
 const dbHelper = require('../dbHelper');
+const serviceHelper = require('../serviceHelper');
 const log = require('../../lib/log');
 const {
   globalAppsMessages,
@@ -7,6 +8,8 @@ const {
   globalAppsLocations,
   globalAppsInstallingLocations
 } = require('../utils/appConstants');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { checkAppMessageExistence, checkAppTemporaryMessageExistence } = require('./messageVerifier');
 
 /**
  * Store temporary app message
@@ -15,21 +18,63 @@ const {
  * @returns {Promise<object>} Storage result
  */
 async function storeAppTemporaryMessage(message, furtherVerification = false) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param appSpecifications object
+  * @param hash string
+  * @param timestamp number
+  * @param signature string
+  */
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.signature !== 'string' || typeof message.timestamp !== 'number' || typeof message.hash !== 'string') {
+    return new Error('Invalid Flux App message for storing');
+  }
+  // expect one to be present
+  if (typeof message.appSpecifications !== 'object' && typeof message.zelAppSpecifications !== 'object') {
+    return new Error('Invalid Flux App message for storing');
+  }
+
+  const specifications = message.appSpecifications || message.zelAppSpecifications;
+  // eslint-disable-next-line no-use-before-define
+  const appSpecFormatted = specificationFormatter(specifications);
+  const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
+  const messageVersion = serviceHelper.ensureNumber(message.version);
+
+  // check permanent app message storage
+  const appMessage = await checkAppMessageExistence(message.hash);
+  if (appMessage) {
+    // do not rebroadcast further
+    return false;
+  }
+  // check temporary message storage
+  const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
+  if (tempMessage) {
+    // rebroadcast
+    return true;
+  }
+
+  const adjustedAppSpecFormatted = appSpecFormatted;
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  // Add timestamp and verification status
+  const messageToStore = {
+    type: message.type,
+    version: messageVersion,
+    appSpecifications: adjustedAppSpecFormatted,
+    hash: message.hash,
+    timestamp: messageTimestamp,
+    signature: message.signature,
+    createdAt: new Date(),
+    expireAt: new Date(messageTimestamp + (3 * 24 * 60 * 60 * 1000)), // 3 days
+    furtherVerification: furtherVerification || false,
+  };
+
   try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    // Add timestamp and verification status
-    const messageToStore = {
-      ...message,
-      storedAt: Date.now(),
-      furtherVerification: furtherVerification || false,
-    };
-
     await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, messageToStore);
-
-    log.info(`Temporary app message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Temporary message stored' };
+    log.info(`Temporary app message stored for ${adjustedAppSpecFormatted.name}`);
+    return true;
   } catch (error) {
     log.error(`Error storing temporary app message: ${error.message}`);
     throw error;
@@ -42,23 +87,29 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
  * @returns {Promise<object>} Storage result
  */
 async function storeAppPermanentMessage(message) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const messageToStore = {
-      ...message,
-      storedAt: Date.now(),
-    };
-
-    await dbHelper.insertOneToDatabase(database, globalAppsMessages, messageToStore);
-
-    log.info(`Permanent app message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Permanent message stored' };
-  } catch (error) {
-    log.error(`Error storing permanent app message: ${error.message}`);
-    throw error;
+  /* message object
+  * @param type string
+  * @param version number
+  * @param appSpecifications object
+  * @param hash string
+  * @param timestamp number
+  * @param signature string
+  * @param txid string
+  * @param height number
+  * @param valueSat number
+  */
+  if (!message || !message.appSpecifications || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number' || typeof message.appSpecifications !== 'object' || typeof message.signature !== 'string'
+    || typeof message.timestamp !== 'number' || typeof message.hash !== 'string' || typeof message.txid !== 'string' || typeof message.height !== 'number' || typeof message.valueSat !== 'number') {
+    throw new Error('Invalid Flux App message for storing');
   }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  await dbHelper.insertOneToDatabase(database, globalAppsMessages, message).catch((error) => {
+    log.error(error);
+    throw error;
+  });
+  return true;
 }
 
 /**
@@ -67,20 +118,92 @@ async function storeAppPermanentMessage(message) {
  * @returns {Promise<object>} Storage result
  */
 async function storeAppRunningMessage(message) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+  /* message object
+  * @param type string
+  * @param version number
+  * @param hash string
+  * @param broadcastedAt number
+  * @param name string
+  * @param ip string
+  */
+  const appsMessages = [];
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string') {
+    return new Error('Invalid Flux App Running message for storing');
+  }
 
-    const locationMessage = {
-      ...message,
-      status: 'running',
-      timestamp: Date.now(),
+  if (message.version !== 1 && message.version !== 2) {
+    return new Error(`Invalid Flux App Running message for storing version ${message.version} not supported`);
+  }
+
+  if (message.version === 1) {
+    if (typeof message.hash !== 'string' || typeof message.name !== 'string') {
+      return new Error('Invalid Flux App Running message for storing');
+    }
+    const app = {
+      name: message.name,
+      hash: message.hash,
     };
+    appsMessages.push(app);
+  }
 
-    await dbHelper.insertOneToDatabase(database, globalAppsLocations, locationMessage);
+  if (message.version === 2) {
+    if (!message.apps || !Array.isArray(message.apps)) {
+      return new Error('Invalid Flux App Running message for storing');
+    }
+    for (let i = 0; i < message.apps.length; i += 1) {
+      const app = message.apps[i];
+      appsMessages.push(app);
+      if (typeof app.hash !== 'string' || typeof app.name !== 'string') {
+        return new Error('Invalid Flux App Running v2 message for storing');
+      }
+    }
+  }
 
-    log.info(`App running message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Running message stored' };
+  const validTill = message.broadcastedAt + (125 * 60 * 1000); // 7500 seconds
+  if (validTill < Date.now()) {
+    log.warn(`Rejecting old/not valid Fluxapprunning message, message:${JSON.stringify(message)}`);
+    // reject old message
+    return false;
+  }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  try {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appMessage of appsMessages) {
+      const newAppRunningMessage = {
+        name: appMessage.name,
+        hash: appMessage.hash,
+        ip: message.ip,
+        broadcastedAt: new Date(message.broadcastedAt),
+        expireAt: new Date(validTill),
+      };
+
+      // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+      const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+      const projection = { _id: 0 };
+      // we already have the exact same data
+      // eslint-disable-next-line no-await-in-loop
+      const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+      if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
+        // found a message that was already stored/probably from duplicated message processsed
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+      const update = { $set: newAppRunningMessage };
+      const options = {
+        upsert: true,
+      };
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+    }
+
+    log.info(`App running message stored for ${appsMessages.map(app => app.name).join(', ')}`);
+    return true;
   } catch (error) {
     log.error(`Error storing app running message: ${error.message}`);
     throw error;
@@ -93,65 +216,65 @@ async function storeAppRunningMessage(message) {
  * @returns {Promise<object>} Storage result
  */
 async function storeAppInstallingMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param broadcastedAt number
+  * @param name string
+  * @param ip string
+  */
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
+    return new Error('Invalid Flux App Installing message for storing');
+  }
+
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux App Installing message for storing version ${message.version} not supported`);
+  }
+
+  const validTill = message.broadcastedAt + (5 * 60 * 1000); // 5 minutes
+  if (validTill < Date.now()) {
+    log.warn(`Rejecting old/not valid fluxappinstalling message, message:${JSON.stringify(message)}`);
+    // reject old message
+    return false;
+  }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const newAppInstallingMessage = {
+    name: message.name,
+    ip: message.ip,
+    broadcastedAt: new Date(message.broadcastedAt),
+    expireAt: new Date(validTill),
+  };
+
   try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+    // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+    const queryFind = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
+    const projection = { _id: 0 };
+    // we already have the exact same data
+    const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingLocations, queryFind, projection);
+    if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingMessage.broadcastedAt) {
+      // found a message that was already stored/probably from duplicated message processsed
+      return false;
+    }
 
-    const installingMessage = {
-      ...message,
-      status: 'installing',
-      timestamp: Date.now(),
+    const queryUpdate = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
+    const update = { $set: newAppInstallingMessage };
+    const options = {
+      upsert: true,
     };
+    await dbHelper.updateOneInDatabase(database, globalAppsInstallingLocations, queryUpdate, update, options);
 
-    await dbHelper.insertOneToDatabase(database, globalAppsInstallingLocations, installingMessage);
-
-    log.info(`App installing message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Installing message stored' };
+    log.info(`App installing message stored for ${message.name}`);
+    return true;
   } catch (error) {
     log.error(`Error storing app installing message: ${error.message}`);
     throw error;
   }
 }
 
-/**
- * Check if app message already exists
- * @param {string} hash - Message hash
- * @returns {Promise<boolean>} True if message exists
- */
-async function checkAppMessageExistence(hash) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = { hash };
-    const message = await dbHelper.findOneInDatabase(database, globalAppsMessages, query);
-
-    return !!message;
-  } catch (error) {
-    log.error(`Error checking app message existence: ${error.message}`);
-    return false;
-  }
-}
-
-/**
- * Check if temporary app message exists
- * @param {string} hash - Message hash
- * @returns {Promise<boolean>} True if temporary message exists
- */
-async function checkAppTemporaryMessageExistence(hash) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = { hash };
-    const message = await dbHelper.findOneInDatabase(database, globalAppsTempMessages, query);
-
-    return !!message;
-  } catch (error) {
-    log.error(`Error checking temporary app message existence: ${error.message}`);
-    return false;
-  }
-}
 
 /**
  * Get temporary app messages
@@ -217,8 +340,6 @@ module.exports = {
   storeAppPermanentMessage,
   storeAppRunningMessage,
   storeAppInstallingMessage,
-  checkAppMessageExistence,
-  checkAppTemporaryMessageExistence,
   getAppsTemporaryMessages,
   getAppsPermanentMessages,
   cleanupOldTemporaryMessages,

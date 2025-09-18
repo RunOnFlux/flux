@@ -1,6 +1,17 @@
 const config = require('config');
 const serviceHelper = require('../serviceHelper');
+const messageHelper = require('../messageHelper');
+const log = require('../../lib/log');
+const generalService = require('../generalService');
+const verificationHelper = require('../verificationHelper');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+const registryManager = require('../appDatabase/registryManager');
+const messageVerifier = require('../appMessaging/messageVerifier');
+const messageStore = require('../appMessaging/messageStore');
+const imageManager = require('../appSecurity/imageManager');
 const { supportedArchitectures } = require('../utils/appConstants');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
 
 /**
  * Verify type correctness of application specification
@@ -253,6 +264,250 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   return true;
 }
 
+/**
+ * Verify app registration parameters via API
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>} Validation result
+ */
+async function verifyAppRegistrationParameters(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const appSpecification = serviceHelper.ensureObject(body);
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      const isEnterprise = Boolean(
+        appSpecification.version >= 8 && appSpecification.enterprise,
+      );
+
+      // For now, we'll use the appSpecification directly
+      // TODO: Implement checkAndDecryptAppSpecs when enterprise logic is needed
+      const appSpecDecrypted = appSpecification;
+
+      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+
+      // Validate the application specifications
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // TODO: Implement enterprise secrets validation when needed
+      // TODO: Implement application registration name conflict checks
+
+      if (isEnterprise) {
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
+      }
+
+      // App is valid and can be registered
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+      res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
+}
+
+/**
+ * Verify app update parameters via API
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>} Validation result
+ */
+async function verifyAppUpdateParameters(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const appSpecification = serviceHelper.ensureObject(body);
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      // For app updates, we need to verify the app exists and validate the update
+      const appSpecDecrypted = appSpecification;
+      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+
+      // Validate the updated application specifications
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      // TODO: Implement update-specific validation logic
+      // TODO: Check if app exists and validate update permissions
+
+      // App update is valid
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+      res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
+}
+
+/**
+ * Register application globally via API
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>} Registration result
+ */
+async function registerAppGlobalyApi(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+
+      // TODO: Add peer count checks for safe registration
+      // if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+      //   throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
+      // }
+
+      const processedBody = serviceHelper.ensureObject(body);
+      let { appSpecification, timestamp, signature } = processedBody;
+      let messageType = processedBody.type;
+      let typeVersion = processedBody.version;
+
+      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+        throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
+      }
+
+      if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
+        throw new Error('Invalid type of message');
+      }
+
+      if (typeVersion !== 1) {
+        throw new Error('Invalid version of message');
+      }
+
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      timestamp = serviceHelper.ensureNumber(timestamp);
+      signature = serviceHelper.ensureString(signature);
+      messageType = serviceHelper.ensureString(messageType);
+      typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+
+      // Format the app specification
+      const appSpecFormatted = specificationFormatter(appSpecification);
+
+      // Validate the app registration
+      await verifyAppSpecifications(appSpecFormatted, syncStatus.data.height, true);
+
+      // Check for name conflicts
+      const messageHASH = await generalService.messageHash(messageType + typeVersion + JSON.stringify(appSpecification) + timestamp + signature);
+      await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, messageHASH);
+
+      // Check app secrets for v7+ apps
+      if (appSpecFormatted.version >= 7) {
+        await imageManager.checkAppSecrets(appSpecFormatted);
+      }
+
+      // Verify message signature
+      const messageToVerify = {
+        type: messageType,
+        version: typeVersion,
+        appSpecifications: appSpecification,
+        hash: messageHASH,
+        timestamp,
+        signature
+      };
+      await messageVerifier.verifyAppMessageSignature(messageToVerify);
+
+      // Prepare the complete message for broadcast
+      const completeMessage = {
+        type: messageType,
+        version: typeVersion,
+        appSpecifications: appSpecFormatted,
+        hash: messageHASH,
+        timestamp,
+        signature
+      };
+
+      // Broadcast temporary app message to network
+      log.info('Broadcasting temporary app message to network');
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(completeMessage);
+      await serviceHelper.delay(1200); // Wait for processing
+
+      // Request the message back from peers for verification
+      log.info('Requesting app message from network for verification');
+      await messageVerifier.requestAppMessage(messageHASH);
+      await serviceHelper.delay(1200); // Wait for peer response
+
+      // Check if message was stored successfully by waiting up to 10 seconds
+      let attempts = 0;
+      let tempMessage = null;
+      while (attempts < 10 && !tempMessage) {
+        tempMessage = await messageStore.checkAppTemporaryMessageExistence(messageHASH);
+        if (!tempMessage) {
+          await serviceHelper.delay(1000);
+          attempts += 1;
+        }
+      }
+
+      if (tempMessage) {
+        log.info(`App registration successful for ${appSpecFormatted.name} with hash ${messageHASH}`);
+        const response = messageHelper.createDataMessage({
+          message: 'Application registration successful',
+          hash: messageHASH,
+          appSpecification: appSpecFormatted
+        });
+        res.json(response);
+      } else {
+        throw new Error('App registration failed - network consensus not achieved');
+      }
+
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
+}
+
 module.exports = {
   verifyTypeCorrectnessOfApp,
   verifyRestrictionCorrectnessOfApp,
@@ -260,4 +515,7 @@ module.exports = {
   checkHWParameters,
   checkComposeHWParameters,
   verifyAppSpecifications,
+  verifyAppRegistrationParameters,
+  verifyAppUpdateParameters,
+  registerAppGlobalyApi,
 };

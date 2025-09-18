@@ -232,187 +232,67 @@ async function requestAppMessageAPI(req, res) {
 }
 
 /**
- * Store app temporary message
- * @param {object} message - Message to store
- * @param {boolean} furtherVerification - Whether further verification is needed
- * @returns {Promise<object>} Storage result
+ * Check if app message exists in permanent storage
+ * @param {string} hash - Message hash to check
+ * @returns {Promise<object|boolean>} Message object if found, false otherwise
  */
-async function storeAppTemporaryMessage(message, furtherVerification = false) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    // Add timestamp and verification status
-    const messageToStore = {
-      ...message,
-      storedAt: Date.now(),
-      furtherVerification: furtherVerification || false,
-    };
-
-    await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, messageToStore);
-
-    log.info(`Temporary app message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Temporary message stored' };
-  } catch (error) {
-    log.error(`Error storing temporary app message: ${error.message}`);
-    throw error;
+async function checkAppMessageExistence(hash) {
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appsglobal.database);
+  const appsQuery = { hash };
+  const appsProjection = {};
+  // a permanent global zelappmessage looks like this:
+  // const permanentAppMessage = {
+  //   type: messageType,
+  //   version: typeVersion,
+  //   zelAppSpecifications: appSpecFormatted,
+  //   appSpecifications: appSpecFormatted,
+  //   hash: messageHASH,
+  //   timestamp,
+  //   signature,
+  //   txid,
+  //   height,
+  //   valueSat,
+  // };
+  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsMessages, appsQuery, appsProjection);
+  if (appResult) {
+    return appResult;
   }
+  return false;
 }
 
 /**
- * Store app permanent message
- * @param {object} message - Message to store
- * @returns {Promise<object>} Storage result
+ * Check if app temporary message exists
+ * @param {string} hash - Message hash to check
+ * @returns {Promise<object|boolean>} Message object if found, false otherwise
  */
-async function storeAppPermanentMessage(message) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const messageToStore = {
-      ...message,
-      storedAt: Date.now(),
-    };
-
-    await dbHelper.insertOneToDatabase(database, globalAppsMessages, messageToStore);
-
-    log.info(`Permanent app message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Permanent message stored' };
-  } catch (error) {
-    log.error(`Error storing permanent app message: ${error.message}`);
-    throw error;
+async function checkAppTemporaryMessageExistence(hash) {
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appsglobal.database);
+  const appsQuery = { hash };
+  const appsProjection = {};
+  // a temporary zelappmessage looks like this:
+  // const newMessage = {
+  //   appSpecifications: message.appSpecifications,
+  //   type: message.type,
+  //   version: message.version,
+  //   hash: message.hash,
+  //   timestamp: message.timestamp,
+  //   signature: message.signature,
+  //   createdAt: new Date(message.timestamp),
+  //   expireAt: new Date(validTill),
+  // };
+  const tempResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsTempMessages, appsQuery, appsProjection);
+  if (tempResult) {
+    return tempResult;
   }
+  return false;
 }
 
-/**
- * Store app running message
- * @param {object} message - Message to store
- * @returns {Promise<object>} Storage result
- */
-async function storeAppRunningMessage(message) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
 
-    const locationMessage = {
-      ...message,
-      status: 'running',
-      timestamp: Date.now(),
-    };
 
-    await dbHelper.insertOneToDatabase(database, globalAppsLocations, locationMessage);
 
-    log.info(`App running message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Running message stored' };
-  } catch (error) {
-    log.error(`Error storing app running message: ${error.message}`);
-    throw error;
-  }
-}
 
-/**
- * Store app installing message
- * @param {object} message - Message to store
- * @returns {Promise<object>} Storage result
- */
-async function storeAppInstallingMessage(message) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const installingMessage = {
-      ...message,
-      status: 'installing',
-      timestamp: Date.now(),
-    };
-
-    await dbHelper.insertOneToDatabase(database, globalAppsInstallingLocations, installingMessage);
-
-    log.info(`App installing message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Installing message stored' };
-  } catch (error) {
-    log.error(`Error storing app installing message: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
- * Store app installing error message
- * @param {object} message - Error message to store
- * @returns {Promise<object>} Storage result
- */
-async function storeAppInstallingErrorMessage(message) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const errorMessage = {
-      ...message,
-      status: 'error',
-      timestamp: Date.now(),
-    };
-
-    await dbHelper.insertOneToDatabase(database, globalAppsInstallingLocations, errorMessage);
-
-    log.error(`App installing error message stored for ${message.name || 'unknown'}: ${message.error || 'Unknown error'}`);
-    return { status: 'success', message: 'Error message stored' };
-  } catch (error) {
-    log.error(`Error storing app installing error message: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
- * Store IP changed message
- * @param {object} message - Message to store
- * @returns {Promise<object>} Storage result
- */
-async function storeIPChangedMessage(message) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const ipChangeMessage = {
-      ...message,
-      type: 'ip_changed',
-      timestamp: Date.now(),
-    };
-
-    await dbHelper.insertOneToDatabase(database, globalAppsLocations, ipChangeMessage);
-
-    log.info(`IP changed message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'IP change message stored' };
-  } catch (error) {
-    log.error(`Error storing IP changed message: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
- * Store app removed message
- * @param {object} message - Message to store
- * @returns {Promise<object>} Storage result
- */
-async function storeAppRemovedMessage(message) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const removedMessage = {
-      ...message,
-      status: 'removed',
-      timestamp: Date.now(),
-    };
-
-    await dbHelper.insertOneToDatabase(database, globalAppsLocations, removedMessage);
-
-    log.info(`App removed message stored for ${message.name || 'unknown'}`);
-    return { status: 'success', message: 'Removed message stored' };
-  } catch (error) {
-    log.error(`Error storing app removed message: ${error.message}`);
-    throw error;
-  }
-}
 
 /**
  * Check if app hash has message
@@ -504,6 +384,246 @@ async function getAppsPermanentMessages(req, res) {
   }
 }
 
+/**
+ * Check if app message exists and request it if not found
+ * @param {string} hash - Message hash
+ * @param {string} txid - Transaction ID
+ * @param {number} height - Block height
+ * @param {number} valueSat - Transaction value in satoshis
+ * @param {number} i - Retry counter
+ * @returns {Promise<object|null>} Message if found, null otherwise
+ */
+async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
+  try {
+    const existingAppMessage = await checkAppMessageExistence(hash);
+    if (existingAppMessage) {
+      return existingAppMessage;
+    }
+
+    const existingTempMessage = await checkAppTemporaryMessageExistence(hash);
+    if (existingTempMessage) {
+      return existingTempMessage;
+    }
+
+    // Message not found, request it from network
+    if (i <= 5) {
+      log.info(`Requesting app message ${hash} from network (attempt ${i + 1})`);
+      await requestAppMessage(hash);
+
+      // Update hash collection to indicate we're looking for this message
+      const db = dbHelper.databaseConnection();
+      const databaseDaemon = db.db(config.database.daemon.database);
+      const query = { hash, txid };
+      const update = {
+        $set: {
+          messageNotFound: false,
+          message: false,
+          height,
+          value: valueSat
+        }
+      };
+      const options = { upsert: true };
+
+      await dbHelper.updateOneInDatabase(databaseDaemon, appsHashesCollection, query, update, options);
+    }
+
+    return null;
+  } catch (error) {
+    log.error(`Error checking and requesting app ${hash}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Check and request multiple app messages in batch
+ * @param {object[]} apps - Array of app objects with hash, txid, height, value properties
+ * @param {boolean} incoming - Whether messages are incoming
+ * @param {number} i - Retry counter
+ * @returns {Promise<void>} Completion status
+ */
+async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
+  try {
+    if (!Array.isArray(apps) || apps.length === 0) {
+      return;
+    }
+
+    log.info(`Processing batch of ${apps.length} app messages (attempt ${i})`);
+
+    const promises = apps.map(app => {
+      if (app.hash && app.txid && app.height !== undefined && app.value !== undefined) {
+        return checkAndRequestApp(app.hash, app.txid, app.height, app.value, i);
+      }
+      return Promise.resolve(null);
+    });
+
+    await Promise.allSettled(promises);
+
+    if (incoming) {
+      log.info(`Completed processing ${apps.length} incoming app messages`);
+    }
+  } catch (error) {
+    log.error('Error processing multiple apps:', error);
+  }
+}
+
+// Global variables for continuousFluxAppHashesCheck
+let continuousFluxAppHashesCheckRunning = false;
+let firstContinuousFluxAppHashesCheckRun = true;
+
+/**
+ * Continuously checks for missing flux app hashes and requests missing messages
+ * @param {boolean} force - Force check even if already running
+ * @param {Map} hashesNumberOfSearchs - Map tracking number of searches per hash
+ * @param {Array} invalidMessages - Array of known invalid messages
+ * @param {Function} checkAndSyncAppHashes - Function to check and sync app hashes
+ * @param {boolean} checkAndSyncAppHashesWasEverExecuted - Flag indicating if sync was executed
+ * @param {string} scannedHeightCollection - Collection name for scanned heights
+ * @param {object} fluxNetworkHelper - Flux network helper object
+ * @param {object} serviceHelper - Service helper object
+ * @returns {Promise<void>}
+ */
+async function continuousFluxAppHashesCheck(force = false, hashesNumberOfSearchs, invalidMessages, checkAndSyncAppHashes, checkAndSyncAppHashesWasEverExecuted, scannedHeightCollection, fluxNetworkHelper, serviceHelper) {
+  try {
+    if (continuousFluxAppHashesCheckRunning) {
+      return;
+    }
+    log.info('Requesting missing Flux App messages');
+    continuousFluxAppHashesCheckRunning = true;
+    const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
+    if (numberOfPeers < 12) {
+      log.info('Not enough connected peers to request missing Flux App messages');
+      continuousFluxAppHashesCheckRunning = false;
+      return;
+    }
+
+    const synced = await generalService.checkSynced();
+    if (synced !== true) {
+      log.info('Flux not yet synced');
+      continuousFluxAppHashesCheckRunning = false;
+      return;
+    }
+
+    if (firstContinuousFluxAppHashesCheckRun && !checkAndSyncAppHashesWasEverExecuted) {
+      await checkAndSyncAppHashes();
+    }
+
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.daemon.database);
+    const queryHeight = { generalScannedHeight: { $gte: 0 } };
+    const projectionHeight = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const scanHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, queryHeight, projectionHeight);
+    if (!scanHeight) {
+      throw new Error('Scanning not initiated');
+    }
+    const explorerHeight = serviceHelper.ensureNumber(scanHeight.generalScannedHeight);
+
+    // get flux app hashes that do not have a message;
+    const query = { message: false };
+    const projection = {
+      projection: {
+        _id: 0,
+        txid: 1,
+        hash: 1,
+        height: 1,
+        value: 1,
+        message: 1,
+        messageNotFound: 1,
+      },
+    };
+    const results = await dbHelper.findInDatabase(database, appsHashesCollection, query, projection);
+    // sort it by height, so we request oldest messages first
+    results.sort((a, b) => a.height - b.height);
+    let appsMessagesMissing = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const result of results) {
+      if (!result.messageNotFound || force || firstContinuousFluxAppHashesCheckRun) { // most likely wrong data, if no message found. This attribute is cleaned every reconstructAppMessagesHashPeriod blocks so all nodes search again for missing messages
+        let heightDifference = explorerHeight - result.height;
+        if (heightDifference < 0) {
+          heightDifference = 0;
+        }
+        let maturity = Math.round(heightDifference / config.fluxapps.blocksLasting);
+        if (maturity > 12) {
+          maturity = 16; // maturity of max 16 representing its older than 1 year. Old messages will only be searched 3 times, newer messages more oftenly
+        }
+        if (invalidMessages.find((message) => message.hash === result.hash && message.txid === result.txid)) {
+          if (!force) {
+            maturity = 30; // do not request known invalid messages.
+          }
+        }
+        // every config.fluxapps.blocksLasting increment maturity by 2;
+        let numberOfSearches = maturity;
+        if (hashesNumberOfSearchs.has(result.hash)) {
+          numberOfSearches = hashesNumberOfSearchs.get(result.hash) + 2; // max 10 tries
+        }
+        hashesNumberOfSearchs.set(result.hash, numberOfSearches);
+        log.info(`Requesting missing Flux App message: ${result.hash}, ${result.txid}, ${result.height}`);
+        if (numberOfSearches <= 20) { // up to 10 searches
+          const appMessageInformation = {
+            hash: result.hash,
+            txid: result.txid,
+            height: result.height,
+            value: result.value,
+          };
+          appsMessagesMissing.push(appMessageInformation);
+          if (appsMessagesMissing.length === 500) {
+            log.info('Requesting 500 app messages');
+            checkAndRequestMultipleApps(appsMessagesMissing);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(2 * 60 * 1000); // delay 2 minutes to give enough time to process all messages received
+            appsMessagesMissing = [];
+          }
+        } else {
+          // eslint-disable-next-line no-await-in-loop
+          await appHashHasMessageNotFound(result.hash); // mark message as not found
+          hashesNumberOfSearchs.delete(result.hash); // remove from our map
+        }
+      }
+    }
+    if (appsMessagesMissing.length > 0) {
+      log.info(`Requesting ${appsMessagesMissing.length} app messages`);
+      checkAndRequestMultipleApps(appsMessagesMissing);
+    }
+    continuousFluxAppHashesCheckRunning = false;
+    firstContinuousFluxAppHashesCheckRun = false;
+  } catch (error) {
+    log.error(error);
+    continuousFluxAppHashesCheckRunning = false;
+    firstContinuousFluxAppHashesCheckRun = false;
+  }
+}
+
+/**
+ * API endpoint to manually trigger app hashes check
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @param {Function} continuousFluxAppHashesCheckFunc - The actual check function
+ * @returns {Promise<void>}
+ */
+async function triggerAppHashesCheckAPI(req, res, continuousFluxAppHashesCheckFunc) {
+  try {
+    // only flux team and node owner can do this
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+
+    continuousFluxAppHashesCheckFunc(true);
+    const resultsResponse = messageHelper.createSuccessMessage('Running check on missing application messages ');
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
 module.exports = {
   verifyAppHash,
   verifyAppMessageSignature,
@@ -511,15 +631,14 @@ module.exports = {
   requestAppMessage,
   requestAppsMessage,
   requestAppMessageAPI,
-  storeAppTemporaryMessage,
-  storeAppPermanentMessage,
-  storeAppRunningMessage,
-  storeAppInstallingMessage,
-  storeAppInstallingErrorMessage,
-  storeIPChangedMessage,
-  storeAppRemovedMessage,
+  checkAppMessageExistence,
+  checkAppTemporaryMessageExistence,
   appHashHasMessage,
   appHashHasMessageNotFound,
   getAppsTemporaryMessages,
   getAppsPermanentMessages,
+  checkAndRequestApp,
+  checkAndRequestMultipleApps,
+  continuousFluxAppHashesCheck,
+  triggerAppHashesCheckAPI,
 };

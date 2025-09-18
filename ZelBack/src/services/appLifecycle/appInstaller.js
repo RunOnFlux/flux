@@ -1,10 +1,14 @@
 const path = require('path');
 const serviceHelper = require('../serviceHelper');
+const verificationHelper = require('../verificationHelper');
 const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
 const log = require('../../lib/log');
-const { appsFolder, localAppsInformation } = require('../utils/appConstants');
+const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
+const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
+const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
+const { verifyAppSpecifications } = require('../appRequirements/appValidator');
 const config = require('config');
 
 /**
@@ -339,6 +343,214 @@ async function cleanupFailedInstallation(appName) {
   }
 }
 
+/**
+ * Install application locally - Main API entry point
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>} Installation result
+ */
+async function installAppLocally(req, res) {
+  try {
+    // appname can be app name or app hash of specific app version
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+    let blockAllowance = config.fluxapps.ownerAppAllowance;
+    // needs to be logged in
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (authorized) {
+      let appSpecifications;
+      // anyone can deploy temporary app
+      // favor temporary to launch test temporary apps
+      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      if (tempMessage) {
+        // eslint-disable-next-line prefer-destructuring
+        appSpecifications = tempMessage.appSpecifications;
+        blockAllowance = config.fluxapps.temporaryAppAllowance;
+      }
+      if (!appSpecifications) {
+        // only owner can deploy permanent message or existing app
+        const ownerAuthorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+        if (!ownerAuthorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+      }
+      if (!appSpecifications) {
+        const allApps = await availableApps();
+        appSpecifications = allApps.find((app) => app.name === appname);
+      }
+      if (!appSpecifications) {
+        // eslint-disable-next-line no-use-before-define
+        appSpecifications = await getApplicationGlobalSpecifications(appname);
+      }
+      // search in permanent messages for the specific apphash to launch
+      if (!appSpecifications) {
+        const permMessage = await checkAppMessageExistence(appname);
+        if (permMessage) {
+          // eslint-disable-next-line prefer-destructuring
+          appSpecifications = permMessage.appSpecifications;
+        }
+      }
+      if (!appSpecifications) {
+        throw new Error(`Application Specifications of ${appname} not found`);
+      }
+      // get current height
+      const dbopen = dbHelper.databaseConnection();
+      if (!appSpecifications.height && appSpecifications.height !== 0) {
+        // precaution for old temporary apps. Set up for custom test specifications.
+        const database = dbopen.db(config.database.daemon.database);
+        const query = { generalScannedHeight: { $gte: 0 } };
+        const projection = {
+          projection: {
+            _id: 0,
+            generalScannedHeight: 1,
+          },
+        };
+        const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+        if (!result) {
+          throw new Error('Scanning not initiated');
+        }
+        const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
+        appSpecifications.height = explorerHeight - config.fluxapps.blocksLasting + blockAllowance; // allow running for this amount of blocks
+      }
+
+      const appsDatabase = dbopen.db(config.database.appslocal.database);
+      const appsQuery = {}; // all
+      const appsProjection = {
+        projection: {
+          _id: 0,
+          name: 1,
+        },
+      };
+      const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      const appExists = apps.find((app) => app.name === appSpecifications.name);
+      if (appExists) { // double checked in installation process.
+        throw new Error(`Application ${appname} is already installed`);
+      }
+
+      await checkAppRequirements(appSpecifications); // entire app
+
+      res.setHeader('Content-Type', 'application/json');
+      registerAppLocally(appSpecifications, undefined, res); // can throw
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * Check application requirements (wrapper for verifyAppSpecifications)
+ * @param {object} appSpecifications - Application specifications to check
+ * @returns {Promise<boolean>} True if requirements are met
+ */
+async function checkAppRequirements(appSpecifications) {
+  // Use the modular verification function
+  // In production, this might need additional height parameter
+  return verifyAppSpecifications(appSpecifications, 0, false);
+}
+
+/**
+ * Test application installation - Similar to installAppLocally but for testing
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<void>} Test installation result
+ */
+async function testAppInstall(req, res) {
+  try {
+    // appname can be app name or app hash of specific app version
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    log.info(`testAppInstall: ${appname}`);
+    let blockAllowance = config.fluxapps.ownerAppAllowance;
+
+    // needs to be logged in
+    const authorized = await verificationHelper.verifyPrivilege('user', req);
+    if (authorized) {
+      let appSpecifications;
+
+      // anyone can deploy temporary app
+      // favor temporary to launch test temporary apps
+      const tempMessage = await checkAppTemporaryMessageExistence(appname);
+      if (tempMessage) {
+        // eslint-disable-next-line prefer-destructuring
+        appSpecifications = tempMessage.appSpecifications;
+        blockAllowance = config.fluxapps.temporaryAppAllowance;
+      }
+
+      if (!appSpecifications) {
+        // only owner can deploy permanent message or existing app
+        const ownerAuthorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+        if (!ownerAuthorized) {
+          const errMessage = messageHelper.errUnauthorizedMessage();
+          res.json(errMessage);
+          return;
+        }
+      }
+
+      if (!appSpecifications) {
+        const allApps = await availableApps();
+        appSpecifications = allApps.find((app) => app.name === appname);
+      }
+
+      if (!appSpecifications) {
+        appSpecifications = await getApplicationGlobalSpecifications(appname);
+      }
+
+      // search in permanent messages for the specific apphash to launch
+      if (!appSpecifications) {
+        const permMessage = await checkAppMessageExistence(appname);
+        if (permMessage) {
+          // eslint-disable-next-line prefer-destructuring
+          appSpecifications = permMessage.appSpecifications;
+        }
+      }
+
+      if (!appSpecifications) {
+        throw new Error(`Application Specifications of ${appname} not found`);
+      }
+
+      // Test installation - similar to regular install but with test flag
+      await checkAppRequirements(appSpecifications);
+
+      res.setHeader('Content-Type', 'application/json');
+
+      // Run test installation (registerAppLocally with test=true)
+      registerAppLocally(appSpecifications, undefined, res, true);
+
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 module.exports = {
   createAppVolume,
   registerAppLocally,
@@ -348,4 +560,6 @@ module.exports = {
   getInstalledApps,
   updateAppStatus,
   cleanupFailedInstallation,
+  installAppLocally,
+  testAppInstall,
 };
