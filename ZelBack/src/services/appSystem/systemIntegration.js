@@ -301,7 +301,7 @@ async function checkAppRequirements(appSpecs) {
  * @param {object} appSpecs - App specifications
  * @returns {boolean} True if parameters are valid
  */
-function checkHWParameters(appSpecs) {
+function checkComponentHWParameters(appSpecs) {
   if (!appSpecs) {
     return false;
   }
@@ -356,7 +356,7 @@ function checkComposeHWParameters(appSpecsComposed) {
 
   // Check each component
   for (const component of appSpecsComposed.compose) {
-    if (!checkHWParameters(component)) {
+    if (!checkComponentHWParameters(component)) {
       return false;
     }
   }
@@ -462,7 +462,7 @@ module.exports = {
   checkAppGeolocationRequirements,
   checkAppHWRequirements,
   checkAppRequirements,
-  checkHWParameters,
+  checkComponentHWParameters,
   checkComposeHWParameters,
   createFluxNetworkAPI,
   startMonitoringOfApps,
