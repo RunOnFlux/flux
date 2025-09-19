@@ -9,6 +9,7 @@ const fluxCommunicationMessagesSender = require('../../ZelBack/src/services/flux
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const appsService = require('../../ZelBack/src/services/appsService');
+const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
@@ -567,7 +568,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
           version: 1,
         },
       };
-      const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(message);
+      const checkAppMessageExistenceStub = sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(message);
       sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
       const myMessageCacheSetStub = sinon.stub(FluxTTLCache.prototype, 'set').returns(undefined);
       const websocket = generateWebsocket();
@@ -590,8 +591,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
           version: 1,
         },
       };
-      const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(undefined);
-      const checkAppTemporaryMessageExistenceStub = sinon.stub(appsService, 'checkAppTemporaryMessageExistence').returns(message);
+      const checkAppMessageExistenceStub = sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(undefined);
+      const checkAppTemporaryMessageExistenceStub = sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').returns(message);
       sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
       const myMessageCacheSetStub = sinon.stub(FluxTTLCache.prototype, 'set').returns(undefined);
       const websocket = generateWebsocket();
@@ -616,8 +617,8 @@ describe('fluxCommunicationMessagesSender tests', () => {
         },
       };
       const sendMessageToWSStub = sinon.stub(fluxCommunicationMessagesSender, 'sendMessageToWS').returns(undefined);
-      const checkAppMessageExistenceStub = sinon.stub(appsService, 'checkAppMessageExistence').returns(undefined);
-      const checkAppTemporaryMessageExistenceStub = sinon.stub(appsService, 'checkAppTemporaryMessageExistence').returns(undefined);
+      const checkAppMessageExistenceStub = sinon.stub(messageVerifier, 'checkAppMessageExistence').returns(undefined);
+      const checkAppTemporaryMessageExistenceStub = sinon.stub(messageVerifier, 'checkAppTemporaryMessageExistence').returns(undefined);
       sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
       const myMessageCacheSetStub = sinon.stub(FluxTTLCache.prototype, 'set').returns(undefined);
       const websocket = generateWebsocket();
@@ -642,7 +643,7 @@ describe('fluxCommunicationMessagesSender tests', () => {
           version: 1,
         },
       };
-      const checkAppMessageExistenceSpy = sinon.spy(appsService, 'checkAppMessageExistence');
+      const checkAppMessageExistenceSpy = sinon.spy(messageVerifier, 'checkAppMessageExistence');
       const myMessageCacheGetStub = sinon.stub(FluxTTLCache.prototype, 'get').returns(message);
       const myMessageCacheSetStub = sinon.stub(FluxTTLCache.prototype, 'set').returns(undefined);
       sinon.stub(FluxTTLCache.prototype, 'has').returns(true);
