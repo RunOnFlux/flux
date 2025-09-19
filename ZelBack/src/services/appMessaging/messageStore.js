@@ -9,7 +9,6 @@ const {
   globalAppsInstallingLocations
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
-const { checkAppMessageExistence, checkAppTemporaryMessageExistence } = require('./messageVerifier');
 
 /**
  * Store temporary app message
@@ -39,6 +38,9 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const appSpecFormatted = specificationFormatter(specifications);
   const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
   const messageVersion = serviceHelper.ensureNumber(message.version);
+
+  // Import these functions locally to avoid circular dependency
+  const { checkAppMessageExistence, checkAppTemporaryMessageExistence } = require('./messageVerifier');
 
   // check permanent app message storage
   const appMessage = await checkAppMessageExistence(message.hash);

@@ -8,7 +8,6 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
-const messageStore = require('../appMessaging/messageStore');
 const imageManager = require('../appSecurity/imageManager');
 const { supportedArchitectures } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -477,7 +476,7 @@ async function registerAppGlobalyApi(req, res) {
       let attempts = 0;
       let tempMessage = null;
       while (attempts < 10 && !tempMessage) {
-        tempMessage = await messageStore.checkAppTemporaryMessageExistence(messageHASH);
+        tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(messageHASH);
         if (!tempMessage) {
           await serviceHelper.delay(1000);
           attempts += 1;

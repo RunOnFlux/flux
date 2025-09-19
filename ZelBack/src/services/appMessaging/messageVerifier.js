@@ -8,7 +8,7 @@ const signatureVerifier = require('../signatureVerifier');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const serviceHelper = require('../serviceHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
-const messageStore = require('./messageStore');
+// Removed messageStore require to avoid circular dependency - will import locally where needed
 const { getChainParamsPriceUpdates, appPricePerMonth } = require('../utils/appUtilities');
 const { updateAppSpecifications } = require('../appDatabase/registryManager');
 const {
@@ -433,6 +433,8 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
         height: serviceHelper.ensureNumber(height),
         valueSat: serviceHelper.ensureNumber(valueSat),
       };
+      // Import locally to avoid circular dependency
+      const messageStore = require('./messageStore');
       await messageStore.storeAppPermanentMessage(permanentAppMessage);
       // await update zelapphashes that we already have it stored
       await appHashHasMessage(hash);
