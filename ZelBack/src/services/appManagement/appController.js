@@ -3,6 +3,7 @@ const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
+const appInspector = require('./appInspector');
 const log = require('../../lib/log');
 
 /**
@@ -38,7 +39,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
  * @param {object} res - Response object
  * @returns {object} Response message
  */
-async function appStart(req, res) {
+async function appStart(req, res, startMonitoring) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -60,8 +61,8 @@ async function appStart(req, res) {
 
     if (global) {
       executeAppGlobalCommand(appname, 'appstart', req.headers.zelidauth); // do not wait
-      const message = messageHelper.createSuccessMessage(`Flux App ${appname} start initiated globally`);
-      return res ? res.json(message) : message;
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global start`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component start
@@ -69,6 +70,9 @@ async function appStart(req, res) {
 
     if (isComponent) {
       appRes = await dockerService.appDockerStart(appname);
+      if (startMonitoring) {
+        startMonitoring(appname);
+      }
     } else {
       // Check if app exists before starting
       const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
@@ -78,10 +82,16 @@ async function appStart(req, res) {
 
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerStart(appname);
+        if (startMonitoring) {
+          startMonitoring(appname);
+        }
       } else {
         // For composed applications (version > 3), start all components
         for (const appComponent of appSpecs.compose) {
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
+          if (startMonitoring) {
+            startMonitoring(`${appComponent.name}_${appSpecs.name}`);
+          }
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -110,7 +120,7 @@ async function appStart(req, res) {
  * @param {object} res - Response object
  * @returns {object} Response message
  */
-async function appStop(req, res) {
+async function appStop(req, res, stopMonitoring) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -132,14 +142,17 @@ async function appStop(req, res) {
 
     if (global) {
       executeAppGlobalCommand(appname, 'appstop', req.headers.zelidauth); // do not wait
-      const message = messageHelper.createSuccessMessage(`Flux App ${appname} stop initiated globally`);
-      return res ? res.json(message) : message;
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global stop`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component stop
     let appRes;
 
     if (isComponent) {
+      if (stopMonitoring) {
+        stopMonitoring(appname, false);
+      }
       appRes = await dockerService.appDockerStop(appname);
     } else {
       // Check if app exists before stopping
@@ -149,10 +162,16 @@ async function appStop(req, res) {
       }
 
       if (appSpecs.version <= 3) {
+        if (stopMonitoring) {
+          stopMonitoring(appname, false);
+        }
         appRes = await dockerService.appDockerStop(appname);
       } else {
-        // For composed applications (version > 3), stop all components
-        for (const appComponent of appSpecs.compose) {
+        // For composed applications (version > 3), stop all components in reverse order
+        for (const appComponent of appSpecs.compose.reverse()) {
+          if (stopMonitoring) {
+            stopMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
+          }
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} stopped`;
@@ -182,7 +201,7 @@ async function appStop(req, res) {
  * @param {object} res - Response object
  * @returns {object} Response message
  */
-async function appRestart(req, res) {
+async function appRestart(req, res, startMonitoring, stopMonitoring) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -204,8 +223,8 @@ async function appRestart(req, res) {
 
     if (global) {
       executeAppGlobalCommand(appname, 'apprestart', req.headers.zelidauth); // do not wait
-      const message = messageHelper.createSuccessMessage(`Flux App ${appname} restart initiated globally`);
-      return res ? res.json(message) : message;
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global restart`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component restart
@@ -286,8 +305,8 @@ async function appKill(req, res) {
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerKill(appname);
       } else {
-        // For composed applications (version > 3), kill all components
-        for (const appComponent of appSpecs.compose) {
+        // For composed applications (version > 3), kill all components in reverse order
+        for (const appComponent of appSpecs.compose.reverse()) {
           await dockerService.appDockerKill(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} killed`;

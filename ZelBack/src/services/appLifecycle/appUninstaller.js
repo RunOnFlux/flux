@@ -3,6 +3,7 @@ const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
+const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
 const { localAppsInformation } = require('../utils/appConstants');
 const config = require('config');
@@ -200,14 +201,14 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
  * @param {boolean} force - Force removal
  * @param {boolean} endResponse - Whether to end response
  * @param {boolean} sendMessage - Whether to send message to network
- * @param {object} globalState - Global state reference
+ * @param {object} globalStateRef - Global state reference
  * @param {function} stopAppMonitoring - Function to stop monitoring
  * @returns {Promise<void>}
  */
-async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, globalState, stopAppMonitoring) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, globalStateRef, stopAppMonitoring) {
   try {
     if (!force) {
-      if (globalState.removalInProgress) {
+      if (globalStateRef.removalInProgress) {
         const warnResponse = messageHelper.createWarningMessage('Another application is undergoing removal. Removal not possible.');
         log.warn(warnResponse);
         if (res) {
@@ -219,7 +220,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         }
         return;
       }
-      if (globalState.installationInProgress) {
+      if (globalStateRef.installationInProgress) {
         const warnResponse = messageHelper.createWarningMessage('Another application is undergoing installation. Removal not possible.');
         log.warn(warnResponse);
         if (res) {

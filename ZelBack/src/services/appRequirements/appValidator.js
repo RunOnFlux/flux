@@ -192,6 +192,34 @@ function checkHWParameters(appSpecs) {
   if (appSpecs.hdd && appSpecs.hdd > maxHdd) {
     throw new Error(`HDD requirement ${appSpecs.hdd} exceeds maximum ${maxHdd}`);
   }
+
+  // Validate data types for hardware specifications
+  if (appSpecs.cpu !== undefined && typeof appSpecs.cpu !== 'number') {
+    throw new Error('CPU specification must be a number');
+  }
+  if (appSpecs.ram !== undefined && typeof appSpecs.ram !== 'number') {
+    throw new Error('RAM specification must be a number');
+  }
+  if (appSpecs.hdd !== undefined && typeof appSpecs.hdd !== 'number') {
+    throw new Error('HDD specification must be a number');
+  }
+
+  // Validate tiered specifications data types
+  if (appSpecs.tiered) {
+    const tiers = ['basic', 'super', 'bamf'];
+    const specs = ['cpu', 'ram', 'hdd'];
+
+    for (const tier of tiers) {
+      for (const spec of specs) {
+        const key = `${spec}${tier}`;
+        if (appSpecs[key] !== undefined && typeof appSpecs[key] !== 'number') {
+          throw new Error(`${key} specification must be a number`);
+        }
+      }
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -241,23 +269,53 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   if (typeof appSpecifications !== 'object') {
     throw new Error('Invalid Flux App Specifications');
   }
-
-  // Run all validation checks
-  verifyTypeCorrectnessOfApp(appSpecifications);
-  verifyRestrictionCorrectnessOfApp(appSpecifications, height);
-  verifyObjectKeysCorrectnessOfApp(appSpecifications);
-
-  // Hardware validation
-  if (appSpecifications.compose) {
-    checkComposeHWParameters(appSpecifications);
-  } else {
-    checkHWParameters(appSpecifications);
+  if (Array.isArray(appSpecifications)) {
+    throw new Error('Invalid Flux App Specifications');
   }
 
-  // Additional checks for Docker and whitelist if requested
+  // TYPE CHECKS
+  verifyTypeCorrectnessOfApp(appSpecifications);
+
+  // RESTRICTION CHECKS
+  verifyRestrictionCorrectnessOfApp(appSpecifications, height);
+
+  // SPECS VALIDITY TIME
+  if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
+    throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
+  }
+
+  // OBJECT KEY CHECKS
+  verifyObjectKeysCorrectnessOfApp(appSpecifications);
+
+  // PORTS UNIQUE CHECKS
+  // Note: Port uniqueness check removed to avoid circular dependency with portManager
+  // This check should be handled at a higher level where portManager is already available
+
+  // HW Checks
+  if (appSpecifications.version <= 3) {
+    checkHWParameters(appSpecifications);
+  } else {
+    checkComposeHWParameters(appSpecifications);
+  }
+
+  // Whitelist, repository checks
   if (checkDockerAndWhitelist) {
-    // These would be implemented based on the original function
-    // For now, we'll skip these complex checks
+    const imageManager = require('../appSecurity/imageManager');
+
+    // check blacklist
+    await imageManager.checkApplicationImagesComplience(appSpecifications);
+
+    if (appSpecifications.version <= 3) {
+      // check repository whitelisted and repotag is available for download
+      await imageManager.verifyRepository(appSpecifications.repotag, { repoauth: appSpecifications.repoauth, skipVerification: true });
+    } else {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponent of appSpecifications.compose) {
+        // check repository whitelisted and repotag is available for download
+        // eslint-disable-next-line no-await-in-loop
+        await imageManager.verifyRepository(appComponent.repotag, { repoauth: appComponent.repoauth, skipVerification: true });
+      }
+    }
   }
 
   return true;

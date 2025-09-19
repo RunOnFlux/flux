@@ -42,12 +42,13 @@ const systemIntegration = require('./appSystem/systemIntegration');
 // Import shared state and caches that need to remain centralized
 const cacheManager = require('./utils/cacheManager').default;
 
-// Global state variables
-let removalInProgress = false;
-let installationInProgress = false;
-let reinstallationOfOldAppsInProgress = false;
-let masterSlaveAppsRunning = false;
-const backupInProgress = [];
+// Import shared global state
+const globalState = require('./utils/globalState');
+
+// Legacy variable references for backward compatibility
+const removalInProgress = () => globalState.removalInProgress;
+const installationInProgress = () => globalState.installationInProgress;
+const backupInProgress = globalState.backupInProgress;
 const restoreInProgress = [];
 
 const hashesNumberOfSearchs = new Map();
@@ -1621,10 +1622,10 @@ module.exports = {
 
   // Re-exported from appController
   executeAppGlobalCommand: appController.executeAppGlobalCommand,
-  appStart: appController.appStart,
-  appStop: appController.appStop,
-  appRestart: appController.appRestart,
-  appKill: appController.appKill,
+  appStart: (req, res) => appController.appStart(req, res, (appname) => appInspector.startAppMonitoring(appname, appsMonitored)),
+  appStop: (req, res) => appController.appStop(req, res, (appname, deleteData) => appInspector.stopAppMonitoring(appname, deleteData, appsMonitored)),
+  appRestart: (req, res) => appController.appRestart(req, res, (appname) => appInspector.startAppMonitoring(appname, appsMonitored), (appname, deleteData) => appInspector.stopAppMonitoring(appname, deleteData, appsMonitored)),
+  appKill: (req, res) => appController.appKill(req, res),
   appPause: appController.appPause,
   appUnpause: appController.appUnpause,
   appDockerRestart: appController.appDockerRestart,

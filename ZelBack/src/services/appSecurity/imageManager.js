@@ -27,9 +27,9 @@ async function verifyRepository(repotag, options = {}) {
     { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
   );
 
-  // Skip verification if both repoauth and skipVerification are provided
+  // ToDo: fix this upstream
   if (repoauth && skipVerification) {
-    return { status: 'success', message: 'Verification skipped' };
+    return;
   }
 
   if (repoauth) {
@@ -39,19 +39,18 @@ async function verifyRepository(repotag, options = {}) {
       throw new Error('Unable to decrypt provided credentials');
     }
 
-    imgVerifier.setAuthToken(authToken);
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
+    }
+
+    imgVerifier.addCredentials(authToken);
   }
 
-  try {
-    const verificationResult = await imgVerifier.verify();
-    return {
-      status: 'success',
-      message: 'Repository verified successfully',
-      data: verificationResult,
-    };
-  } catch (error) {
-    log.error(`Repository verification failed for ${repotag}: ${error.message}`);
-    throw new Error(`Repository verification failed: ${error.message}`);
+  await imgVerifier.verifyImage();
+  imgVerifier.throwIfError();
+
+  if (architecture && !imgVerifier.supported) {
+    throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
   }
 }
 

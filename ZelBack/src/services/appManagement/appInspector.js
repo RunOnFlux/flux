@@ -11,11 +11,13 @@ const util = require('util');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const nodecmd = require('node-cmd');
 
+const fluxDirPath = path.join(__dirname, '../../../../');
+const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+
 let dosState = 0;
 let dosMessage = null;
 
 const cmdAsync = util.promisify(nodecmd.run);
-const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
 
 /**
  * Get top processes running in an application container
@@ -355,7 +357,7 @@ async function appMonitorStream(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
-      await dockerStatsStreamPromise(appname, req, res);
+      await dockerService.dockerContainerStatsStream(appname, req, res);
       res.end();
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -379,7 +381,7 @@ async function appMonitorStream(req, res) {
  */
 async function getAppFolderSize(appName) {
   try {
-    const appsDirPath = process.env.FLUX_APPS_FOLDER || path.join(__dirname, '../../../../../ZelApps');
+    const appsDirPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
     const directoryPath = path.join(appsDirPath, appName);
     const exec = `sudo du -s --block-size=1 ${directoryPath}`;
     const cmdres = await cmdAsync(exec);

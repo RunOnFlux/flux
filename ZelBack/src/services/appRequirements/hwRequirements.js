@@ -1,7 +1,9 @@
+const os = require('os');
 const config = require('config');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
 const benchmarkService = require('../benchmarkService');
+const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchmarkRpcs');
 const log = require('../../lib/log');
 
 // Node specifications (shared state)
@@ -16,17 +18,26 @@ let nodeSpecs = {
  * @returns {Promise<object>} Node specifications
  */
 async function getNodeSpecs() {
-  if (nodeSpecs.cpuCores === 0) {
-    const cpuCores = await generalService.nodeCores();
-    nodeSpecs.cpuCores = cpuCores;
-  }
-  if (nodeSpecs.ram === 0) {
-    const ram = await generalService.nodeMemory();
-    nodeSpecs.ram = ram;
-  }
-  if (nodeSpecs.ssdStorage === 0) {
-    const ssdStorage = await generalService.nodeStorage();
-    nodeSpecs.ssdStorage = ssdStorage;
+  try {
+    if (nodeSpecs.cpuCores === 0) {
+      nodeSpecs.cpuCores = os.cpus().length;
+    }
+    if (nodeSpecs.ram === 0) {
+      nodeSpecs.ram = os.totalmem() / 1024 / 1024;
+    }
+    if (nodeSpecs.ssdStorage === 0) {
+      // get my external IP and check that it is longer than 5 in length.
+      const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+      if (benchmarkResponse.status === 'success') {
+        const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+        log.info(`Gathered ssdstorage ${benchmarkResponseData.ssd}`);
+        nodeSpecs.ssdStorage = benchmarkResponseData.ssd;
+      } else {
+        throw new Error('Error getting ssdstorage from benchmarks');
+      }
+    }
+  } catch (error) {
+    log.error(error);
   }
   return nodeSpecs;
 }

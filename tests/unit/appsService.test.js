@@ -2757,6 +2757,7 @@ describe('appsService tests', () => {
 
   describe('appMonitorStream tests', () => {
     let verificationHelperStub;
+    let dockerStub;
     let logSpy;
     const generateResponse = () => {
       const res = { test: 'testing' };
@@ -2768,6 +2769,7 @@ describe('appsService tests', () => {
 
     beforeEach(() => {
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
+      dockerStub = sinon.stub(dockerService, 'dockerContainerStatsStream').callsFake(dockerContainerStatsStreamFake);
       logSpy = sinon.spy(log, 'error');
     });
 
@@ -2841,7 +2843,7 @@ describe('appsService tests', () => {
 
       sinon.assert.calledOnce(res.end);
       sinon.assert.calledWithExactly(
-        dockerContainerStatsStreamFake,
+        dockerStub,
         'test_myappname',
         {
           params: { appname: 'test_myappname', lines: [10, 11, 12] },
@@ -2869,7 +2871,7 @@ describe('appsService tests', () => {
 
       sinon.assert.calledOnce(res.end);
       sinon.assert.calledWithExactly(
-        dockerContainerStatsStreamFake,
+        dockerStub,
         'myappname',
         {
           params: { appname: 'myappname', lines: [10, 11, 12] },
