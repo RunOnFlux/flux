@@ -311,6 +311,15 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     log.error(error);
   });
 
+  const stopStatus2 = {
+    status: isComponent ? `Flux App Component ${appSpecsName} stopped` : `Flux App ${appName} stopped`,
+  };
+  log.info(stopStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(stopStatus2));
+    if (res.flush) res.flush();
+  }
+
   const removeStatus = {
     status: isComponent ? `Removing Flux App Component ${appSpecsName} container...` : `Removing Flux App ${appName} container...`,
   };
@@ -332,6 +341,81 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
     }
     log.error(error);
   });
+
+  const removeStatus2 = {
+    status: isComponent ? `Flux App Component ${appSpecsName} container removed` : `Flux App ${appName} container removed`,
+  };
+  log.info(removeStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(removeStatus2));
+    if (res.flush) res.flush();
+  }
+
+  // Remove image
+  const imageRemoveStatus = {
+    status: isComponent ? `Removing Flux App Component ${appSpecsName} image...` : `Removing Flux App ${appName} image...`,
+  };
+  log.info(imageRemoveStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(imageRemoveStatus));
+    if (res.flush) res.flush();
+  }
+
+  await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
+    }
+    log.error(error);
+  });
+
+  const imageStatus2 = {
+    status: isComponent ? `Flux App Component ${appSpecsName} image operations done` : `Flux App ${appName} image operations done`,
+  };
+  log.info(imageStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(imageStatus2));
+    if (res.flush) res.flush();
+  }
+
+  // Deny ports
+  const denyStatus = {
+    status: isComponent ? `Denying Flux App Component ${appSpecsName} ports...` : `Denying Flux App ${appName} ports...`,
+  };
+  log.info(denyStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(denyStatus));
+    if (res.flush) res.flush();
+  }
+
+  const portsToClose = appSpecifications.ports || [];
+  const promises = portsToClose.map(async (port) => {
+    await upnpService.removePortUPnP(port).catch((error) => log.error(error));
+  });
+  await Promise.allSettled(promises);
+
+  const denyStatus2 = {
+    status: isComponent ? `Ports of ${appSpecsName} denied` : `Ports of ${appName} denied`,
+  };
+  log.info(denyStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(denyStatus2));
+    if (res.flush) res.flush();
+  }
+
+  const successStatus = {
+    status: `Flux App ${appName} was successfuly removed`,
+  };
+  log.info(successStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(successStatus));
+    if (res.flush) res.flush();
+  }
 
   return { status: 'success', message: `${appName} soft uninstalled successfully` };
 }

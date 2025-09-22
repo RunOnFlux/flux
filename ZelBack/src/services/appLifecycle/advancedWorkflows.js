@@ -18,6 +18,8 @@ const {
   globalAppsMessages,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const appUninstaller = require('./appUninstaller');
+const globalState = require('../utils/globalState');
 
 // We need to avoid circular dependency, so we'll implement getInstalledAppsForDocker locally
 function getInstalledAppsForDocker() {
@@ -198,13 +200,13 @@ async function softRemoveAppLocally(app, res) {
   // remove app from local machine.
   // find in database, stop app, remove container, close port, remove from database
   // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
-  if (removalInProgress) {
+  if (globalState.removalInProgress) {
     throw new Error('Another application is undergoing removal');
   }
-  if (installationInProgress) {
+  if (globalState.installationInProgress) {
     throw new Error('Another application is undergoing installation');
   }
-  removalInProgress = true;
+  globalState.setRemovalInProgressToTrue();
   if (!app) {
     throw new Error('No Flux App specified');
   }
@@ -236,7 +238,31 @@ async function softRemoveAppLocally(app, res) {
     }
 
     // Stop and remove containers, volumes, etc.
-    // This would contain the full removal logic
+    const appId = dockerService.getAppIdentifier(appInfo.name);
+    await appUninstaller.appUninstallSoft(appName, appId, appInfo, isComponent, res, () => {
+      // No monitoring stop needed in this simplified version
+    });
+
+    // Remove from database
+    const dbCleanupStatus = {
+      status: 'Cleaning up database...',
+    };
+    log.info(dbCleanupStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(dbCleanupStatus));
+      if (res.flush) res.flush();
+    }
+
+    await dbHelper.removeDocumentsFromCollection(appsDatabase, localAppsInformation, query);
+
+    const dbCleanedStatus = {
+      status: 'Database cleaned',
+    };
+    log.info(dbCleanedStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(dbCleanedStatus));
+      if (res.flush) res.flush();
+    }
 
     const softRemovalCompleteStatus = {
       status: `Soft removal of ${app} completed successfully`,
@@ -250,7 +276,7 @@ async function softRemoveAppLocally(app, res) {
     log.error(`Soft removal failed: ${error.message}`);
     throw error;
   } finally {
-    removalInProgress = false;
+    globalState.removalInProgressReset();
   }
 }
 

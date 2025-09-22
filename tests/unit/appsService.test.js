@@ -62,7 +62,28 @@ const appsService = proxyquire('../../ZelBack/src/services/appsService', {
   '../../../config/userconfig': adminConfig,
   './utils/appUtilities': proxyquire('../../ZelBack/src/services/utils/appUtilities', { util: utilFake }),
   './appLifecycle/advancedWorkflows': proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', { util: utilFake }),
-  './appManagement/appInspector': proxyquire('../../ZelBack/src/services/appManagement/appInspector', { util: utilFake })
+  './appManagement/appInspector': proxyquire('../../ZelBack/src/services/appManagement/appInspector', { util: utilFake }),
+  './fluxNetworkHelper': proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
+    './daemonService/daemonServiceUtils': {
+      getConfigValue: sinon.stub().returns('5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ')
+    }
+  }),
+  './upnpService': {
+    removeMapUpnpPort: sinon.stub().resolves(true),
+    removePortUPnP: sinon.stub().resolves(true),
+    addMapUpnpPort: sinon.stub().resolves(true),
+    addPortUPnP: sinon.stub().resolves(true),
+    mapUpnpPort: sinon.stub().resolves(true),
+    isUPNP: sinon.stub().returns(false)
+  },
+  './appLifecycle/appUninstaller': proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+    '../upnpService': {
+      removeMapUpnpPort: sinon.stub().resolves(true),
+      removePortUPnP: sinon.stub().resolves(true),
+      addMapUpnpPort: sinon.stub().resolves(true),
+      addPortUPnP: sinon.stub().resolves(true)
+    }
+  })
 });
 
 describe('appsService tests', () => {
@@ -162,7 +183,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error, if error is thrown, response passed', async () => {
-      dbStub.callsFake(() => { throw new Error('Error'); });
+      dbStub.rejects(new Error('Database error'));
       const res = generateResponse();
       const req = 'appName';
 
@@ -174,7 +195,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error, if error is thrown, no response passed', async () => {
-      dbStub.callsFake(() => { throw new Error('Error'); });
+      dbStub.rejects(new Error('Database error'));
       const req = 'appName';
 
       const result = await appsService.installedApps(req);
@@ -233,7 +254,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.rejects(new Error('Error'));
 
       const result = await appsService.listRunningApps();
 
@@ -250,7 +271,7 @@ describe('appsService tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.rejects(new Error('Error'));
 
       await appsService.listRunningApps(undefined, res);
 
@@ -369,7 +390,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.rejects(new Error('Error'));
 
       const result = await appsService.listAllApps();
 
@@ -386,7 +407,7 @@ describe('appsService tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.rejects(new Error('Error'));
 
       await appsService.listAllApps(undefined, res);
 
@@ -505,7 +526,7 @@ describe('appsService tests', () => {
     });
 
     it('should return error if dockerService throws, no response passed', async () => {
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.rejects(new Error('Error'));
 
       const result = await appsService.listAppsImages();
 
@@ -522,7 +543,7 @@ describe('appsService tests', () => {
 
     it('should return error if dockerService throws, response passed', async () => {
       const res = generateResponse();
-      dockerServiceStub.callsFake(() => { throw new Error('Error'); });
+      dockerServiceStub.rejects(new Error('Error'));
 
       await appsService.listAppsImages(undefined, res);
 

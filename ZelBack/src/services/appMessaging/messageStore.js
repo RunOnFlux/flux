@@ -39,6 +39,43 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
   const messageVersion = serviceHelper.ensureNumber(message.version);
 
+  // Verify message hash and signature FIRST before checking database
+  if (furtherVerification) {
+    try {
+      // Import verification functions locally to avoid circular dependency
+      const { verifyAppHash, verifyAppMessageSignature } = require('./messageVerifier');
+
+      // Check if required fields are present for verification
+      if (!appSpecFormatted.owner || !message.signature) {
+        log.warn('App message missing required fields for verification');
+        return false;
+      }
+
+      // Verify hash matches message content
+      const hashValid = await verifyAppHash(message);
+      if (!hashValid) {
+        log.warn('App message hash verification failed');
+        return false;
+      }
+
+      // Verify signature
+      const signatureValid = await verifyAppMessageSignature(
+        message.type,
+        messageVersion,
+        appSpecFormatted,
+        messageTimestamp,
+        message.signature
+      );
+      if (signatureValid !== true) {
+        log.warn('App message signature verification failed');
+        return false;
+      }
+    } catch (error) {
+      log.warn(`App message verification failed: ${error.message}`);
+      return false;
+    }
+  }
+
   // Import these functions locally to avoid circular dependency
   const { checkAppMessageExistence, checkAppTemporaryMessageExistence } = require('./messageVerifier');
 

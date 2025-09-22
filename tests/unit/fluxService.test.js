@@ -50,7 +50,12 @@ const adminConfig = {
 
 const fluxService = proxyquire(
   '../../ZelBack/src/services/fluxService',
-  { '../../../config/userconfig': adminConfig },
+  {
+    '../../../config/userconfig': adminConfig,
+    'node:fs/promises': {
+      access: sinon.stub().resolves() // Always resolve successfully
+    }
+  },
 );
 
 const generateResponse = () => {

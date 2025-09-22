@@ -5,6 +5,7 @@ const { promisify } = require('node:util');
 
 const config = require('config');
 const configDefault = require('../../config/default');
+const userconfig = require('../../../config/userconfig');
 
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');

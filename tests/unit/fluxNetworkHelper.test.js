@@ -20,6 +20,7 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const upnpService = require('../../ZelBack/src/services/upnpService');
 
 const net = require('node:net');
 
@@ -31,6 +32,16 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxNetworkHelper tests', () => {
+  // Global beforeEach to mock UPnP service for all tests
+  beforeEach(() => {
+    sinon.stub(upnpService, 'isUPNP').returns(false);
+    sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
+    sinon.stub(upnpService, 'removePortUPnP').resolves(true);
+    sinon.stub(upnpService, 'addMapUpnpPort').resolves(true);
+    sinon.stub(upnpService, 'addPortUPnP').resolves(true);
+    sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+  });
+
   describe('checkFluxAvailability tests', () => {
     let stub;
     const axiosConfig = {

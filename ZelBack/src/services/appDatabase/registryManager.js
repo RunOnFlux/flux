@@ -104,6 +104,93 @@ async function appInstallingLocation(appname) {
 }
 
 /**
+ * Get app installing errors locations for a specific app or all apps
+ * @param {string} appname - Application name (optional)
+ * @returns {Promise<Array>} Array of app installing error locations
+ */
+async function appInstallingErrorsLocation(appname) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  let query = {};
+  if (appname) {
+    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+  }
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      cachedAt: 1,
+      expireAt: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsInstallingErrorsLocations, query, projection);
+  return results;
+}
+
+/**
+ * Store an app installing message in the database
+ * @param {object} message - App installing message
+ * @returns {Promise<boolean>} True if stored successfully, false if message is old/duplicate
+ */
+async function storeAppInstallingMessage(message) {
+  /* message object
+  * @param type string
+  * @param version number
+  * @param broadcastedAt number
+  * @param name string
+  * @param ip string
+  */
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
+    return new Error('Invalid Flux App Installing message for storing');
+  }
+
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux App Installing message for storing version ${message.version} not supported`);
+  }
+
+  const validTill = message.broadcastedAt + (5 * 60 * 1000); // 5 minutes
+  if (validTill < Date.now()) {
+    log.warn(`Rejecting old/not valid fluxappinstalling message, message:${JSON.stringify(message)}`);
+    // reject old message
+    return false;
+  }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const newAppInstallingMessage = {
+    name: message.name,
+    ip: message.ip,
+    broadcastedAt: new Date(message.broadcastedAt),
+    expireAt: new Date(validTill),
+  };
+
+  // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+  const queryFind = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
+  const projection = { _id: 0 };
+  // we already have the exact same data
+  const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingLocations, queryFind, projection);
+  if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingMessage.broadcastedAt) {
+    // found a message that was already stored/probably from duplicated message processsed
+    return false;
+  }
+
+  const queryUpdate = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
+  const update = { $set: newAppInstallingMessage };
+  const options = {
+    upsert: true,
+  };
+  await dbHelper.updateOneInDatabase(database, globalAppsInstallingLocations, queryUpdate, update, options);
+
+  // all stored, rebroadcast
+  return true;
+}
+
+/**
  * Get all app locations via API
  * @param {object} _req - Request object (unused)
  * @param {object} res - Response object
@@ -790,6 +877,8 @@ module.exports = {
   getAppHashes,
   appLocation,
   appInstallingLocation,
+  appInstallingErrorsLocation,
+  storeAppInstallingMessage,
   getAppsLocations,
   getAppsLocation,
   getAppInstallingLocation,
