@@ -108,10 +108,17 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
  * @param {object} appSpecs - Application specifications
  * @returns {Promise<boolean>} True if requirements are met
  */
-async function checkAppHWRequirements(appSpecs) {
-  // Get node tier and current resource usage
+async function checkAppHWRequirements(appSpecs, appsResources) {
+  // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
-  const resourcesLocked = await getAppsResources();
+
+  // Use appsResources if provided, otherwise get them
+  let resourcesLocked;
+  if (appsResources) {
+    resourcesLocked = appsResources;
+  } else {
+    resourcesLocked = await getAppsResources();
+  }
 
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
@@ -119,37 +126,33 @@ async function checkAppHWRequirements(appSpecs) {
 
   const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
   await getNodeSpecs();
-
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
   if (totalSpaceOnNode === 0) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
-
   const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const hddLockedByApps = resourcesLocked.data.appsHddLocked;
-  const hddAvailable = useableSpaceOnNode - hddLockedByApps;
-
-  if (appHWrequirements.hdd > hddAvailable) {
-    throw new Error(`Insufficient SSD space for ${appSpecs.name}. Available: ${hddAvailable}MB, Required: ${appHWrequirements.hdd}MB`);
+  const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
+  // bigger or equal so we have the 1 gb free...
+  if (appHWrequirements.hdd > availableSpaceForApps) {
+    throw new Error('Insufficient space on Flux Node to spawn an application');
   }
 
-  // Check CPU requirements
-  const totalCpuOnNode = nodeSpecs.cpuCores;
-  const cpuLockedByApps = resourcesLocked.data.appsCpusLocked;
-  const cpuAvailable = totalCpuOnNode - cpuLockedByApps;
-
-  if (appHWrequirements.cpu > cpuAvailable) {
-    throw new Error(`Insufficient CPU cores for ${appSpecs.name}. Available: ${cpuAvailable}, Required: ${appHWrequirements.cpu}`);
+  const totalCpuOnNode = nodeSpecs.cpuCores * 10;
+  const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
+  const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
+  const adjustedAppCpu = appHWrequirements.cpu * 10;
+  const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
+  if (adjustedAppCpu > availableCpuForApps) {
+    throw new Error('Insufficient CPU power on Flux Node to spawn an application');
   }
 
-  // Check RAM requirements
   const totalRamOnNode = nodeSpecs.ram;
-  const useableRamOnNode = totalRamOnNode * 0.95 - config.lockedSystemResources.ram;
+  const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
   const ramLockedByApps = resourcesLocked.data.appsRamLocked;
-  const ramAvailable = useableRamOnNode - ramLockedByApps;
-
-  if (appHWrequirements.ram > ramAvailable) {
-    throw new Error(`Insufficient RAM for ${appSpecs.name}. Available: ${ramAvailable}MB, Required: ${appHWrequirements.ram}MB`);
+  const availableRamForApps = useableRamOnNode - ramLockedByApps;
+  if (appHWrequirements.ram > availableRamForApps) {
+    throw new Error('Insufficient RAM on Flux Node to spawn an application');
   }
 
   return true;
@@ -306,17 +309,13 @@ async function checkAppNodesRequirements(appSpecs) {
 }
 
 /**
- * Get apps resource usage by calling the main appsResources function
+ * Get apps resource usage - this should be passed in from appsService to avoid circular dependency
  * @returns {Promise<object>} Resource usage information
  */
 async function getAppsResources() {
-  // Import the main orchestrator to get appsResources
-  const appsServiceComplete = require('../appsService');
-  const resourcesResult = await appsServiceComplete.appsResources();
-  return {
-    status: 'success',
-    data: resourcesResult.data,
-  };
+  // This function should not be used directly - appsResources should be passed from appsService
+  // to avoid circular dependencies
+  throw new Error('getAppsResources should not be called directly - pass appsResources from appsService');
 }
 
 module.exports = {

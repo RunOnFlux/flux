@@ -35,8 +35,8 @@ const packageJson = require('../../package.json');
 const adminConfig = {
   initial: {
     ipaddress: '127.0.0.1',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
+    zelid: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
+    kadena: 'kadena:k:b3d922d1a57793651a1e0d951ef1671a10833e170810d3520388628cdc082fce?chainid=0',
     testnet: false,
     development: false,
     apiport: 16127,

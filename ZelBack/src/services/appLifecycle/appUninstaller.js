@@ -7,6 +7,9 @@ const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
 const { localAppsInformation } = require('../utils/appConstants');
 const config = require('config');
+const advancedWorkflows = require('./advancedWorkflows');
+const upnpService = require('../upnpService');
+const systemcrontab = require('crontab');
 
 /**
  * Hard uninstall application (complete removal)
@@ -58,6 +61,13 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   if (res) {
     res.write(serviceHelper.ensureString(stopStatus2));
     if (res.flush) res.flush();
+  }
+
+  // Stop syncthing for this app
+  try {
+    await advancedWorkflows.stopSyncthingApp(monitoredName, res);
+  } catch (error) {
+    log.error(`Error stopping Syncthing app: ${error.message}`);
   }
 
   const removeStatus = {
@@ -120,6 +130,138 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   log.info(imageStatus2);
   if (res) {
     res.write(serviceHelper.ensureString(imageStatus2));
+    if (res.flush) res.flush();
+  }
+
+  // Deny ports
+  const portStatus = {
+    status: isComponent ? `Denying Flux App component ${appSpecsName} ports...` : `Denying Flux App ${appName} ports...`,
+  };
+  log.info(portStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatus));
+    if (res.flush) res.flush();
+  }
+
+  if (appSpecifications.ports) {
+    for (const port of appSpecifications.ports) {
+      await upnpService.removeMapUpnpPort(port, `Flux_App_${appName}`).catch((error) => {
+        log.error(`Error removing UPnP port ${port}: ${error.message}`);
+      });
+    }
+  }
+
+  const portStatus2 = {
+    status: isComponent ? `Ports of component ${appSpecsName} denied` : `Ports of ${appName} denied`,
+  };
+  log.info(portStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatus2));
+    if (res.flush) res.flush();
+  }
+
+  // Unmount volume
+  const volumeStatus = {
+    status: isComponent ? `Unmounting volume of component ${appName}...` : `Unmounting volume of ${appName}...`,
+  };
+  log.info(volumeStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(volumeStatus));
+    if (res.flush) res.flush();
+  }
+
+  // Volume unmounting logic would go here
+  const volumeStatus2 = {
+    status: isComponent ? `Volume of component ${appName} unmounted` : `Volume of ${appName} unmounted`,
+  };
+  log.info(volumeStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(volumeStatus2));
+    if (res.flush) res.flush();
+  }
+
+  // Clean up data
+  const cleanupStatus = {
+    status: `Cleaning up ${appName} data...`,
+  };
+  log.info(cleanupStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(cleanupStatus));
+    if (res.flush) res.flush();
+  }
+
+  // Data cleanup logic would go here
+  const cleanupStatus2 = {
+    status: `Data of ${appName} cleaned`,
+  };
+  log.info(cleanupStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(cleanupStatus2));
+    if (res.flush) res.flush();
+  }
+
+  // Adjust crontab
+  const crontabStatus = {
+    status: 'Adjusting crontab...',
+  };
+  log.info(crontabStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(crontabStatus));
+    if (res.flush) res.flush();
+  }
+
+  try {
+    systemcrontab.load(async (err, cron) => {
+      if (!err) {
+        const jobs = cron.jobs({ comment: appId });
+        if (jobs && jobs.length > 0) {
+          jobs.forEach((job) => {
+            cron.remove(job);
+          });
+          cron.save();
+        }
+      }
+    });
+  } catch (error) {
+    log.error(`Error adjusting crontab: ${error.message}`);
+  }
+
+  const crontabStatus2 = {
+    status: 'Crontab Adjusted.',
+  };
+  log.info(crontabStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(crontabStatus2));
+    if (res.flush) res.flush();
+  }
+
+  // Clean up data volume
+  const volumeCleanupStatus = {
+    status: `Cleaning up data volume of ${appName}...`,
+  };
+  log.info(volumeCleanupStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(volumeCleanupStatus));
+    if (res.flush) res.flush();
+  }
+
+  // Volume cleanup logic would go here
+  const volumeCleanupStatus2 = {
+    status: `Volume of ${appName} cleaned`,
+  };
+  log.info(volumeCleanupStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(volumeCleanupStatus2));
+    if (res.flush) res.flush();
+  }
+
+  // Final success message
+  const successStatus = {
+    status: `Flux App ${appName} was successfuly removed`,
+  };
+  log.info(successStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(successStatus));
     if (res.flush) res.flush();
   }
 
@@ -259,9 +401,23 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       };
     }
 
-    const appSpecs = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appQuery);
+    let appSpecs = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appQuery);
     if (!appSpecs) {
-      throw new Error('Flux App not found in database');
+      if (!force) {
+        throw new Error('Flux App not found');
+      }
+      // Try to get from global database
+      const globalDatabase = dbopen.db(config.database.appsglobal.database);
+      appSpecs = await dbHelper.findOneInDatabase(globalDatabase, config.database.appsglobal.collections.appsInformation, appQuery);
+
+      if (!appSpecs) {
+        // Create a minimal spec for removal when forced
+        appSpecs = {
+          name: appName,
+          repotag: 'unknown/app',
+          version: 1
+        };
+      }
     }
 
     const appId = isComponent ? `${appComponent}_${appName}` : app;

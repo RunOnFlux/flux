@@ -46,8 +46,10 @@ const cacheManager = require('./utils/cacheManager').default;
 const globalState = require('./utils/globalState');
 
 // Legacy variable references for backward compatibility
-const removalInProgress = () => globalState.removalInProgress;
-const installationInProgress = () => globalState.installationInProgress;
+let removalInProgress = false;
+let installationInProgress = false;
+let reinstallationOfOldAppsInProgress = false;
+let masterSlaveAppsRunning = false;
 const backupInProgress = globalState.backupInProgress;
 const restoreInProgress = [];
 
@@ -239,6 +241,12 @@ function getAppsMonitored() {
  * @returns {object} Global state object
  */
 function getGlobalState() {
+  // Sync with globalState module
+  removalInProgress = globalState.removalInProgress;
+  installationInProgress = globalState.installationInProgress;
+  reinstallationOfOldAppsInProgress = globalState.reinstallationOfOldAppsInProgress;
+  masterSlaveAppsRunning = globalState.masterSlaveAppsRunning;
+
   return {
     removalInProgress,
     installationInProgress,
@@ -273,7 +281,10 @@ async function appsResources(req, res) {
     const hddTier = `hdd${tier}`;
     const ramTier = `ram${tier}`;
     const cpuTier = `cpu${tier}`;
-    appsResult.forEach((app) => {
+
+    // Ensure appsResult is an array
+    const apps = Array.isArray(appsResult) ? appsResult : [];
+    apps.forEach((app) => {
       if (app.version >= 4) {
         app.compose.forEach((component) => {
           if (component.tiered && tier) {
@@ -1613,7 +1624,7 @@ module.exports = {
   setNodeSpecs: hwRequirements.setNodeSpecs,
   returnNodeSpecs: hwRequirements.returnNodeSpecs,
   totalAppHWRequirements: hwRequirements.totalAppHWRequirements,
-  checkAppHWRequirements: hwRequirements.checkAppHWRequirements,
+  // checkAppHWRequirements is defined below with custom implementation
   checkAppRequirements: hwRequirements.checkAppRequirements,
   nodeFullGeolocation: hwRequirements.nodeFullGeolocation,
   checkAppStaticIpRequirements: hwRequirements.checkAppStaticIpRequirements,
@@ -1832,28 +1843,31 @@ module.exports = {
 
   // System Integration
   systemArchitecture: systemIntegration.systemArchitecture,
+  // Use the original business logic for checkAppHWRequirements that calls appsResources
   checkAppHWRequirements: async (appSpecs) => {
-    // Original implementation that calls appsResources
+    // appSpecs has hdd, cpu and ram assigned to correct tier
     const tier = await generalService.nodeTier();
     const resourcesLocked = await appsResources();
     if (resourcesLocked.status !== 'success') {
       throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
     }
 
-    const appHWrequirements = systemIntegration.totalAppHWRequirements(appSpecs, tier);
-    const nodeSpecifications = await systemIntegration.getNodeSpecs();
-    const totalSpaceOnNode = nodeSpecifications.ssdStorage;
+    const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecs, tier);
+    await hwRequirements.getNodeSpecs();
+    const nodeSpecs = hwRequirements.returnNodeSpecs();
+    const totalSpaceOnNode = nodeSpecs.ssdStorage;
     if (totalSpaceOnNode === 0) {
       throw new Error('Insufficient space on Flux Node to spawn an application');
     }
     const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
     const hddLockedByApps = resourcesLocked.data.appsHddLocked;
     const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
+    // bigger or equal so we have the 1 gb free...
     if (appHWrequirements.hdd > availableSpaceForApps) {
       throw new Error('Insufficient space on Flux Node to spawn an application');
     }
 
-    const totalCpuOnNode = nodeSpecifications.cpuCores * 10;
+    const totalCpuOnNode = nodeSpecs.cpuCores * 10;
     const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
     const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
     const adjustedAppCpu = appHWrequirements.cpu * 10;
@@ -1862,7 +1876,7 @@ module.exports = {
       throw new Error('Insufficient CPU power on Flux Node to spawn an application');
     }
 
-    const totalRamOnNode = nodeSpecifications.ram;
+    const totalRamOnNode = nodeSpecs.ram;
     const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
     const ramLockedByApps = resourcesLocked.data.appsRamLocked;
     const availableRamForApps = useableRamOnNode - ramLockedByApps;

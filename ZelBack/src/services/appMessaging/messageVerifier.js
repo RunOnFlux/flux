@@ -180,7 +180,7 @@ async function requestAppMessage(hash) {
     hash,
   };
   await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
-  await generalService.delay(500);
+  await serviceHelper.delay(500);
   await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
 }
 

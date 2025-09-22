@@ -434,7 +434,7 @@ async function stopSyncthingApp(appComponentName, res, isBackRestore) {
     }
 
     // Stop Syncthing service
-    await dockerService.dockerContainerStop(appComponentName);
+    await dockerService.appDockerStop(appComponentName);
 
     if (isBackRestore) {
       // Additional cleanup for backup/restore operations
