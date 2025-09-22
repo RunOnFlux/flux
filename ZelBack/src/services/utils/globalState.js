@@ -38,5 +38,5 @@ module.exports = {
 
   // Clear functions
   clearAppsMonitored() { appsMonitored = {}; },
-  setAppsMonitored(value) { appsMonitored = value; }
+  setAppsMonitored(value) { appsMonitored = value; },
 };

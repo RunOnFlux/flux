@@ -65,8 +65,8 @@ const appsService = proxyquire('../../ZelBack/src/services/appsService', {
   './appManagement/appInspector': proxyquire('../../ZelBack/src/services/appManagement/appInspector', { util: utilFake }),
   './fluxNetworkHelper': proxyquire('../../ZelBack/src/services/fluxNetworkHelper', {
     './daemonService/daemonServiceUtils': {
-      getConfigValue: sinon.stub().returns('5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ')
-    }
+      getConfigValue: sinon.stub().returns('5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ'),
+    },
   }),
   './upnpService': {
     removeMapUpnpPort: sinon.stub().resolves(true),
@@ -74,16 +74,16 @@ const appsService = proxyquire('../../ZelBack/src/services/appsService', {
     addMapUpnpPort: sinon.stub().resolves(true),
     addPortUPnP: sinon.stub().resolves(true),
     mapUpnpPort: sinon.stub().resolves(true),
-    isUPNP: sinon.stub().returns(false)
+    isUPNP: sinon.stub().returns(false),
   },
   './appLifecycle/appUninstaller': proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
     '../upnpService': {
       removeMapUpnpPort: sinon.stub().resolves(true),
       removePortUPnP: sinon.stub().resolves(true),
       addMapUpnpPort: sinon.stub().resolves(true),
-      addPortUPnP: sinon.stub().resolves(true)
-    }
-  })
+      addPortUPnP: sinon.stub().resolves(true),
+    },
+  }),
 });
 
 describe('appsService tests', () => {

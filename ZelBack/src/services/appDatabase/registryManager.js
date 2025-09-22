@@ -191,6 +191,34 @@ async function storeAppInstallingMessage(message) {
 }
 
 /**
+ * To return the owner of a FluxOS application.
+ * @param {string} appName Name of app.
+ * @returns {string|null} Owner.
+ */
+async function getApplicationOwner(appName) {
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { name: new RegExp(`^${appName}$`, 'i') };
+  const projection = {
+    projection: {
+      _id: 0,
+      owner: 1,
+    },
+  };
+  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
+  const appSpecs = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (appSpecs) {
+    return appSpecs.owner;
+  }
+  const allApps = await availableApps();
+  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
+  if (appInfo) {
+    return appInfo.owner;
+  }
+  return null;
+}
+
+/**
  * Get all app locations via API
  * @param {object} _req - Request object (unused)
  * @param {object} res - Response object
@@ -281,7 +309,7 @@ async function getApplicationGlobalSpecifications(appName) {
   const dbAppSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
 
   // TODO: Add proper specification decryption and formatting
-  let appSpec = dbAppSpec; // This would need checkAndDecryptAppSpecs and specificationFormatter
+  const appSpec = dbAppSpec; // This would need checkAndDecryptAppSpecs and specificationFormatter
   return appSpec;
 }
 
@@ -339,7 +367,7 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Daemon not yet synced.');
     }
 
-    const { data: { height: _daemonHeight } } = syncStatus;
+    const { data: { height: daemonHeight } } = syncStatus;
 
     let { appname, decrypt } = req.params;
     appname = appname || req.query.appname;
@@ -351,7 +379,7 @@ async function getApplicationSpecificationAPI(req, res) {
     decrypt = req.query.decrypt || decrypt;
 
     const specifications = await getApplicationSpecifications(appname);
-    const _mainAppName = appname.split('_')[1] || appname;
+    const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
       throw new Error('Application not found');
@@ -367,7 +395,7 @@ async function getApplicationSpecificationAPI(req, res) {
 
     // TODO: Add decryption logic for enterprise apps
     const specificationsResponse = messageHelper.createDataMessage(specifications);
-    res.json(specificationsResponse);
+    return res.json(specificationsResponse);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -375,7 +403,7 @@ async function getApplicationSpecificationAPI(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    return res.json(errorResponse);
   }
 }
 
@@ -391,7 +419,7 @@ async function getApplicationOwnerAPI(req, res) {
     if (!appname) {
       throw new Error('No Application Name specified');
     }
-    const owner = await serviceHelper.getApplicationOwner(appname);
+    const owner = await getApplicationOwner(appname);
     if (!owner) {
       throw new Error('Application not found');
     }
@@ -458,10 +486,9 @@ async function availableApps(_req, res) {
 
     if (res) {
       const resultsResponse = messageHelper.createDataMessage(allApps);
-      res.json(resultsResponse);
-    } else {
-      return allApps;
+      return res.json(resultsResponse);
     }
+    return allApps;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -484,7 +511,11 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
   const database = db.db(config.database.appsglobal.database);
 
   const globalQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') };
-  const globalProjection = { projection: { _id: 0, hash: 1, name: 1, owner: 1 } };
+  const globalProjection = {
+    projection: {
+      _id: 0, hash: 1, name: 1, owner: 1,
+    },
+  };
 
   const globalAppResult = await dbHelper.findOneInDatabase(database, globalAppsInformation, globalQuery, globalProjection);
 
@@ -705,7 +736,7 @@ async function expireGlobalApplications() {
 
     // Find expired applications
     const expiredQuery = {
-      expire: { $lt: currentHeight }
+      expire: { $lt: currentHeight },
     };
 
     const expiredApps = await dbHelper.findInDatabase(database, globalAppsInformation, expiredQuery, { projection: { _id: 0, name: 1 } });
@@ -785,7 +816,7 @@ async function reindexGlobalAppsInformation() {
           ...message.appSpecification,
           hash: message.hash,
           height: message.height,
-          txid: message.txid
+          txid: message.txid,
         };
 
         await dbHelper.insertOneToDatabase(database, globalAppsInformation, appInfo);
@@ -886,6 +917,7 @@ module.exports = {
   getApplicationLocalSpecifications,
   getApplicationSpecifications,
   getApplicationSpecificationAPI,
+  getApplicationOwner,
   getApplicationOwnerAPI,
   getGlobalAppsSpecifications,
   availableApps,

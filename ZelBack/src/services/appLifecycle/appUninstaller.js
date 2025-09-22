@@ -510,6 +510,13 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     await appUninstallHard(appName, appId, appSpecs, isComponent, res, stopAppMonitoring);
 
     // Remove from database
+    if (res) {
+      const cleanupDbMessage = {
+        status: 'Cleaning up database...',
+      };
+      res.write(serviceHelper.ensureString(cleanupDbMessage));
+      if (res.flush) res.flush();
+    }
     const deleteResult = await dbHelper.removeDocumentsFromCollection(appsDatabase, localAppsInformation, appQuery);
     log.info(`Database deletion result: ${JSON.stringify(deleteResult)}`);
 

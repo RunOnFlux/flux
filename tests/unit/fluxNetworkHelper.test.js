@@ -36,10 +36,11 @@ describe('fluxNetworkHelper tests', () => {
   beforeEach(() => {
     sinon.stub(upnpService, 'isUPNP').returns(false);
     sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
-    sinon.stub(upnpService, 'removePortUPnP').resolves(true);
-    sinon.stub(upnpService, 'addMapUpnpPort').resolves(true);
-    sinon.stub(upnpService, 'addPortUPnP').resolves(true);
     sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+  });
+
+  afterEach(() => {
+    sinon.restore();
   });
 
   describe('checkFluxAvailability tests', () => {

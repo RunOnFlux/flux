@@ -284,37 +284,6 @@ function ensureString(parameter) {
   return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
 }
 
-/**
- * To return the owner of a FluxOS application.
- * @param {string} appName Name of app.
- * @returns {number} Owner.
- */
-// helper owner flux app function
-async function getApplicationOwner(appName) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
-  const projection = {
-    projection: {
-      _id: 0,
-      owner: 1,
-    },
-  };
-  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
-  const appSpecs = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (appSpecs) {
-    return appSpecs.owner;
-  }
-  // eslint-disable-next-line global-require
-  const appsService = require('./appsService');
-  const allApps = await appsService.availableApps();
-  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
-  if (appInfo) {
-    return appInfo.owner;
-  }
-  return null;
-}
 
 /**
  * To delete login phrase.
@@ -716,7 +685,6 @@ module.exports = {
   ensureNumber,
   ensureObject,
   ensureString,
-  getApplicationOwner,
   ipInSubnet,
   isDecimalLimit,
   isPrivateAddress,

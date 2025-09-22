@@ -4,6 +4,7 @@ const verificationHelper = require('../verificationHelper');
 const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
+const generalService = require('../generalService');
 const log = require('../../lib/log');
 const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
@@ -56,8 +57,42 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
   try {
     log.info(`Registering app ${appSpecs.name} locally`);
 
+    // Check node tier first
+    const tier = await generalService.nodeTier().catch((error) => log.error(error));
+    if (!tier) {
+      const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
+      log.error(rStatus);
+      if (res) {
+        res.write(JSON.stringify(rStatus));
+        res.end();
+      }
+      return false;
+    }
+
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
+
+    // Check if app is already installed
+    const appName = appSpecs.name;
+    const isComponent = !!componentSpecs;
+    const appsQuery = { name: appName };
+    const appsProjection = {
+      projection: {
+        _id: 0,
+        name: 1,
+      },
+    };
+
+    const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    if (appResult && !isComponent) {
+      const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
+      log.error(rStatus);
+      if (res) {
+        res.write(rStatus);
+        res.end();
+      }
+      return false;
+    }
 
     // Prepare app registration data
     const appData = {

@@ -53,8 +53,8 @@ const fluxService = proxyquire(
   {
     '../../../config/userconfig': adminConfig,
     'node:fs/promises': {
-      access: sinon.stub().resolves() // Always resolve successfully
-    }
+      access: sinon.stub().resolves(), // Always resolve successfully
+    },
   },
 );
 
