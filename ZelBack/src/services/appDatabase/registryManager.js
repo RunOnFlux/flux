@@ -246,8 +246,8 @@ async function getAppsLocations(_req, res) {
  */
 async function getAppsLocation(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
+    let { appname } = req?.params || {};
+    appname = appname || req?.query?.appname;
     if (!appname) {
       throw new Error('No Flux App name specified');
     }
@@ -272,8 +272,8 @@ async function getAppsLocation(req, res) {
  */
 async function getAppInstallingLocation(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
+    let { appname } = req?.params || {};
+    appname = appname || req?.query?.appname;
     if (!appname) {
       throw new Error('No Flux App name specified');
     }
@@ -414,8 +414,8 @@ async function getApplicationSpecificationAPI(req, res) {
  */
 async function getApplicationOwnerAPI(req, res) {
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
+    let { appname } = req?.params || {};
+    appname = appname || req?.query?.appname;
     if (!appname) {
       throw new Error('No Application Name specified');
     }

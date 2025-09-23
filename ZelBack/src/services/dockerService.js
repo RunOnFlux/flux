@@ -166,6 +166,9 @@ async function getDockerContainerOnly(idOrName) {
  */
 async function getDockerContainerByIdOrName(idOrName) {
   const myContainer = await getDockerContainerOnly(idOrName);
+  if (!myContainer) {
+    throw new Error(`Container ${idOrName} not found`);
+  }
   const dockerContainer = docker.getContainer(myContainer.Id);
   return dockerContainer;
 }

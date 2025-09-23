@@ -5,6 +5,7 @@ let removalInProgress = false;
 let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
+let checkAndSyncAppHashesWasEverExecuted = false;
 const backupInProgress = [];
 const restoreInProgress = [];
 
@@ -24,6 +25,9 @@ module.exports = {
 
   get masterSlaveAppsRunning() { return masterSlaveAppsRunning; },
   set masterSlaveAppsRunning(value) { masterSlaveAppsRunning = value; },
+
+  get checkAndSyncAppHashesWasEverExecuted() { return checkAndSyncAppHashesWasEverExecuted; },
+  set checkAndSyncAppHashesWasEverExecuted(value) { checkAndSyncAppHashesWasEverExecuted = value; },
 
   get backupInProgress() { return backupInProgress; },
   get restoreInProgress() { return restoreInProgress; },

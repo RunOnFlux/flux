@@ -61,10 +61,8 @@ const fluxDirPath = path.join(__dirname, '../../../../');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
 
-// Global state management
-let installationInProgress = false;
-let removalInProgress = false;
-let restoreInProgress = [];
+// Global state management - using globalState module instead of local variables
+// These are now managed through the globalState module
 let dosMountMessage = '';
 
 /**
@@ -142,7 +140,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // register and launch according to specifications in message
   // throw without catching
   try {
-    if (removalInProgress) {
+    if (globalState.removalInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing removal');
       log.error(rStatus);
       if (res) {
@@ -151,7 +149,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       return;
     }
-    if (installationInProgress) {
+    if (globalState.installationInProgress) {
       const rStatus = messageHelper.createErrorMessage('Another application is undergoing installation');
       log.error(rStatus);
       if (res) {
@@ -160,7 +158,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       }
       return;
     }
-    installationInProgress = true;
+    globalState.installationInProgress = true;
 
     const softRegistrationBeginStatus = {
       status: 'Beginning soft registration...',
@@ -186,7 +184,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     log.error(`Soft registration failed: ${error.message}`);
     throw error;
   } finally {
-    installationInProgress = false;
+    globalState.installationInProgress = false;
   }
 }
 
@@ -301,7 +299,7 @@ async function redeployAPI(req, res) {
       throw new Error('Component cannot be redeployed manually');
     }
 
-    const redeploySkip = restoreInProgress.some((backupItem) => appname === backupItem);
+    const redeploySkip = globalState.restoreInProgress.some((backupItem) => appname === backupItem);
     if (redeploySkip) {
       log.info(`Restore is running for ${appname}, redeploy skipped...`);
       return;
@@ -539,7 +537,7 @@ async function appendRestoreTask(req, res) {
     }
 
     // Add to restore queue
-    restoreInProgress.push(appname);
+    globalState.restoreInProgress.push(appname);
 
     log.info(`Restore task added for ${appname}`);
 
@@ -763,8 +761,8 @@ function getRemovalInProgress() {
  * @param {string} appname - App name
  */
 function addToRestoreProgress(appname) {
-  if (!restoreInProgress.includes(appname)) {
-    restoreInProgress.push(appname);
+  if (!globalState.restoreInProgress.includes(appname)) {
+    globalState.restoreInProgress.push(appname);
   }
 }
 
@@ -773,9 +771,9 @@ function addToRestoreProgress(appname) {
  * @param {string} appname - App name
  */
 function removeFromRestoreProgress(appname) {
-  const index = restoreInProgress.indexOf(appname);
+  const index = globalState.restoreInProgress.indexOf(appname);
   if (index > -1) {
-    restoreInProgress.splice(index, 1);
+    globalState.restoreInProgress.splice(index, 1);
   }
 }
 
@@ -783,28 +781,28 @@ function removeFromRestoreProgress(appname) {
  * Reset removal progress state
  */
 function removalInProgressReset() {
-  removalInProgress = false;
+  globalState.removalInProgress = false;
 }
 
 /**
  * Set removal in progress to true
  */
 function setRemovalInProgressToTrue() {
-  removalInProgress = true;
+  globalState.removalInProgress = true;
 }
 
 /**
  * Reset installation progress state
  */
 function installationInProgressReset() {
-  installationInProgress = false;
+  globalState.installationInProgress = false;
 }
 
 /**
  * Set installation in progress to true
  */
 function setInstallationInProgressTrue() {
-  installationInProgress = true;
+  globalState.installationInProgress = true;
 }
 
 /**
@@ -1077,15 +1075,14 @@ async function forceAppRemovals(installedApps, listAllApps, getApplicationGlobal
  * @param {Function} listRunningApps - Function to get running apps
  * @param {Map} receiveOnlySyncthingAppsCache - Cache for receive-only syncthing apps
  * @param {Array} backupInProgress - Array of apps with backup in progress
- * @param {Array} restoreInProgress - Array of apps with restore in progress
  * @param {object} https - HTTPS module
  * @returns {Promise<void>}
  */
-async function masterSlaveApps(globalState, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgress, restoreInProgress, https) {
+async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https) {
   try {
-    globalState.masterSlaveAppsRunning = true;
+    globalStateParam.masterSlaveAppsRunning = true;
     // do not run if installationInProgress or removalInProgress
-    if (globalState.installationInProgress || globalState.removalInProgress) {
+    if (globalStateParam.installationInProgress || globalStateParam.removalInProgress) {
       return;
     }
     // get list of all installed apps
@@ -1118,8 +1115,8 @@ async function masterSlaveApps(globalState, installedApps, listRunningApps, rece
       let identifier;
       let needsToBeChecked = false;
       let appId;
-      const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
-      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      const backupSkip = backupInProgressParam.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = globalState.restoreInProgress.some((backupItem) => installedApp.name === backupItem);
       if (backupSkip || restoreSkip) {
         log.info(`masterSlaveApps: Backup/Restore is running for ${installedApp.name}, syncthing masterSlave check is disabled for that app`);
         // eslint-disable-next-line no-continue
@@ -1212,7 +1209,7 @@ async function masterSlaveApps(globalState, installedApps, listRunningApps, rece
   } catch (error) {
     log.error(error);
   } finally {
-    globalState.masterSlaveAppsRunning = false;
+    globalStateParam.masterSlaveAppsRunning = false;
   }
 }
 

@@ -1168,8 +1168,8 @@ async function getAllAddresses(req, res) {
  */
 async function getAddressUtxos(req, res) {
   try {
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
-    address = address || req.query.address;
+    let { address } = req?.params || {}; // we accept both help/command and help?command=getinfo
+    address = address || req?.query?.address;
     if (!address) {
       throw new Error('No address provided');
     }
@@ -1237,8 +1237,8 @@ async function getAddressFusionCoinbase(req, res) {
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
-    address = address || req.query.address;
+    let { address } = req?.params || {}; // we accept both help/command and help?command=getinfo
+    address = address || req?.query?.address;
     if (!address) {
       throw new Error('No address provided');
     }
@@ -1274,8 +1274,8 @@ async function getAddressFusionCoinbase(req, res) {
  */
 async function getAddressTransactions(req, res) {
   try {
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
-    address = address || req.query.address;
+    let { address } = req?.params || {}; // we accept both help/command and help?command=getinfo
+    address = address || req?.query?.address;
     if (!address) {
       throw new Error('No address provided');
     }
@@ -1428,8 +1428,8 @@ async function reindexExplorer(req, res) {
   if (authorized === true) {
     // stop block processing
     const i = 0;
-    let { reindexapps } = req.params;
-    reindexapps = reindexapps ?? req.query.rescanapps ?? false;
+    let { reindexapps } = req?.params || {};
+    reindexapps = reindexapps ?? req?.query?.rescanapps ?? false;
     reindexapps = serviceHelper.ensureBoolean(reindexapps);
     checkBlockProcessingStopped(i, async (response) => {
       if (response.status === 'error') {
@@ -1523,8 +1523,8 @@ async function rescanExplorer(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       // since what blockheight
-      let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
-      blockheight = blockheight || req.query.blockheight;
+      let { blockheight } = req?.params || {}; // we accept both help/command and help?command=getinfo
+      blockheight = blockheight || req?.query?.blockheight;
       if (!blockheight) {
         const errMessage = messageHelper.createErrorMessage('No blockheight provided');
         res.json(errMessage);
@@ -1549,8 +1549,8 @@ async function rescanExplorer(req, res) {
       if (blockheight < 0) {
         throw new Error('BlockHeight lower than 0');
       }
-      let { rescanapps } = req.params;
-      rescanapps = rescanapps ?? req.query.rescanapps ?? false;
+      let { rescanapps } = req?.params || {};
+      rescanapps = rescanapps ?? req?.query?.rescanapps ?? false;
       rescanapps = serviceHelper.ensureBoolean(rescanapps);
       // stop block processing
       const i = 0;

@@ -1699,14 +1699,12 @@ async function restartFluxOS(req, res) {
 */
 async function streamChainPreparation(req, res) {
   if (streamChainDisabled) {
-    res.statusMessage = 'Failed minimium throughput criteria. Disabled.';
-    res.status(422).end();
+    safeSetResponseStatus(res, 422, 'Failed minimium throughput criteria. Disabled.');
     return;
   }
 
   if (lock || prepLock) {
-    res.statusMessage = 'Streaming of chain already in progress, server busy.';
-    res.status(503).end();
+    safeSetResponseStatus(res, 503, 'Streaming of chain already in progress, server busy.');
     return;
   }
 
@@ -1722,8 +1720,7 @@ async function streamChainPreparation(req, res) {
 
     let ip = req.socket.remoteAddress;
     if (!ip) {
-      res.statusMessage = 'Socket closed.';
-      res.status(400).end();
+      safeSetResponseStatus(res, 400, 'Socket closed.');
       return;
     }
 
@@ -1731,8 +1728,7 @@ async function streamChainPreparation(req, res) {
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
     if (!serviceHelper.isPrivateAddress(ip)) {
-      res.statusMessage = 'Request must be from an address on the same private network as the host.';
-      res.status(403).end();
+      safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }
 
@@ -1749,8 +1745,7 @@ async function streamChainPreparation(req, res) {
     const { status: blockCountStatus, data: blockCount } = await daemonServiceBlockchainRpcs.getBlockCount();
 
     if (blockCountStatus !== 'success') {
-      res.statusMessage = 'Error getting blockCount from local Flux Daemon.';
-      res.status(503).end();
+      safeSetResponseStatus(res, 503, 'Error getting blockCount from local Flux Daemon.');
       return;
     }
 
@@ -1760,30 +1755,26 @@ async function streamChainPreparation(req, res) {
     ]).catch(() => null);
 
     if (!explorerResponse || !explorerResponse?.data?.info?.blocks) {
-      res.statusMessage = 'Error getting Flux Explorer Height.';
-      res.status(503).end();
+      safeSetResponseStatus(res, 503, 'Error getting Flux Explorer Height.');
       return;
     }
 
     if (blockCount + 5 < explorerResponse.data.info.blocks) {
-      res.statusMessage = 'Error local Daemon is not synced.';
-      res.status(503).end();
+      safeSetResponseStatus(res, 503, 'Error local Daemon is not synced.');
       return;
     }
 
     const { status: fluxNodeStatus, data: fluxNodeInfo } = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
 
     if (fluxNodeStatus !== 'success') {
-      res.statusMessage = 'Error getting fluxNodeStatus from local Flux Daemon.';
-      res.status(503).end();
+      safeSetResponseStatus(res, 503, 'Error getting fluxNodeStatus from local Flux Daemon.');
       return;
     }
 
     // check if it is outside maintenance window
     if (fluxNodeInfo.status === 'CONFIRMED' && fluxNodeInfo.last_confirmed_height > 0 && (120 - (blockCount - fluxNodeInfo.last_confirmed_height)) < 8) {
       // fluxnodes needs to confirm between 120 and 150 blocks, if it is 7 blocks remaining to enter confirmation window we already consider outside maintenance window, as this can take around 12 minutes.
-      res.statusMessage = 'Error Fluxnode is not in maintenance window.';
-      res.status(503).end();
+      safeSetResponseStatus(res, 503, 'Error Fluxnode is not in maintenance window.');
       return;
     }
 
@@ -1796,8 +1787,7 @@ async function streamChainPreparation(req, res) {
     } else {
       const { error: watchdogError } = await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
       if (watchdogError) {
-        res.statusMessage = 'Error: unable to stop watchdog';
-        res.status(503).end();
+        safeSetResponseStatus(res, 503, 'Error: unable to stop watchdog');
         return;
       }
 
@@ -1806,8 +1796,7 @@ async function streamChainPreparation(req, res) {
       const { error: zelcashError } = await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
 
       if (zelcashError) {
-        res.statusMessage = 'Error: unable to stop zelcash service';
-        res.status(503).end();
+        safeSetResponseStatus(res, 503, 'Error: unable to stop zelcash service');
         // if zelcash failed, it means watchdog was successful, we need to restart (no await)
         serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
         return;
@@ -1889,16 +1878,28 @@ async function streamChainPreparation(req, res) {
  * @param {Response} res HTTP response
  * @returns {Promise<void>}
  */
+
+/**
+ * Helper function to safely set response status and message
+ * @param {Response} res - Response object
+ * @param {number} status - HTTP status code
+ * @param {string} message - Status message
+ */
+function safeSetResponseStatus(res, status, message) {
+  if (res && typeof res.status === 'function') {
+    res.statusMessage = message;
+    res.status(status).end();
+  }
+}
+
 async function streamChain(req, res) {
   if (streamChainDisabled) {
-    res.statusMessage = 'Failed minimium throughput criteria. Disabled.';
-    res.status(422).end();
+    safeSetResponseStatus(res, 422, 'Failed minimium throughput criteria. Disabled.');
     return;
   }
 
   if (lock) {
-    res.statusMessage = 'Streaming of chain already in progress, server busy.';
-    res.status(503).end();
+    safeSetResponseStatus(res, 503, 'Streaming of chain already in progress, server busy.');
     return;
   }
 
@@ -1916,8 +1917,7 @@ async function streamChain(req, res) {
      */
     let ip = req.socket.remoteAddress;
     if (!ip) {
-      res.statusMessage = 'Socket closed.';
-      res.status(400).end();
+      safeSetResponseStatus(res, 400, 'Socket closed.');
       return;
     }
 
@@ -1925,8 +1925,7 @@ async function streamChain(req, res) {
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
     if (!serviceHelper.isPrivateAddress(ip)) {
-      res.statusMessage = 'Request must be from an address on the same private network as the host.';
-      res.status(403).end();
+      safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }
 
@@ -1955,8 +1954,7 @@ async function streamChain(req, res) {
     const chainExists = foldersExist.every((x) => x);
 
     if (!chainExists) {
-      res.statusMessage = 'Unable to find chain';
-      res.status(500).end();
+      safeSetResponseStatus(res, 500, 'Unable to find chain');
       return;
     }
 
@@ -1972,8 +1970,7 @@ async function streamChain(req, res) {
     compress = processedBody.compress || false;
 
     if (!safe && compress) {
-      res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
-      res.status(422).end();
+      safeSetResponseStatus(res, 422, 'Unable to compress blockchain in unsafe mode, it will corrupt new db.');
       return;
     }
 
@@ -1986,8 +1983,7 @@ async function streamChain(req, res) {
     }
 
     if (safe && fluxdRunning) {
-      res.statusMessage = 'Flux daemon still running, unable to clone blockchain.';
-      res.status(503).end();
+      safeSetResponseStatus(res, 503, 'Flux daemon still running, unable to clone blockchain.');
       return;
     }
 

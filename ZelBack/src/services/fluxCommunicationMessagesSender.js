@@ -412,8 +412,8 @@ async function broadcastMessageToRandomIncoming(dataToBroadcast) {
  */
 async function broadcastMessageToOutgoingFromUser(req, res) {
   try {
-    let { data } = req.params;
-    data = data || req.query.data;
+    let { data } = req?.params || {};
+    data = data || req?.query?.data;
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
@@ -485,8 +485,8 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
  */
 async function broadcastMessageToIncomingFromUser(req, res) {
   try {
-    let { data } = req.params;
-    data = data || req.query.data;
+    let { data } = req?.params || {};
+    data = data || req?.query?.data;
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
@@ -557,8 +557,8 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
  */
 async function broadcastMessageFromUser(req, res) {
   try {
-    let { data } = req.params;
-    data = data || req.query.data;
+    let { data } = req?.params || {};
+    data = data || req?.query?.data;
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
