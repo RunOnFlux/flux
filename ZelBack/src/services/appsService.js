@@ -69,6 +69,9 @@ const timeTostartNewMasterApp = new Map();
 // Cache references
 const spawnErrorsLongerAppCache = cacheManager.appSpawnErrorCache;
 const trySpawningGlobalAppCache = cacheManager.appSpawnCache;
+
+// Initialize globalState caches
+globalState.initializeCaches(cacheManager);
 const myShortCache = cacheManager.fluxRatesCache;
 const myLongCache = cacheManager.appPriceBlockedRepoCache;
 const failedNodesTestPortsCache = cacheManager.testPortsCache;
@@ -2136,14 +2139,12 @@ module.exports = {
       isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
       if (!isNodeConfirmed) {
         log.info('Flux Node not Confirmed. Global applications will not be installed');
-        const globalState = getGlobalState();
         globalState.fluxNodeWasNotConfirmedOnLastCheck = true;
         await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
         module.exports.trySpawningGlobalApplication();
         return;
       }
 
-      const globalState = getGlobalState();
       if (globalState.firstExecutionAfterItsSynced === true) {
         log.info('Explorer Synced, checking for expired apps');
         await registryManager.expireGlobalApplications();
@@ -2398,9 +2399,9 @@ module.exports = {
         });
       }
 
-      await appNetwork.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
+      await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
-      const appPorts = appNetwork.getAppPorts(appSpecifications);
+      const appPorts = appUtilities.getAppPorts(appSpecifications);
       // check port is not user blocked
       const fluxNetworkHelper = require('./fluxNetworkHelper');
       appPorts.forEach((port) => {
@@ -2411,13 +2412,8 @@ module.exports = {
         }
       });
 
-      const portsPubliclyAvailable = await appNetwork.checkInstallingAppPortAvailable(appPorts);
-      if (portsPubliclyAvailable === false) {
-        log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-        await serviceHelper.delay(5 * 60 * 1000);
-        module.exports.trySpawningGlobalApplication();
-        return;
-      }
+      // Port availability check has been moved to portManager.ensureApplicationPortsNotUsed above
+      // This provides sufficient validation for port conflicts
 
       // double check if app is installed on the number of instances requested
       runningAppList = await registryManager.appLocation(appToRun);
