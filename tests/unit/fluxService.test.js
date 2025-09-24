@@ -3116,6 +3116,13 @@ describe('fluxService tests', () => {
       daemonServiceUtilsStub.resolves({ run: async () => daemonServiceError });
       tarPackStub.returns(readable);
 
+      // Stub serviceHelper.dirInfo to return expected data for each folder
+      const dirInfoStub = sinon.stub(serviceHelper, 'dirInfo');
+      dirInfoStub.resolves({
+        count: testFiles.length, // 50 files per folder
+        size: testFiles.length * testFileSize, // total size per folder
+      });
+
       await fluxService.streamChain(req, res);
       sinon.assert.calledWithExactly(res.setHeader, 'Approx-Content-Length', expectedSize.toString());
     });
