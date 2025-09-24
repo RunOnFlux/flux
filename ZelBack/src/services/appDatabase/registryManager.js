@@ -870,8 +870,8 @@ async function reindexGlobalAppsInformation() {
     // Filter and process messages
     const validApps = [];
     messages.forEach((message) => {
-      if (message.appSpecification) {
-        const appSpec = message.appSpecification;
+      if (message.appSpecifications) {
+        const appSpec = message.appSpecifications;
         const expireHeight = message.height + (appSpec.expire || 22000); // default expire period
 
         if (expireHeight > currentHeight) {
