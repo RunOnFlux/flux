@@ -1817,7 +1817,7 @@ module.exports = {
   monitorSharedDBApps: () => appInspector.monitorSharedDBApps(installedApps, (app, res, force, endResponse, sendMessage) =>
     appUninstaller.removeAppLocally(app, res, force, endResponse, sendMessage, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored))),
   checkStorageSpaceForApps: () => appInspector.checkStorageSpaceForApps(installedApps, (app, res, force, endResponse, sendMessage) =>
-    appUninstaller.removeAppLocally(app, res, force, endResponse, sendMessage, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored)), advancedWorkflows.softRedeploy, []),
+    appUninstaller.removeAppLocally(app, res, force, endResponse, sendMessage, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored)), null, []),
 
   // Re-exported from appInstaller
   createAppVolume: appInstaller.createAppVolume,
@@ -2075,6 +2075,8 @@ module.exports = {
   getAppsLocations: registryManager.getAppsLocations,
   getAppsLocation: registryManager.getAppsLocation,
   getAppInstallingLocation: registryManager.getAppInstallingLocation,
+  getAppInstallingErrorsLocation: registryManager.getAppInstallingErrorsLocation,
+  getAppsInstallingErrorsLocations: registryManager.getAppsInstallingErrorsLocations,
   getApplicationGlobalSpecifications: registryManager.getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications: registryManager.getApplicationLocalSpecifications,
   getApplicationSpecifications: registryManager.getApplicationSpecifications,
@@ -2162,7 +2164,7 @@ module.exports = {
       }
       globalState.fluxNodeWasAlreadyConfirmed = true;
 
-      const benchmarkResponse = await generalService.getBenchmarks();
+      const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
       if (benchmarkResponse.status === 'error') {
         log.info('FluxBench status Error. Global applications will not be installed');
         await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
@@ -2444,13 +2446,13 @@ module.exports = {
         }
         if (!appFromAppsToBeCheckedLater && !appFromAppsSyncthingToBeCheckedLater && runningAppList.length < 6) {
           // check if there are connectivity to all nodes
-          const fluxNetHelper = require('./fluxNetworkHelper');
+          const fluxNetworkHelper = require('./fluxNetworkHelper');
           // eslint-disable-next-line no-restricted-syntax
           for (const node of runningAppList) {
             const ip = node.ip.split(':')[0];
             const port = node.ip.split(':')[1] || '16127';
             // eslint-disable-next-line no-await-in-loop
-            const isOpen = await fluxNetHelper.isPortOpen(ip, port);
+            const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
             if (!isOpen) {
               log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 30m if remaining missing instances`);
               const appToCheck = {

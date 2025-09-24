@@ -121,6 +121,7 @@ async function appInstallingErrorsLocation(appname) {
       name: 1,
       hash: 1,
       ip: 1,
+      error: 1,
       broadcastedAt: 1,
       cachedAt: 1,
       expireAt: 1,
@@ -128,6 +129,53 @@ async function appInstallingErrorsLocation(appname) {
   };
   const results = await dbHelper.findInDatabase(database, globalAppsInstallingErrorsLocations, query, projection);
   return results;
+}
+
+/**
+ * Get app installing errors locations API endpoint
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ */
+async function getAppsInstallingErrorsLocations(req, res) {
+  try {
+    const results = await appInstallingErrorsLocation();
+    const resultsResponse = messageHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * Get a specific app's installing error locations API endpoint
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ */
+async function getAppInstallingErrorsLocation(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No Flux App name specified');
+    }
+    const results = await appInstallingErrorsLocation(appname);
+    const resultsResponse = messageHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
 }
 
 /**
@@ -913,6 +961,8 @@ module.exports = {
   getAppsLocations,
   getAppsLocation,
   getAppInstallingLocation,
+  getAppInstallingErrorsLocation,
+  getAppsInstallingErrorsLocations,
   getApplicationGlobalSpecifications,
   getApplicationLocalSpecifications,
   getApplicationSpecifications,

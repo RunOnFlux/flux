@@ -15,7 +15,7 @@ const generalService = require('../generalService');
 const {
   localAppsInformation,
   globalAppsInformation,
-  globalAppsMessages,
+  globalAppsInstallingErrorsLocations,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const appUninstaller = require('./appUninstaller');
@@ -1213,6 +1213,77 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   }
 }
 
+/**
+ * Get from another peer the list of apps installing errors or just for a specific application name
+ * @returns {Promise<void>}
+ */
+async function getPeerAppsInstallingErrorMessages() {
+  try {
+    // Import outgoingPeers dynamically to avoid circular dependency
+    const { outgoingPeers } = require('../utils/establishedConnections');
+
+    if (!outgoingPeers || outgoingPeers.length === 0) {
+      log.info('getPeerAppsInstallingErrorMessages - No outgoing peers available');
+      return;
+    }
+
+    let finished = false;
+    let i = 0;
+    while (!finished && i <= 10) {
+      i += 1;
+      const client = outgoingPeers[Math.floor(Math.random() * outgoingPeers.length)];
+      let axiosConfig = {
+        timeout: 5000,
+      };
+      log.info(`getPeerAppsInstallingErrorMessages - Getting fluxos uptime from ${client.ip}:${client.port}`);
+      // eslint-disable-next-line no-await-in-loop
+      const response = await serviceHelper.axiosGet(`http://${client.ip}:${client.port}/flux/uptime`, axiosConfig).catch((error) => log.error(error));
+      if (!response || !response.data || response.data.status !== 'success' || !response.data.data) {
+        log.info(`getPeerAppsInstallingErrorMessages - Failed to get fluxos uptime from ${client.ip}:${client.port}`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const ut = process.uptime();
+      const measureUptime = Math.floor(ut);
+      // let's get information from a node that have higher fluxos uptime than me for at least one hour.
+      if (response.data.data < measureUptime + 3600) {
+        log.info(`getPeerAppsInstallingErrorMessages - Connected peer ${client.ip}:${client.port} doesn't have FluxOS uptime to be used`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      log.info(`getPeerAppsInstallingErrorMessages - FluxOS uptime is ok on ${client.ip}:${client.port}`);
+      axiosConfig = {
+        timeout: 30000,
+      };
+      log.info(`getPeerAppsInstallingErrorMessages - Getting app installing errors from ${client.ip}:${client.port}`);
+      const url = `http://${client.ip}:${client.port}/apps/installingerrorslocations`;
+      // eslint-disable-next-line no-await-in-loop
+      const appsResponse = await serviceHelper.axiosGet(url, axiosConfig).catch((error) => log.error(error));
+      if (!appsResponse || !appsResponse.data || appsResponse.data.status !== 'success' || !appsResponse.data.data) {
+        log.info(`getPeerAppsInstallingErrorMessages - Failed to get app installing error locations from ${client.ip}:${client.port}`);
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const apps = appsResponse.data.data;
+      log.info(`getPeerAppsInstallingErrorMessages - Will process ${apps.length} apps installing errors locations messages`);
+      const operations = apps.map((message) => ({
+        updateOne: {
+          filter: { name: message.name, hash: message.hash, ip: message.ip },
+          update: { $set: message },
+          upsert: true,
+        },
+      }));
+      const dbopen = dbHelper.databaseConnection();
+      const database = dbopen.db(config.database.appsglobal.database);
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.bulkWriteInDatabase(database, globalAppsInstallingErrorsLocations, operations);
+      finished = true;
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
 module.exports = {
   createAppVolume,
   softRegisterAppLocally,
@@ -1241,4 +1312,5 @@ module.exports = {
   reinstallOldApplications,
   forceAppRemovals,
   masterSlaveApps,
+  getPeerAppsInstallingErrorMessages,
 };
