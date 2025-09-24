@@ -1891,7 +1891,7 @@ module.exports = {
   checkAppMessageExistence: messageVerifier.checkAppMessageExistence,
   checkAppTemporaryMessageExistence: messageVerifier.checkAppTemporaryMessageExistence,
   getAppsTemporaryMessages: messageVerifier.getAppsTemporaryMessages,
-  getAppsPermanentMessages: messageStore.getAppsPermanentMessages,
+  getAppsPermanentMessages: messageVerifier.getAppsPermanentMessages,
   cleanupOldTemporaryMessages: messageStore.cleanupOldTemporaryMessages,
 
   // App Utilities
