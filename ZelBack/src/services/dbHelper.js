@@ -6,7 +6,6 @@ const log = require('../lib/log');
 
 const mongodb = require('mongodb');
 const config = require('config');
-const registryManager = require('./appDatabase/registryManager');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
@@ -660,6 +659,8 @@ async function validateAppsInformation() {
     }
 
     // Use the new registryManager reindexGlobalAppsInformation function
+    // Import registryManager here to avoid circular dependency
+    const registryManager = require('./appDatabase/registryManager');
     await registryManager.reindexGlobalAppsInformation();
 
     response.reindexed = true;
