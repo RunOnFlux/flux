@@ -79,6 +79,7 @@ module.exports = {
   removalInProgressReset() { removalInProgress = false; },
   setRemovalInProgressToTrue() { removalInProgress = true; },
   installationInProgressReset() { installationInProgress = false; },
+  setInstallationInProgressTrue() { installationInProgress = true; },
 
   // Clear functions
   clearAppsMonitored() { appsMonitored = {}; },

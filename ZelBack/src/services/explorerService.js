@@ -1274,8 +1274,8 @@ async function getAddressFusionCoinbase(req, res) {
  */
 async function getAddressTransactions(req, res) {
   try {
-    let { address } = req?.params || {}; // we accept both help/command and help?command=getinfo
-    address = address || req?.query?.address;
+    let { address } = req.params || {}; // we accept both help/command and help?command=getinfo
+    address = address || req.query.address;
     if (!address) {
       throw new Error('No address provided');
     }

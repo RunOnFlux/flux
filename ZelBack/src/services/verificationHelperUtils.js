@@ -5,6 +5,7 @@
  */
 
 const config = require('config');
+const userconfig = require('../../../config/userconfig');
 const signatureVerifier = require('./signatureVerifier');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');

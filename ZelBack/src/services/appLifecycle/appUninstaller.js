@@ -604,7 +604,23 @@ async function softRemoveAppLocally(app, res, globalState, stopAppMonitoring) {
     await appUninstallSoft(appName, appId, appSpecs, isComponent, res, stopAppMonitoring);
 
     // Remove from database
+    if (res) {
+      const cleanupDbMessage = {
+        status: 'Cleaning up database...',
+      };
+      res.write(serviceHelper.ensureString(cleanupDbMessage));
+      if (res.flush) res.flush();
+    }
+
     await dbHelper.removeDocumentsFromCollection(appsDatabase, localAppsInformation, appQuery);
+
+    if (res) {
+      const dbCleanedMessage = {
+        status: 'Database cleaned',
+      };
+      res.write(serviceHelper.ensureString(dbCleanedMessage));
+      if (res.flush) res.flush();
+    }
 
     const successMessage = messageHelper.createSuccessMessage(`Flux App ${app} successfully soft removed`);
     log.info(successMessage);

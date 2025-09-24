@@ -1792,9 +1792,9 @@ module.exports = {
   appStop: (req, res) => appController.appStop(req, res, (appname, deleteData) => appInspector.stopAppMonitoring(appname, deleteData, appsMonitored)),
   appRestart: (req, res) => appController.appRestart(req, res, (appname) => appInspector.startAppMonitoring(appname, appsMonitored), (appname, deleteData) => appInspector.stopAppMonitoring(appname, deleteData, appsMonitored)),
   appKill: (req, res) => appController.appKill(req, res),
-  appPause: appController.appPause,
-  appUnpause: appController.appUnpause,
-  appDockerRestart: appController.appDockerRestart,
+  appPause: (req, res) => appController.appPause(req, res),
+  appUnpause: (req, res) => appController.appUnpause(req, res),
+  appDockerRestart: (req, res) => appController.appDockerRestart(req, res),
   stopAllNonFluxRunningApps: appController.stopAllNonFluxRunningApps,
 
   // Re-exported from appInspector
@@ -2099,7 +2099,6 @@ module.exports = {
   // Advanced Workflows
   createAppVolume: advancedWorkflows.createAppVolume,
   softRegisterAppLocally: advancedWorkflows.softRegisterAppLocally,
-  softRemoveAppLocally: advancedWorkflows.softRemoveAppLocally,
   redeployAPI: advancedWorkflows.redeployAPI,
   checkFreeAppUpdate: advancedWorkflows.checkFreeAppUpdate,
   // verifyAppUpdateParameters moved to appValidator module
@@ -2711,7 +2710,7 @@ module.exports = {
   removalInProgressReset: globalState.removalInProgressReset,
   setRemovalInProgressToTrue: globalState.setRemovalInProgressToTrue,
   installationInProgressReset: globalState.installationInProgressReset,
-  setInstallationInProgressTrue: () => { globalState.installationInProgress = true; },
+  setInstallationInProgressTrue: globalState.setInstallationInProgressTrue,
   checkAndRemoveApplicationInstance: advancedWorkflows.checkAndRemoveApplicationInstance,
   reinstallOldApplications: advancedWorkflows.reinstallOldApplications,
 
