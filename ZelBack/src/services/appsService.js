@@ -1890,7 +1890,7 @@ module.exports = {
   storeAppInstallingMessage: messageStore.storeAppInstallingMessage,
   checkAppMessageExistence: messageVerifier.checkAppMessageExistence,
   checkAppTemporaryMessageExistence: messageVerifier.checkAppTemporaryMessageExistence,
-  getAppsTemporaryMessages: messageStore.getAppsTemporaryMessages,
+  getAppsTemporaryMessages: messageVerifier.getAppsTemporaryMessages,
   getAppsPermanentMessages: messageStore.getAppsPermanentMessages,
   cleanupOldTemporaryMessages: messageStore.cleanupOldTemporaryMessages,
 
