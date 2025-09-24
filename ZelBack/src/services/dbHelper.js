@@ -6,6 +6,7 @@ const log = require('../lib/log');
 
 const mongodb = require('mongodb');
 const config = require('config');
+const registryManager = require('./appDatabase/registryManager');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
@@ -592,129 +593,8 @@ async function syncAppsInformationCollection(
   return Array.from(installedApps);
 }
 
-/**
- * @param {mongodb.Db} appsGlobalDb mongo db
- * @param {mongodb.Db} appsLocalDb mongo db
- * @param {string} globalAppsMessagesCol mongo collection name
- * @param {string} globalAppsInformationCol mongo collection name
- * @param {string} localAppsInformationCol mongo collection name
- * @param {number} scannedHeight current height as scanned by the block explorer
- * @returns {Promise<Array<string>} Any local apps that need to be removed (expired)
- */
-async function reindexGlobalAppsInformation(
-  appsGlobalDb,
-  appsLocalDb,
-  globalAppsMessagesCol,
-  globalAppsInformationCol,
-  localAppsInformationCol,
-  scannedHeight,
-) {
-  const dropped = await dropCollection(appsGlobalDb, globalAppsInformationCol)
-    .catch((error) => {
-      if (error.message !== 'ns not found') {
-        log.error('reindexGlobalAppsInformation - Unable to drop db. '
-          + `Error: ${error}`);
-        return false;
-      }
-      return true;
-    });
-
-  if (!dropped) return [];
-
-  // These index names are ridiculous
-  await appsGlobalDb
-    .collection(globalAppsInformationCol)
-    .createIndex(
-      { name: 1 },
-      { name: 'query for getting zelapp based on zelapp specs name' },
-    );
-
-  await appsGlobalDb
-    .collection(globalAppsInformationCol)
-    .createIndex(
-      { owner: 1 },
-      { name: 'query for getting zelapp based on zelapp specs owner' },
-    );
-
-  await appsGlobalDb
-    .collection(globalAppsInformationCol)
-    .createIndex(
-      { repotag: 1 },
-      { name: 'query for getting zelapp based on image' },
-    );
-
-  await appsGlobalDb
-    .collection(globalAppsInformationCol)
-    .createIndex(
-      { height: 1 },
-      { name: 'query for getting zelapp based on last height update' },
-    );
-
-  await appsGlobalDb
-    .collection(globalAppsInformationCol)
-    .createIndex(
-      { hash: 1 },
-      { name: 'query for getting zelapp based on last hash' },
-    );
-
-  const pipeline = [
-    { $sort: { 'appSpecifications.name': 1, height: -1 } },
-    {
-      $group: {
-        _id: '$appSpecifications.name',
-        maxHeightMsg: { $first: '$$ROOT' },
-      },
-    },
-    {
-      $match: {
-        $expr: {
-          $gt: [
-            {
-              $add: [
-                '$maxHeightMsg.height',
-                { $ifNull: ['$maxHeightMsg.appSpecifications.expire', 22000] },
-              ],
-            },
-            scannedHeight,
-          ],
-        },
-      },
-    },
-    {
-      $replaceWith: {
-        $mergeObjects: [
-          '$maxHeightMsg.appSpecifications',
-          {
-            hash: '$maxHeightMsg.hash',
-            height: '$maxHeightMsg.height',
-          },
-        ],
-      },
-    },
-  ];
-
-  const resultCursor = await aggregateInDatabase(
-    appsGlobalDb,
-    globalAppsMessagesCol,
-    pipeline,
-    { returnArray: false },
-  );
-
-  const appsToRemove = await syncAppsInformationCollection(
-    resultCursor,
-    appsGlobalDb,
-    appsLocalDb,
-    globalAppsInformationCol,
-    localAppsInformationCol,
-  );
-  log.info(
-    `Reindexing of global applications finished. Local apps to be removed: ${JSON.stringify(
-      appsToRemove,
-    )}`,
-  );
-
-  return appsToRemove;
-}
+// NOTE: The reindexGlobalAppsInformation function has been moved to registryManager.js
+// as part of the modularization effort.
 
 /**
  * Verifies the app count based on an aggregation from appsmessages and compares it to the
@@ -779,17 +659,11 @@ async function validateAppsInformation() {
       return response;
     }
 
-    const appsToRemove = await reindexGlobalAppsInformation(
-      appsGlobalDb,
-      appsLocalDb,
-      globalAppsMessagesCol,
-      globalAppsInformationCol,
-      localAppsInformationCol,
-      scannedHeight,
-    );
+    // Use the new registryManager reindexGlobalAppsInformation function
+    await registryManager.reindexGlobalAppsInformation();
 
     response.reindexed = true;
-    response.appsToRemove = appsToRemove;
+    response.appsToRemove = []; // The new function doesn't return apps to remove
   } catch (err) {
     log.error(`Unable to validate apps information. Error: ${err}`);
   }

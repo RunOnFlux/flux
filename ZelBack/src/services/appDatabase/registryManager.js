@@ -851,27 +851,50 @@ async function reindexGlobalAppsInformation() {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
+    // Get current height for expiration checking
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not synced - cannot reindex without current height');
+    }
+    const currentHeight = syncStatus.data.height;
+
     // Get all app messages
     const messages = await dbHelper.findInDatabase(database, globalAppsMessages, {}, { projection: { _id: 0 } });
 
     // Clear existing information collection
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, {});
 
-    // Rebuild from messages
-    for (const message of messages) {
-      if (message.appSpecification) {
-        const appInfo = {
-          ...message.appSpecification,
-          hash: message.hash,
-          height: message.height,
-          txid: message.txid,
-        };
+    let processedCount = 0;
+    let expiredCount = 0;
 
-        await dbHelper.insertOneToDatabase(database, globalAppsInformation, appInfo);
+    // Filter and process messages
+    const validApps = [];
+    messages.forEach((message) => {
+      if (message.appSpecification) {
+        const appSpec = message.appSpecification;
+        const expireHeight = message.height + (appSpec.expire || 22000); // default expire period
+
+        if (expireHeight > currentHeight) {
+          const appInfo = {
+            ...appSpec,
+            hash: message.hash,
+            height: message.height,
+            txid: message.txid,
+          };
+          validApps.push(appInfo);
+          processedCount += 1;
+        } else {
+          expiredCount += 1;
+        }
       }
+    });
+
+    // Insert all valid apps
+    if (validApps.length > 0) {
+      await Promise.all(validApps.map((appInfo) => dbHelper.insertOneToDatabase(database, globalAppsInformation, appInfo)));
     }
 
-    log.info(`Reindexed ${messages.length} applications in global apps information`);
+    log.info(`Reindexed global apps information: ${processedCount} active apps, ${expiredCount} expired apps filtered out`);
     return 'Reindex completed successfully';
   } catch (error) {
     log.error(error);
