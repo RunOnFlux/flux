@@ -7,6 +7,7 @@ const log = require('../lib/log');
 const mongodb = require('mongodb');
 const config = require('config');
 const serviceHelper = require('../serviceHelper');
+const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
