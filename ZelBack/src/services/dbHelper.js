@@ -6,8 +6,6 @@ const log = require('../lib/log');
 
 const mongodb = require('mongodb');
 const config = require('config');
-const serviceHelper = require('../serviceHelper');
-const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
@@ -662,22 +660,9 @@ async function validateAppsInformation() {
       return response;
     }
 
-    // Check if daemon is synced
-    let syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    let i = 0;
-    while (!syncStatus.data.synced && i < 12) {
-      i += 1;
-      await serviceHelper.delay(10000); // max 2 minutes for daemon to startup because after reboot as it might not be reachable when we call reindex function
-      syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    }
-
-    // Use the new registryManager reindexGlobalAppsInformation function
-    // Import registryManager here to avoid circular dependency
-    const registryManager = require('./appDatabase/registryManager');
-    await registryManager.reindexGlobalAppsInformation();
-
-    response.reindexed = true;
-    response.appsToRemove = []; // The new function doesn't return apps to remove
+    // Return that reindexing is needed - let the caller handle it
+    response.needsReindex = true;
+    response.appsToRemove = [];
   } catch (err) {
     log.error(`Unable to validate apps information. Error: ${err}`);
   }
