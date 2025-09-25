@@ -996,8 +996,43 @@ async function reinstallOldApplications() {
               // eslint-disable-next-line no-await-in-loop
               await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
             } else {
-              // TODO: Implement full reinstall logic
+              // Full reinstall logic for applications with new specifications
               log.info(`Application ${installedApp.name} needs to be reinstalled with new specifications`);
+
+              try {
+                // First, remove the application locally (preserves data if configured)
+                log.info(`Removing old version of ${installedApp.name}`);
+                await removeAppLocally(installedApp.name, null, true); // true = preserve data
+
+                // Wait for cleanup to complete
+                await serviceHelper.delay(2000);
+
+                // Install the new version with updated specifications
+                log.info(`Installing new version of ${installedApp.name}`);
+                const installResult = await installApplication(appSpecifications);
+
+                if (installResult && installResult.status === 'success') {
+                  log.info(`Successfully reinstalled ${installedApp.name} with new specifications`);
+
+                  // Update local database
+                  const dbopen = dbHelper.databaseConnection();
+                  const appsDatabase = dbopen.db(config.database.appslocal.database);
+                  const appsQuery = { name: appSpecifications.name };
+                  const options = { upsert: true };
+                  await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
+                } else {
+                  log.error(`Failed to reinstall ${installedApp.name}:`, installResult?.data || 'Unknown error');
+                }
+              } catch (reinstallError) {
+                log.error(`Error during reinstall of ${installedApp.name}:`, reinstallError);
+                // Attempt to restore original app if reinstall fails
+                try {
+                  log.info(`Attempting to restore original version of ${installedApp.name}`);
+                  await installApplication(installedApp);
+                } catch (restoreError) {
+                  log.error(`Failed to restore original ${installedApp.name}:`, restoreError);
+                }
+              }
             }
           }
         }

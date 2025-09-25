@@ -5,6 +5,8 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
 const {
   globalAppsInformation,
   localAppsInformation,
@@ -358,8 +360,9 @@ async function getApplicationGlobalSpecifications(appName) {
   };
   const dbAppSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
 
-  // TODO: Add proper specification decryption and formatting
-  const appSpec = dbAppSpec; // This would need checkAndDecryptAppSpecs and specificationFormatter
+  // Decrypt and format specifications if needed
+  let appSpec = await checkAndDecryptAppSpecs(dbAppSpec);
+  appSpec = specificationFormatter(appSpec);
   return appSpec;
 }
 
@@ -417,7 +420,7 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Daemon not yet synced.');
     }
 
-    const { data: { height: daemonHeight } } = syncStatus;
+    // const { data: { height: daemonHeight } } = syncStatus; // Not used currently
 
     let { appname, decrypt } = req.params;
     appname = appname || req.query.appname;
@@ -429,7 +432,7 @@ async function getApplicationSpecificationAPI(req, res) {
     decrypt = req.query.decrypt || decrypt;
 
     const specifications = await getApplicationSpecifications(appname);
-    const mainAppName = appname.split('_')[1] || appname;
+    // const mainAppName = appname.split('_')[1] || appname; // Not used currently
 
     if (!specifications) {
       throw new Error('Application not found');
@@ -443,8 +446,19 @@ async function getApplicationSpecificationAPI(req, res) {
       return res.json(specificationsResponse);
     }
 
-    // TODO: Add decryption logic for enterprise apps
-    const specificationsResponse = messageHelper.createDataMessage(specifications);
+    // Add decryption logic for enterprise apps
+    const decryptedSpecs = await Promise.all(
+      specifications.map(async (spec) => {
+        try {
+          return await checkAndDecryptAppSpecs(spec);
+        } catch (error) {
+          log.warn(`Failed to decrypt app spec for ${spec.name}:`, error.message);
+          return spec; // Fall back to original if decryption fails
+        }
+      })
+    );
+
+    const specificationsResponse = messageHelper.createDataMessage(decryptedSpecs);
     return res.json(specificationsResponse);
   } catch (error) {
     log.error(error);

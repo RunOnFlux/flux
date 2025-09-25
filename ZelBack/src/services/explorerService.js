@@ -653,7 +653,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
-      log.info(`Processing Explorer Number of Transactions: ${appsTransactions.lenght}.`);
+      log.info(`Processing Explorer Number of Transactions: ${appsTransactions.length}.`);
       await appsService.expireGlobalApplications(); // in case node was shutdown for a while and it is started
       await insertTransactions(appsTransactions, database);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
