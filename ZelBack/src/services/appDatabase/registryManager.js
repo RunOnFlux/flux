@@ -253,8 +253,8 @@ async function getApplicationOwner(appName) {
       owner: 1,
     },
   };
-  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
-  const appSpecs = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  const globalAppsInfoCollection = config.database.appsglobal.collections.appsInformation;
+  const appSpecs = await dbHelper.findOneInDatabase(database, globalAppsInfoCollection, query, projection);
   if (appSpecs) {
     return appSpecs.owner;
   }
@@ -486,14 +486,29 @@ async function getApplicationOwnerAPI(req, res) {
 
 /**
  * Get global apps specifications via API
- * @param {object} _req - Request object (unused)
+ * @param {object} req - Request object with optional params/query for hash, owner, appname
  * @param {object} res - Response object
  */
-async function getGlobalAppsSpecifications(_req, res) {
+async function getGlobalAppsSpecifications(req, res) {
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+    let { owner } = req.params;
+    owner = owner || req.query.owner;
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (hash) {
+      query.hash = hash;
+    }
+    if (owner) {
+      query.owner = owner;
+    }
+    if (appname) {
+      query.name = appname;
+    }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
