@@ -372,3 +372,4 @@ tests/images/.package_hash
 
 # Local development folder
 dev/
+CLAUDE.md

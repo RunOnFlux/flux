@@ -2,7 +2,6 @@ const os = require('os');
 const config = require('config');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
-const benchmarkService = require('../benchmarkService');
 const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchmarkRpcs');
 const log = require('../../lib/log');
 
@@ -280,7 +279,7 @@ function checkAppGeolocationRequirements(appSpecs) {
 async function checkAppNodesRequirements(appSpecs) {
   if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
-    const benchmarkResponse = await benchmarkService.getBenchmarks();
+    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
 
     if (benchmarkResponse.status === 'error') {
       throw new Error('Unable to detect Flux IP address');
