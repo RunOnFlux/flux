@@ -789,36 +789,97 @@ async function getAllGlobalApplications(proj = []) {
  * @returns {Promise<void>} Completion status
  */
 async function expireGlobalApplications() {
+  // check if synced
   try {
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not synced.');
+    // get current height from explorer
+    const dbopen = dbHelper.databaseConnection();
+    const daemonDatabase = dbopen.db(config.database.daemon.database);
+    const query = { generalScannedHeight: { $gte: 0 } };
+    const projection = {
+      projection: {
+        _id: 0,
+        generalScannedHeight: 1,
+      },
+    };
+    const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
+    const result = await dbHelper.findOneInDatabase(daemonDatabase, scannedHeightCollection, query, projection);
+    if (!result) {
+      throw new Error('Scanning not initiated');
+    }
+    const explorerHeight = serviceHelper.ensureNumber(result.generalScannedHeight);
+    let minExpirationHeight = explorerHeight - config.fluxapps.newMinBlocksAllowance; // do a pre search in db as every app has to live for at least newMinBlocksAllowance
+    if (explorerHeight < config.fluxapps.newMinBlocksAllowanceBlock) {
+      minExpirationHeight = explorerHeight - config.fluxapps.minBlocksAllowance; // do a pre search in db as every app has to live for at least minBlocksAllowance
+    }
+    // get global applications specification that have up to date data
+    // find applications that have specifications height lower than minExpirationHeight
+    const databaseApps = dbopen.db(config.database.appsglobal.database);
+    const queryApps = { height: { $lt: minExpirationHeight } };
+    const projectionApps = {
+      projection: {
+        _id: 0, name: 1, hash: 1, expire: 1, height: 1,
+      },
+    };
+    const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
+    const appsToExpire = [];
+    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+    results.forEach((appSpecs) => {
+      const expireIn = appSpecs.expire || defaultExpire;
+      if (appSpecs.height + expireIn < explorerHeight) { // registered/updated on height, expires in expireIn is lower than current height
+        appsToExpire.push(appSpecs);
+      }
+    });
+    const appNamesToExpire = appsToExpire.map((res) => res.name);
+    // remove appNamesToExpire apps from global database
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsToExpire) {
+      log.info(`Expiring application ${app.name}`);
+      const queryDeleteApp = { name: app.name };
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.findOneAndDeleteInDatabase(databaseApps, globalAppsInformation, queryDeleteApp, projectionApps);
+
+      const queryDeleteAppErrors = { name: app.name };
+      // eslint-disable-next-line no-await-in-loop
+      await dbHelper.removeDocumentsFromCollection(databaseApps, globalAppsInstallingErrorsLocations, queryDeleteAppErrors);
     }
 
-    const currentHeight = syncStatus.data.height;
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+    // get list of locally installed apps.
+    // Import locally to avoid circular dependency
+    const appsService = require('../appsService');
+    const installedAppsRes = await appsService.installedApps();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    // remove any installed app which height is lower (or not present) but is not infinite app
+    const appsToRemove = [];
+    appsInstalled.forEach((app) => {
+      if (appNamesToExpire.includes(app.name)) {
+        appsToRemove.push(app);
+      } else if (!app.height) {
+        appsToRemove.push(app);
+      } else if (app.height === 0) {
+        // do nothing, forever lasting local app
+      } else {
+        const expireIn = app.expire || defaultExpire;
+        if (app.height + expireIn < explorerHeight) {
+          appsToRemove.push(app);
+        }
+      }
+    });
+    const appsToRemoveNames = appsToRemove.map((app) => app.name);
 
-    // Find expired applications
-    const expiredQuery = {
-      expire: { $lt: currentHeight },
-    };
-
-    const expiredApps = await dbHelper.findInDatabase(database, globalAppsInformation, expiredQuery, { projection: { _id: 0, name: 1 } });
-
-    // Remove expired apps from database
-    if (expiredApps.length > 0) {
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, expiredQuery);
-      await dbHelper.removeDocumentsFromCollection(database, globalAppsMessages, expiredQuery);
-
-      log.info(`Removed ${expiredApps.length} expired applications from global database`);
-
-      // TODO: Also remove expired apps from local installations
-      // This would involve calling app removal logic for each expired app
+    // remove appsToRemoveNames apps from locally running
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of appsToRemoveNames) {
+      log.warn(`Application ${appName} is expired, removing`);
+      // eslint-disable-next-line no-await-in-loop
+      await appsService.removeAppLocally(appName, null, false, true, true);
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
     }
   } catch (error) {
     log.error(error);
-    throw error;
   }
 }
 
