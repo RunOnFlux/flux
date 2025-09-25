@@ -6,6 +6,7 @@ const log = require('../lib/log');
 
 const mongodb = require('mongodb');
 const config = require('config');
+const serviceHelper = require('../serviceHelper');
 
 const { MongoClient } = mongodb;
 const mongoUrl = `mongodb://${config.database.url}:${config.database.port}/`;
@@ -658,6 +659,15 @@ async function validateAppsInformation() {
     if (!reindexRequired) {
       response.validated = true;
       return response;
+    }
+
+    // Check if daemon is synced
+    let syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    let i = 0;
+    while (!syncStatus.data.synced && i < 12) {
+      i += 1;
+      await serviceHelper.delay(10000); // max 2 minutes for daemon to startup because after reboot as it might not be reachable when we call reindex function
+      syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
     }
 
     // Use the new registryManager reindexGlobalAppsInformation function
