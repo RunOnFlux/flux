@@ -265,7 +265,7 @@ function decodeMessage(asm) {
  * @param {string} message Already decoded message.
  */
 async function processSoftFork(txid, height, message) {
-  // let it throw to stop block processing
+  // Process soft fork messages - errors are caught in calling functions
   const splittedMess = message.split('_');
   const version = splittedMess[0];
   if (!version || splittedMess.length < 2) {
@@ -373,8 +373,13 @@ async function processInsight(blockDataVerbose, database) {
       // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
-        // eslint-disable-next-line no-await-in-loop
-        await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        } catch (error) {
+          log.error('Error processing soft fork message:', error);
+          // Continue processing other transactions even if soft fork processing fails
+        }
       }
     }
   }
@@ -535,7 +540,12 @@ async function processStandard(blockDataVerbose, database) {
       // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
-        await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        try {
+          await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        } catch (error) {
+          log.error('Error processing soft fork message:', error);
+          // Continue processing other transactions even if soft fork processing fails
+        }
       }
     }
   }));
