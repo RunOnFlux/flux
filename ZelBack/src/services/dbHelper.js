@@ -660,9 +660,13 @@ async function validateAppsInformation() {
       return response;
     }
 
-    // Return that reindexing is needed - let the caller handle it
-    response.needsReindex = true;
-    response.appsToRemove = [];
+    // Use the new registryManager reindexGlobalAppsInformation function
+    // Import registryManager here to avoid circular dependency
+    const registryManager = require('./appDatabase/registryManager');
+    await registryManager.reindexGlobalAppsInformation();
+
+    response.reindexed = true;
+    response.appsToRemove = []; // The new function doesn't return apps to remove
   } catch (err) {
     log.error(`Unable to validate apps information. Error: ${err}`);
   }

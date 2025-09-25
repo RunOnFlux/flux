@@ -875,7 +875,15 @@ async function reindexGlobalAppsInformation() {
     const database = db.db(config.database.appsglobal.database);
 
     // Get current height for expiration checking
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    // Check if daemon is synced
+    let syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    let i = 0;
+    while (!syncStatus.data.synced && i < 12) {
+      i += 1;
+      await serviceHelper.delay(10000); // max 2 minutes for daemon to startup because after reboot as it might not be reachable when we call reindex function
+      syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    }
+
     if (!syncStatus.data.synced) {
       throw new Error('Daemon not synced - cannot reindex without current height');
     }

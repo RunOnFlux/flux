@@ -124,13 +124,7 @@ async function startFluxFunctions() {
     // we can remove this.
     await dbHelper.repairNanInAppsMessagesDb();
 
-    const { appsToRemove, needsReindex } = await dbHelper.validateAppsInformation();
-
-    // Handle reindexing if needed
-    if (needsReindex) {
-      log.info('Apps information needs reindexing, performing reindex...');
-      await appsService.reindexGlobalAppsInformation();
-    }
+    const { appsToRemove } = await dbHelper.validateAppsInformation();
 
     const appRemover = async () => {
       // eslint-disable-next-line no-restricted-syntax
