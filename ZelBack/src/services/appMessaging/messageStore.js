@@ -242,7 +242,6 @@ async function storeAppRunningMessage(message) {
       await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
     }
 
-    log.info(`App running message stored for ${appsMessages.map(app => app.name).join(', ')}`);
     return true;
   } catch (error) {
     log.error(`Error storing app running message: ${error.message}`);
@@ -307,7 +306,6 @@ async function storeAppInstallingMessage(message) {
     };
     await dbHelper.updateOneInDatabase(database, globalAppsInstallingLocations, queryUpdate, update, options);
 
-    log.info(`App installing message stored for ${message.name}`);
     return true;
   } catch (error) {
     log.error(`Error storing app installing message: ${error.message}`);
