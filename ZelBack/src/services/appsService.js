@@ -1761,9 +1761,7 @@ module.exports = {
   monitorNodeStatus,
 
   // Re-exported from appSpecHelpers
-  getChainParamsPriceUpdates: appSpecHelpers.getChainParamsPriceUpdates,
   getChainTeamSupportAddressUpdates: appSpecHelpers.getChainTeamSupportAddressUpdates,
-  appPricePerMonth: appSpecHelpers.appPricePerMonth,
   parseAppSpecification: appSpecHelpers.parseAppSpecification,
 
   // Re-exported from appValidator

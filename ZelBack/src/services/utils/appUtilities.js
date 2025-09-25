@@ -31,16 +31,31 @@ async function getChainParamsPriceUpdates() {
     config.fluxapps.price.forEach((price) => {
       priceForks.push(price);
     });
-
-    if (priceMessages && priceMessages.length > 0) {
-      priceMessages.forEach((priceMessage) => {
-        priceForks.push(priceMessage);
-      });
-    }
-
+    priceMessages.forEach((data) => {
+      const splittedMess = data.message.split('_');
+      if (splittedMess[4]) {
+        const dataPoint = {
+          height: +data.height,
+          cpu: +splittedMess[1],
+          ram: +splittedMess[2],
+          hdd: +splittedMess[3],
+          minPrice: +splittedMess[4],
+          port: +splittedMess[5] || 2,
+          scope: +splittedMess[6] || 6,
+          staticip: +splittedMess[7] || 3,
+        };
+        priceForks.push(dataPoint);
+      }
+    });
+    // sort priceForks depending on height
+    priceForks.sort((a, b) => {
+      if (a.height > b.height) return 1;
+      if (a.height < b.height) return -1;
+      return 0;
+    });
     return priceForks;
   } catch (error) {
-    log.error(`Error getting chain params price updates: ${error.message}`);
+    log.error(error);
     return [];
   }
 }
