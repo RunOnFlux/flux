@@ -500,15 +500,7 @@ async function registerAppGlobalyApi(req, res) {
       }
 
       // Verify message signature
-      const messageToVerify = {
-        type: messageType,
-        version: typeVersion,
-        appSpecifications: appSpecification,
-        hash: messageHASH,
-        timestamp,
-        signature
-      };
-      await messageVerifier.verifyAppMessageSignature(messageToVerify);
+      await messageVerifier.verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
 
       // Prepare the complete message for broadcast
       const completeMessage = {
