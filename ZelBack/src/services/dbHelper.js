@@ -653,6 +653,8 @@ async function validateAppsInformation() {
       scannedHeight,
     );
 
+    log.info(`validateAppsInformation reindexRequired: ${appsFromMessages.count}`);
+
     if (!reindexRequired) {
       response.validated = true;
       return response;
