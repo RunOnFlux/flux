@@ -15,6 +15,8 @@ const {
   appsHashesCollection,
 } = require('../utils/appConstants');
 
+let reindexRunning = false;
+
 /**
  * Get all app hashes from the blockchain
  * @param {object} _req - Request object (unused)
@@ -863,6 +865,12 @@ async function updateAppSpecifications(appSpecs) {
  */
 async function reindexGlobalAppsInformation() {
   try {
+    if (reindexRunning) {
+      return 'Previous app reindex not yet finished. Skipping.';
+    }
+    reindexRunning = true;
+    log.info('Reindexing global application list');
+
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
@@ -873,40 +881,63 @@ async function reindexGlobalAppsInformation() {
     }
     const currentHeight = syncStatus.data.height;
 
-    // Get all app messages
-    const messages = await dbHelper.findInDatabase(database, globalAppsMessages, {}, { projection: { _id: 0 } });
+    // Get all app messages sorted by height (oldest to newest)
+    const messages = await dbHelper.findInDatabase(database, globalAppsMessages, {}, { projection: { _id: 0 }, sort: { height: 1 } });
 
     // Clear existing information collection
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, {});
 
+    // Recreate indexes
+    await database.collection(globalAppsInformation).createIndex({ name: 1 }, { name: 'query for getting app based on app specs name' });
+    await database.collection(globalAppsInformation).createIndex({ owner: 1 }, { name: 'query for getting app based on app specs owner' });
+    await database.collection(globalAppsInformation).createIndex({ repotag: 1 }, { name: 'query for getting app based on image' });
+    await database.collection(globalAppsInformation).createIndex({ height: 1 }, { name: 'query for getting app based on last height update' });
+    await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting app based on last hash' });
+
     let processedCount = 0;
     let expiredCount = 0;
 
-    // Filter and process messages
-    const validApps = [];
+    // Process messages by app name to only keep the latest version
+    const appsByName = new Map();
+
     messages.forEach((message) => {
       if (message.appSpecifications) {
         const appSpec = message.appSpecifications;
-        const expireHeight = message.height + (appSpec.expire || 22000); // default expire period
+        const appName = appSpec.name;
+        const messageHeight = message.height;
 
-        if (expireHeight > currentHeight) {
-          const appInfo = {
-            ...appSpec,
-            hash: message.hash,
-            height: message.height,
-            txid: message.txid,
-          };
-          validApps.push(appInfo);
-          processedCount += 1;
-        } else {
-          expiredCount += 1;
+        // Check if we already have a message for this app
+        const existingApp = appsByName.get(appName);
+
+        if (!existingApp || messageHeight > existingApp.height) {
+          const expireHeight = messageHeight + (appSpec.expire || 22000); // default expire period
+
+          if (expireHeight > currentHeight) {
+            const appInfo = {
+              ...appSpec,
+              hash: message.hash,
+              height: messageHeight,
+              txid: message.txid,
+            };
+            appsByName.set(appName, appInfo);
+          }
         }
       }
     });
 
-    // Insert all valid apps
+    // Convert map to array and count results
+    const validApps = Array.from(appsByName.values());
+    processedCount = validApps.length;
+    expiredCount = messages.length - processedCount;
+
+    // Insert all valid apps using upsert to handle any potential duplicates
     if (validApps.length > 0) {
-      await Promise.all(validApps.map((appInfo) => dbHelper.insertOneToDatabase(database, globalAppsInformation, appInfo)));
+      for (const appInfo of validApps) {
+        const query = { name: appInfo.name };
+        const update = { $set: appInfo };
+        const options = { upsert: true };
+        await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+      }
     }
 
     log.info(`Reindexed global apps information: ${processedCount} active apps, ${expiredCount} expired apps filtered out`);
@@ -914,6 +945,8 @@ async function reindexGlobalAppsInformation() {
   } catch (error) {
     log.error(error);
     throw error;
+  } finally {
+    reindexRunning = false;
   }
 }
 
