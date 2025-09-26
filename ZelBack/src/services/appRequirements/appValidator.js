@@ -488,7 +488,10 @@ async function registerAppGlobalyApi(req, res) {
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
       timestamp = serviceHelper.ensureNumber(timestamp);
-      signature = serviceHelper.ensureString(signature);
+      // Don't use ensureString on signature - it needs to be a valid base64 string
+      if (typeof signature !== 'string') {
+        throw new Error('Invalid signature - must be a string');
+      }
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 

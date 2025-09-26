@@ -58,17 +58,16 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         return false;
       }
 
-      // Verify signature
-      const messageSignature = serviceHelper.ensureString(message.signature);
+      // Verify signature - pass signature directly as in original code
       const signatureValid = await verifyAppMessageSignature(
         message.type,
         messageVersion,
         appSpecFormatted,
         messageTimestamp,
-        messageSignature
+        message.signature
       );
       if (signatureValid !== true) {
-        log.warn('App message signature verification failed');
+        log.warn(`App message signature verification failed for ${appSpecFormatted.name} - type: ${message.type}, version: ${messageVersion}`);
         return false;
       }
     } catch (error) {
