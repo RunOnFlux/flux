@@ -61,6 +61,7 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 
 // App hash verification state
 let continuousFluxAppHashesCheckRunning = false;
+let checkAndSyncAppHashesRunning = false;
 let firstContinuousFluxAppHashesCheckRun = true;
 const hashesNumberOfSearchs = new Map();
 const mastersRunningGSyncthingApps = new Map();
@@ -948,6 +949,7 @@ async function appMonitor(req, res) {
  */
 async function checkAndSyncAppHashes() {
   try {
+    checkAndSyncAppHashesRunning = true;
     const { outgoingPeers } = require('./utils/establishedConnections');
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
@@ -1029,9 +1031,11 @@ async function checkAndSyncAppHashes() {
       }
     }
     globalState.checkAndSyncAppHashesWasEverExecuted = true;
+    checkAndSyncAppHashesRunning = false;
   } catch (error) {
     log.error(error);
     globalState.checkAndSyncAppHashesWasEverExecuted = false;
+    checkAndSyncAppHashesRunning = false;
   }
 }
 
@@ -1925,6 +1929,13 @@ module.exports = {
       if (continuousFluxAppHashesCheckRunning) {
         return;
       }
+
+      // Check if checkAndSyncAppHashes is currently running
+      if (checkAndSyncAppHashesRunning) {
+        log.info('continuousFluxAppHashesCheck: checkAndSyncAppHashes is currently running, skipping this execution');
+        return;
+      }
+
       log.info('Requesting missing Flux App messages');
       continuousFluxAppHashesCheckRunning = true;
       const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();

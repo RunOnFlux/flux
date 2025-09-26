@@ -81,11 +81,11 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
   if (!appSpec || typeof appSpec !== 'object' || Array.isArray(appSpec) || typeof timestamp !== 'number' || typeof signature !== 'string' || typeof version !== 'number' || typeof type !== 'string') {
     throw new Error('Invalid Flux App message specifications');
   }
-  const ensuredSignature = serviceHelper.ensureString(signature);
+  // signature is already validated as string in the if check above, no need to ensureString
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, ensuredSignature); // only btc
+  let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, signature); // only btc
   if (timestamp > 1688947200000) {
-    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, ensuredSignature); // btc, eth
+    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, signature); // btc, eth
   }
   if (isValidSignature !== true && appSpec.version <= 3) {
     // as of specification changes, adjust our appSpecs order of owner and repotag
@@ -106,9 +106,9 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     };
     const messageToVerifyOld = type + version + JSON.stringify(appSpecOld) + timestamp;
     if (timestamp > 1688947200000) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appSpec.owner, ensuredSignature); // btc, eth
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appSpec.owner, signature); // btc, eth
     } else {
-      isValidSignature = verificationHelper.verifyMessage(messageToVerifyOld, appSpec.owner, ensuredSignature); // only btc
+      isValidSignature = verificationHelper.verifyMessage(messageToVerifyOld, appSpec.owner, signature); // only btc
     }
   }
   return isValidSignature === true;
@@ -130,14 +130,14 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     throw new Error('Invalid Flux App message specifications');
   }
 
-  const ensuredSignature = serviceHelper.ensureString(signature);
+  // signature is already validated as string in the if check above, no need to ensureString
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
   let isValidSignature = false;
 
   if (timestamp > 1688947200000) {
-    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, ensuredSignature);
+    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature);
   } else {
-    isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, ensuredSignature);
+    isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, signature);
   }
 
   if (isValidSignature !== true && appSpec.version <= 3) {
@@ -160,9 +160,9 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
 
     const messageToVerifyOld = type + version + JSON.stringify(appSpecOld) + timestamp;
     if (timestamp > 1688947200000) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appOwner, ensuredSignature);
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appOwner, signature);
     } else {
-      isValidSignature = verificationHelper.verifyMessage(messageToVerifyOld, appOwner, ensuredSignature);
+      isValidSignature = verificationHelper.verifyMessage(messageToVerifyOld, appOwner, signature);
     }
   }
 
