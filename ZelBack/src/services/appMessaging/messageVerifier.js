@@ -9,7 +9,7 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const serviceHelper = require('../serviceHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 // Removed messageStore require to avoid circular dependency - will import locally where needed
-const { getChainParamsPriceUpdates, appPricePerMonth } = require('../utils/appUtilities');
+const { getChainParamsPriceUpdates, appPricePerMonth, getChainTeamSupportAddressUpdates } = require('../utils/appUtilities');
 const { updateAppSpecifications } = require('../appDatabase/registryManager');
 const {
   globalAppsMessages,
@@ -63,6 +63,23 @@ async function verifyAppHash(message) {
     messageHASH = await generalService.messageHash(messToHash);
 
     if (messageHASH === message.hash) return true;
+  } else if (specifications.version === 7) {
+    // fix for repoauth / secrets order change for apps created after 1750273721000
+    appSpecsCopy.compose.forEach((component) => {
+      // previously the order was secrets / repoauth. Now it's repoauth / secrets.
+      const comp = component;
+      const { secrets, repoauth } = comp;
+      delete comp.secrets;
+      delete comp.repoauth;
+      // try the old secrets / repoauth
+      comp.secrets = secrets;
+      comp.repoauth = repoauth;
+    });
+
+    messToHash = message.type + message.version + JSON.stringify(appSpecsCopy) + message.timestamp + message.signature;
+    messageHASH = await generalService.messageHash(messToHash);
+
+    if (messageHASH === message.hash) return true;
   }
 
   return false;
@@ -110,8 +127,29 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     } else {
       isValidSignature = verificationHelper.verifyMessage(messageToVerifyOld, appSpec.owner, signature); // only btc
     }
+    // fix for repoauth / secrets order change for apps created after 1750273721000
+  } else if (isValidSignature !== true && appSpec.version === 7) {
+    const appSpecsClone = JSON.parse(JSON.stringify(appSpec));
+    appSpecsClone.compose.forEach((component) => {
+      // previously the order was secrets / repoauth. Now it's repoauth / secrets.
+      const comp = component;
+      const { secrets, repoauth } = comp;
+      delete comp.secrets;
+      delete comp.repoauth;
+      // try the old secrets / repoauth
+      comp.secrets = secrets;
+      comp.repoauth = repoauth;
+    });
+    const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
+    // we can just use the btc / eth verifier as v7 specs came out at 1688749251
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appSpec.owner, signature);
   }
-  return isValidSignature === true;
+  if (isValidSignature !== true) {
+    log.debug(`${messageToVerify}, ${appSpec.owner}, ${signature}`);
+    const errorMessage = isValidSignature === false ? 'Received signature is invalid or Flux App specifications are not properly formatted' : isValidSignature;
+    throw new Error(errorMessage);
+  }
+  return true;
 }
 
 /**
@@ -131,13 +169,35 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   }
 
   // signature is already validated as string in the if check above, no need to ensureString
+  let marketplaceApp = false;
+  let fluxSupportTeamFluxID = null;
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  let isValidSignature = false;
-
-  if (timestamp > 1688947200000) {
-    isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature);
-  } else {
-    isValidSignature = verificationHelper.verifyMessage(messageToVerify, appOwner, signature);
+  let isValidSignature = signatureVerifier.verifySignature(messageToVerify, appOwner, signature); // btc, eth
+  if (isValidSignature !== true) {
+    const teamSupportAddresses = getChainTeamSupportAddressUpdates();
+    if (teamSupportAddresses.length > 0) {
+      const intervals = teamSupportAddresses.filter((interval) => interval.height <= daemonHeight); // if an app message was sent on block before the team support address was activated, will be empty array
+      if (intervals && intervals.length) {
+        const addressInfo = intervals[intervals.length - 1]; // always defined
+        if (addressInfo && addressInfo.height && daemonHeight >= addressInfo.height) { // unneeded check for safety
+          fluxSupportTeamFluxID = addressInfo.address;
+          const numbersOnAppName = appSpec.name.match(/\d+/g);
+          if (numbersOnAppName && numbersOnAppName.length > 0) {
+            const dateBeforeReleaseMarketplace = Date.parse('2020-01-01');
+            // eslint-disable-next-line no-restricted-syntax
+            for (const possibleTimestamp of numbersOnAppName) {
+              if (Number(possibleTimestamp) > dateBeforeReleaseMarketplace) {
+                marketplaceApp = true;
+                break;
+              }
+            }
+            if (marketplaceApp) {
+              isValidSignature = signatureVerifier.verifySignature(messageToVerify, fluxSupportTeamFluxID, signature); // btc, eth
+            }
+          }
+        }
+      }
+    }
   }
 
   if (isValidSignature !== true && appSpec.version <= 3) {
@@ -159,14 +219,34 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     };
 
     const messageToVerifyOld = type + version + JSON.stringify(appSpecOld) + timestamp;
-    if (timestamp > 1688947200000) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appOwner, signature);
-    } else {
-      isValidSignature = verificationHelper.verifyMessage(messageToVerifyOld, appOwner, signature);
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appOwner, signature); // btc, eth
+    if (isValidSignature !== true && marketplaceApp) {
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, fluxSupportTeamFluxID, signature); // btc, eth
     }
+    // fix for repoauth / secrets order change for apps created after 1750273721000
+  } else if (isValidSignature !== true && appSpec.version === 7) {
+    const appSpecsClone = JSON.parse(JSON.stringify(appSpec));
+    appSpecsClone.compose.forEach((component) => {
+      // previously the order was secrets / repoauth. Now it's repoauth / secrets.
+      const comp = component;
+      const { secrets, repoauth } = comp;
+      delete comp.secrets;
+      delete comp.repoauth;
+      // try the old secrets / repoauth
+      comp.secrets = secrets;
+      comp.repoauth = repoauth;
+    });
+    const messageToVerifyC = type + version + JSON.stringify(appSpecsClone) + timestamp;
+    // we can just use the btc / eth verifier as v7 specs came out at 1688749251
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appOwner, signature);
+  }
+  if (isValidSignature !== true) {
+    log.debug(`${messageToVerify}, ${appOwner}, ${signature}`);
+    const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
+    throw new Error(errorMessage);
   }
 
-  return isValidSignature === true;
+  return true;
 }
 
 /**
@@ -415,41 +495,40 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
     }
 
     const appMessageExists = await checkAppMessageExistence(hash);
-    if (appMessageExists) {
-      return appMessageExists;
-    }
+    if (appMessageExists === false) { // otherwise do nothing
+      // we surely do not have that message in permanent storage.
+      // check temporary message storage
+      // if we have it in temporary storage, get the temporary message
+      const tempMessage = await checkAppTemporaryMessageExistence(hash);
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
+        // temp message means its all ok. store it as permanent app message
+        const permanentAppMessage = {
+          type: tempMessage.type,
+          version: tempMessage.version,
+          appSpecifications: specifications,
+          hash: tempMessage.hash,
+          timestamp: tempMessage.timestamp,
+          signature: tempMessage.signature,
+          txid: serviceHelper.ensureString(txid),
+          height: serviceHelper.ensureNumber(height),
+          valueSat: serviceHelper.ensureNumber(valueSat),
+        };
+        // Import locally to avoid circular dependency
+        const messageStore = require('./messageStore');
+        await messageStore.storeAppPermanentMessage(permanentAppMessage);
+        // await update zelapphashes that we already have it stored
+        await appHashHasMessage(hash);
 
-    // check temporary message storage
-    const tempMessage = await checkAppTemporaryMessageExistence(hash);
-    if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
-      const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
-      // temp message means its all ok. store it as permanent app message
-      const permanentAppMessage = {
-        type: tempMessage.type,
-        version: tempMessage.version,
-        appSpecifications: specifications,
-        hash: tempMessage.hash,
-        timestamp: tempMessage.timestamp,
-        signature: tempMessage.signature,
-        txid: serviceHelper.ensureString(txid),
-        height: serviceHelper.ensureNumber(height),
-        valueSat: serviceHelper.ensureNumber(valueSat),
-      };
-      // Import locally to avoid circular dependency
-      const messageStore = require('./messageStore');
-      await messageStore.storeAppPermanentMessage(permanentAppMessage);
-      // await update zelapphashes that we already have it stored
-      await appHashHasMessage(hash);
-
-      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-      const daemonHeight = syncStatus.data.height;
-      const expire = specifications.expire || 22000;
-      if (height + expire > daemonHeight) {
-        // we only do this validations if the app can still be currently running to insert it or update it in globalappspecifications
-        const appPrices = await getChainParamsPriceUpdates();
-        const intervals = appPrices.filter((interval) => interval.height < height);
-        const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-        if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
+        const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+        const daemonHeight = syncStatus.data.height;
+        const expire = specifications.expire || 22000;
+        if (height + expire > daemonHeight) {
+          // we only do this validations if the app can still be currently running to insert it or update it in globalappspecifications
+          const appPrices = await getChainParamsPriceUpdates();
+          const intervals = appPrices.filter((interval) => interval.height < height);
+          const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
+          if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
           let appPrice = await appPricePerMonth(specifications, height, appPrices);
           const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
@@ -558,22 +637,26 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
           }
         }
+        }
+        return true;
       }
-      return true;
-    }
 
-    if (i < 2) {
+      if (i < 2) {
       // request the message and broadcast the message further to our connected peers.
       // rerun this after 1 min delay
       // We ask to the connected nodes 2 times in 1 minute interval for the app message, if connected nodes don't
       // have the app message we will ask for it again when continuousFluxAppHashesCheck executes again.
       // in total we ask to the connected nodes 10 (30m interval) x 2 (1m interval) = 20 times before apphash is marked as not found
-      await requestAppMessage(hash);
-      await serviceHelper.delay(60 * 1000);
-      return checkAndRequestApp(hash, txid, height, valueSat, i + 1);
-      // additional requesting of missing app messages is done on rescans
+        await requestAppMessage(hash);
+        await serviceHelper.delay(60 * 1000);
+        return checkAndRequestApp(hash, txid, height, valueSat, i + 1);
+        // additional requesting of missing app messages is done on rescans
+      }
+      return false;
     }
-    return false;
+    // update apphashes that we already have it stored
+    await appHashHasMessage(hash);
+    return true;
   } catch (error) {
     log.error(`Error checking and requesting app ${hash}:`, error);
     log.error(`Error details - Message: ${error.message}, Stack: ${error.stack}`);
