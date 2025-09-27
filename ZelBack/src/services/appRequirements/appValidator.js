@@ -130,33 +130,152 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
  * @throws {Error} If validation fails
  */
 function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
-  const allowedKeysV1 = [
-    'version', 'name', 'description', 'owner', 'port', 'containerPort',
-    'repotag', 'enviromentParameters', 'commands', 'containerData',
-    'cpu', 'ram', 'hdd', 'tiered', 'contacts', 'geolocation',
-    'expire', 'nodes', 'staticip', 'enterprise',
-  ];
-
-  const allowedKeysV4Plus = [
-    'version', 'name', 'description', 'owner', 'compose', 'contacts',
-    'geolocation', 'expire', 'nodes', 'staticip', 'enterprise', 'instances',
-  ];
-
-  let allowedKeys;
   if (appSpecifications.version === 1) {
-    allowedKeys = allowedKeysV1;
-  } else if (appSpecifications.version >= 4) {
-    allowedKeys = allowedKeysV4Plus;
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'port', 'containerPort', 'enviromentParameters', 'commands', 'containerData',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v1 app specifications');
+      }
+    });
+  } else if (appSpecifications.version === 2) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v2 app specifications');
+      }
+    });
+  } else if (appSpecifications.version === 3) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'repotag', 'ports', 'containerPorts', 'enviromentParameters', 'commands', 'containerData', 'domains', 'instances',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v3 app specifications');
+      }
+    });
+  } else if (appSpecifications.version === 4) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v4 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v4 app specifications');
+        }
+      });
+    });
+  } else if (appSpecifications.version === 5) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v5 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v5 app specifications');
+        }
+      });
+    });
+  } else if (appSpecifications.version === 6) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v6 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v6 app specifications');
+        }
+      });
+    });
+  } else if (appSpecifications.version === 7) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts', 'geolocation', 'expire', 'nodes', 'staticip',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'secrets', 'repoauth',
+      'cpu', 'ram', 'hdd', 'tiered', 'cpubasic', 'rambasic', 'hddbasic', 'cpusuper', 'ramsuper', 'hddsuper', 'cpubamf', 'rambamf', 'hddbamf',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v7 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v7 app specifications');
+        }
+      });
+    });
+  } else if (appSpecifications.version === 8) {
+    const specifications = [
+      'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts',
+      'geolocation', 'expire', 'nodes', 'staticip', 'enterprise',
+    ];
+    const componentSpecifications = [
+      'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'repoauth',
+      'cpu', 'ram', 'hdd',
+    ];
+    const specsKeys = Object.keys(appSpecifications);
+    specsKeys.forEach((sKey) => {
+      if (!specifications.includes((sKey))) {
+        throw new Error('Unsupported parameter for v8 app specifications');
+      }
+    });
+    appSpecifications.compose.forEach((appComponent) => {
+      const specsKeysComponent = Object.keys(appComponent);
+      specsKeysComponent.forEach((sKey) => {
+        if (!componentSpecifications.includes((sKey))) {
+          throw new Error('Unsupported parameter for v8 app specifications');
+        }
+      });
+    });
   } else {
-    // Versions 2-3 have their own key sets
-    allowedKeys = [...allowedKeysV1, 'ports', 'domains', 'containerPorts'];
-  }
-
-  const specKeys = Object.keys(appSpecifications);
-  const invalidKeys = specKeys.filter((key) => !allowedKeys.includes(key));
-
-  if (invalidKeys.length > 0) {
-    throw new Error(`Invalid Flux App specification keys: ${invalidKeys.join(', ')}`);
+    throw new Error(`Unsupported application version: ${appSpecifications.version}`);
   }
 }
 
@@ -166,65 +285,45 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
  * @throws {Error} If validation fails
  */
 function checkHWParameters(appSpecs) {
+  // check specs parameters. JS precision
+  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
+    throw new Error(`CPU badly assigned for ${appSpecs.name}`);
+  }
+  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
+    throw new Error(`RAM badly assigned for ${appSpecs.name}`);
+  }
+  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
+    throw new Error(`SSD badly assigned for ${appSpecs.name}`);
+  }
   if (appSpecs.tiered) {
-    // Tiered application validation
-    if (!appSpecs.cpubasic || !appSpecs.rambasic || !appSpecs.hddbasic) {
-      throw new Error('Missing basic tier hardware specifications');
+    if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
+      throw new Error(`CPU for Cumulus badly assigned for ${appSpecs.name}`);
     }
-    if (!appSpecs.cpusuper || !appSpecs.ramsuper || !appSpecs.hddsuper) {
-      throw new Error('Missing super tier hardware specifications');
+    if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
+      throw new Error(`RAM for Cumulus badly assigned for ${appSpecs.name}`);
     }
-    if (!appSpecs.cpubamf || !appSpecs.rambamf || !appSpecs.hddbamf) {
-      throw new Error('Missing bamf tier hardware specifications');
+    if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
+      throw new Error(`SSD for Cumulus badly assigned for ${appSpecs.name}`);
     }
-  } else {
-    // Non-tiered application validation
-    if (!appSpecs.cpu || !appSpecs.ram || !appSpecs.hdd) {
-      throw new Error('Missing hardware specifications (cpu, ram, hdd)');
+    if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
+      throw new Error(`CPU for Nimbus badly assigned for ${appSpecs.name}`);
     }
-  }
-
-  // Hardware limits validation
-  const maxCpu = config.fluxapps.maxCpu || 4;
-  const maxRam = config.fluxapps.maxRam || 8000;
-  const maxHdd = config.fluxapps.maxHdd || 50000;
-
-  if (appSpecs.cpu && appSpecs.cpu > maxCpu) {
-    throw new Error(`CPU requirement ${appSpecs.cpu} exceeds maximum ${maxCpu}`);
-  }
-  if (appSpecs.ram && appSpecs.ram > maxRam) {
-    throw new Error(`RAM requirement ${appSpecs.ram} exceeds maximum ${maxRam}`);
-  }
-  if (appSpecs.hdd && appSpecs.hdd > maxHdd) {
-    throw new Error(`HDD requirement ${appSpecs.hdd} exceeds maximum ${maxHdd}`);
-  }
-
-  // Validate data types for hardware specifications
-  if (appSpecs.cpu !== undefined && typeof appSpecs.cpu !== 'number') {
-    throw new Error('CPU specification must be a number');
-  }
-  if (appSpecs.ram !== undefined && typeof appSpecs.ram !== 'number') {
-    throw new Error('RAM specification must be a number');
-  }
-  if (appSpecs.hdd !== undefined && typeof appSpecs.hdd !== 'number') {
-    throw new Error('HDD specification must be a number');
-  }
-
-  // Validate tiered specifications data types
-  if (appSpecs.tiered) {
-    const tiers = ['basic', 'super', 'bamf'];
-    const specs = ['cpu', 'ram', 'hdd'];
-
-    for (const tier of tiers) {
-      for (const spec of specs) {
-        const key = `${spec}${tier}`;
-        if (appSpecs[key] !== undefined && typeof appSpecs[key] !== 'number') {
-          throw new Error(`${key} specification must be a number`);
-        }
-      }
+    if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
+      throw new Error(`RAM for Nimbus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
+      throw new Error(`SSD for Nimbus badly assigned for ${appSpecs.name}`);
+    }
+    if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
+      throw new Error(`CPU for Stratus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
+      throw new Error(`RAM for Stratus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
+      throw new Error(`SSD for Stratus badly assigned for ${appSpecs.name}`);
     }
   }
-
   return true;
 }
 
@@ -234,30 +333,77 @@ function checkHWParameters(appSpecs) {
  * @throws {Error} If validation fails
  */
 function checkComposeHWParameters(appSpecsComposed) {
-  if (!appSpecsComposed.compose || !Array.isArray(appSpecsComposed.compose)) {
-    throw new Error('Invalid compose specification');
-  }
-
-  appSpecsComposed.compose.forEach((component, index) => {
-    if (!component.cpu || !component.ram || !component.hdd) {
-      throw new Error(`Missing hardware specifications for component ${index + 1}`);
-    }
-
-    // Individual component limits
-    const maxCpu = config.fluxapps.maxCpu || 4;
-    const maxRam = config.fluxapps.maxRam || 8000;
-    const maxHdd = config.fluxapps.maxHdd || 50000;
-
-    if (component.cpu > maxCpu) {
-      throw new Error(`Component ${index + 1} CPU requirement exceeds maximum`);
-    }
-    if (component.ram > maxRam) {
-      throw new Error(`Component ${index + 1} RAM requirement exceeds maximum`);
-    }
-    if (component.hdd > maxHdd) {
-      throw new Error(`Component ${index + 1} HDD requirement exceeds maximum`);
+  // calculate total HW assigned
+  let totalCpu = 0;
+  let totalRam = 0;
+  let totalHdd = 0;
+  let totalCpuBasic = 0;
+  let totalCpuSuper = 0;
+  let totalCpuBamf = 0;
+  let totalRamBasic = 0;
+  let totalRamSuper = 0;
+  let totalRamBamf = 0;
+  let totalHddBasic = 0;
+  let totalHddSuper = 0;
+  let totalHddBamf = 0;
+  const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
+  appSpecsComposed.compose.forEach((appComponent) => {
+    if (isTiered) {
+      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10);
+      totalRamBamf += appComponent.rambamf || appComponent.ram;
+      totalHddBamf += appComponent.hddbamf || appComponent.hdd;
+      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10);
+      totalRamSuper += appComponent.ramsuper || appComponent.ram;
+      totalHddSuper += appComponent.hddsuper || appComponent.hdd;
+      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10);
+      totalRamBasic += appComponent.rambasic || appComponent.ram;
+      totalHddBasic += appComponent.hddbasic || appComponent.hdd;
+    } else {
+      totalCpu += (appComponent.cpu * 10);
+      totalRam += appComponent.ram;
+      totalHdd += appComponent.hdd;
     }
   });
+  // check specs parameters. JS precision
+  if (totalCpu > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
+    throw new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (totalRam > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
+    throw new Error(`Too much RAM resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (totalHdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
+    throw new Error(`Too much SSD resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (isTiered) {
+    if (totalCpuBasic > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Cumulus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamBasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Cumulus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddBasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Cumulus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalCpuSuper > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamSuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddSuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalCpuBamf > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Stratus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamBamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Stratus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddBamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Stratus resources assigned for ${appSpecsComposed.name}`);
+    }
+  }
+  return true;
 }
 
 /**
