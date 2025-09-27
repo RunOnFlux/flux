@@ -6,7 +6,15 @@ const pgpService = require('../pgpService');
 const imageVerifier = require('../utils/imageVerifier');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
+const userconfig = require('../../../config/userconfig');
 const { supportedArchitectures, globalAppsMessages } = require('../utils/appConstants');
+
+// Global cache for original compatibility
+let myLongCache = {
+  cache: new Map(),
+  get(key) { return this.cache.get(key); },
+  set(key, value) { this.cache.set(key, value); }
+};
 
 // Cache for blocked repositories
 let cacheUserBlockedRepos = null;
@@ -59,13 +67,12 @@ async function verifyRepository(repotag, options = {}) {
  * @param {object} myLongCache - Cache reference
  * @returns {Promise<Array|null>} List of blocked repositories
  */
-async function getBlockedRepositores(myLongCache) {
+async function getBlockedRepositores() {
   try {
     const cachedResponse = myLongCache.get('blockedRepositories');
     if (cachedResponse) {
       return cachedResponse;
     }
-
     const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json');
     if (resBlockedRepo.data) {
       myLongCache.set('blockedRepositories', resBlockedRepo.data);
@@ -73,7 +80,7 @@ async function getBlockedRepositores(myLongCache) {
     }
     return null;
   } catch (error) {
-    log.error(`Error getting blocked repositories: ${error.message}`);
+    log.error(error);
     return null;
   }
 }
@@ -88,46 +95,33 @@ async function getUserBlockedRepositores() {
       return cacheUserBlockedRepos;
     }
 
-    const userBlockedRepos = (typeof userconfig !== 'undefined' && userconfig.initial && userconfig.initial.blockedRepositories) || [];
+    const userBlockedRepos = userconfig.initial.blockedRepositories || [];
     if (userBlockedRepos.length === 0) {
-      cacheUserBlockedRepos = userBlockedRepos;
       return userBlockedRepos;
     }
-
     const usableUserBlockedRepos = [];
     const marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
-
-    try {
-      const response = await axios.get(marketPlaceUrl);
-      if (response && response.data && response.data.status === 'success') {
-        const visibleApps = response.data.data.filter((val) => val.visible);
-
-        for (let i = 0; i < userBlockedRepos.length; i += 1) {
-          const userRepo = userBlockedRepos[i];
-          const repoWithoutTag = userRepo.substring(0, userRepo.lastIndexOf(':') > -1 ? userRepo.lastIndexOf(':') : userRepo.length);
-
-          const exist = visibleApps.find((app) =>
-            app.compose.find((compose) => {
-              const composeRepoWithoutTag = compose.repotag.substring(0, compose.repotag.lastIndexOf(':') > -1 ? compose.repotag.lastIndexOf(':') : compose.repotag.length);
-              return composeRepoWithoutTag.toLowerCase() === repoWithoutTag.toLowerCase();
-            })
-          );
-
-          if (!exist) {
-            usableUserBlockedRepos.push(userRepo);
-          }
+    const response = await axios.get(marketPlaceUrl);
+    console.log(response);
+    if (response && response.data && response.data.status === 'success') {
+      const visibleApps = response.data.data.filter((val) => val.visible);
+      for (let i = 0; i < userBlockedRepos.length; i += 1) {
+        const userRepo = userBlockedRepos[i];
+        userRepo.substring(0, userRepo.lastIndexOf(':') > -1 ? userRepo.lastIndexOf(':') : userRepo.length);
+        const exist = visibleApps.find((app) => app.compose.find((compose) => compose.repotag.substring(0, compose.repotag.lastIndexOf(':') > -1 ? compose.repotag.lastIndexOf(':') : compose.repotag.length).toLowerCase() === userRepo.toLowerCase()));
+        if (!exist) {
+          usableUserBlockedRepos.push(userRepo);
+        } else {
+          log.info(`${userRepo} is part of marketplace offer and despite being on blockedRepositories it will not be take in consideration`);
         }
       }
-    } catch (marketplaceError) {
-      log.warn(`Could not fetch marketplace data: ${marketplaceError.message}`);
-      // If marketplace is unreachable, use all user blocked repos
-      usableUserBlockedRepos.push(...userBlockedRepos);
+      cacheUserBlockedRepos = usableUserBlockedRepos;
+      return cacheUserBlockedRepos;
     }
+    return [];
 
-    cacheUserBlockedRepos = usableUserBlockedRepos;
-    return usableUserBlockedRepos;
   } catch (error) {
-    log.error(`Error getting user blocked repositories: ${error.message}`);
+    log.error(error);
     return [];
   }
 }
@@ -169,16 +163,20 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner) {
 
     const appsWithNodeRestrictions = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
 
-    // Check if any other app is using the same secrets
-    for (const app of appsWithNodeRestrictions) {
-      if (app.appSpecifications && app.appSpecifications.name !== appName && app.appSpecifications.owner === appOwner) {
-        if (app.appSpecifications.compose) {
-          for (const component of app.appSpecifications.compose) {
-            const existingSecrets = normalizePGP(component.secrets);
-            if (existingSecrets && existingSecrets === appComponentSecrets) {
-              throw new Error(`Application secrets are already in use by another application: ${app.appSpecifications.name}`);
-            }
-          }
+    const permanentAppMessages = appsWithNodeRestrictions;
+    const processedSecrets = new Set();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const message of permanentAppMessages) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of message.appSpecifications.compose.filter((comp) => comp.secrets)) {
+        const normalizedComponentSecret = normalizePGP(component.secrets);
+        // eslint-disable-next-line no-continue
+        if (processedSecrets.has(normalizedComponentSecret)) continue;
+        processedSecrets.add(normalizedComponentSecret);
+        if (normalizedComponentSecret === appComponentSecrets && message.appSpecifications.owner !== appOwner) {
+          throw new Error(
+            `Component '${appComponentSpecs.name}' secrets are not valid - registered already with different app owner').`,
+          );
         }
       }
     }
@@ -196,8 +194,8 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner) {
  * @param {object} myLongCache - Cache reference
  * @returns {Promise<boolean>} True if images are compliant
  */
-async function checkApplicationImagesComplience(appSpecs, myLongCache) {
-  const repos = await getBlockedRepositores(myLongCache);
+async function checkApplicationImagesComplience(appSpecs) {
+  const repos = await getBlockedRepositores();
   const userBlockedRepos = await getUserBlockedRepositores();
 
   if (!repos) {
@@ -209,10 +207,7 @@ async function checkApplicationImagesComplience(appSpecs, myLongCache) {
     pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
   });
 
-  // Add user blocked repos
-  userBlockedRepos.forEach((repo) => {
-    pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
-  });
+  // userBlockedRepos handling will be done separately below
 
   // Check if app hash is blocked
   if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
@@ -241,16 +236,28 @@ async function checkApplicationImagesComplience(appSpecs, myLongCache) {
     });
   }
 
-  // Check images against blocked list
-  const blockedImages = images.filter((image) => pureImagesOrOrganisationsRepos.includes(image));
-  if (blockedImages.length > 0) {
-    throw new Error(`Blocked image detected: ${blockedImages.join(', ')}`);
-  }
-
-  // Check organisations against blocked list
-  const blockedOrganisations = organisations.filter((org) => pureImagesOrOrganisationsRepos.includes(org));
-  if (blockedOrganisations.length > 0) {
-    throw new Error(`Blocked organisation detected: ${blockedOrganisations.join(', ')}`);
+  images.forEach((image) => {
+    if (pureImagesOrOrganisationsRepos.includes(image)) {
+      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+  organisations.forEach((org) => {
+    if (pureImagesOrOrganisationsRepos.includes(org)) {
+      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
+    }
+  });
+  if (userBlockedRepos) {
+    log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
+    organisations.forEach((org) => {
+      if (userBlockedRepos.includes(org.toLowerCase())) {
+        throw new Error(`Organisation ${org} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+      }
+    });
+    images.forEach((image) => {
+      if (userBlockedRepos.includes(image.toLowerCase())) {
+        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+      }
+    });
   }
 
   return true;
@@ -264,7 +271,7 @@ async function checkApplicationImagesComplience(appSpecs, myLongCache) {
  */
 async function checkApplicationImagesBlocked(appSpecs, myLongCache) {
   try {
-    const repos = await getBlockedRepositores(myLongCache);
+    const repos = await getBlockedRepositores();
     const userBlockedRepos = await getUserBlockedRepositores();
     let isBlocked = false;
 
