@@ -5,11 +5,14 @@ const dockerService = require('../dockerService');
 const dbHelper = require('../dbHelper');
 const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
-const { localAppsInformation } = require('../utils/appConstants');
+const { localAppsInformation, globalAppsInformation, globalAppsMessages } = require('../utils/appConstants');
 const config = require('config');
 const advancedWorkflows = require('./advancedWorkflows');
 const upnpService = require('../upnpService');
 const systemcrontab = require('crontab');
+const { availableApps } = require('../appDatabase/registryManager');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
 
 /**
  * Hard uninstall application (complete removal)
@@ -37,9 +40,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     monitoredName = `${appSpecsName}_${appName}`;
   }
 
-  if (stopAppMonitoring) {
-    stopAppMonitoring(monitoredName, true);
-  }
+  stopAppMonitoring(monitoredName, true);
 
   await dockerService.appDockerStop(appId).catch((error) => {
     const errorResponse = messageHelper.createErrorMessage(
@@ -431,10 +432,10 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
  * @param {function} stopAppMonitoring - Function to stop monitoring
  * @returns {Promise<void>}
  */
-async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false, globalStateRef, stopAppMonitoring) {
+async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   try {
     if (!force) {
-      if (globalStateRef.removalInProgress) {
+      if (globalState.removalInProgress) {
         const warnResponse = messageHelper.createWarningMessage('Another application is undergoing removal. Removal not possible.');
         log.warn(warnResponse);
         if (res) {
@@ -446,7 +447,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         }
         return;
       }
-      if (globalStateRef.installationInProgress) {
+      if (globalState.installationInProgress) {
         const warnResponse = messageHelper.createWarningMessage('Another application is undergoing installation. Removal not possible.');
         log.warn(warnResponse);
         if (res) {
@@ -485,29 +486,52 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       };
     }
 
-    let appSpecs = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appQuery);
-    if (!appSpecs) {
+    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appQuery);
+    if (!appSpecifications) {
       if (!force) {
         throw new Error('Flux App not found');
       }
-      // Try to get from global database
-      const globalDatabase = dbopen.db(config.database.appsglobal.database);
-      appSpecs = await dbHelper.findOneInDatabase(globalDatabase, config.database.appsglobal.collections.appsInformation, appQuery);
-
-      if (!appSpecs) {
-        // Create a minimal spec for removal when forced
-        appSpecs = {
-          name: appName,
-          repotag: 'unknown/app',
-          version: 1
-        };
+      // get it from global Specifications
+      const database = dbopen.db(config.database.appsglobal.database);
+      appSpecifications = await dbHelper.findOneInDatabase(database, globalAppsInformation, appQuery);
+      if (!appSpecifications) {
+        // get it from locally available Specifications
+        const allApps = await availableApps();
+        appSpecifications = allApps.find((a) => a.name === appName);
+        // get it from permanent messages
+        if (!appSpecifications) {
+          const query = {};
+          const projection = { projection: { _id: 0 } };
+          const messages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          const appMessages = messages.filter((message) => {
+            const specifications = message.appSpecifications || message.zelAppSpecifications;
+            return specifications.name === appName;
+          });
+          let currentSpecifications;
+          appMessages.forEach((message) => {
+            if (!currentSpecifications || message.height > currentSpecifications.height) {
+              currentSpecifications = message;
+            }
+          });
+          if (currentSpecifications && currentSpecifications.height) {
+            appSpecifications = currentSpecifications.appSpecifications || currentSpecifications.zelAppSpecifications;
+          }
+        }
       }
     }
 
-    const appId = isComponent ? `${appComponent}_${appName}` : app;
+    if (!appSpecifications) {
+      throw new Error('Flux App not found');
+    }
 
-    // Perform hard uninstall
-    await appUninstallHard(appName, appId, appSpecs, isComponent, res, stopAppMonitoring);
+    // do this temporarily - otherwise we have to move a bunch of functions around
+    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+    appSpecifications = specificationFormatter(appSpecifications);
+
+    const appId = dockerService.getAppIdentifier(app); // get app or app component identifier
+
+    // Perform hard uninstall - stopAppMonitoring needs to be provided by caller
+    await appUninstallHard(appName, appId, appSpecifications, isComponent, res, () => {});
 
     // Remove from database
     if (res) {
