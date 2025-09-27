@@ -529,6 +529,7 @@ async function storeAppInstallingErrorMessage(message) {
   let queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash, ip: newAppInstallingErrorMessage.ip };
   const projection = { _id: 0 };
   // we already have the exact same data
+  // eslint-disable-next-line no-await-in-loop
   const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, projection);
   if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingErrorMessage.broadcastedAt) {
     // found a message that was already stored/probably from duplicated message processsed
@@ -543,9 +544,11 @@ async function storeAppInstallingErrorMessage(message) {
 
   queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash };
   // we already have the exact same data
+  // eslint-disable-next-line no-await-in-loop
   const results = await dbHelper.countInDatabase(database, globalAppsInstallingErrorsLocations, queryFind);
   if (results >= 5) {
     update = { $set: { startCacheAt: null, expireAt: null } };
+    // eslint-disable-next-line no-await-in-loop
     await dbHelper.updateInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update);
   }
   // all stored, rebroadcast
