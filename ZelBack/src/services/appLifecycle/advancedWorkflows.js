@@ -16,6 +16,7 @@ const {
   localAppsInformation,
   globalAppsInformation,
   globalAppsInstallingErrorsLocations,
+  globalAppsMessages,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const appUninstaller = require('./appUninstaller');
@@ -55,7 +56,103 @@ async function getInstalledAppsFromDb() {
   }
 }
 
-// Get strict application specifications\nasync function getStrictApplicationSpecifications(appName) {\n  try {\n    const db = dbHelper.databaseConnection();\n    const database = db.db(config.database.appsglobal.database);\n\n    const query = { name: appName };\n    const projection = {\n      projection: {\n        _id: 0,\n      },\n    };\n    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);\n    return appInfo;\n  } catch (error) {\n    log.error(`Error getting strict app specifications for ${appName}:`, error);\n    return null;\n  }\n}\n\n// Path constants
+// Get strict application specifications
+async function getStrictApplicationSpecifications(appName) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+
+    const query = { name: appName };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    return appInfo;
+  } catch (error) {
+    log.error(`Error getting strict app specifications for ${appName}:`, error);
+    return null;
+  }
+}
+
+/**
+ * To get previous app specifications.
+ * @param {object} specifications App sepcifications.
+ * @param {object} verificationTimestamp Message timestamp
+ * @returns {object} App specifications.
+ */
+async function getPreviousAppSpecifications(specifications, verificationTimestamp) {
+  // we may not have the application in global apps. This can happen when we receive the message
+  // after the app has already expired AND we need to get message right before our message.
+  // Thus using messages system that is accurate
+  const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const appsQuery = {
+    'appSpecifications.name': specifications.name,
+  };
+  const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+  let latestPermanentRegistrationMessage;
+  permanentAppMessage.forEach((foundMessage) => {
+    // has to be registration message
+    const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
+    if (validTypes.includes(foundMessage.type)) {
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) {
+        // no message and found message is not newer than our message
+        latestPermanentRegistrationMessage = foundMessage;
+      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) {
+        // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp
+          && foundMessage.timestamp <= verificationTimestamp) {
+          // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      }
+    }
+  });
+  // some early app have zelAppSepcifications
+  const appsQueryB = {
+    'zelAppSpecifications.name': specifications.name,
+  };
+  const permanentAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+  permanentAppMessageB.forEach((foundMessage) => {
+    // has to be registration message
+    const validTypes = ['zelappregister', 'fluxappregister', 'zelappupdate', 'fluxappupdate'];
+    if (validTypes.includes(foundMessage.type)) {
+      if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= verificationTimestamp) {
+        // no message and found message is not newer than our message
+        latestPermanentRegistrationMessage = foundMessage;
+      } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) {
+        // we have some message and the message is quite new
+        if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp
+          && foundMessage.timestamp <= verificationTimestamp) {
+          // but our message is newer. foundMessage has to have lower timestamp than our new message
+          latestPermanentRegistrationMessage = foundMessage;
+        }
+      }
+    }
+  });
+  if (!latestPermanentRegistrationMessage) {
+    throw new Error(`Flux App ${specifications.name} update message received but application does not exists!`);
+  }
+  const appSpecs = latestPermanentRegistrationMessage.appSpecifications
+    || latestPermanentRegistrationMessage.zelAppSpecifications;
+  if (!appSpecs) {
+    throw new Error(`Previous specifications for ${specifications.name} update message does not exists! This should not happen.`);
+  }
+  const heightForDecrypt = latestPermanentRegistrationMessage.height;
+  const decryptedPrev = await checkAndDecryptAppSpecs(appSpecs, { daemonHeight: heightForDecrypt });
+  const formattedPrev = specificationFormatter(decryptedPrev);
+
+  return formattedPrev;
+}\n\n// Path constants
 const cmdAsync = util.promisify(nodecmd.run);
 const fluxDirPath = path.join(__dirname, '../../../../');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -692,36 +789,35 @@ async function testAppMount() {
  * @returns {Promise<boolean>} True if no conflicts
  */
 async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
-  try {
-    if (!specifications || !specifications.name) {
-      throw new Error('Invalid specifications provided');
-    }
-
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = { name: new RegExp(`^${specifications.name}$`, 'i') };
-    const projection = { projection: { _id: 0, owner: 1, height: 1 } };
-
-    const existingApp = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-
-    if (existingApp) {
-      // Check if same owner
-      if (existingApp.owner !== specifications.owner) {
-        throw new Error(`Application ${specifications.name} is owned by a different user`);
+  // eslint-disable-next-line no-use-before-define
+  const appSpecs = await getPreviousAppSpecifications(specifications, verificationTimestamp);
+  if (specifications.version >= 4) {
+    if (appSpecs.version >= 4) {
+      // update and current are both v4 compositions
+      // must be same amount of copmositions
+      // must be same names
+      if (specifications.compose.length !== appSpecs.compose.length) {
+        throw new Error(`Flux App ${specifications.name} change of components is not allowed`);
       }
-
-      // Check if this is actually an update (newer height)
-      if (existingApp.height >= verificationTimestamp) {
-        throw new Error(`Application ${specifications.name} already has a newer or equal version`);
-      }
+      appSpecs.compose.forEach((appComponent) => {
+        const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
+        if (!newSpecComponentFound) {
+          throw new Error(`Flux App ${specifications.name} change of component name is not allowed`);
+        }
+        // v4 allows for changes of repotag
+      });
+    } else { // update is v4+ and current app have v1,2,3
+      throw new Error(`Flux App ${specifications.name} on update to different specifications is not possible`);
     }
-
-    return true;
-  } catch (error) {
-    log.error(`Error checking update conflicts: ${error.message}`);
-    throw error;
+  } else if (appSpecs.version >= 4) {
+    throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
+  } else { // bot update and current app have v1,2,3
+    // eslint-disable-next-line no-lonely-if
+    if (appSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
+      throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
+    }
   }
+  return true;
 }
 
 /**
@@ -1336,6 +1432,7 @@ module.exports = {
   removeTestAppMount,
   testAppMount,
   checkApplicationUpdateNameRepositoryConflicts,
+  getPreviousAppSpecifications,
   setInstallationInProgress,
   setRemovalInProgress,
   getInstallationInProgress,
