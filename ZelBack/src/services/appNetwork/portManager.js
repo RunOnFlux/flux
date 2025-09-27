@@ -350,8 +350,8 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       return;
     }
     // Import locally to avoid circular dependency
-    const appController = require('../appManagement/appController');
-    const installedAppsRes = await appController.installedApps();
+    const appsService = require('../appsService');
+    const installedAppsRes = await appsService.installedApps();
     if (installedAppsRes.status !== 'success') {
       return;
     }
