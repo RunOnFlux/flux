@@ -438,7 +438,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
 
   // OBJECT KEY CHECKS
   // Remove hash and height properties before validation as they are metadata added during processing
-  const { hash, height, ...appSpecsForValidation } = appSpecifications;
+  const { hash, height: specHeight, ...appSpecsForValidation } = appSpecifications;
   verifyObjectKeysCorrectnessOfApp(appSpecsForValidation);
 
   // PORTS UNIQUE CHECKS
