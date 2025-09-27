@@ -2,12 +2,18 @@ const config = require('config');
 const dbHelper = require('../dbHelper');
 const serviceHelper = require('../serviceHelper');
 const log = require('../../lib/log');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+const messageVerifier = require('./messageVerifier');
+const appValidator = require('../appRequirements/appValidator');
+const registryManager = require('../appDatabase/registryManager');
+const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
   globalAppsLocations,
   globalAppsInstallingLocations,
-  appsHashesCollection
+  appsHashesCollection,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 
@@ -40,17 +46,14 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
   const messageVersion = serviceHelper.ensureNumber(message.version);
 
-  // Import these functions locally to avoid circular dependency
-  const { checkAppMessageExistence, checkAppTemporaryMessageExistence } = require('./messageVerifier');
-
   // check permanent app message storage
-  const appMessage = await checkAppMessageExistence(message.hash);
+  const appMessage = await messageVerifier.checkAppMessageExistence(message.hash);
   if (appMessage) {
     // do not rebroadcast further
     return false;
   }
   // check temporary message storage
-  const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
+  const tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(message.hash);
   if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
     // do not rebroadcast further
     return false;
@@ -66,8 +69,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       height: 1,
     },
   };
-  const database = db.db(config.database.daemon.database);
-  const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+  let database = db.db(config.database.daemon.database);
   const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
   const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
   const daemonHeight = syncStatus.data.height;
@@ -80,67 +82,72 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
   if (furtherVerification) {
-    try {
-      // Import verification functions locally to avoid circular dependency
-      const { verifyAppHash, verifyAppMessageSignature } = require('./messageVerifier');
-
-      // Check if required fields are present for verification
-      if (!appSpecFormatted.owner || !message.signature) {
-        log.warn('App message missing required fields for verification');
-        return false;
+    const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
+    if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
+      if (!message.arcaneSender) {
+        return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
       }
-
-      // Verify hash matches message content
-      const hashValid = await verifyAppHash(message);
-      if (!hashValid) {
-        log.warn('App message hash verification failed');
-        return false;
+      // eslint-disable-next-line global-require
+      const fluxService = require('../fluxService');
+      if (await fluxService.isSystemSecure()) {
+        const appSpecDecrypted = await checkAndDecryptAppSpecs(
+          appSpecFormatted,
+          { daemonHeight: block, owner: appSpecFormatted.owner },
+        );
+        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
+        await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
+        if (appRegistraiton) {
+          await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
+        } else {
+          await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
+        }
       }
-
-      // Verify signature - pass signature directly as in original code
-      const signatureValid = await verifyAppMessageSignature(
-        message.type,
-        messageVersion,
-        appSpecFormatted,
-        messageTimestamp,
-        message.signature
-      );
-      if (signatureValid !== true) {
-        log.warn(`App message signature verification failed for ${appSpecFormatted.name} - type: ${message.type}, version: ${messageVersion}`);
-        return false;
+    } else {
+      await appValidator.verifyAppSpecifications(appSpecFormatted, block);
+      if (appRegistraiton) {
+        await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
+      } else {
+        await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
       }
-    } catch (error) {
-      log.warn(`App message verification failed: ${error.message}`);
-      return false;
+    }
+
+    await messageVerifier.verifyAppHash(message);
+    if (appRegistraiton) {
+      await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
+    } else {
+      // get previousAppSpecifications as we need previous owner
+      const previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
+      const { owner } = previousAppSpecs;
+      // here signature is checked against PREVIOUS app owner
+      await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block);
     }
   }
 
-  const adjustedAppSpecFormatted = appSpecFormatted;
+  const receivedAt = Date.now();
+  const validTill = receivedAt + (60 * 60 * 1000); // 60 minutes
 
-  const dbApps = dbHelper.databaseConnection();
-  const databaseApps = dbApps.db(config.database.appsglobal.database);
-
-  // Add timestamp and verification status
-  const messageToStore = {
-    type: message.type,
+  const newMessage = {
+    appSpecifications: appSpecFormatted,
+    type: message.type, // shall be fluxappregister, fluxappupdate
     version: messageVersion,
-    appSpecifications: adjustedAppSpecFormatted,
     hash: message.hash,
     timestamp: messageTimestamp,
     signature: message.signature,
-    createdAt: new Date(),
-    expireAt: new Date(messageTimestamp + (3 * 24 * 60 * 60 * 1000)), // 3 days
-    furtherVerification: furtherVerification || false,
+    receivedAt: new Date(receivedAt),
+    expireAt: new Date(validTill),
+    arcaneSender: message.arcaneSender,
   };
+  const value = newMessage;
 
-  try {
-    await dbHelper.insertOneToDatabase(databaseApps, globalAppsTempMessages, messageToStore);
-    log.info(`Temporary app message stored for ${adjustedAppSpecFormatted.name}`);
-    return true;
-  } catch (error) {
-    log.error(`Error storing temporary app message: ${error.message}`);
-    throw error;
+  database = db.db(config.database.appsglobal.database);
+  // message does not exist anywhere and is ok, store it
+  await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
+  // it is stored and rebroadcasted
+  if (isAppRequested) {
+    // node received the message but it is coming from a requestappmessage we should not rebroadcast to all peers
+    return false;
   }
+  return true;
 }
 
 /**
@@ -334,7 +341,6 @@ async function storeAppInstallingMessage(message) {
     throw error;
   }
 }
-
 
 /**
  * Get temporary app messages
