@@ -275,7 +275,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
       });
     });
   } else {
-    throw new Error(`Unsupported application version: ${appSpecifications.version}`);
+    throw new Error(`Invalid version specification of ${appSpecifications.version}`);
   }
 }
 
@@ -437,7 +437,9 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   }
 
   // OBJECT KEY CHECKS
-  verifyObjectKeysCorrectnessOfApp(appSpecifications);
+  // Remove hash and height properties before validation as they are metadata added during processing
+  const { hash, height, ...appSpecsForValidation } = appSpecifications;
+  verifyObjectKeysCorrectnessOfApp(appSpecsForValidation);
 
   // PORTS UNIQUE CHECKS
   // verify ports are unique accross app
