@@ -41,10 +41,8 @@ async function getNodeSpecs() {
         throw new Error('Error getting ssdstorage from benchmarks');
       }
     }
-    return nodeSpecs;
   } catch (error) {
-    log.error(`Error getting node specs: ${error.message}`);
-    throw error;
+    log.error(error);
   }
 }
 
@@ -100,40 +98,43 @@ async function systemArchitecture() {
  * @returns {object} Total hardware requirements
  */
 function totalAppHWRequirements(appSpecifications, myNodeTier) {
-  const totalSpecs = {
-    cpu: 0,
-    ram: 0,
-    hdd: 0,
-  };
-
-  if (!appSpecifications) {
-    return totalSpecs;
-  }
-
-  // Handle different app versions
+  let cpu = 0;
+  let ram = 0;
+  let hdd = 0;
+  const hddTier = `hdd${myNodeTier}`;
+  const ramTier = `ram${myNodeTier}`;
+  const cpuTier = `cpu${myNodeTier}`;
   if (appSpecifications.version <= 3) {
-    // Legacy single-container apps
-    const cpu = appSpecifications[`cpu${myNodeTier}`] || appSpecifications.cpu || 0;
-    const ram = appSpecifications[`ram${myNodeTier}`] || appSpecifications.ram || 0;
-    const hdd = appSpecifications[`hdd${myNodeTier}`] || appSpecifications.hdd || 0;
-
-    totalSpecs.cpu += cpu;
-    totalSpecs.ram += ram;
-    totalSpecs.hdd += hdd;
-  } else if (appSpecifications.compose && Array.isArray(appSpecifications.compose)) {
-    // Multi-container compose apps
-    appSpecifications.compose.forEach((component) => {
-      const cpu = component[`cpu${myNodeTier}`] || component.cpu || 0;
-      const ram = component[`ram${myNodeTier}`] || component.ram || 0;
-      const hdd = component[`hdd${myNodeTier}`] || component.hdd || 0;
-
-      totalSpecs.cpu += cpu;
-      totalSpecs.ram += ram;
-      totalSpecs.hdd += hdd;
+    if (appSpecifications.tiered) {
+      cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      ram = appSpecifications[ramTier] || appSpecifications.ram;
+      hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    } else {
+      // eslint-disable-next-line prefer-destructuring
+      cpu = appSpecifications.cpu;
+      // eslint-disable-next-line prefer-destructuring
+      ram = appSpecifications.ram;
+      // eslint-disable-next-line prefer-destructuring
+      hdd = appSpecifications.hdd;
+    }
+  } else {
+    appSpecifications.compose.forEach((appComponent) => {
+      if (appComponent.tiered) {
+        cpu += appComponent[cpuTier] || appComponent.cpu;
+        ram += appComponent[ramTier] || appComponent.ram;
+        hdd += appComponent[hddTier] || appComponent.hdd;
+      } else {
+        cpu += appComponent.cpu;
+        ram += appComponent.ram;
+        hdd += appComponent.hdd;
+      }
     });
   }
-
-  return totalSpecs;
+  return {
+    cpu,
+    ram,
+    hdd,
+  };
 }
 
 /**
@@ -301,46 +302,46 @@ async function checkAppRequirements(appSpecs) {
  * @param {object} appSpecs - App specifications
  * @returns {boolean} True if parameters are valid
  */
-function checkComponentHWParameters(appSpecs) {
-  if (!appSpecs) {
-    return false;
+function checkHWParameters(appSpecs) {
+  // check specs parameters. JS precision
+  if ((appSpecs.cpu * 10) % 1 !== 0 || (appSpecs.cpu * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpu < 0.1) {
+    throw new Error(`CPU badly assigned for ${appSpecs.name}`);
   }
-
-  // Validate CPU parameters
-  if (typeof appSpecs.cpu !== 'number' || appSpecs.cpu <= 0) {
-    return false;
+  if (appSpecs.ram % 100 !== 0 || appSpecs.ram > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.ram < 100) {
+    throw new Error(`RAM badly assigned for ${appSpecs.name}`);
   }
-
-  // Validate RAM parameters
-  if (typeof appSpecs.ram !== 'number' || appSpecs.ram <= 0) {
-    return false;
+  if (appSpecs.hdd % 1 !== 0 || appSpecs.hdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hdd < 1) {
+    throw new Error(`SSD badly assigned for ${appSpecs.name}`);
   }
-
-  // Validate HDD parameters
-  if (typeof appSpecs.hdd !== 'number' || appSpecs.hdd <= 0) {
-    return false;
-  }
-
-  // Check tiered specifications if present
   if (appSpecs.tiered) {
-    const tiers = ['basic', 'super', 'bamf'];
-    for (const tier of tiers) {
-      const cpuKey = `cpu${tier}`;
-      const ramKey = `ram${tier}`;
-      const hddKey = `hdd${tier}`;
-
-      if (appSpecs[cpuKey] && (typeof appSpecs[cpuKey] !== 'number' || appSpecs[cpuKey] <= 0)) {
-        return false;
-      }
-      if (appSpecs[ramKey] && (typeof appSpecs[ramKey] !== 'number' || appSpecs[ramKey] <= 0)) {
-        return false;
-      }
-      if (appSpecs[hddKey] && (typeof appSpecs[hddKey] !== 'number' || appSpecs[hddKey] <= 0)) {
-        return false;
-      }
+    if ((appSpecs.cpubasic * 10) % 1 !== 0 || (appSpecs.cpubasic * 10) > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu) || appSpecs.cpubasic < 0.1) {
+      throw new Error(`CPU for Cumulus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.rambasic % 100 !== 0 || appSpecs.rambasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram) || appSpecs.rambasic < 100) {
+      throw new Error(`RAM for Cumulus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.hddbasic % 1 !== 0 || appSpecs.hddbasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd) || appSpecs.hddbasic < 1) {
+      throw new Error(`SSD for Cumulus badly assigned for ${appSpecs.name}`);
+    }
+    if ((appSpecs.cpusuper * 10) % 1 !== 0 || (appSpecs.cpusuper * 10) > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu) || appSpecs.cpusuper < 0.1) {
+      throw new Error(`CPU for Nimbus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.ramsuper % 100 !== 0 || appSpecs.ramsuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram) || appSpecs.ramsuper < 100) {
+      throw new Error(`RAM for Nimbus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.hddsuper % 1 !== 0 || appSpecs.hddsuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd) || appSpecs.hddsuper < 1) {
+      throw new Error(`SSD for Nimbus badly assigned for ${appSpecs.name}`);
+    }
+    if ((appSpecs.cpubamf * 10) % 1 !== 0 || (appSpecs.cpubamf * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || appSpecs.cpubamf < 0.1) {
+      throw new Error(`CPU for Stratus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.rambamf % 100 !== 0 || appSpecs.rambamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || appSpecs.rambamf < 100) {
+      throw new Error(`RAM for Stratus badly assigned for ${appSpecs.name}`);
+    }
+    if (appSpecs.hddbamf % 1 !== 0 || appSpecs.hddbamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || appSpecs.hddbamf < 1) {
+      throw new Error(`SSD for Stratus badly assigned for ${appSpecs.name}`);
     }
   }
-
   return true;
 }
 
@@ -350,17 +351,76 @@ function checkComponentHWParameters(appSpecs) {
  * @returns {boolean} True if parameters are valid
  */
 function checkComposeHWParameters(appSpecsComposed) {
-  if (!appSpecsComposed || !appSpecsComposed.compose || !Array.isArray(appSpecsComposed.compose)) {
-    return false;
+  // calculate total HW assigned
+  let totalCpu = 0;
+  let totalRam = 0;
+  let totalHdd = 0;
+  let totalCpuBasic = 0;
+  let totalCpuSuper = 0;
+  let totalCpuBamf = 0;
+  let totalRamBasic = 0;
+  let totalRamSuper = 0;
+  let totalRamBamf = 0;
+  let totalHddBasic = 0;
+  let totalHddSuper = 0;
+  let totalHddBamf = 0;
+  const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
+  appSpecsComposed.compose.forEach((appComponent) => {
+    if (isTiered) {
+      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10);
+      totalRamBamf += appComponent.rambamf || appComponent.ram;
+      totalHddBamf += appComponent.hddbamf || appComponent.hdd;
+      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10);
+      totalRamSuper += appComponent.ramsuper || appComponent.ram;
+      totalHddSuper += appComponent.hddsuper || appComponent.hdd;
+      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10);
+      totalRamBasic += appComponent.rambasic || appComponent.ram;
+      totalHddBasic += appComponent.hddbasic || appComponent.hdd;
+    } else {
+      totalCpu += (appComponent.cpu * 10);
+      totalRam += appComponent.ram;
+      totalHdd += appComponent.hdd;
+    }
+  });
+  // check specs parameters. JS precision
+  if (totalCpu > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
+    throw new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
   }
-
-  // Check each component
-  for (const component of appSpecsComposed.compose) {
-    if (!checkComponentHWParameters(component)) {
-      return false;
+  if (totalRam > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
+    throw new Error(`Too much RAM resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (totalHdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
+    throw new Error(`Too much SSD resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (isTiered) {
+    if (totalCpuBasic > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Cumulus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamBasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Cumulus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddBasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Cumulus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalCpuSuper > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamSuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddSuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalCpuBamf > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Stratus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamBamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Stratus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddBamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
   }
-
   return true;
 }
 
@@ -462,7 +522,7 @@ module.exports = {
   checkAppGeolocationRequirements,
   checkAppHWRequirements,
   checkAppRequirements,
-  checkComponentHWParameters,
+  checkHWParameters,
   checkComposeHWParameters,
   createFluxNetworkAPI,
   startMonitoringOfApps,
