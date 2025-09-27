@@ -13,6 +13,7 @@ const {
   globalAppsTempMessages,
   globalAppsLocations,
   globalAppsInstallingLocations,
+  globalAppsInstallingErrorsLocations,
   appsHashesCollection,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
@@ -194,6 +195,10 @@ async function storeAppRunningMessage(message) {
   * @param broadcastedAt number
   * @param name string
   * @param ip string
+  * @param osUptime number (optional)
+  * @param staticIp string (optional)
+  * @param runningSince number (optional)
+  * @param apps array (for version 2)
   */
   const appsMessages = [];
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
@@ -239,43 +244,69 @@ async function storeAppRunningMessage(message) {
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
-  try {
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appMessage of appsMessages) {
-      const newAppRunningMessage = {
-        name: appMessage.name,
-        hash: appMessage.hash,
-        ip: message.ip,
-        broadcastedAt: new Date(message.broadcastedAt),
-        expireAt: new Date(validTill),
-      };
+  let messageNotOk = false;
+  for (let i = 0; i < appsMessages.length; i += 1) {
+    const app = appsMessages[i];
+    const newAppRunningMessage = {
+      name: app.name,
+      hash: app.hash, // hash of application specifics that are running
+      ip: message.ip,
+      broadcastedAt: new Date(message.broadcastedAt),
+      expireAt: new Date(validTill),
+      osUptime: message.osUptime,
+      staticIp: message.staticIp,
+    };
 
-      // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-      const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-      const projection = { _id: 0 };
-      // we already have the exact same data
-      // eslint-disable-next-line no-await-in-loop
-      const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-      if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
-        // found a message that was already stored/probably from duplicated message processsed
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-
-      const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-      const update = { $set: newAppRunningMessage };
-      const options = {
-        upsert: true,
-      };
-      // eslint-disable-next-line no-await-in-loop
-      await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
+    // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+    const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+    const projection = { _id: 0, runningSince: 1 };
+    // we already have the exact same data
+    // eslint-disable-next-line no-await-in-loop
+    const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+    if (result && result.broadcastedAt && result.broadcastedAt >= newAppRunningMessage.broadcastedAt) {
+      // found a message that was already stored/probably from duplicated message processsed
+      messageNotOk = true;
+      break;
     }
-
-    return true;
-  } catch (error) {
-    log.error(`Error storing app running message: ${error.message}`);
-    throw error;
+    if (message.runningSince) {
+      newAppRunningMessage.runningSince = new Date(message.runningSince);
+    } else if (app.runningSince) {
+      newAppRunningMessage.runningSince = new Date(app.runningSince);
+    } else if (result && result.runningSince) {
+      newAppRunningMessage.runningSince = result.runningSince;
+    }
+    const queryUpdate = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
+    const update = { $set: newAppRunningMessage };
+    const options = {
+      upsert: true,
+    };
+    // eslint-disable-next-line no-await-in-loop
+    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
   }
+
+  if (message.version === 2 && appsMessages.length === 0) {
+    const queryFind = { ip: message.ip };
+    const projection = { _id: 0, runningSince: 1 };
+    // we already have the exact same data
+    const result = await dbHelper.findInDatabase(database, globalAppsLocations, queryFind, projection);
+    if (result.length > 0) {
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, queryFind);
+    } else {
+      return false;
+    }
+  }
+
+  if (message.version === 1) {
+    const queryFind = { name: appsMessages[0].name, ip: message.ip };
+    await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
+  }
+
+  if (messageNotOk) {
+    return false;
+  }
+
+  // all stored, rebroadcast
+  return true;
 }
 
 /**
@@ -460,64 +491,65 @@ async function storeAppInstallingErrorMessage(message) {
   * @param type string
   * @param version number
   * @param name string
+  * @param hash string
   * @param ip string
   * @param error string
   * @param broadcastedAt number
   */
-  try {
-    if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-      || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
-      log.error('Invalid Flux App Installing Error message for storing');
-      return false;
-    }
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string'
+    || typeof message.hash !== 'string' || typeof message.error !== 'string') {
+    return new Error('Invalid Flux App Installing Error message for storing');
+  }
 
-    if (message.version !== 1) {
-      log.error(`Invalid Flux App Installing Error message for storing version ${message.version} not supported`);
-      return false;
-    }
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux App Installing Error message for storing version ${message.version} not supported`);
+  }
 
-    const validTill = message.broadcastedAt + (10 * 60 * 1000); // 10 minutes
-    if (validTill < Date.now()) {
-      log.warn(`Rejecting old/not valid fluxappinstallingerror message, message:${JSON.stringify(message)}`);
-      // reject old message
-      return false;
-    }
-
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const newAppErrorMessage = {
-      name: message.name,
-      ip: message.ip,
-      error: message.error || 'Unknown error',
-      broadcastedAt: new Date(message.broadcastedAt),
-      expireAt: new Date(validTill),
-      status: 'error',
-    };
-
-    // Check if we already have this error message
-    const queryFind = { name: newAppErrorMessage.name, ip: newAppErrorMessage.ip };
-    const projection = { _id: 0 };
-    const existingMessage = await dbHelper.findOneInDatabase(database, globalAppsInstallingLocations, queryFind, projection);
-
-    if (existingMessage && existingMessage.broadcastedAt && existingMessage.broadcastedAt >= newAppErrorMessage.broadcastedAt) {
-      // found a message that was already stored/probably from duplicated message processed
-      return false;
-    }
-
-    // Update or insert the error message
-    const queryUpdate = { name: newAppErrorMessage.name, ip: newAppErrorMessage.ip };
-    const update = { $set: newAppErrorMessage };
-    const options = { upsert: true };
-
-    await dbHelper.updateOneInDatabase(database, globalAppsInstallingLocations, queryUpdate, update, options);
-
-    log.error(`App installing error message stored for ${message.name} on ${message.ip}: ${message.error || 'Unknown error'}`);
-    return true; // rebroadcast to peers
-  } catch (error) {
-    log.error(`Error storing app installing error message: ${error.message}`);
+  const validTill = message.broadcastedAt + (60 * 60 * 1000); // 60 minutes
+  if (validTill < Date.now()) {
+    log.warn(`Rejecting old/not valid fluxappinstallingerror message, message:${JSON.stringify(message)}`);
+    // reject old message
     return false;
   }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const newAppInstallingErrorMessage = {
+    name: message.name,
+    hash: message.hash,
+    ip: message.ip,
+    error: message.error,
+    broadcastedAt: new Date(message.broadcastedAt),
+    startCacheAt: new Date(message.broadcastedAt),
+    expireAt: new Date(validTill),
+  };
+
+  let queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash, ip: newAppInstallingErrorMessage.ip };
+  const projection = { _id: 0 };
+  // we already have the exact same data
+  const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, projection);
+  if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingErrorMessage.broadcastedAt) {
+    // found a message that was already stored/probably from duplicated message processsed
+    return false;
+  }
+
+  let update = { $set: newAppInstallingErrorMessage };
+  const options = {
+    upsert: true,
+  };
+  await dbHelper.updateOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update, options);
+
+  queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash };
+  // we already have the exact same data
+  const results = await dbHelper.countInDatabase(database, globalAppsInstallingErrorsLocations, queryFind);
+  if (results >= 5) {
+    update = { $set: { startCacheAt: null, expireAt: null } };
+    await dbHelper.updateInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update);
+  }
+  // all stored, rebroadcast
+  return true;
 }
 
 /**
@@ -529,59 +561,44 @@ async function storeIPChangedMessage(message) {
   /* message object
   * @param type string
   * @param version number
-  * @param name string
   * @param oldIP string
   * @param newIP string
   * @param broadcastedAt number
   */
-  try {
-    if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
-      || typeof message.broadcastedAt !== 'number' || typeof message.oldIP !== 'string' || typeof message.newIP !== 'string'
-      || typeof message.name !== 'string') {
-      log.error('Invalid IP Changed message for storing');
-      return false;
-    }
+  if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
+    || typeof message.broadcastedAt !== 'number' || typeof message.oldIP !== 'string' || typeof message.newIP !== 'string') {
+    return new Error('Invalid Flux IP Changed message for storing');
+  }
 
-    if (message.version !== 1) {
-      log.error(`Invalid IP Changed message for storing version ${message.version} not supported`);
-      return false;
-    }
+  if (message.version !== 1) {
+    return new Error(`Invalid Flux IP Changed message for storing version ${message.version} not supported`);
+  }
 
-    const validTill = message.broadcastedAt + (30 * 60 * 1000); // 30 minutes
-    if (validTill < Date.now()) {
-      log.warn(`Rejecting old/not valid IP changed message, message:${JSON.stringify(message)}`);
-      // reject old message
-      return false;
-    }
+  if (!message.oldIP || !message.newIP) {
+    return new Error('Invalid Flux IP Changed message oldIP and newIP cannot be empty');
+  }
 
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
+  if (message.oldIP === message.newIP) {
+    return new Error(`Invalid Flux IP Changed message oldIP and newIP are the same ${message.newIP}`);
+  }
 
-    // Remove old location
-    await dbHelper.removeFromDatabase(database, globalAppsLocations, { name: message.name, ip: message.oldIP });
+  log.info('New Flux IP Changed message received.');
+  log.info(message);
 
-    // Add new location
-    const newAppLocationMessage = {
-      name: message.name,
-      ip: message.newIP,
-      broadcastedAt: new Date(message.broadcastedAt),
-      expireAt: new Date(validTill),
-      ipChanged: true,
-      previousIP: message.oldIP,
-    };
-
-    const queryUpdate = { name: newAppLocationMessage.name, ip: newAppLocationMessage.ip };
-    const update = { $set: newAppLocationMessage };
-    const options = { upsert: true };
-
-    await dbHelper.updateOneInDatabase(database, globalAppsLocations, queryUpdate, update, options);
-
-    log.info(`IP changed message stored for ${message.name}: ${message.oldIP} -> ${message.newIP}`);
-    return true; // rebroadcast to peers
-  } catch (error) {
-    log.error(`Error storing IP changed message: ${error.message}`);
+  const validTill = message.broadcastedAt + (65 * 60 * 1000); // 3900 seconds
+  if (validTill < Date.now()) {
+    // reject old message
     return false;
   }
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+  const query = { ip: message.oldIP };
+  const update = { $set: { ip: message.newIP, broadcastedAt: new Date(message.broadcastedAt) } };
+  await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
+
+  // all stored, rebroadcast
+  return true;
 }
 
 module.exports = {
