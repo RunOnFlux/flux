@@ -4280,7 +4280,35 @@ describe('appsService tests', () => {
     it('remove app locally, app name is specified, app in the list of avaiable apps', async () => {
       const res = generateResponse();
       const appName = 'FoldingAtHomeB';
-      dbStub.returns(undefined);
+
+      // Since the test name says "app in the list of available apps",
+      // the app should be found in the database
+      dbStub.returns({
+        version: 2,
+        name: 'FoldingAtHomeB',
+        description: 'Folding @ Home is cool :)',
+        repotag: 'yurinnick/folding-at-home:latest',
+        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+        tiered: true,
+        ports: [30001],
+        containerPorts: [7396],
+        domains: [''],
+        cpu: 0.5,
+        ram: 500,
+        hdd: 5,
+        cpubasic: 0.5,
+        cpusuper: 1,
+        cpubamf: 2,
+        rambasic: 500,
+        ramsuper: 1000,
+        rambamf: 2000,
+        hddbasic: 5,
+        hddsuper: 5,
+        hddbamf: 5,
+        hash: 'localappinstancehashABCDEF',
+        height: 0
+      });
+
       const force = true;
 
       await appsService.removeAppLocally(appName, res, force);
