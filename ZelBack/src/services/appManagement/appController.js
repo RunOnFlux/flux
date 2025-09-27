@@ -1,10 +1,118 @@
+const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('./appInspector');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const log = require('../../lib/log');
+
+/**
+ * Get application locations from the global database
+ * @param {string} appname - Application name
+ * @returns {Promise<Array>} Application locations
+ */
+async function appLocation(appname) {
+  const dbHelper = require('../dbHelper');
+  const config = require('../../../config/userconfig');
+  const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  let query = {};
+  if (appname) {
+    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
+  }
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
+      runningSince: 1,
+      osUptime: 1,
+      staticIp: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results;
+}
+
+// Global monitoring object to store app monitoring data
+const appsMonitored = {};
+
+/**
+ * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
+ * @param {string} appName monitored component name
+ */
+function startAppMonitoring(appName) {
+  if (!appName) {
+    throw new Error('No App specified');
+  } else {
+    log.info('Initialize Monitoring...');
+    appsMonitored[appName] = {}; // Initialize the app's monitoring object
+    if (!appsMonitored[appName].statsStore) {
+      appsMonitored[appName].statsStore = [];
+    }
+    if (!appsMonitored[appName].lastHourstatsStore) {
+      appsMonitored[appName].lastHourstatsStore = [];
+    }
+    // Clear previous interval for this app to prevent multiple intervals
+    clearInterval(appsMonitored[appName].oneMinuteInterval);
+    appsMonitored[appName].run = 0;
+    appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
+      try {
+        if (!appsMonitored[appName]) {
+          log.error(`Monitoring of ${appName} already stopped`);
+          return;
+        }
+        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
+        if (!dockerContainer) {
+          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
+          stopAppMonitoring(appName, true);
+          return;
+        }
+        appsMonitored[appName].run += 1;
+        const statsNow = await dockerService.dockerContainerStats(appName);
+        const now = Date.now();
+        if (appsMonitored[appName].run % 3 === 0) {
+          const inspect = await dockerService.dockerContainerInspect(appName);
+          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
+          appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
+          const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
+          const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
+          log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
+          appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
+            (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
+          );
+        }
+        appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
+        appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
+          (stat) => now - stat.timestamp <= 60 * 60 * 1000,
+        );
+      } catch (error) {
+        log.error(error);
+      }
+    }, 1 * 60 * 1000);
+  }
+}
+
+/**
+ * Stop app monitoring
+ * @param {string} appName - Application name
+ * @param {boolean} deleteData - Whether to delete monitoring data
+ */
+function stopAppMonitoring(appName, deleteData) {
+  if (appsMonitored[appName]) {
+    clearInterval(appsMonitored[appName].oneMinuteInterval);
+  }
+  if (deleteData) {
+    delete appsMonitored[appName];
+  }
+}
 
 /**
  * Execute a global command on an application across the network
@@ -17,19 +125,41 @@ const log = require('../../lib/log');
  */
 async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypassMyIp) {
   try {
-    // Implementation would include network communication logic
-    // This is a simplified version for the refactor
-    log.info(`Executing global command ${command} on app ${appname}`);
-
-    // The actual implementation would involve:
-    // - Getting peer nodes
-    // - Sending command to all nodes
-    // - Collecting responses
-
-    return { status: 'success', message: `Global command ${command} initiated for ${appname}` };
+    // get a list of the specific app locations
+    const locations = await appLocation(appname);
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    const myUrl = myIP.split(':')[0];
+    const myUrlPort = myIP.split(':')[1] || '16127';
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appInstance of locations) {
+      // HERE let the node we are connected to handle it
+      const ip = appInstance.ip.split(':')[0];
+      const port = appInstance.ip.split(':')[1] || '16127';
+      if (bypassMyIp && myUrl === ip && myUrlPort === port) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+      const axiosConfig = {
+        headers: {
+          zelidauth,
+        },
+      };
+      let url = `http://${ip}:${port}/apps/${command}/${appname}`;
+      if (paramA) {
+        url += `/${paramA}`;
+      }
+      axios.get(url, axiosConfig)
+        .then((response) => {
+          log.info(`Successfully sent command to ${url}: ${response.status}`);
+        })
+        .catch((error) => {
+          log.error(`Axios request failed for ${url}`, error);
+        });
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(500);
+    }
   } catch (error) {
-    log.error(`Error executing global command: ${error.message}`);
-    throw error;
+    log.error(error);
   }
 }
 
@@ -39,7 +169,7 @@ async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypa
  * @param {object} res - Response object
  * @returns {object} Response message
  */
-async function appStart(req, res, startMonitoring) {
+async function appStart(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -70,9 +200,7 @@ async function appStart(req, res, startMonitoring) {
 
     if (isComponent) {
       appRes = await dockerService.appDockerStart(appname);
-      if (startMonitoring) {
-        startMonitoring(appname);
-      }
+      startAppMonitoring(appname);
     } else {
       // Check if app exists before starting
       const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
@@ -82,16 +210,12 @@ async function appStart(req, res, startMonitoring) {
 
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerStart(appname);
-        if (startMonitoring) {
-          startMonitoring(appname);
-        }
+        startAppMonitoring(appname);
       } else {
         // For composed applications (version > 3), start all components
         for (const appComponent of appSpecs.compose) {
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
-          if (startMonitoring) {
-            startMonitoring(`${appComponent.name}_${appSpecs.name}`);
-          }
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -120,7 +244,7 @@ async function appStart(req, res, startMonitoring) {
  * @param {object} res - Response object
  * @returns {object} Response message
  */
-async function appStop(req, res, stopMonitoring) {
+async function appStop(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
@@ -150,9 +274,7 @@ async function appStop(req, res, stopMonitoring) {
     let appRes;
 
     if (isComponent) {
-      if (stopMonitoring) {
-        stopMonitoring(appname, false);
-      }
+      stopAppMonitoring(appname, false);
       appRes = await dockerService.appDockerStop(appname);
     } else {
       // Check if app exists before stopping
@@ -162,16 +284,12 @@ async function appStop(req, res, stopMonitoring) {
       }
 
       if (appSpecs.version <= 3) {
-        if (stopMonitoring) {
-          stopMonitoring(appname, false);
-        }
+        stopAppMonitoring(appname, false);
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // For composed applications (version > 3), stop all components in reverse order
         for (const appComponent of appSpecs.compose.reverse()) {
-          if (stopMonitoring) {
-            stopMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
-          }
+          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} stopped`;
@@ -201,7 +319,7 @@ async function appStop(req, res, stopMonitoring) {
  * @param {object} res - Response object
  * @returns {object} Response message
  */
-async function appRestart(req, res, startMonitoring, stopMonitoring) {
+async function appRestart(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
