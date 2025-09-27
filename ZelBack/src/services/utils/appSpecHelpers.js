@@ -161,4 +161,6 @@ module.exports = {
   getAppFiatAndFluxPrice,
   getAppPrice,
   convertToFiat,
+  // Re-export for backward compatibility
+  specificationFormatter,
 };

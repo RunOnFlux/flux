@@ -284,6 +284,21 @@ function ensureString(parameter) {
   return typeof parameter === 'string' ? parameter : JSON.stringify(parameter);
 }
 
+/**
+ * To ensure a parameter is an array.
+ * @param {*} parameter Value to check
+ * @returns {array} Returns the parameter as array or empty array if invalid.
+ */
+function ensureArray(parameter) {
+  if (Array.isArray(parameter)) {
+    return parameter;
+  }
+  if (parameter === null || parameter === undefined) {
+    return [];
+  }
+  // Convert single value to array
+  return [parameter];
+}
 
 /**
  * To delete login phrase.
@@ -685,6 +700,7 @@ module.exports = {
   ensureNumber,
   ensureObject,
   ensureString,
+  ensureArray,
   ipInSubnet,
   isDecimalLimit,
   isPrivateAddress,

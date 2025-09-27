@@ -9,7 +9,7 @@ const userconfig = require('../../../config/userconfig');
 const signatureVerifier = require('./signatureVerifier');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
-const registryManager = require('./appDatabase/registryManager');
+// Removed registryManager to avoid circular dependency - will use dynamic require where needed
 
 /**
  * Verifies admin session
@@ -164,6 +164,8 @@ async function verifyAppOwnerSession(headers, appName) {
   if (!headers || !headers.zelidauth || !appName) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
+  // Use dynamic require to avoid circular dependency
+  const registryManager = require('./appDatabase/registryManager');
   const ownerFluxID = await registryManager.getApplicationOwner(appName);
   if (auth.zelid !== ownerFluxID) return false;
 
@@ -206,6 +208,8 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   if (!headers || !headers.zelidauth || !appName) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
+  // Use dynamic require to avoid circular dependency
+  const registryManager = require('./appDatabase/registryManager');
   const ownerFluxID = await registryManager.getApplicationOwner(appName);
   if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid && auth.zelid !== config.fluxSupportTeamFluxID) return false;
 

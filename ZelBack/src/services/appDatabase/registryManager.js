@@ -5,7 +5,7 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
-const appsService = require('../appsService');
+// Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const {
@@ -860,6 +860,8 @@ async function expireGlobalApplications() {
     }
 
     // get list of locally installed apps.
+    // Use dynamic require to avoid circular dependency
+    const appsService = require('../appsService');
     const installedAppsRes = await appsService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');

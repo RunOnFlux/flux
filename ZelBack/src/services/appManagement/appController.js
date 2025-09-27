@@ -1,6 +1,6 @@
 const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
-const verificationHelper = require('../verificationHelper');
+// Removed verificationHelper to avoid circular dependency - will use dynamic require where needed
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
@@ -183,6 +183,8 @@ async function appStart(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
+    // Use dynamic require to avoid circular dependency
+    const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -258,6 +260,8 @@ async function appStop(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
+    // Use dynamic require to avoid circular dependency
+    const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -333,6 +337,8 @@ async function appRestart(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
+    // Use dynamic require to avoid circular dependency
+    const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -402,6 +408,8 @@ async function appKill(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
+    // Use dynamic require to avoid circular dependency
+    const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -468,6 +476,8 @@ async function appPause(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
+    // Use dynamic require to avoid circular dependency
+    const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -540,6 +550,8 @@ async function appUnpause(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
+    // Use dynamic require to avoid circular dependency
+    const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();

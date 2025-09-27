@@ -25,6 +25,7 @@ const log = require('../lib/log');
 const appConstants = require('./utils/appConstants');
 const appSpecHelpers = require('./utils/appSpecHelpers');
 const appUtilities = require('./utils/appUtilities');
+const chainUtilities = require('./utils/chainUtilities');
 const appValidator = require('./appRequirements/appValidator');
 const hwRequirements = require('./appRequirements/hwRequirements');
 const appController = require('./appManagement/appController');
@@ -1911,7 +1912,6 @@ module.exports = {
   cleanupOldTemporaryMessages: messageStore.cleanupOldTemporaryMessages,
 
   // App Utilities
-  getChainParamsPriceUpdates: appUtilities.getChainParamsPriceUpdates,
   appPricePerMonth: appUtilities.appPricePerMonth,
   nodeFullGeolocation: appUtilities.nodeFullGeolocation,
   getAppFolderSize: appUtilities.getAppFolderSize,
@@ -1923,6 +1923,10 @@ module.exports = {
   sanitizeAppInput: appUtilities.sanitizeAppInput,
   generateAppHash: appUtilities.generateAppHash,
   extractAppMetadata: appUtilities.extractAppMetadata,
+
+  // Chain Utilities
+  getChainParamsPriceUpdates: chainUtilities.getChainParamsPriceUpdates,
+  getChainTeamSupportAddressUpdates: chainUtilities.getChainTeamSupportAddressUpdates,
 
   // Message Verification
   verifyAppHash: messageVerifier.verifyAppHash,

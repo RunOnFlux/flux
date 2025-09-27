@@ -9,7 +9,8 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const serviceHelper = require('../serviceHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 // Removed messageStore require to avoid circular dependency - will import locally where needed
-const { getChainParamsPriceUpdates, appPricePerMonth, getChainTeamSupportAddressUpdates } = require('../utils/appUtilities');
+const { appPricePerMonth } = require('../utils/appUtilities');
+const { getChainParamsPriceUpdates, getChainTeamSupportAddressUpdates } = require('../utils/chainUtilities');
 const { updateAppSpecifications } = require('../appDatabase/registryManager');
 const {
   globalAppsMessages,
