@@ -3,6 +3,8 @@ const config = require('config');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
 const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchmarkRpcs');
+// For compatibility with original, alias as benchmarkService
+const benchmarkService = daemonServiceBenchmarkRpcs;
 const log = require('../../lib/log');
 
 // Node specifications (shared state)
@@ -107,17 +109,10 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
  * @param {object} appSpecs - Application specifications
  * @returns {Promise<boolean>} True if requirements are met
  */
-async function checkAppHWRequirements(appSpecs, appsResources) {
+async function checkAppHWRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
   const tier = await generalService.nodeTier();
-
-  // Use appsResources if provided, otherwise get them
-  let resourcesLocked;
-  if (appsResources) {
-    resourcesLocked = appsResources;
-  } else {
-    resourcesLocked = await getAppsResources();
-  }
+  const resourcesLocked = await appsResources();
 
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
@@ -163,24 +158,12 @@ async function checkAppHWRequirements(appSpecs, appsResources) {
  * @returns {Promise<boolean>} True if all requirements are met
  */
 async function checkAppRequirements(appSpecs) {
-  // Hardware requirements
+  // appSpecs has hdd, cpu and ram assigned to correct tier
   await checkAppHWRequirements(appSpecs);
-
-  // Geolocation requirements
-  if (appSpecs.version >= 5) {
-    checkAppGeolocationRequirements(appSpecs);
-  }
-
-  // Static IP requirements
-  if (appSpecs.version >= 7) {
-    checkAppStaticIpRequirements(appSpecs);
-  }
-
-  // Node-specific requirements
-  if (appSpecs.version === 7 && appSpecs.nodes) {
-    await checkAppNodesRequirements(appSpecs);
-  }
-
+  // check geolocation
+  checkAppStaticIpRequirements(appSpecs);
+  await checkAppNodesRequirements(appSpecs);
+  checkAppGeolocationRequirements(appSpecs);
   return true;
 }
 
@@ -229,42 +212,32 @@ function checkAppGeolocationRequirements(appSpecs) {
     const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
 
     const myNodeLocationContinent = nodeGeo.continentCode;
-    const myNodeLocationCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
+    const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
     const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
-
-    // Check forbidden locations first
-    for (const forbiddenGeo of geoCForbidden) {
-      const cleanForbiddenGeo = forbiddenGeo.replace('a!c', '');
-      if (myNodeLocationFull.startsWith(cleanForbiddenGeo) ||
-          myNodeLocationCountry.startsWith(cleanForbiddenGeo) ||
-          myNodeLocationContinent.startsWith(cleanForbiddenGeo)) {
-        throw new Error(`Application ${appSpecs.name} is forbidden to run in this geographical location. Aborting.`);
+    const myNodeLocationContinentALL = 'ALL';
+    const myNodeLocationContCountryALL = `${nodeGeo.continentCode}_ALL`;
+    const myNodeLocationFullALL = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_ALL`;
+    if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
+      if (appContinent.slice(1) !== nodeGeo.continentCode) {
+        throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
       }
     }
-
-    // Check allowed locations
-    if (geoC.length > 0) {
-      let locationAllowed = false;
-      for (const allowedGeo of geoC) {
-        const cleanGeo = allowedGeo.replace('ac', '');
-        if (myNodeLocationFull.startsWith(cleanGeo) ||
-            myNodeLocationCountry.startsWith(cleanGeo) ||
-            myNodeLocationContinent.startsWith(cleanGeo)) {
-          locationAllowed = true;
-          break;
-        }
-      }
-      if (!locationAllowed) {
-        throw new Error(`Application ${appSpecs.name} is not allowed to run in this geographical location. Aborting.`);
+    if (appCountry) {
+      if (appCountry.slice(1) !== nodeGeo.countryCode) {
+        throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
       }
     }
-
-    // Legacy continent/country checks
-    if (appContinent && !appContinent.substring(1).includes(myNodeLocationContinent)) {
-      throw new Error(`Application ${appSpecs.name} is not available for this continent. Aborting.`);
-    }
-    if (appCountry && !appCountry.substring(1).includes(nodeGeo.countryCode)) {
-      throw new Error(`Application ${appSpecs.name} is not available for this country. Aborting.`);
+    geoCForbidden.forEach((locationNotAllowed) => {
+      if (locationNotAllowed.slice(3) === myNodeLocationContinent || locationNotAllowed.slice(3) === myNodeLocationContCountry || locationNotAllowed.slice(3) === myNodeLocationFull) {
+        throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
+      }
+    });
+    if (geoC.length) {
+      const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull
+        || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL);
+      if (!nodeLocationOK) {
+        throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
+      }
     }
   }
 
@@ -279,7 +252,7 @@ function checkAppGeolocationRequirements(appSpecs) {
 async function checkAppNodesRequirements(appSpecs) {
   if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
     const myCollateral = await generalService.obtainNodeCollateralInformation();
-    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
 
     if (benchmarkResponse.status === 'error') {
       throw new Error('Unable to detect Flux IP address');
@@ -295,26 +268,23 @@ async function checkAppNodesRequirements(appSpecs) {
       throw new Error('Unable to detect Flux IP address');
     }
 
-    // Check if this node is in the allowed nodes list
-    const myNodeInfo = `${myIP}:${myCollateral.txhash}:${myCollateral.outidx}`;
-    const isNodeAllowed = appSpecs.nodes.includes(myNodeInfo);
-
-    if (!isNodeAllowed) {
-      throw new Error(`Application ${appSpecs.name} is restricted to specific nodes. This node is not authorized.`);
+    if (appSpecs.nodes.includes(myIP) || appSpecs.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)) {
+      return true;
     }
+    throw new Error(`Application ${appSpecs.name} is not allowed to run on this node. Aborting.`);
   }
 
   return true;
 }
 
 /**
- * Get apps resource usage - this should be passed in from appsService to avoid circular dependency
+ * Get apps resource usage - placeholder for original appsResources function
  * @returns {Promise<object>} Resource usage information
  */
-async function getAppsResources() {
-  // This function should not be used directly - appsResources should be passed from appsService
-  // to avoid circular dependencies
-  throw new Error('getAppsResources should not be called directly - pass appsResources from appsService');
+async function appsResources() {
+  // Import locally to avoid circular dependency
+  const appController = require('../appManagement/appController');
+  return appController.appsResources();
 }
 
 module.exports = {
