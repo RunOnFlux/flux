@@ -6,7 +6,8 @@ const {
   globalAppsMessages,
   globalAppsTempMessages,
   globalAppsLocations,
-  globalAppsInstallingLocations
+  globalAppsInstallingLocations,
+  appsHashesCollection
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 
@@ -39,7 +40,45 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
   const messageVersion = serviceHelper.ensureNumber(message.version);
 
-  // Verify message hash and signature FIRST before checking database
+  // Import these functions locally to avoid circular dependency
+  const { checkAppMessageExistence, checkAppTemporaryMessageExistence } = require('./messageVerifier');
+
+  // check permanent app message storage
+  const appMessage = await checkAppMessageExistence(message.hash);
+  if (appMessage) {
+    // do not rebroadcast further
+    return false;
+  }
+  // check temporary message storage
+  const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
+  if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+    // do not rebroadcast further
+    return false;
+  }
+
+  let isAppRequested = false;
+  const db = dbHelper.databaseConnection();
+  const query = { hash: message.hash };
+  const projection = {
+    projection: {
+      _id: 0,
+      message: 1,
+      height: 1,
+    },
+  };
+  const database = db.db(config.database.daemon.database);
+  const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+  const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
+  const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+  const daemonHeight = syncStatus.data.height;
+  let block = daemonHeight;
+  if (result && !result.message) {
+    isAppRequested = true;
+    block = result.height;
+  }
+
+  // data shall already be verified by the broadcasting node. But verify all again.
+  // this takes roughly at least 1 second
   if (furtherVerification) {
     try {
       // Import verification functions locally to avoid circular dependency
@@ -76,26 +115,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     }
   }
 
-  // Import these functions locally to avoid circular dependency
-  const { checkAppMessageExistence, checkAppTemporaryMessageExistence } = require('./messageVerifier');
-
-  // check permanent app message storage
-  const appMessage = await checkAppMessageExistence(message.hash);
-  if (appMessage) {
-    // do not rebroadcast further
-    return false;
-  }
-  // check temporary message storage
-  const tempMessage = await checkAppTemporaryMessageExistence(message.hash);
-  if (tempMessage) {
-    // rebroadcast
-    return true;
-  }
-
   const adjustedAppSpecFormatted = appSpecFormatted;
 
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
+  const dbApps = dbHelper.databaseConnection();
+  const databaseApps = dbApps.db(config.database.appsglobal.database);
 
   // Add timestamp and verification status
   const messageToStore = {
@@ -111,7 +134,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   };
 
   try {
-    await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, messageToStore);
+    await dbHelper.insertOneToDatabase(databaseApps, globalAppsTempMessages, messageToStore);
     log.info(`Temporary app message stored for ${adjustedAppSpecFormatted.name}`);
     return true;
   } catch (error) {
