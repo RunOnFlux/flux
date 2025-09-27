@@ -12,6 +12,7 @@ const imageManager = require('../appSecurity/imageManager');
 const { supportedArchitectures } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const portManager = require('../appNetwork/portManager');
 const {
   outgoingPeers, incomingPeers,
 } = require('../utils/establishedConnections');
@@ -284,7 +285,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   // RESTRICTION CHECKS
   verifyRestrictionCorrectnessOfApp(appSpecifications, height);
 
-  // SPECS VALIDITY TIME
+  // SPECS VALIDIT TIME
   if (height < config.fluxapps.appSpecsEnforcementHeights[appSpecifications.version]) {
     throw new Error(`Flux apps specifications of version ${appSpecifications.version} not yet supported`);
   }
@@ -293,8 +294,8 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   verifyObjectKeysCorrectnessOfApp(appSpecifications);
 
   // PORTS UNIQUE CHECKS
-  // Note: Port uniqueness check removed to avoid circular dependency with portManager
-  // This check should be handled at a higher level where portManager is already available
+  // verify ports are unique accross app
+  portManager.ensureAppUniquePorts(appSpecifications);
 
   // HW Checks
   if (appSpecifications.version <= 3) {
@@ -488,10 +489,7 @@ async function registerAppGlobalyApi(req, res) {
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
       timestamp = serviceHelper.ensureNumber(timestamp);
-      // Don't use ensureString on signature - it needs to be a valid base64 string
-      if (typeof signature !== 'string') {
-        throw new Error('Invalid signature - must be a string');
-      }
+      signature = serviceHelper.ensureString(signature);
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
@@ -507,23 +505,54 @@ async function registerAppGlobalyApi(req, res) {
         throw new Error('Daemon not yet synced.');
       }
 
-      // Format the app specification
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      const daemonHeight = syncStatus.data.height;
 
-      // Validate the app registration
-      await verifyAppSpecifications(appSpecFormatted, syncStatus.data.height, true);
+      const appSpecDecrypted = await checkAndDecryptAppSpecs(
+        appSpecification,
+        {
+          daemonHeight,
+          owner: appSpecification.owner,
+        },
+      );
 
-      // Check for name conflicts
-      const messageHASH = await generalService.messageHash(messageType + typeVersion + JSON.stringify(appSpecification) + timestamp + signature);
-      await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, messageHASH);
+      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
-      // Check app secrets for v7+ apps
-      if (appSpecFormatted.version >= 7) {
-        await imageManager.checkAppSecrets(appSpecFormatted);
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets) {
+            // eslint-disable-next-line no-await-in-loop
+            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+        }
       }
 
-      // Verify message signature
-      await messageVerifier.verifyAppMessageSignature(messageType, typeVersion, appSpecFormatted, timestamp, signature);
+      // check if name is not yet registered
+      await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+      const isEnterprise = Boolean(
+        appSpecification.version >= 8 && appSpecification.enterprise,
+      );
+
+      const toVerify = isEnterprise
+        ? specificationFormatter(appSpecification)
+        : appSpecFormatted;
+
+      // check if zelid owner is correct ( done in message verification )
+      // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
+      await messageVerifier.verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
+
+      if (isEnterprise) {
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
+      }
+
+      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
+      const messageHASH = await generalService.messageHash(messageType + typeVersion + JSON.stringify(appSpecification) + timestamp + signature);
 
       // Prepare the complete message for broadcast
       const completeMessage = {
