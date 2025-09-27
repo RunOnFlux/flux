@@ -2108,6 +2108,7 @@ module.exports = {
   getGlobalAppsSpecifications: registryManager.getGlobalAppsSpecifications,
   availableApps: registryManager.availableApps,
   checkApplicationRegistrationNameConflicts: registryManager.checkApplicationRegistrationNameConflicts,
+  updateAppSpecifications: registryManager.updateAppSpecifications,
   updateAppSpecsForRescanReindex: registryManager.updateAppSpecsForRescanReindex,
   storeAppSpecificationInPermanentStorage: registryManager.storeAppSpecificationInPermanentStorage,
   removeAppSpecificationFromStorage: registryManager.removeAppSpecificationFromStorage,

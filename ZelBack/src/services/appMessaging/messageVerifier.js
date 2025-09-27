@@ -100,7 +100,9 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
   }
   // signature is already validated as string in the if check above, no need to ensureString
   const messageToVerify = type + version + JSON.stringify(appSpec) + timestamp;
-  let isValidSignature = verificationHelper.verifyMessage(messageToVerify, appSpec.owner, signature); // only btc
+  // Use require here to avoid circular dependency issues
+  const { verifyMessage } = require('../verificationHelper');
+  let isValidSignature = verifyMessage(messageToVerify, appSpec.owner, signature); // only btc
   if (timestamp > 1688947200000) {
     isValidSignature = signatureVerifier.verifySignature(messageToVerify, appSpec.owner, signature); // btc, eth
   }
@@ -125,7 +127,7 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
     if (timestamp > 1688947200000) {
       isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appSpec.owner, signature); // btc, eth
     } else {
-      isValidSignature = verificationHelper.verifyMessage(messageToVerifyOld, appSpec.owner, signature); // only btc
+      isValidSignature = verifyMessage(messageToVerifyOld, appSpec.owner, signature); // only btc
     }
     // fix for repoauth / secrets order change for apps created after 1750273721000
   } else if (isValidSignature !== true && appSpec.version === 7) {
