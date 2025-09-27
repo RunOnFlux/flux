@@ -11,54 +11,6 @@ const geolocationService = require('../geolocationService');
 const cmdAsync = util.promisify(nodecmd.run);
 const fluxDirPath = path.join(__dirname, '../../../../');
 
-/**
- * Get chain parameters price updates
- * @returns {Promise<Array>} Array of price updates
- */
-async function getChainParamsPriceUpdates() {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.chainparams.database);
-    const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
-    const query = { version: 'p' };
-    const projection = {
-      projection: {
-        _id: 0,
-      },
-    };
-    const priceMessages = await dbHelper.findInDatabase(database, chainParamsMessagesCollection, query, projection);
-    const priceForks = [];
-    config.fluxapps.price.forEach((price) => {
-      priceForks.push(price);
-    });
-    priceMessages.forEach((data) => {
-      const splittedMess = data.message.split('_');
-      if (splittedMess[4]) {
-        const dataPoint = {
-          height: +data.height,
-          cpu: +splittedMess[1],
-          ram: +splittedMess[2],
-          hdd: +splittedMess[3],
-          minPrice: +splittedMess[4],
-          port: +splittedMess[5] || 2,
-          scope: +splittedMess[6] || 6,
-          staticip: +splittedMess[7] || 3,
-        };
-        priceForks.push(dataPoint);
-      }
-    });
-    // sort priceForks depending on height
-    priceForks.sort((a, b) => {
-      if (a.height > b.height) return 1;
-      if (a.height < b.height) return -1;
-      return 0;
-    });
-    return priceForks;
-  } catch (error) {
-    log.error(error);
-    return [];
-  }
-}
 
 /**
  * Calculate app price per month
@@ -71,7 +23,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
-  const appPrices = suppliedPrices || await getChainParamsPriceUpdates();
+  const fluxNetworkHelper = require('../fluxNetworkHelper');
+  const chainUtilities = require('./chainUtilities');
+  const appPrices = suppliedPrices || await chainUtilities.getChainParamsPriceUpdates();
   const intervals = appPrices.filter((i) => i.height < height);
   const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   let instancesAdditional = 0;
@@ -83,57 +37,125 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   if (dataForAppRegistration.version <= 3) {
     if (dataForAppRegistration.tiered) {
       const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
+      const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
+      const cpuTotal = cpuPrice / 3;
       const ramTotalCount = dataForAppRegistration.rambasic + dataForAppRegistration.ramsuper + dataForAppRegistration.rambamf;
+      const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
+      const ramTotal = ramPrice / 3;
       const hddTotalCount = dataForAppRegistration.hddbasic + dataForAppRegistration.hddsuper + dataForAppRegistration.hddbamf;
-      const cpuPrice = cpuTotalCount * priceSpecifications.cpu;
-      const ramPrice = ramTotalCount * priceSpecifications.ram;
       const hddPrice = hddTotalCount * priceSpecifications.hdd;
-      let totalPrice = cpuPrice + ramPrice + hddPrice;
-
-      // Handle additional instances
-      let additionalInst = 0;
-      if (instancesAdditional > 0) {
-        additionalInst = Math.ceil(instancesAdditional / 3);
+      const hddTotal = hddPrice / 3;
+      let totalPrice = cpuTotal + ramTotal + hddTotal;
+      if (dataForAppRegistration.port) {
+        if (fluxNetworkHelper.isPortEnterprise(dataForAppRegistration.port)) {
+          totalPrice += priceSpecifications.port;
+        }
+      } else if (dataForAppRegistration.ports) {
+        const enterprisePorts = [];
+        dataForAppRegistration.ports.forEach((port) => {
+          if (fluxNetworkHelper.isPortEnterprise(port)) {
+            enterprisePorts.push(port);
+          }
+        });
+        totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
       }
-      totalPrice *= (1 + additionalInst);
-
-      return totalPrice;
-    } else {
-      const cpuPrice = dataForAppRegistration.cpu * priceSpecifications.cpu;
-      const ramPrice = dataForAppRegistration.ram * priceSpecifications.ram;
-      const hddPrice = dataForAppRegistration.hdd * priceSpecifications.hdd;
-      let totalPrice = cpuPrice + ramPrice + hddPrice;
-
-      // Handle additional instances
-      let additionalInst = 0;
-      if (instancesAdditional > 0) {
-        additionalInst = Math.ceil(instancesAdditional / 3);
+      if (priceSpecifications.minUSDPrice && height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+        totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
       }
-      totalPrice *= (1 + additionalInst);
-
-      return totalPrice;
+      let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+      if (instancesAdditional > 0 && height >= config.fluxapps.applyMinimumForExtraInstances) {
+        if (appPrice < 1.50) {
+          appPrice += (instancesAdditional * 0.50);
+        } else {
+          const additionalPrice = (appPrice * instancesAdditional) / 3;
+          appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+        }
+      }
+      if (appPrice < priceSpecifications.minPrice) {
+        appPrice = priceSpecifications.minPrice;
+      }
+      return appPrice;
     }
-  } else {
-    // Handle version >= 4 (compose applications)
-    let totalPrice = 0;
-    if (dataForAppRegistration.compose && Array.isArray(dataForAppRegistration.compose)) {
-      dataForAppRegistration.compose.forEach((component) => {
-        const cpuPrice = component.cpu * priceSpecifications.cpu;
-        const ramPrice = component.ram * priceSpecifications.ram;
-        const hddPrice = component.hdd * priceSpecifications.hdd;
-        totalPrice += cpuPrice + ramPrice + hddPrice;
+    const cpuTotal = dataForAppRegistration.cpu * priceSpecifications.cpu * 10;
+    const ramTotal = (dataForAppRegistration.ram * priceSpecifications.ram) / 100;
+    const hddTotal = dataForAppRegistration.hdd * priceSpecifications.hdd;
+    let totalPrice = cpuTotal + ramTotal + hddTotal;
+    if (dataForAppRegistration.port) {
+      if (fluxNetworkHelper.isPortEnterprise(dataForAppRegistration.port)) {
+        totalPrice += priceSpecifications.port;
+      }
+    } else if (dataForAppRegistration.ports) {
+      const enterprisePorts = [];
+      dataForAppRegistration.ports.forEach((port) => {
+        if (fluxNetworkHelper.isPortEnterprise(port)) {
+          enterprisePorts.push(port);
+        }
       });
+      totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
     }
-
-    // Handle additional instances
-    let additionalInst = 0;
-    if (instancesAdditional > 0) {
-      additionalInst = Math.ceil(instancesAdditional / 3);
+    let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+    if (instancesAdditional > 0 && height >= config.fluxapps.applyMinimumForExtraInstances) {
+      if (appPrice < 1.50) {
+        appPrice += (instancesAdditional * 0.50);
+      } else {
+        const additionalPrice = (appPrice * instancesAdditional) / 3;
+        appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+      }
     }
-    totalPrice *= (1 + additionalInst);
-
-    return totalPrice;
+    if (appPrice < priceSpecifications.minPrice) {
+      appPrice = priceSpecifications.minPrice;
+    }
+    return appPrice;
   }
+  // v4+ compose
+  let cpuTotalCount = 0;
+  let ramTotalCount = 0;
+  let hddTotalCount = 0;
+  const enterprisePorts = [];
+  dataForAppRegistration.compose.forEach((appComponent) => {
+    if (appComponent.tiered) {
+      cpuTotalCount += ((appComponent.cpubasic + appComponent.cpusuper + appComponent.cpubamf) / 3);
+      ramTotalCount += ((appComponent.rambasic + appComponent.ramsuper + appComponent.rambamf) / 3);
+      hddTotalCount += ((appComponent.hddbasic + appComponent.hddsuper + appComponent.hddbamf) / 3);
+    } else {
+      cpuTotalCount += appComponent.cpu;
+      ramTotalCount += appComponent.ram;
+      hddTotalCount += appComponent.hdd;
+    }
+    appComponent.ports.forEach((port) => {
+      if (fluxNetworkHelper.isPortEnterprise(port)) {
+        enterprisePorts.push(port);
+      }
+    });
+  });
+  const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
+  const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
+  const hddPrice = hddTotalCount * priceSpecifications.hdd;
+  let totalPrice = cpuPrice + ramPrice + hddPrice;
+  if ((dataForAppRegistration.nodes && dataForAppRegistration.nodes.length) || dataForAppRegistration.enterprise) { // v7+ enterprise apps
+    totalPrice += priceSpecifications.scope;
+  }
+  if (dataForAppRegistration.staticip) { // v7+ staticip option
+    totalPrice += priceSpecifications.staticip;
+  }
+  totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
+  if (priceSpecifications.minUSDPrice && height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
+    totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
+  }
+  let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+  if (instancesAdditional > 0 && height >= config.fluxapps.applyMinimumForExtraInstances) {
+    if (appPrice < 1.50) {
+      appPrice += (instancesAdditional * 0.50);
+    } else {
+      const additionalPrice = (appPrice * instancesAdditional) / 3;
+      appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
+    }
+  }
+
+  if (appPrice < priceSpecifications.minPrice) {
+    appPrice = priceSpecifications.minPrice;
+  }
+  return appPrice;
 }
 
 /**
@@ -243,23 +265,20 @@ async function getContainerStorage(appName) {
  */
 function getAppPorts(appSpecs) {
   const appPorts = [];
-
+  // eslint-disable-next-line no-restricted-syntax
   if (appSpecs.version === 1) {
     appPorts.push(+appSpecs.port);
   } else if (appSpecs.version <= 3) {
     appSpecs.ports.forEach((port) => {
       appPorts.push(+port);
     });
-  } else if (appSpecs.compose && Array.isArray(appSpecs.compose)) {
+  } else {
     appSpecs.compose.forEach((component) => {
-      if (component.ports && Array.isArray(component.ports)) {
-        component.ports.forEach((port) => {
-          appPorts.push(+port);
-        });
-      }
+      component.ports.forEach((port) => {
+        appPorts.push(+port);
+      });
     });
   }
-
   return appPorts;
 }
 
@@ -626,7 +645,6 @@ function calculateTotalHdd(appSpec) {
 }
 
 module.exports = {
-  getChainParamsPriceUpdates,
   appPricePerMonth,
   nodeFullGeolocation,
   getAppFolderSize,
