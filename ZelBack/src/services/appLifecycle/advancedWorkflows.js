@@ -152,7 +152,9 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
   const formattedPrev = specificationFormatter(decryptedPrev);
 
   return formattedPrev;
-}\n\n// Path constants
+}
+
+// Path constants
 const cmdAsync = util.promisify(nodecmd.run);
 const fluxDirPath = path.join(__dirname, '../../../../');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');

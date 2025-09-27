@@ -1,5 +1,5 @@
 const config = require('config');
-const dbHelper = require('../../lib/dbHelper');
+const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
 
 /**

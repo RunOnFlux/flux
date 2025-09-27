@@ -15,7 +15,7 @@ const log = require('../../lib/log');
  */
 async function appLocation(appname) {
   const dbHelper = require('../dbHelper');
-  const config = require('../../../config/userconfig');
+  const config = require('../../../../config/userconfig');
   const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
   const dbopen = dbHelper.databaseConnection();

@@ -6,7 +6,7 @@ const pgpService = require('../pgpService');
 const imageVerifier = require('../utils/imageVerifier');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
-const userconfig = require('../../../config/userconfig');
+const userconfig = require('../../../../config/userconfig');
 const { supportedArchitectures, globalAppsMessages } = require('../utils/appConstants');
 
 // Global cache for original compatibility
