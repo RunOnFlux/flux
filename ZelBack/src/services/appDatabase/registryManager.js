@@ -5,6 +5,7 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+const appsService = require('../appsService');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const {
@@ -262,6 +263,7 @@ async function getApplicationOwner(appName) {
   if (appSpecs) {
     return appSpecs.owner;
   }
+  // eslint-disable-next-line no-use-before-define
   const allApps = await availableApps();
   const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   if (appInfo) {
@@ -455,7 +457,7 @@ async function getApplicationSpecificationAPI(req, res) {
           log.warn(`Failed to decrypt app spec for ${spec.name}:`, error.message);
           return spec; // Fall back to original if decryption fails
         }
-      })
+      }),
     );
 
     const specificationsResponse = messageHelper.createDataMessage(decryptedSpecs);
@@ -858,8 +860,6 @@ async function expireGlobalApplications() {
     }
 
     // get list of locally installed apps.
-    // Import locally to avoid circular dependency
-    const appsService = require('../appsService');
     const installedAppsRes = await appsService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
@@ -948,83 +948,32 @@ async function reindexGlobalAppsInformation() {
 
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
-
-    // Get current height for expiration checking
-    // Check if daemon is synced
-    let syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    let i = 0;
-    while (!syncStatus.data.synced && i < 12) {
-      i += 1;
-      await serviceHelper.delay(10000); // max 2 minutes for daemon to startup because after reboot as it might not be reachable when we call reindex function
-      syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    }
-
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not synced - cannot reindex without current height');
-    }
-    const currentHeight = syncStatus.data.height;
-
-    // Get all app messages sorted by height (oldest to newest)
-    const messages = await dbHelper.findInDatabase(database, globalAppsMessages, {}, { projection: { _id: 0 }, sort: { height: 1 } });
-
-    // Clear existing information collection
-    await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, {});
-
-    // Recreate indexes
-    await database.collection(globalAppsInformation).createIndex({ name: 1 }, { name: 'query for getting app based on app specs name' });
-    await database.collection(globalAppsInformation).createIndex({ owner: 1 }, { name: 'query for getting app based on app specs owner' });
-    await database.collection(globalAppsInformation).createIndex({ repotag: 1 }, { name: 'query for getting app based on image' });
-    await database.collection(globalAppsInformation).createIndex({ height: 1 }, { name: 'query for getting app based on last height update' });
-    await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting app based on last hash' });
-
-    let processedCount = 0;
-    let expiredCount = 0;
-
-    // Process messages by app name to only keep the latest version
-    const appsByName = new Map();
-
-    messages.forEach((message) => {
-      if (message.appSpecifications) {
-        const appSpec = message.appSpecifications;
-        const appName = appSpec.name;
-        const messageHeight = message.height;
-
-        // Check if we already have a message for this app
-        const existingApp = appsByName.get(appName);
-
-        if (!existingApp || messageHeight > existingApp.height) {
-          const expireHeight = messageHeight + (appSpec.expire || 22000); // default expire period
-
-          if (expireHeight > currentHeight) {
-            const appInfo = {
-              ...appSpec,
-              hash: message.hash,
-              height: messageHeight,
-              txid: message.txid,
-            };
-            appsByName.set(appName, appInfo);
-          }
-        }
+    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
+      if (error.message !== 'ns not found') {
+        throw error;
       }
     });
-
-    // Convert map to array and count results
-    const validApps = Array.from(appsByName.values());
-    processedCount = validApps.length;
-    expiredCount = messages.length - processedCount;
-
-    // Insert all valid apps using upsert to handle any potential duplicates
-    if (validApps.length > 0) {
-      for (const appInfo of validApps) {
-        const query = { name: appInfo.name };
-        const update = { $set: appInfo };
-        const options = { upsert: true };
-        await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
-      }
+    await database.collection(globalAppsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
+    await database.collection(globalAppsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
+    await database.collection(globalAppsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
+    await database.collection(globalAppsInformation).createIndex({ height: 1 }, { name: 'query for getting zelapp based on last height update' }); // we need to know the height of app adjustment
+    await database.collection(globalAppsInformation).createIndex({ hash: 1 }, { name: 'query for getting zelapp based on last hash' }); // we need to know the hash of the last message update which is the true identifier
+    const query = {};
+    const projection = { projection: { _id: 0 }, sort: { height: 1 } }; // sort from oldest to newest
+    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const message of results) {
+      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
+      updateForSpecifications.hash = message.hash;
+      updateForSpecifications.height = message.height;
+      // eslint-disable-next-line no-await-in-loop
+      await updateAppSpecsForRescanReindex(updateForSpecifications);
     }
-
-    log.info(`Reindexed global apps information: ${processedCount} active apps, ${expiredCount} expired apps filtered out`);
-    return 'Reindex completed successfully';
+    log.info('Reindexing of global application list finished. Starting expiring global apps.');
+    await expireGlobalApplications();
+    log.info('Expiration of global application list finished. Done.');
+    reindexRunning = false;
+    return true;
   } catch (error) {
     log.error(error);
     throw error;
