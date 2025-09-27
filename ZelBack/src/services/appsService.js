@@ -1011,8 +1011,22 @@ async function checkAndSyncAppHashes() {
         for (const appMessage of filteredApps) {
           y += 1;
           try {
+            // Clean the permanent message to only include fields used in signature verification
+            // Permanent messages have extra fields (txid, height, valueSat) that aren't part of the original signature
+            const cleanMessage = {
+              type: appMessage.type,
+              version: appMessage.version,
+              appSpecifications: appMessage.appSpecifications,
+              hash: appMessage.hash,
+              timestamp: appMessage.timestamp,
+              signature: appMessage.signature
+            };
+            // Support legacy field name if present
+            if (appMessage.zelAppSpecifications) {
+              cleanMessage.zelAppSpecifications = appMessage.zelAppSpecifications;
+            }
             // eslint-disable-next-line no-await-in-loop
-            await messageStore.storeAppTemporaryMessage(appMessage, true);
+            await messageStore.storeAppTemporaryMessage(cleanMessage, true);
             // eslint-disable-next-line no-await-in-loop
             await messageVerifier.checkAndRequestApp(appMessage.hash, appMessage.txid, appMessage.height, appMessage.valueSat, 2);
             // eslint-disable-next-line no-await-in-loop
