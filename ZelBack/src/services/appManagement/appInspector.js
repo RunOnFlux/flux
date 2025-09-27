@@ -188,8 +188,14 @@ async function appLogPolling(req, res) {
         });
       });
 
-      const dataMessage = messageHelper.createDataMessage(logs);
-      res.json(dataMessage);
+      res.json({
+        logs,
+        lineCount: parsedLineCount,
+        logCount: logs.length,
+        sinceTimestamp: since,
+        truncated: parsedLineCount === 'all' ? false : logs.length >= parsedLineCount,
+        status: 'success',
+      });
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -319,8 +325,8 @@ async function appMonitor(req, res, appsMonitored) {
             appStatsMonitoring = appStatsMonitoring.filter((_, index, array) => index % 20 === 0 || index === array.length - 1);
           }
         }
-        const dataMessage = messageHelper.createDataMessage(appStatsMonitoring);
-        res.json(dataMessage);
+        const appResponse = messageHelper.createDataMessage(appStatsMonitoring);
+        res.json(appResponse);
       } else {
         throw new Error('No data available');
       }
