@@ -5,6 +5,9 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const networkStateService = require('../networkStateService');
 const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
+const userconfig = require('../../../config/userconfig');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
 
 /**
@@ -45,7 +48,7 @@ function ensureAppUniquePorts(appSpecFormatted) {
 
     const portsUnique = appPortsUnique(allPorts);
     if (!portsUnique) {
-      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified across all components`);
+      throw new Error(`Flux App ${appSpecFormatted.name} must have unique ports specified accross all composition`);
     }
   }
 
@@ -57,47 +60,60 @@ function ensureAppUniquePorts(appSpecFormatted) {
  * @returns {Promise<Array>} Array of objects with app names and their assigned ports
  */
 async function assignedPortsInstalledApps() {
+  // construct object ob app name and ports array
   const dbopen = dbHelper.databaseConnection();
   const database = dbopen.db(config.database.appslocal.database);
   const query = {};
   const projection = { projection: { _id: 0 } };
   const results = await dbHelper.findInDatabase(database, localAppsInformation, query, projection);
-
-  const appsWithPorts = [];
-
-  results.forEach((app) => {
-    const appPorts = [];
-
-    if (app.version === 1) {
-      if (app.port) {
-        appPorts.push(Number(app.port));
-      }
-    } else if (app.version <= 3) {
-      if (app.ports && Array.isArray(app.ports)) {
-        app.ports.forEach((port) => {
-          appPorts.push(Number(port));
-        });
-      }
-    } else if (app.version >= 4 && app.compose) {
-      // For compose applications, collect ports from all components
-      app.compose.forEach((component) => {
-        if (component.ports && Array.isArray(component.ports)) {
-          component.ports.forEach((port) => {
-            appPorts.push(Number(port));
-          });
-        }
-      });
+  const decryptedApps = [];
+  // ToDo: move the functions around so we can remove no-use-before-define
+  // eslint-disable-next-line no-restricted-syntax
+  for (const spec of results) {
+    const isEnterprise = Boolean(
+      spec.version >= 8 && spec.enterprise,
+    );
+    if (isEnterprise) {
+      // eslint-disable-next-line no-await-in-loop
+      const decrypted = await checkAndDecryptAppSpecs(spec);
+      const formatted = specificationFormatter(decrypted);
+      decryptedApps.push(formatted);
+    } else {
+      decryptedApps.push(spec);
     }
-
-    if (appPorts.length > 0) {
-      appsWithPorts.push({
+  }
+  const apps = [];
+  decryptedApps.forEach((app) => {
+    // there is no app
+    if (app.version === 1) {
+      const appSpecs = {
         name: app.name,
-        ports: appPorts,
+        ports: [Number(app.port)],
+      };
+      apps.push(appSpecs);
+    } else if (app.version <= 3) {
+      const appSpecs = {
+        name: app.name,
+        ports: [],
+      };
+      app.ports.forEach((port) => {
+        appSpecs.ports.push(Number(port));
       });
+      apps.push(appSpecs);
+    } else if (app.version >= 4) {
+      const appSpecs = {
+        name: app.name,
+        ports: [],
+      };
+      app.compose.forEach((component) => {
+        component.ports.forEach((port) => {
+          appSpecs.ports.push(Number(port));
+        });
+      });
+      apps.push(appSpecs);
     }
   });
-
-  return appsWithPorts;
+  return apps;
 }
 
 /**
@@ -311,32 +327,31 @@ async function signCheckAppData(message) {
  * @param {function} installedApps - Function to get installed apps
  * @returns {Promise<void>}
  */
-async function callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, installedApps) {
+// Global cache for failed nodes
+const failedNodesTestPortsCache = new Map();
+
+async function callOtherNodeToKeepUpnpPortsOpen() {
   try {
-    const apiPort = config.server.apiport;
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
     let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (!myIP) {
       return;
     }
-
     const randomSocketAddress = await networkStateService.getRandomSocketAddress(myIP);
-
     if (!randomSocketAddress) return;
-
     const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
-
     myIP = myIP.split(':')[0];
-
     if (myIP === askingIP) {
-      callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, installedApps);
+      callOtherNodeToKeepUpnpPortsOpen();
       return;
     }
     if (failedNodesTestPortsCache.has(askingIP)) {
-      callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, installedApps);
+      callOtherNodeToKeepUpnpPortsOpen();
       return;
     }
-
-    const installedAppsRes = await installedApps();
+    // Import locally to avoid circular dependency
+    const appController = require('../appManagement/appController');
+    const installedAppsRes = await appController.installedApps();
     if (installedAppsRes.status !== 'success') {
       return;
     }
@@ -359,20 +374,21 @@ async function callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, insta
         });
       }
     }
-
     // We don't add the api port, as the remote node will callback to our
     // api port to make sure it can connect before testing any other ports
     // this is so that we know the remote end can reach us. I also removed
     // -2,-3,-4, +3 as they are currently not used.
     ports.push(apiPort - 1);
+    // ports.push(apiPort - 2);
+    // ports.push(apiPort - 3);
+    // ports.push(apiPort - 4);
     ports.push(apiPort - 5);
     ports.push(apiPort + 1);
     ports.push(apiPort + 2);
-
+    // ports.push(apiPort + 3);
     const axiosConfig = {
       timeout: 5_000,
     };
-
     const dataUPNP = {
       ip: myIP,
       apiPort,
@@ -380,14 +396,11 @@ async function callOtherNodeToKeepUpnpPortsOpen(failedNodesTestPortsCache, insta
       pubKey,
       timestamp: Math.floor(Date.now() / 1000),
     };
-
     const stringData = JSON.stringify(dataUPNP);
     const signature = await signCheckAppData(stringData);
     dataUPNP.signature = signature;
-
     const logMsg = `callOtherNodeToKeepUpnpPortsOpen - calling ${askingIP}:${askingIpPort} to test ports: ${ports}`;
     log.info(logMsg);
-
     const url = `http://${askingIP}:${askingIpPort}/flux/keepupnpportsopen`;
     await axios.post(url, dataUPNP, axiosConfig).catch(() => {
       // callOtherNodeToKeepUpnpPortsOpen();
