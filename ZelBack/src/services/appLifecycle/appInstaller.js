@@ -9,7 +9,12 @@ const log = require('../../lib/log');
 const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
-const { verifyAppSpecifications } = require('../appRequirements/appValidator');
+const {
+  checkAppHWRequirements,
+  checkAppStaticIpRequirements,
+  checkAppNodesRequirements,
+  checkAppGeolocationRequirements,
+} = require('../appRequirements/appValidator');
 const config = require('config');
 
 /**
@@ -141,6 +146,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     log.info(`Starting hard installation of app ${appName}`);
 
     // Check if app already exists
+    // eslint-disable-next-line no-use-before-define
     const existingApp = await getInstalledApps(appName);
     if (existingApp && existingApp.length > 0) {
       throw new Error(`App ${appName} already exists`);
@@ -186,6 +192,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     await registerAppLocally(fullAppSpecs || appSpecifications, componentSpecs, res, test);
 
     // Update app status to running
+    // eslint-disable-next-line no-use-before-define
     await updateAppStatus(appName, 'running');
 
     log.info(`Successfully installed app ${appName}`);
@@ -206,6 +213,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
     // Cleanup on failure
     try {
+      // eslint-disable-next-line no-use-before-define
       await cleanupFailedInstallation(appName);
     } catch (cleanupError) {
       log.error(`Cleanup failed for ${appName}: ${cleanupError.message}`);
@@ -229,6 +237,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     log.info(`Starting soft installation of app ${appName}`);
 
     // Check if app already exists
+    // eslint-disable-next-line no-use-before-define
     const existingApp = await getInstalledApps(appName);
     if (existingApp && existingApp.length > 0) {
       throw new Error(`App ${appName} already exists`);
@@ -236,6 +245,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
     // Soft register app in database
     const componentSpecs = isComponent ? [appSpecifications] : null;
+    // eslint-disable-next-line no-use-before-define
     await softRegisterAppLocally(fullAppSpecs || appSpecifications, componentSpecs, res);
 
     log.info(`Successfully soft-installed app ${appName}`);
@@ -468,6 +478,7 @@ async function installAppLocally(req, res) {
         throw new Error(`Application ${appname} is already installed`);
       }
 
+      // eslint-disable-next-line no-use-before-define
       await checkAppRequirements(appSpecifications); // entire app
 
       res.setHeader('Content-Type', 'application/json');
@@ -492,10 +503,18 @@ async function installAppLocally(req, res) {
  * @param {object} appSpecifications - Application specifications to check
  * @returns {Promise<boolean>} True if requirements are met
  */
-async function checkAppRequirements(appSpecifications) {
-  // Use the modular verification function
-  // In production, this might need additional height parameter
-  return verifyAppSpecifications(appSpecifications, 0, false);
+async function checkAppRequirements(appSpecs) {
+  // appSpecs has hdd, cpu and ram assigned to correct tier
+  await checkAppHWRequirements(appSpecs);
+  // check geolocation
+
+  checkAppStaticIpRequirements(appSpecs);
+
+  await checkAppNodesRequirements(appSpecs);
+
+  checkAppGeolocationRequirements(appSpecs);
+
+  return true;
 }
 
 /**
