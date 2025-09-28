@@ -408,7 +408,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     const benchmarkResponse = await benchmarkService.getBenchmarks();
     let myIP = null;
     if (benchmarkResponse.status === 'success') {
-      const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+      const benchmarkResponseData = benchmarkResponse.data;
       if (benchmarkResponseData.ipaddress) {
         log.info(`Gathered IP ${benchmarkResponseData.ipaddress}`);
         myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;

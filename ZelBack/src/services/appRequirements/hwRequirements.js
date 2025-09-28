@@ -28,7 +28,7 @@ async function getNodeSpecs() {
       // get my external IP and check that it is longer than 5 in length.
       const benchmarkResponse = await benchmarkService.getBenchmarks();
       if (benchmarkResponse.status === 'success') {
-        const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+        const benchmarkResponseData = benchmarkResponse.data;
         log.info(`Gathered ssdstorage ${benchmarkResponseData.ssd}`);
         nodeSpecs.ssdStorage = benchmarkResponseData.ssd;
       } else {
