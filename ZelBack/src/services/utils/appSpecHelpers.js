@@ -8,8 +8,8 @@ const { checkAndDecryptAppSpecs } = require('./enterpriseHelper');
 const { appPricePerMonth } = require('./appUtilities');
 const { specificationFormatter } = require('./appUtilities');
 const { getChainParamsPriceUpdates } = require('./chainUtilities');
-const registryManager = require('../registryManager');
-const cacheManager = require('../cacheManager');
+const registryManager = require('../appDatabase/registryManager');
+const cacheManager = require('./cacheManager');
 const hwRequirements = require('../appRequirements/hwRequirements');
 const log = require('../../lib/log');
 
