@@ -137,7 +137,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
+      if (!specifications.includes(sKey)) {
         throw new Error('Unsupported parameter for v1 app specifications');
       }
     });
@@ -148,7 +148,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
+      if (!specifications.includes(sKey)) {
         throw new Error('Unsupported parameter for v2 app specifications');
       }
     });
@@ -159,7 +159,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
+      if (!specifications.includes(sKey)) {
         throw new Error('Unsupported parameter for v3 app specifications');
       }
     });
@@ -173,14 +173,14 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
+      if (!specifications.includes(sKey)) {
         throw new Error('Unsupported parameter for v4 app specifications');
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
+        if (!componentSpecifications.includes(sKey)) {
           throw new Error('Unsupported parameter for v4 app specifications');
         }
       });
@@ -195,14 +195,14 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
+      if (!specifications.includes(sKey)) {
         throw new Error('Unsupported parameter for v5 app specifications');
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
+        if (!componentSpecifications.includes(sKey)) {
           throw new Error('Unsupported parameter for v5 app specifications');
         }
       });
@@ -217,14 +217,14 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
+      if (!specifications.includes(sKey)) {
         throw new Error('Unsupported parameter for v6 app specifications');
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
+        if (!componentSpecifications.includes(sKey)) {
           throw new Error('Unsupported parameter for v6 app specifications');
         }
       });
@@ -239,14 +239,14 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
+      if (!specifications.includes(sKey)) {
         throw new Error('Unsupported parameter for v7 app specifications');
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
+        if (!componentSpecifications.includes(sKey)) {
           throw new Error('Unsupported parameter for v7 app specifications');
         }
       });
@@ -262,14 +262,14 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     ];
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
-      if (!specifications.includes((sKey))) {
+      if (!specifications.includes(sKey)) {
         throw new Error('Unsupported parameter for v8 app specifications');
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
-        if (!componentSpecifications.includes((sKey))) {
+        if (!componentSpecifications.includes(sKey)) {
           throw new Error('Unsupported parameter for v8 app specifications');
         }
       });
@@ -437,9 +437,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   }
 
   // OBJECT KEY CHECKS
-  // Remove hash and height properties before validation as they are metadata added during processing
-  const { hash, height: specHeight, ...appSpecsForValidation } = appSpecifications;
-  verifyObjectKeysCorrectnessOfApp(appSpecsForValidation);
+  verifyObjectKeysCorrectnessOfApp(appSpecifications);
 
   // PORTS UNIQUE CHECKS
   // verify ports are unique accross app
