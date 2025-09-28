@@ -194,34 +194,314 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   };
 
   const dfres = await dfAsync(options);
-  if (!dfres) {
-    throw new Error('Unable to get available space');
+  const okVolumes = [];
+  dfres.forEach((volume) => {
+    if (volume.filesystem.includes('/dev/') && !volume.filesystem.includes('loop') && !volume.mount.includes('boot')) {
+      okVolumes.push(volume);
+    } else if (volume.filesystem.includes('loop') && volume.mount === '/') {
+      okVolumes.push(volume);
+    }
+  });
+
+  // Dynamic require to avoid circular dependency
+  const appsService = require('../appsService');
+  await appsService.getNodeSpecs();
+  const nodeSpecs = appsService.nodeSpecs;
+  const totalSpaceOnNode = nodeSpecs.ssdStorage;
+  const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
+  const resourcesLocked = await appsService.appsResources();
+  if (resourcesLocked.status !== 'success') {
+    throw new Error('Unable to obtain locked system resources by Flux App. Aborting.');
+  }
+  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
+  const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps + appSpecifications.hdd + config.fluxapps.hddFileSystemMinimum + config.fluxapps.defaultSwap; // because our application is already accounted in locked resources
+  // bigger or equal so we have the 1 gb free...
+  if (appSpecifications.hdd >= availableSpaceForApps) {
+    throw new Error('Insufficient space on Flux Node to spawn an application');
+  }
+  // now we know that most likely there is a space available. IF user does not have his own stuff on the node or space may be sharded accross hdds.
+  let usedSpace = 0;
+  let availableSpace = 0;
+  okVolumes.forEach((volume) => {
+    usedSpace += serviceHelper.ensureNumber(volume.used);
+    availableSpace += serviceHelper.ensureNumber(volume.available);
+  });
+  // space that is further reserved for flux os and that will be later substracted from available space. Max 60 + 20.
+  const fluxSystemReserve = config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace > 0 ? config.lockedSystemResources.hdd + config.lockedSystemResources.extrahdd - usedSpace : 0;
+  const minSystemReserve = Math.max(config.lockedSystemResources.extrahdd, fluxSystemReserve);
+  const totalAvailableSpaceLeft = availableSpace - minSystemReserve;
+  if (appSpecifications.hdd >= totalAvailableSpaceLeft) {
+    // sadly user free space is not enough for this application
+    throw new Error('Insufficient space on Flux Node. Space is already assigned to system files');
   }
 
-  const availableSpace = dfres.find((volume) => volume.filesystem === '/dev/root' || volume.mount === '/');
-  if (!availableSpace) {
-    throw new Error('Unable to determine available space');
+  // check if space is not sharded in some bad way. Always count the minSystemReserve
+  let useThisVolume = null;
+  const totalVolumes = okVolumes.length;
+  for (let i = 0; i < totalVolumes; i += 1) {
+    // check available volumes one by one. If a sufficient is found. Use this one.
+    if (okVolumes[i].available > appSpecifications.hdd + minSystemReserve) {
+      useThisVolume = okVolumes[i];
+      break;
+    }
+  }
+  if (!useThisVolume) {
+    // no useable volume has such a big space for the app
+    throw new Error('Insufficient space on Flux Node. No useable volume found.');
   }
 
-  if (availableSpace.available < appSpecifications.hdd) {
-    throw new Error(`Not enough space available for ${appName}. Required: ${appSpecifications.hdd}GB, Available: ${availableSpace.available}GB`);
-  }
-
-  const createVolumeStatus = {
-    status: `Creating volume for ${appName}...`,
+  // now we know there is a space and we have a volume we can operate with. Let's do volume magic
+  const searchSpace2 = {
+    status: 'Space found',
   };
-  log.info(createVolumeStatus);
+  log.info(searchSpace2);
   if (res) {
-    res.write(serviceHelper.ensureString(createVolumeStatus));
+    res.write(serviceHelper.ensureString(searchSpace2));
     if (res.flush) res.flush();
   }
 
-  // Create the actual volume
   try {
-    await dockerService.dockerVolumeCreate(appId);
-    log.info(`Volume ${appId} created successfully`);
+    const allocateSpace = {
+      status: 'Allocating space...',
+    };
+    log.info(allocateSpace);
+    if (res) {
+      res.write(serviceHelper.ensureString(allocateSpace));
+      if (res.flush) res.flush();
+    }
+
+    let execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted
+    if (useThisVolume.mount === '/') {
+      execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /flu/appvolumes
+    }
+
+    await cmdAsync(execDD);
+    const allocateSpace2 = {
+      status: 'Space allocated',
+    };
+    log.info(allocateSpace2);
+    if (res) {
+      res.write(serviceHelper.ensureString(allocateSpace2));
+      if (res.flush) res.flush();
+    }
+
+    const makeFilesystem = {
+      status: 'Creating filesystem...',
+    };
+    log.info(makeFilesystem);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeFilesystem));
+      if (res.flush) res.flush();
+    }
+    let execFS = `sudo mke2fs -t ext4 ${useThisVolume.mount}/${appId}FLUXFSVOL`;
+    if (useThisVolume.mount === '/') {
+      execFS = `sudo mke2fs -t ext4 ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
+    }
+    await cmdAsync(execFS);
+    const makeFilesystem2 = {
+      status: 'Filesystem created',
+    };
+    log.info(makeFilesystem2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeFilesystem2));
+      if (res.flush) res.flush();
+    }
+
+    const makeDirectory = {
+      status: 'Making directory...',
+    };
+    log.info(makeDirectory);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectory));
+      if (res.flush) res.flush();
+    }
+    const execDIR = `sudo mkdir -p ${appsFolder + appId}`;
+    await cmdAsync(execDIR);
+    const makeDirectory2 = {
+      status: 'Directory made',
+    };
+    log.info(makeDirectory2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectory2));
+      if (res.flush) res.flush();
+    }
+
+    const mountingStatus = {
+      status: 'Mounting volume...',
+    };
+    log.info(mountingStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(mountingStatus));
+      if (res.flush) res.flush();
+    }
+    let execMount = `sudo mount -o loop ${useThisVolume.mount}/${appId}FLUXFSVOL ${appsFolder + appId}`;
+    if (useThisVolume.mount === '/') {
+      execMount = `sudo mount -o loop ${fluxDirPath}appvolumes/${appId}FLUXFSVOL ${appsFolder + appId}`;
+    }
+    await cmdAsync(execMount);
+    const mountingStatus2 = {
+      status: 'Volume mounted',
+    };
+    log.info(mountingStatus2);
+    if (res) {
+      res.write(serviceHelper.ensureString(mountingStatus2));
+      if (res.flush) res.flush();
+    }
+
+    const makeDirectoryB = {
+      status: 'Making application data directory...',
+    };
+    log.info(makeDirectoryB);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectoryB));
+      if (res.flush) res.flush();
+    }
+    const execDIR2 = `sudo mkdir -p ${appsFolder + appId}/appdata`;
+    await cmdAsync(execDIR2);
+    const makeDirectoryB2 = {
+      status: 'Application data directory made',
+    };
+    log.info(makeDirectoryB2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeDirectoryB2));
+      if (res.flush) res.flush();
+    }
+
+    const permissionsDirectory = {
+      status: 'Adjusting permissions...',
+    };
+    log.info(permissionsDirectory);
+    if (res) {
+      res.write(serviceHelper.ensureString(permissionsDirectory));
+      if (res.flush) res.flush();
+    }
+    const execPERM = `sudo chmod 777 ${appsFolder + appId}`;
+    await cmdAsync(execPERM);
+    const execPERMdata = `sudo chmod 777 ${appsFolder + appId}/appdata`;
+    await cmdAsync(execPERMdata);
+    const permissionsDirectory2 = {
+      status: 'Permissions adjusted',
+    };
+    log.info(permissionsDirectory2);
+    if (res) {
+      res.write(serviceHelper.ensureString(permissionsDirectory2));
+      if (res.flush) res.flush();
+    }
+
+    // if s flag create .stfolder
+    const containersData = appSpecifications.containerData.split('|');
+    // eslint-disable-next-line no-restricted-syntax
+    for (let i = 0; i < containersData.length; i += 1) {
+      const container = containersData[i];
+      const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
+      if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
+        const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
+        const stFolderCreation = {
+          status: 'Creating .stfolder for syncthing...',
+        };
+        log.info(stFolderCreation);
+        if (res) {
+          res.write(serviceHelper.ensureString(stFolderCreation));
+          if (res.flush) res.flush();
+        }
+        const execDIRst = `sudo mkdir -p ${appsFolder + appId + containerFolder}/.stfolder`;
+        // eslint-disable-next-line no-await-in-loop
+        await cmdAsync(execDIRst);
+        const stFolderCreation2 = {
+          status: '.stfolder created',
+        };
+        log.info(stFolderCreation2);
+        if (res) {
+          res.write(serviceHelper.ensureString(stFolderCreation2));
+          if (res.flush) res.flush();
+        }
+        if (i === 0) {
+          const stignore = `sudo echo '/backup' >| ${appsFolder + appId + containerFolder}/.stignore`;
+          log.info(stignore);
+          // eslint-disable-next-line no-await-in-loop
+          await cmdAsync(stignore);
+          const stiFileCreation = {
+            status: '.stignore created',
+          };
+          log.info(stiFileCreation);
+          if (res) {
+            res.write(serviceHelper.ensureString(stiFileCreation));
+            if (res.flush) res.flush();
+          }
+        }
+      }
+    }
+
+    const cronStatus = {
+      status: 'Creating crontab...',
+    };
+    log.info(cronStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronStatus));
+      if (res.flush) res.flush();
+    }
+    const crontab = await crontabLoad();
+    const jobs = crontab.jobs();
+    let exists = false;
+    jobs.forEach((job) => {
+      if (job.comment() === appId) {
+        exists = true;
+      }
+      if (!job || !job.isValid()) {
+        // remove the job as its invalid anyway
+        crontab.remove(job);
+      }
+    });
+    if (!exists) {
+      const job = crontab.create(execMount, '@reboot', appId);
+      // check valid
+      if (job == null) {
+        throw new Error('Failed to create a cron job');
+      }
+      if (!job.isValid()) {
+        throw new Error('Failed to create a valid cron job');
+      }
+      // save
+      crontab.save();
+    }
+    const cronStatusB = {
+      status: 'Crontab adjusted.',
+    };
+    log.info(cronStatusB);
+    if (res) {
+      res.write(serviceHelper.ensureString(cronStatusB));
+      if (res.flush) res.flush();
+    }
+    const message = messageHelper.createSuccessMessage('Flux App volume creation completed.');
+    return message;
   } catch (error) {
-    throw new Error(`Failed to create volume for ${appName}: ${error.message}`);
+    clearInterval(global.allocationInterval);
+    clearInterval(global.verificationInterval);
+    // delete allocation, then uninstall as cron may not have been set
+    const cleaningRemoval = {
+      status: 'ERROR OCCURED: Pre-removal cleaning...',
+    };
+    log.info(cleaningRemoval);
+    if (res) {
+      res.write(serviceHelper.ensureString(cleaningRemoval));
+      if (res.flush) res.flush();
+    }
+    let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${appId}FLUXFSVOL`;
+    if (useThisVolume.mount === '/') {
+      execRemoveAlloc = `sudo rm -rf ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
+    }
+    await cmdAsync(execRemoveAlloc).catch((e) => log.error(e));
+    const execFinal = `sudo rm -rf ${appsFolder + appId}`;
+    await cmdAsync(execFinal).catch((e) => log.error(e));
+    const aloocationRemoval2 = {
+      status: 'Pre-removal cleaning completed. Forcing removal.',
+    };
+    log.info(aloocationRemoval2);
+    if (res) {
+      res.write(serviceHelper.ensureString(aloocationRemoval2));
+      if (res.flush) res.flush();
+    }
+    throw error;
   }
 }
 
