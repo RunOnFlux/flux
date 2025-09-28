@@ -300,7 +300,7 @@ function specificationFormatter(appSpecification) {
     ports,
     containerPorts,
     domains,
-    environmentParameters,
+    enviromentParameters,
     commands,
     containerData,
     cpu,
@@ -355,7 +355,7 @@ function specificationFormatter(appSpecification) {
       ports = serviceHelper.ensureArray(ports).map(p => serviceHelper.ensureNumber(p));
       containerPorts = serviceHelper.ensureArray(containerPorts).map(p => serviceHelper.ensureNumber(p));
       domains = serviceHelper.ensureArray(domains);
-      environmentParameters = serviceHelper.ensureArray(environmentParameters);
+      enviromentParameters = serviceHelper.ensureArray(enviromentParameters);
       commands = serviceHelper.ensureArray(commands);
       containerData = serviceHelper.ensureString(containerData);
       cpu = serviceHelper.ensureNumber(cpu);
@@ -382,7 +382,6 @@ function specificationFormatter(appSpecification) {
 
   if (version >= 4) {
     compose = serviceHelper.ensureArray(compose);
-    repoauth = serviceHelper.ensureString(repoauth);
   }
 
   if (version >= 5) {
@@ -425,7 +424,7 @@ function specificationFormatter(appSpecification) {
       formatted.ports = ports;
       formatted.containerPorts = containerPorts;
       formatted.domains = domains;
-      formatted.environmentParameters = environmentParameters;
+      formatted.enviromentParameters = enviromentParameters;
       formatted.commands = commands;
       formatted.containerData = containerData;
       formatted.cpu = cpu;
@@ -452,8 +451,24 @@ function specificationFormatter(appSpecification) {
   }
 
   if (version >= 4) {
-    formatted.compose = compose;
-    formatted.repoauth = repoauth;
+    // Process components and add version-specific component properties
+    const correctCompose = [];
+    if (Array.isArray(compose)) {
+      compose.forEach((appComponent) => {
+        const appComponentCorrect = { ...appComponent };
+
+        // Add component-level repoauth and secrets for v7+
+        if (version >= 7) {
+          appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
+          if (version === 7) {
+            appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
+          }
+        }
+
+        correctCompose.push(appComponentCorrect);
+      });
+    }
+    formatted.compose = correctCompose;
   }
 
   if (version >= 5) {
