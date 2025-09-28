@@ -18,7 +18,15 @@ const {
   globalAppsLocations,
   globalAppsInstallingLocations,
   appsHashesCollection,
+  scannedHeightCollection,
 } = require('../utils/appConstants');
+const { invalidMessages } = require('../invalidMessages');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
+const globalState = require('../utils/globalState');
+
+// Import hashesNumberOfSearchs from appsService - this should be shared state
+// For now, we'll create a local instance, but ideally this should be moved to globalState
+const hashesNumberOfSearchs = new Map();
 
 /**
  * Verify app hash against message content
@@ -59,19 +67,18 @@ async function verifyAppHash(message) {
       owner: specifications.owner,
       ...appSpecsCopy,
     };
-
     messToHash = message.type + message.version + JSON.stringify(appSpecOld) + message.timestamp + message.signature;
     messageHASH = await generalService.messageHash(messToHash);
-
-    if (messageHASH === message.hash) return true;
   } else if (specifications.version === 7) {
     // fix for repoauth / secrets order change for apps created after 1750273721000
     appSpecsCopy.compose.forEach((component) => {
       // previously the order was secrets / repoauth. Now it's repoauth / secrets.
       const comp = component;
       const { secrets, repoauth } = comp;
+
       delete comp.secrets;
       delete comp.repoauth;
+
       // try the old secrets / repoauth
       comp.secrets = secrets;
       comp.repoauth = repoauth;
@@ -79,11 +86,16 @@ async function verifyAppHash(message) {
 
     messToHash = message.type + message.version + JSON.stringify(appSpecsCopy) + message.timestamp + message.signature;
     messageHASH = await generalService.messageHash(messToHash);
-
-    if (messageHASH === message.hash) return true;
   }
 
-  return false;
+  if (messageHASH !== message.hash) {
+    log.error(`Hashes dont match - expected - ${message.hash} - calculated - ${messageHASH} for the message ${JSON.stringify(message)}`);
+    throw new Error('Invalid Flux App hash received');
+  }
+
+  // ToDo: fix this function. Should just return true / false and the upper layer deals with it,
+  // none of this needs to be async, crypto.createHash is synchronous
+  return true;
 }
 
 /**
@@ -122,10 +134,10 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
       owner: appSpec.owner,
       ...appSpecsCopy,
     };
-    const messageToVerifyOld = type + version + JSON.stringify(appSpecOld) + timestamp;
-    isValidSignature = verificationHelper.verifyMessage(messageToVerifyOld, appSpec.owner, signature); // only btc
+    const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
+    isValidSignature = verificationHelper.verifyMessage(messageToVerifyB, appSpec.owner, signature); // only btc
     if (timestamp > 1688947200000) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appSpec.owner, signature); // btc, eth
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appSpec.owner, signature); // btc, eth
     }
     // fix for repoauth / secrets order change for apps created after 1750273721000
   } else if (isValidSignature !== true && appSpec.version === 7) {
@@ -218,10 +230,10 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
       ...appSpecsCopy,
     };
 
-    const messageToVerifyOld = type + version + JSON.stringify(appSpecOld) + timestamp;
-    isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, appOwner, signature); // btc, eth
+    const messageToVerifyB = type + version + JSON.stringify(appSpecOld) + timestamp;
+    isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, appOwner, signature); // btc, eth
     if (isValidSignature !== true && marketplaceApp) {
-      isValidSignature = signatureVerifier.verifySignature(messageToVerifyOld, fluxSupportTeamFluxID, signature); // btc, eth
+      isValidSignature = signatureVerifier.verifySignature(messageToVerifyB, fluxSupportTeamFluxID, signature); // btc, eth
     }
     // fix for repoauth / secrets order change for apps created after 1750273721000
   } else if (isValidSignature !== true && appSpec.version === 7) {
@@ -281,9 +293,9 @@ async function requestAppsMessage(apps, incoming) {
   };
 
   if (incoming) {
-    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(message);
+    await fluxCommunicationMessagesSender.broadcastMessageToRandomIncoming(message);
   } else {
-    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(message);
+    await fluxCommunicationMessagesSender.broadcastMessageToRandomOutgoing(message);
   }
 }
 
@@ -325,10 +337,6 @@ async function requestAppMessageAPI(req, res) {
  */
 async function checkAppMessageExistence(hash) {
   const dbopen = dbHelper.databaseConnection();
-  if (!dbopen) {
-    log.warn(`Database connection is null when checking app message existence for hash ${hash}`);
-    return false;
-  }
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
   const appsQuery = { hash };
   const appsProjection = {};
@@ -359,10 +367,6 @@ async function checkAppMessageExistence(hash) {
  */
 async function checkAppTemporaryMessageExistence(hash) {
   const dbopen = dbHelper.databaseConnection();
-  if (!dbopen) {
-    log.warn(`Database connection is null when checking app temporary message existence for hash ${hash}`);
-    return false;
-  }
   const appsDatabase = dbopen.db(config.database.appsglobal.database);
   const appsQuery = { hash };
   const appsProjection = {};
@@ -669,26 +673,28 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
  */
 async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
   try {
-    if (!Array.isArray(apps) || apps.length === 0) {
+    const numberOfPeers = fluxNetworkHelper.getNumberOfPeers();
+    if (numberOfPeers < 12) {
+      log.info('checkAndRequestMultipleApps - Not enough connected peers to request missing Flux App messages');
       return;
     }
-
-    log.info(`Processing batch of ${apps.length} app messages (attempt ${i})`);
-
-    const promises = apps.map(app => {
-      if (app.hash && app.txid && app.height !== undefined && app.value !== undefined) {
-        return checkAndRequestApp(app.hash, app.txid, app.height, app.value, i);
+    await requestAppsMessage(apps, incoming);
+    await serviceHelper.delay(30 * 1000);
+    const appsToRemove = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of apps) {
+      // eslint-disable-next-line no-await-in-loop
+      const messageReceived = await checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+      if (messageReceived) {
+        appsToRemove.push(app);
       }
-      return Promise.resolve(null);
-    });
-
-    await Promise.allSettled(promises);
-
-    if (incoming) {
-      log.info(`Completed processing ${apps.length} incoming app messages`);
+    }
+    apps.filter((item) => !appsToRemove.includes(item));
+    if (apps.length > 0 && i < 5) {
+      await checkAndRequestMultipleApps(apps, i % 2 === 0, i + 1);
     }
   } catch (error) {
-    log.error('Error processing multiple apps:', error);
+    log.error(error);
   }
 }
 
@@ -699,16 +705,9 @@ let firstContinuousFluxAppHashesCheckRun = true;
 /**
  * Continuously checks for missing flux app hashes and requests missing messages
  * @param {boolean} force - Force check even if already running
- * @param {Map} hashesNumberOfSearchs - Map tracking number of searches per hash
- * @param {Array} invalidMessages - Array of known invalid messages
- * @param {Function} checkAndSyncAppHashes - Function to check and sync app hashes
- * @param {boolean} checkAndSyncAppHashesWasEverExecuted - Flag indicating if sync was executed
- * @param {string} scannedHeightCollection - Collection name for scanned heights
- * @param {object} fluxNetworkHelper - Flux network helper object
- * @param {object} serviceHelper - Service helper object
  * @returns {Promise<void>}
  */
-async function continuousFluxAppHashesCheck(force = false, hashesNumberOfSearchs, invalidMessages, checkAndSyncAppHashes, checkAndSyncAppHashesWasEverExecuted, scannedHeightCollection, fluxNetworkHelper, serviceHelper) {
+async function continuousFluxAppHashesCheck(force = false) {
   try {
     if (continuousFluxAppHashesCheckRunning) {
       return;
@@ -729,8 +728,10 @@ async function continuousFluxAppHashesCheck(force = false, hashesNumberOfSearchs
       return;
     }
 
-    if (firstContinuousFluxAppHashesCheckRun && !checkAndSyncAppHashesWasEverExecuted) {
-      await checkAndSyncAppHashes();
+    if (firstContinuousFluxAppHashesCheckRun && !globalState.checkAndSyncAppHashesWasEverExecuted) {
+      // Import checkAndSyncAppHashes from appsService - this function should be available there
+      const appsService = require('../appsService');
+      await appsService.checkAndSyncAppHashes();
     }
 
     const dbopen = dbHelper.databaseConnection();
@@ -827,10 +828,9 @@ async function continuousFluxAppHashesCheck(force = false, hashesNumberOfSearchs
  * API endpoint to manually trigger app hashes check
  * @param {object} req - Request object
  * @param {object} res - Response object
- * @param {Function} continuousFluxAppHashesCheckFunc - The actual check function
  * @returns {Promise<void>}
  */
-async function triggerAppHashesCheckAPI(req, res, continuousFluxAppHashesCheckFunc) {
+async function triggerAppHashesCheckAPI(req, res) {
   try {
     // only flux team and node owner can do this
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
@@ -840,7 +840,7 @@ async function triggerAppHashesCheckAPI(req, res, continuousFluxAppHashesCheckFu
       return;
     }
 
-    continuousFluxAppHashesCheckFunc(true);
+    continuousFluxAppHashesCheck(true);
     const resultsResponse = messageHelper.createSuccessMessage('Running check on missing application messages ');
     res.json(resultsResponse);
   } catch (error) {
