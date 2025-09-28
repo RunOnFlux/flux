@@ -66,7 +66,7 @@ async function appLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') };
+    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
   }
   const projection = {
     projection: {
@@ -76,6 +76,9 @@ async function appLocation(appname) {
       ip: 1,
       broadcastedAt: 1,
       expireAt: 1,
+      runningSince: 1,
+      osUptime: 1,
+      staticIp: 1,
     },
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
@@ -92,13 +95,12 @@ async function appInstallingLocation(appname) {
   const database = dbopen.db(config.database.appsglobal.database);
   let query = {};
   if (appname) {
-    query = { name: new RegExp(`^${appname}$`, 'i') };
+    query = { name: new RegExp(`^${appname}$`, 'i') }; // case insensitive
   }
   const projection = {
     projection: {
       _id: 0,
       name: 1,
-      hash: 1,
       ip: 1,
       broadcastedAt: 1,
       expireAt: 1,
@@ -461,16 +463,7 @@ async function getApplicationSpecificationAPI(req, res) {
     }
 
     // Add decryption logic for enterprise apps
-    const decryptedSpecs = await Promise.all(
-      specifications.map(async (spec) => {
-        try {
-          return await checkAndDecryptAppSpecs(spec);
-        } catch (error) {
-          log.warn(`Failed to decrypt app spec for ${spec.name}:`, error.message);
-          return spec; // Fall back to original if decryption fails
-        }
-      }),
-    );
+    const decryptedSpecs = await checkAndDecryptAppSpecs(specifications);
 
     const specificationsResponse = messageHelper.createDataMessage(decryptedSpecs);
     return res.json(specificationsResponse);
