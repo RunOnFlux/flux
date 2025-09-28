@@ -174,14 +174,25 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
       if (!specifications.includes(sKey)) {
-        throw new Error('Unsupported parameter for v4 app specifications');
+        log.error(`Unsupported top-level parameter detected in v4 app specifications: ${sKey}`);
+        log.error(`Allowed top-level parameters: ${specifications.join(', ')}`);
+        log.error(`Received top-level parameters: ${specsKeys.join(', ')}`);
+        log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
+        throw new Error(`Unsupported parameter for v4 app specifications: ${sKey}`);
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes(sKey)) {
-          throw new Error('Unsupported parameter for v4 app specifications');
+          log.error(`Unsupported component parameter detected in v4 app specifications: ${sKey}`);
+          log.error(`Component index: ${appSpecifications.compose.indexOf(appComponent)}`);
+          log.error(`Component name: ${appComponent.name || 'unnamed'}`);
+          log.error(`Allowed component parameters: ${componentSpecifications.join(', ')}`);
+          log.error(`Received component parameters: ${specsKeysComponent.join(', ')}`);
+          log.error(`Full component specification: ${JSON.stringify(appComponent, null, 2)}`);
+          log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
+          throw new Error(`Unsupported parameter for v4 app specifications in component: ${sKey}`);
         }
       });
     });
@@ -196,14 +207,25 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
       if (!specifications.includes(sKey)) {
-        throw new Error('Unsupported parameter for v5 app specifications');
+        log.error(`Unsupported top-level parameter detected in v5 app specifications: ${sKey}`);
+        log.error(`Allowed top-level parameters: ${specifications.join(', ')}`);
+        log.error(`Received top-level parameters: ${specsKeys.join(', ')}`);
+        log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
+        throw new Error(`Unsupported parameter for v5 app specifications: ${sKey}`);
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes(sKey)) {
-          throw new Error('Unsupported parameter for v5 app specifications');
+          log.error(`Unsupported component parameter detected in v5 app specifications: ${sKey}`);
+          log.error(`Component index: ${appSpecifications.compose.indexOf(appComponent)}`);
+          log.error(`Component name: ${appComponent.name || 'unnamed'}`);
+          log.error(`Allowed component parameters: ${componentSpecifications.join(', ')}`);
+          log.error(`Received component parameters: ${specsKeysComponent.join(', ')}`);
+          log.error(`Full component specification: ${JSON.stringify(appComponent, null, 2)}`);
+          log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
+          throw new Error(`Unsupported parameter for v5 app specifications in component: ${sKey}`);
         }
       });
     });
@@ -218,14 +240,25 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
       if (!specifications.includes(sKey)) {
-        throw new Error('Unsupported parameter for v6 app specifications');
+        log.error(`Unsupported top-level parameter detected in v6 app specifications: ${sKey}`);
+        log.error(`Allowed top-level parameters: ${specifications.join(', ')}`);
+        log.error(`Received top-level parameters: ${specsKeys.join(', ')}`);
+        log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
+        throw new Error(`Unsupported parameter for v6 app specifications: ${sKey}`);
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes(sKey)) {
-          throw new Error('Unsupported parameter for v6 app specifications');
+          log.error(`Unsupported component parameter detected in v6 app specifications: ${sKey}`);
+          log.error(`Component index: ${appSpecifications.compose.indexOf(appComponent)}`);
+          log.error(`Component name: ${appComponent.name || 'unnamed'}`);
+          log.error(`Allowed component parameters: ${componentSpecifications.join(', ')}`);
+          log.error(`Received component parameters: ${specsKeysComponent.join(', ')}`);
+          log.error(`Full component specification: ${JSON.stringify(appComponent, null, 2)}`);
+          log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
+          throw new Error(`Unsupported parameter for v6 app specifications in component: ${sKey}`);
         }
       });
     });
@@ -263,14 +296,25 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
       if (!specifications.includes(sKey)) {
-        throw new Error('Unsupported parameter for v8 app specifications');
+        log.error(`Unsupported top-level parameter detected in v8 app specifications: ${sKey}`);
+        log.error(`Allowed top-level parameters: ${specifications.join(', ')}`);
+        log.error(`Received top-level parameters: ${specsKeys.join(', ')}`);
+        log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
+        throw new Error(`Unsupported parameter for v8 app specifications: ${sKey}`);
       }
     });
     appSpecifications.compose.forEach((appComponent) => {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes(sKey)) {
-          throw new Error('Unsupported parameter for v8 app specifications');
+          log.error(`Unsupported component parameter detected in v8 app specifications: ${sKey}`);
+          log.error(`Component index: ${appSpecifications.compose.indexOf(appComponent)}`);
+          log.error(`Component name: ${appComponent.name || 'unnamed'}`);
+          log.error(`Allowed component parameters: ${componentSpecifications.join(', ')}`);
+          log.error(`Received component parameters: ${specsKeysComponent.join(', ')}`);
+          log.error(`Full component specification: ${JSON.stringify(appComponent, null, 2)}`);
+          log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
+          throw new Error(`Unsupported parameter for v8 app specifications in component: ${sKey}`);
         }
       });
     });

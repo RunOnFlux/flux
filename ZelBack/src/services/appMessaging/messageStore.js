@@ -104,7 +104,16 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         }
       }
     } else {
-      await appValidator.verifyAppSpecifications(appSpecFormatted, block);
+      log.info(`Validating app specifications for message hash: ${message.hash}`);
+      log.info(`App specifications version: ${appSpecFormatted.version}`);
+      log.info(`App name: ${appSpecFormatted.name}`);
+      try {
+        await appValidator.verifyAppSpecifications(appSpecFormatted, block);
+      } catch (error) {
+        log.error(`App validation failed for message hash: ${message.hash}`);
+        log.error(`Error details: ${error.message}`);
+        throw error;
+      }
       if (appRegistraiton) {
         await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
