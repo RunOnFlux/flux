@@ -16,6 +16,7 @@ const {
   globalAppsInstallingLocations,
   globalAppsInstallingErrorsLocations,
   appsHashesCollection,
+  scannedHeightCollection,
 } = require('../utils/appConstants');
 
 let reindexRunning = false;
@@ -392,6 +393,34 @@ async function getApplicationLocalSpecifications(appName) {
  * @returns {Promise<object|null>} App specifications
  */
 async function getApplicationSpecifications(appName) {
+  // appSpecs: {
+  //   version: 2,
+  //   name: 'FoldingAtHomeB',
+  //   description: 'Folding @ Home is cool :)',
+  //   repotag: 'yurinnick/folding-at-home:latest',
+  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+  //   ports: '[30001]', // []
+  //   containerPorts: '[7396]', // []
+  //   domains: '[""]', // []
+  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
+  //   containerData: '/config',
+  //   cpu: 0.5,
+  //   ram: 500,
+  //   hdd: 5,
+  //   tiered: true,
+  //   cpubasic: 0.5,
+  //   rambasic: 500,
+  //   hddbasic: 5,
+  //   cpusuper: 1,
+  //   ramsuper: 1000,
+  //   hddsuper: 5,
+  //   cpubamf: 2,
+  //   rambamf: 2000,
+  //   hddbamf: 5,
+  //   hash: hash of message that has these paramenters,
+  //   height: height containing the message
+  // };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
@@ -655,20 +684,60 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
 /**
  * Update app specifications for rescan/reindex
  * @param {object} appSpecs - Application specifications
- * @returns {Promise<object>} Update result
+ * @returns {Promise<boolean>} Update result
  */
 async function updateAppSpecsForRescanReindex(appSpecs) {
+  // appSpecs: {
+  //   version: 3,
+  //   name: 'FoldingAtHomeB',
+  //   description: 'Folding @ Home is cool :)',
+  //   repotag: 'yurinnick/folding-at-home:latest',
+  //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+  //   ports: '[30001]',
+  //   containerPorts: '[7396]',
+  //   domains: '[""]',
+  //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+  //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
+  //   containerData: '/config',
+  //   cpu: 0.5,
+  //   ram: 500,
+  //   hdd: 5,
+  //   tiered: true,
+  //   cpubasic: 0.5,
+  //   rambasic: 500,
+  //   hddbasic: 5,
+  //   cpusuper: 1,
+  //   ramsuper: 1000,
+  //   hddsuper: 5,
+  //   cpubamf: 2,
+  //   rambamf: 2000,
+  //   hddbamf: 5,
+  //   instances: 10, // version 3 fork
+  //   hash: hash of message that has these paramenters,
+  //   height: height containing the message
+  // };
   const db = dbHelper.databaseConnection();
   const database = db.db(config.database.appsglobal.database);
 
   const query = { name: appSpecs.name };
   const update = { $set: appSpecs };
-  const options = { upsert: true };
-
-  const result = await dbHelper.updateInDatabase(database, globalAppsInformation, query, update, options);
-  log.info(`Updated app specifications for ${appSpecs.name} during rescan/reindex`);
-
-  return result;
+  const options = {
+    upsert: true,
+  };
+  const projection = {
+    projection: {
+      _id: 0,
+    },
+  };
+  const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (appInfo) {
+    if (appInfo.height < appSpecs.height) {
+      await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+    }
+  } else {
+    await dbHelper.updateOneInDatabase(database, globalAppsInformation, query, update, options);
+  }
+  return true;
 }
 
 /**
@@ -819,13 +888,18 @@ async function getAllGlobalApplications(proj = []) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = {};
-    const projection = proj.length > 0 ? { projection: proj.reduce((acc, field) => ({ ...acc, [field]: 1 }), { _id: 0 }) } : { projection: { _id: 0 } };
-
-    const result = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
-    return result.sort((a, b) => a.height - b.height);
+    const wantedProjection = {
+      _id: 0,
+    };
+    proj.forEach((field) => {
+      wantedProjection[field] = 1;
+    });
+    const projection = { projection: wantedProjection, sort: { height: 1 } }; // ensure sort from oldest to newest
+    const results = await dbHelper.findInDatabase(database, globalAppsInformation, query, projection);
+    return results;
   } catch (error) {
     log.error(error);
-    throw error;
+    return [];
   }
 }
 
@@ -836,9 +910,9 @@ async function getAllGlobalApplications(proj = []) {
 async function expireGlobalApplications() {
   // check if synced
   try {
-    // get current height from explorer
+    // get current height
     const dbopen = dbHelper.databaseConnection();
-    const daemonDatabase = dbopen.db(config.database.daemon.database);
+    const database = dbopen.db(config.database.daemon.database);
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
       projection: {
@@ -846,8 +920,7 @@ async function expireGlobalApplications() {
         generalScannedHeight: 1,
       },
     };
-    const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
-    const result = await dbHelper.findOneInDatabase(daemonDatabase, scannedHeightCollection, query, projection);
+    const result = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
     if (!result) {
       throw new Error('Scanning not initiated');
     }
@@ -934,6 +1007,68 @@ async function expireGlobalApplications() {
  */
 async function updateAppSpecifications(appSpecs) {
   try {
+    // appSpecs: {
+    //   version: 3,
+    //   name: 'FoldingAtHomeB',
+    //   description: 'Folding @ Home is cool :)',
+    //   repotag: 'yurinnick/folding-at-home:latest',
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+    //   ports: '[30001]',
+    //   containerPorts: '[7396]',
+    //   domains: '[""]',
+    //   enviromentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // []
+    //   commands: '["--allow","0/0","--web-allow","0/0"]', // []
+    //   containerData: '/config',
+    //   cpu: 0.5,
+    //   ram: 500,
+    //   hdd: 5,
+    //   tiered: true,
+    //   cpubasic: 0.5,
+    //   rambasic: 500,
+    //   hddbasic: 5,
+    //   cpusuper: 1,
+    //   ramsuper: 1000,
+    //   hddsuper: 5,
+    //   cpubamf: 2,
+    //   rambamf: 2000,
+    //   hddbamf: 5,
+    //   instances: 10, // version 3 fork
+    //   hash: hash of message that has these paramenters,
+    //   height: height containing the message
+    // };
+    // const appSpecs = {
+    //   version: 4, // int
+    //   name: 'FoldingAtHomeB', // string
+    //   description: 'Folding @ Home is cool :)', // string
+    //   owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC', // string
+    //   compose: [ // array of max 5 objects of following specs
+    //     {
+    //       name: 'Daemon', // string
+    //       description: 'Main ddaemon for foldingAtHome', // string
+    //       repotag: 'yurinnick/folding-at-home:latest',
+    //       ports: '[30001]', // array of ints
+    //       containerPorts: '[7396]', // array of ints
+    //       domains: '[""]', // array of strings
+    //       environmentParameters: '["USER=foldingUser", "TEAM=262156", "ENABLE_GPU=false", "ENABLE_SMP=true"]', // array of strings
+    //       commands: '["--allow","0/0","--web-allow","0/0"]', // array of strings
+    //       containerData: '/config', // string
+    //       cpu: 0.5, // float
+    //       ram: 500, // int
+    //       hdd: 5, // int
+    //       tiered: true, // bool
+    //       cpubasic: 0.5, // float
+    //       rambasic: 500, // int
+    //       hddbasic: 5, // int
+    //       cpusuper: 1, // float
+    //       ramsuper: 1000, // int
+    //       hddsuper: 5, // int
+    //       cpubamf: 2, // float
+    //       rambamf: 2000, // int
+    //       hddbamf: 5, // int
+    //     },
+    //   ],
+    //   instances: 10, // int
+    // };
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
 
