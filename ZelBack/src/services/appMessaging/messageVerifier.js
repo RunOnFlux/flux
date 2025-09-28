@@ -395,18 +395,13 @@ async function checkAppTemporaryMessageExistence(hash) {
  * @returns {Promise<boolean>} True if hash has message
  */
 async function appHashHasMessage(hash) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.daemon.database);
-
-    const query = { hash, messageNotFound: { $ne: true } };
-    const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query);
-
-    return !!result;
-  } catch (error) {
-    log.error(`Error checking if app hash has message: ${error.message}`);
-    return false;
-  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const query = { hash };
+  const update = { $set: { message: true, messageNotFound: false } };
+  const options = {};
+  await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
+  return true;
 }
 
 /**
@@ -415,18 +410,13 @@ async function appHashHasMessage(hash) {
  * @returns {Promise<boolean>} True if hash has message not found
  */
 async function appHashHasMessageNotFound(hash) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.daemon.database);
-
-    const query = { hash, messageNotFound: true };
-    const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query);
-
-    return !!result;
-  } catch (error) {
-    log.error(`Error checking if app hash has message not found: ${error.message}`);
-    return false;
-  }
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.daemon.database);
+  const query = { hash };
+  const update = { $set: { messageNotFound: true } };
+  const options = {};
+  await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
+  return true;
 }
 
 /**
@@ -437,8 +427,14 @@ async function appHashHasMessageNotFound(hash) {
 async function getAppsTemporaryMessages(req, res) {
   try {
     const db = dbHelper.databaseConnection();
+
     const database = db.db(config.database.appsglobal.database);
-    const query = {};
+    let query = {};
+    let { hash } = req.params;
+    hash = hash || req.query.hash;
+    if (hash) {
+      query = { hash };
+    }
     const projection = { projection: { _id: 0 } };
     const results = await dbHelper.findInDatabase(database, globalAppsTempMessages, query, projection);
     const resultsResponse = messageHelper.createDataMessage(results);
