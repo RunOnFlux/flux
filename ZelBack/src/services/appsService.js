@@ -2127,7 +2127,7 @@ module.exports = {
   createAppVolume: advancedWorkflows.createAppVolume,
   softRegisterAppLocally: advancedWorkflows.softRegisterAppLocally,
   redeployAPI: advancedWorkflows.redeployAPI,
-  checkFreeAppUpdate: advancedWorkflows.checkFreeAppUpdate,
+  checkFreeAppUpdate: appSpecHelpers.checkFreeAppUpdate,
   // verifyAppUpdateParameters moved to appValidator module
   stopSyncthingApp: advancedWorkflows.stopSyncthingApp,
   appendBackupTask: advancedWorkflows.appendBackupTask,

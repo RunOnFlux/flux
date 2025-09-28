@@ -1042,40 +1042,6 @@ async function redeployAPI(req, res) {
 }
 
 /**
- * Check if free app update is available
- * @param {object} appSpecFormatted - App specifications
- * @param {number} daemonHeight - Current daemon height
- * @returns {Promise<boolean>} True if update available
- */
-async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
-  try {
-    // Check if this is a free tier app update
-    if (!appSpecFormatted || !appSpecFormatted.name) {
-      return false;
-    }
-
-    // Logic to check for available updates
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const query = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') };
-    const projection = { projection: { _id: 0, version: 1, height: 1 } };
-
-    const latestApp = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-
-    if (!latestApp) {
-      return false;
-    }
-
-    // Check if newer version available
-    return latestApp.height > (appSpecFormatted.height || 0);
-  } catch (error) {
-    log.error(`Error checking free app update: ${error.message}`);
-    return false;
-  }
-}
-
-/**
  * Verify app update parameters
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -2025,7 +1991,6 @@ module.exports = {
   softRegisterAppLocally,
   softRemoveAppLocally,
   redeployAPI,
-  checkFreeAppUpdate,
   verifyAppUpdateParameters,
   updateAppGlobalyApi,
   stopSyncthingApp,

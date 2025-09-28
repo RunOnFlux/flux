@@ -8,6 +8,7 @@ const dockerService = require('../dockerService');
 const daemonServiceFluxnodeRpcs = require('../daemonService/daemonServiceFluxnodeRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const benchmarkService = require('../benchmarkService');
+const hwRequirements = require('../appRequirements/hwRequirements');
 const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchmarkRpcs');
 const generalService = require('../generalService');
 
@@ -78,52 +79,6 @@ async function systemArchitecture() {
     throw benchmarkBenchRes.data;
   }
   return benchmarkBenchRes.data.architecture;
-}
-
-/**
- * Calculate total hardware requirements for apps
- * @param {object} appSpecifications - App specifications
- * @param {string} myNodeTier - Node tier (basic, super, bamf)
- * @returns {object} Total hardware requirements
- */
-function totalAppHWRequirements(appSpecifications, myNodeTier) {
-  let cpu = 0;
-  let ram = 0;
-  let hdd = 0;
-  const hddTier = `hdd${myNodeTier}`;
-  const ramTier = `ram${myNodeTier}`;
-  const cpuTier = `cpu${myNodeTier}`;
-  if (appSpecifications.version <= 3) {
-    if (appSpecifications.tiered) {
-      cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
-      ram = appSpecifications[ramTier] || appSpecifications.ram;
-      hdd = appSpecifications[hddTier] || appSpecifications.hdd;
-    } else {
-      // eslint-disable-next-line prefer-destructuring
-      cpu = appSpecifications.cpu;
-      // eslint-disable-next-line prefer-destructuring
-      ram = appSpecifications.ram;
-      // eslint-disable-next-line prefer-destructuring
-      hdd = appSpecifications.hdd;
-    }
-  } else {
-    appSpecifications.compose.forEach((appComponent) => {
-      if (appComponent.tiered) {
-        cpu += appComponent[cpuTier] || appComponent.cpu;
-        ram += appComponent[ramTier] || appComponent.ram;
-        hdd += appComponent[hddTier] || appComponent.hdd;
-      } else {
-        cpu += appComponent.cpu;
-        ram += appComponent.ram;
-        hdd += appComponent.hdd;
-      }
-    });
-  }
-  return {
-    cpu,
-    ram,
-    hdd,
-  };
 }
 
 /**
@@ -259,7 +214,7 @@ async function checkAppHWRequirements(appSpecs) {
     throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
   }
 
-  const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
+  const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecs, tier);
   await getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
   if (totalSpaceOnNode === 0) {
@@ -518,7 +473,6 @@ module.exports = {
   setNodeSpecs,
   returnNodeSpecs,
   systemArchitecture,
-  totalAppHWRequirements,
   checkAppStaticIpRequirements,
   checkAppNodesRequirements,
   checkAppGeolocationRequirements,
