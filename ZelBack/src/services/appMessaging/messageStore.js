@@ -91,10 +91,12 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       // eslint-disable-next-line global-require
       const fluxService = require('../fluxService');
       if (await fluxService.isSystemSecure()) {
+        // eslint-disable-next-line no-use-before-define
         const appSpecDecrypted = await checkAndDecryptAppSpecs(
           appSpecFormatted,
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
+        // eslint-disable-next-line no-use-before-define
         const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
         await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
         if (appRegistraiton) {
@@ -104,13 +106,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         }
       }
     } else {
-      try {
-        await appValidator.verifyAppSpecifications(appSpecFormatted, block);
-      } catch (error) {
-        log.error(`App validation failed for message hash: ${message.hash}`);
-        log.error(`Error details: ${error.message}`);
-        throw error;
-      }
+      await appValidator.verifyAppSpecifications(appSpecFormatted, block);
       if (appRegistraiton) {
         await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
@@ -354,89 +350,29 @@ async function storeAppInstallingMessage(message) {
     expireAt: new Date(validTill),
   };
 
-  try {
-    // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
-    const queryFind = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
-    const projection = { _id: 0 };
-    // we already have the exact same data
-    const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingLocations, queryFind, projection);
-    if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingMessage.broadcastedAt) {
-      // found a message that was already stored/probably from duplicated message processsed
-      return false;
-    }
-
-    const queryUpdate = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
-    const update = { $set: newAppInstallingMessage };
-    const options = {
-      upsert: true,
-    };
-    await dbHelper.updateOneInDatabase(database, globalAppsInstallingLocations, queryUpdate, update, options);
-
-    return true;
-  } catch (error) {
-    log.error(`Error storing app installing message: ${error.message}`);
-    throw error;
+  // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
+  const queryFind = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
+  const projection = { _id: 0 };
+  // we already have the exact same data
+  // eslint-disable-next-line no-await-in-loop
+  const result = await dbHelper.findOneInDatabase(database, globalAppsInstallingLocations, queryFind, projection);
+  if (result && result.broadcastedAt && result.broadcastedAt >= newAppInstallingMessage.broadcastedAt) {
+    // found a message that was already stored/probably from duplicated message processsed
+    return false;
   }
+
+  const queryUpdate = { name: newAppInstallingMessage.name, ip: newAppInstallingMessage.ip };
+  const update = { $set: newAppInstallingMessage };
+  const options = {
+    upsert: true,
+  };
+  // eslint-disable-next-line no-await-in-loop
+  await dbHelper.updateOneInDatabase(database, globalAppsInstallingLocations, queryUpdate, update, options);
+
+  // all stored, rebroadcast
+  return true;
 }
 
-/**
- * Get temporary app messages
- * @param {object} filter - Filter criteria
- * @returns {Promise<Array>} Array of temporary messages
- */
-async function getAppsTemporaryMessages(filter = {}) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const messages = await dbHelper.findInDatabase(database, globalAppsTempMessages, filter);
-    return messages;
-  } catch (error) {
-    log.error(`Error getting temporary app messages: ${error.message}`);
-    return [];
-  }
-}
-
-/**
- * Get permanent app messages
- * @param {object} filter - Filter criteria
- * @returns {Promise<Array>} Array of permanent messages
- */
-async function getAppsPermanentMessages(filter = {}) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const messages = await dbHelper.findInDatabase(database, globalAppsMessages, filter);
-    return messages;
-  } catch (error) {
-    log.error(`Error getting permanent app messages: ${error.message}`);
-    return [];
-  }
-}
-
-/**
- * Clean up old temporary messages
- * @param {number} maxAge - Maximum age in milliseconds
- * @returns {Promise<number>} Number of messages cleaned up
- */
-async function cleanupOldTemporaryMessages(maxAge = 24 * 60 * 60 * 1000) {
-  try {
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
-    const cutoffTime = Date.now() - maxAge;
-    const query = { storedAt: { $lt: cutoffTime } };
-
-    const result = await dbHelper.removeInDatabase(database, globalAppsTempMessages, query);
-    log.info(`Cleaned up ${result.deletedCount || 0} old temporary messages`);
-
-    return result.deletedCount || 0;
-  } catch (error) {
-    log.error(`Error cleaning up old temporary messages: ${error.message}`);
-    return 0;
-  }
-}
 
 /**
  * Store app removed message
@@ -618,7 +554,4 @@ module.exports = {
   storeAppRemovedMessage,
   storeAppInstallingErrorMessage,
   storeIPChangedMessage,
-  getAppsTemporaryMessages,
-  getAppsPermanentMessages,
-  cleanupOldTemporaryMessages,
 };
