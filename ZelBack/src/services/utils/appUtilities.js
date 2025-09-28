@@ -300,7 +300,7 @@ function specificationFormatter(appSpecification) {
     ports,
     containerPorts,
     domains,
-    enviromentParameters,
+    environmentParameters,
     commands,
     containerData,
     cpu,
@@ -355,7 +355,7 @@ function specificationFormatter(appSpecification) {
       ports = serviceHelper.ensureArray(ports).map(p => serviceHelper.ensureNumber(p));
       containerPorts = serviceHelper.ensureArray(containerPorts).map(p => serviceHelper.ensureNumber(p));
       domains = serviceHelper.ensureArray(domains);
-      enviromentParameters = serviceHelper.ensureArray(enviromentParameters);
+      environmentParameters = serviceHelper.ensureArray(environmentParameters);
       commands = serviceHelper.ensureArray(commands);
       containerData = serviceHelper.ensureString(containerData);
       cpu = serviceHelper.ensureNumber(cpu);
@@ -424,7 +424,7 @@ function specificationFormatter(appSpecification) {
       formatted.ports = ports;
       formatted.containerPorts = containerPorts;
       formatted.domains = domains;
-      formatted.enviromentParameters = enviromentParameters;
+      formatted.environmentParameters = environmentParameters;
       formatted.commands = commands;
       formatted.containerData = containerData;
       formatted.cpu = cpu;
@@ -457,10 +457,12 @@ function specificationFormatter(appSpecification) {
       compose.forEach((appComponent) => {
         const appComponentCorrect = { ...appComponent };
 
-        // Add component-level repoauth and secrets for v7+
+        // Add component-level repoauth and secrets for v7+ only if they exist
         if (version >= 7) {
-          appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
-          if (version === 7) {
+          if (appComponent.repoauth !== undefined) {
+            appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
+          }
+          if (version === 7 && appComponent.secrets !== undefined) {
             appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
           }
         }
