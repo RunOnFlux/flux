@@ -298,205 +298,466 @@ function specificationFormatter(appSpecification) {
     compose,
     repotag,
     ports,
-    containerPorts,
     domains,
-    environmentParameters,
+    enviromentParameters,
     commands,
+    containerPorts,
     containerData,
+    instances,
     cpu,
     ram,
     hdd,
     tiered,
-    cpubasic,
-    rambasic,
-    hddbasic,
-    cpusuper,
-    ramsuper,
-    hddsuper,
-    cpubamf,
-    rambamf,
-    hddbamf,
-    hash,
-    height,
-    // version 3 and higher
-    instances,
-    // version 4 and higher
-    repoauth,
-    // version 5 and higher
     contacts,
     geolocation,
-    // version 6 and higher
     expire,
-    // version 7 and higher
     nodes,
-    secrets,
     staticip,
-    // version 8 and higher
     enterprise,
-    // additional properties that may be present
-    ...otherProperties
-  } = appSpecification || {};
+  } = appSpecification;
 
-  // Ensure basic properties
-  version = serviceHelper.ensureNumber(version) || 1;
+  if (!version) {
+    throw new Error('Missing Flux App specification parameter version');
+  }
+  version = serviceHelper.ensureNumber(version);
+
+  // commons
+  if (!name || !description || !owner) {
+    throw new Error('Missing Flux App specification parameter name and/or description and/or owner');
+  }
   name = serviceHelper.ensureString(name);
   description = serviceHelper.ensureString(description);
   owner = serviceHelper.ensureString(owner);
 
-  // Handle version-specific formatting
-  if (version === 1) {
-    port = serviceHelper.ensureNumber(port);
-    containerPort = serviceHelper.ensureNumber(containerPort);
-  }
-
-  if (version <= 3) {
-    repotag = serviceHelper.ensureString(repotag);
-    if (version >= 2) {
-      ports = serviceHelper.ensureArray(ports).map(p => serviceHelper.ensureNumber(p));
-      containerPorts = serviceHelper.ensureArray(containerPorts).map(p => serviceHelper.ensureNumber(p));
-      domains = serviceHelper.ensureArray(domains);
-      environmentParameters = serviceHelper.ensureArray(environmentParameters);
-      commands = serviceHelper.ensureArray(commands);
-      containerData = serviceHelper.ensureString(containerData);
-      cpu = serviceHelper.ensureNumber(cpu);
-      ram = serviceHelper.ensureNumber(ram);
-      hdd = serviceHelper.ensureNumber(hdd);
-
-      if (tiered) {
-        cpubasic = serviceHelper.ensureNumber(cpubasic);
-        rambasic = serviceHelper.ensureNumber(rambasic);
-        hddbasic = serviceHelper.ensureNumber(hddbasic);
-        cpusuper = serviceHelper.ensureNumber(cpusuper);
-        ramsuper = serviceHelper.ensureNumber(ramsuper);
-        hddsuper = serviceHelper.ensureNumber(hddsuper);
-        cpubamf = serviceHelper.ensureNumber(cpubamf);
-        rambamf = serviceHelper.ensureNumber(rambamf);
-        hddbamf = serviceHelper.ensureNumber(hddbamf);
-      }
-    }
-
-    if (version >= 3) {
-      instances = serviceHelper.ensureNumber(instances);
-    }
-  }
-
-  if (version >= 4) {
-    compose = serviceHelper.ensureArray(compose);
-  }
-
-  if (version >= 5) {
-    contacts = serviceHelper.ensureArray(contacts);
-    geolocation = serviceHelper.ensureArray(geolocation);
-  }
-
-  if (version >= 6) {
-    expire = serviceHelper.ensureNumber(expire);
-  }
-
-  if (version >= 7) {
-    nodes = serviceHelper.ensureArray(nodes);
-    secrets = serviceHelper.ensureString(secrets);
-    staticip = serviceHelper.ensureBoolean(staticip);
-  }
-
-  if (version >= 8) {
-    enterprise = serviceHelper.ensureBoolean(enterprise);
-  }
-
-  // Build formatted object
-  const formatted = {
-    version,
-    name,
-    description,
-    owner,
-    ...otherProperties,
+  // finalised parameters that will get stored in global database
+  const appSpecFormatted = {
+    version, // integer
+    name, // string
+    description, // string
+    owner, // zelid string
   };
 
-  // Add version-specific properties
+  const correctCompose = [];
+
   if (version === 1) {
-    formatted.port = port;
-    formatted.containerPort = containerPort;
-  }
-
-  if (version <= 3) {
-    formatted.repotag = repotag;
-    if (version >= 2) {
-      formatted.ports = ports;
-      formatted.containerPorts = containerPorts;
-      formatted.domains = domains;
-      formatted.environmentParameters = environmentParameters;
-      formatted.commands = commands;
-      formatted.containerData = containerData;
-      formatted.cpu = cpu;
-      formatted.ram = ram;
-      formatted.hdd = hdd;
-      formatted.tiered = tiered;
-
-      if (tiered) {
-        formatted.cpubasic = cpubasic;
-        formatted.rambasic = rambasic;
-        formatted.hddbasic = hddbasic;
-        formatted.cpusuper = cpusuper;
-        formatted.ramsuper = ramsuper;
-        formatted.hddsuper = hddsuper;
-        formatted.cpubamf = cpubamf;
-        formatted.rambamf = rambamf;
-        formatted.hddbamf = hddbamf;
-      }
+    if (!repotag || !port || !enviromentParameters || !commands || !containerPort || !containerData || !cpu || !ram || !hdd) {
+      throw new Error('Missing Flux App specification parameter repotag and/or port and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
     }
 
-    if (version >= 3) {
-      formatted.instances = instances;
-    }
-  }
-
-  if (version >= 4) {
-    // Process components and add version-specific component properties
-    const correctCompose = [];
-    if (Array.isArray(compose)) {
-      compose.forEach((appComponent) => {
-        const appComponentCorrect = { ...appComponent };
-
-        // Add component-level repoauth and secrets for v7+ only if they exist
-        if (version >= 7) {
-          if (appComponent.repoauth !== undefined) {
-            appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
-          }
-          if (version === 7 && appComponent.secrets !== undefined) {
-            appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
-          }
-        }
-
-        correctCompose.push(appComponentCorrect);
+    repotag = serviceHelper.ensureString(repotag);
+    port = serviceHelper.ensureNumber(port);
+    containerPort = serviceHelper.ensureNumber(containerPort);
+    enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
+    const envParamsCorrected = [];
+    if (Array.isArray(enviromentParameters)) {
+      enviromentParameters.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter);
+        envParamsCorrected.push(param);
       });
+    } else {
+      throw new Error('Environmental parameters for Flux App are invalid');
     }
-    formatted.compose = correctCompose;
+    commands = serviceHelper.ensureObject(commands);
+    const commandsCorrected = [];
+    if (Array.isArray(commands)) {
+      commands.forEach((command) => {
+        const cmm = serviceHelper.ensureString(command);
+        commandsCorrected.push(cmm);
+      });
+    } else {
+      throw new Error('Flux App commands are invalid');
+    }
+    containerData = serviceHelper.ensureString(containerData);
+    cpu = serviceHelper.ensureNumber(cpu);
+    ram = serviceHelper.ensureNumber(ram);
+    hdd = serviceHelper.ensureNumber(hdd);
+    tiered = serviceHelper.ensureBoolean(tiered);
+    if (typeof tiered !== 'boolean') {
+      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+    }
+    // finalised parameters
+    appSpecFormatted.repotag = repotag; // string
+    appSpecFormatted.port = port; // integer
+    appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
+    appSpecFormatted.commands = commandsCorrected; // array of strings
+    appSpecFormatted.containerPort = containerPort; // integer
+    appSpecFormatted.containerData = containerData; // string
+    appSpecFormatted.cpu = cpu; // float 0.1 step
+    appSpecFormatted.ram = ram; // integer 100 step (mb)
+    appSpecFormatted.hdd = hdd; // integer 1 step
+    appSpecFormatted.tiered = tiered; // boolean
+
+    if (tiered) {
+      let {
+        cpubasic,
+        cpusuper,
+        cpubamf,
+        rambasic,
+        ramsuper,
+        rambamf,
+        hddbasic,
+        hddsuper,
+        hddbamf,
+      } = appSpecification;
+      if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        throw new Error('Flux App was requested as tiered setup but specifications are missing');
+      }
+      cpubasic = serviceHelper.ensureNumber(cpubasic);
+      cpusuper = serviceHelper.ensureNumber(cpusuper);
+      cpubamf = serviceHelper.ensureNumber(cpubamf);
+      rambasic = serviceHelper.ensureNumber(rambasic);
+      ramsuper = serviceHelper.ensureNumber(ramsuper);
+      rambamf = serviceHelper.ensureNumber(rambamf);
+      hddbasic = serviceHelper.ensureNumber(hddbasic);
+      hddsuper = serviceHelper.ensureNumber(hddsuper);
+      hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+      appSpecFormatted.cpubasic = cpubasic;
+      appSpecFormatted.cpusuper = cpusuper;
+      appSpecFormatted.cpubamf = cpubamf;
+      appSpecFormatted.rambasic = rambasic;
+      appSpecFormatted.ramsuper = ramsuper;
+      appSpecFormatted.rambamf = rambamf;
+      appSpecFormatted.hddbasic = hddbasic;
+      appSpecFormatted.hddsuper = hddsuper;
+      appSpecFormatted.hddbamf = hddbamf;
+    }
+  } else if (version <= 3) {
+    if (!repotag || !ports || !domains || !enviromentParameters || !commands || !containerPorts || !containerData || !cpu || !ram || !hdd) {
+      throw new Error('Missing Flux App specification parameter repotag and/or port and/or domains and/or enviromentParameters and/or commands and/or containerData and/or cpu and/or ram and/or hdd');
+    }
+
+    repotag = serviceHelper.ensureString(repotag);
+    ports = serviceHelper.ensureObject(ports);
+    const portsCorrect = [];
+    if (Array.isArray(ports)) {
+      ports.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // v2 and v3 have string
+        portsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Ports for Flux App are invalid');
+    }
+    domains = serviceHelper.ensureObject(domains);
+    const domainsCorrect = [];
+    if (Array.isArray(domains)) {
+      domains.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter);
+        domainsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Domains for Flux App are invalid');
+    }
+    enviromentParameters = serviceHelper.ensureObject(enviromentParameters);
+    const envParamsCorrected = [];
+    if (Array.isArray(enviromentParameters)) {
+      enviromentParameters.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter);
+        envParamsCorrected.push(param);
+      });
+    } else {
+      throw new Error('Environmental parameters for Flux App are invalid');
+    }
+    commands = serviceHelper.ensureObject(commands);
+    const commandsCorrected = [];
+    if (Array.isArray(commands)) {
+      commands.forEach((command) => {
+        const cmm = serviceHelper.ensureString(command);
+        commandsCorrected.push(cmm);
+      });
+    } else {
+      throw new Error('Flux App commands are invalid');
+    }
+    containerPorts = serviceHelper.ensureObject(containerPorts);
+    const containerportsCorrect = [];
+    if (Array.isArray(containerPorts)) {
+      containerPorts.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // next specification fork here we want to do ensureNumber
+        containerportsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Container Ports for Flux App are invalid');
+    }
+    containerData = serviceHelper.ensureString(containerData);
+    cpu = serviceHelper.ensureNumber(cpu);
+    ram = serviceHelper.ensureNumber(ram);
+    hdd = serviceHelper.ensureNumber(hdd);
+    tiered = serviceHelper.ensureBoolean(tiered);
+    if (typeof tiered !== 'boolean') {
+      throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+    }
+
+    // finalised parameters.
+    appSpecFormatted.repotag = repotag; // string
+    appSpecFormatted.ports = portsCorrect; // array of integers
+    appSpecFormatted.domains = domainsCorrect;
+    appSpecFormatted.enviromentParameters = envParamsCorrected; // array of strings
+    appSpecFormatted.commands = commandsCorrected; // array of strings
+    appSpecFormatted.containerPorts = containerportsCorrect; // array of integers
+    appSpecFormatted.containerData = containerData; // string
+    appSpecFormatted.cpu = cpu; // float 0.1 step
+    appSpecFormatted.ram = ram; // integer 100 step (mb)
+    appSpecFormatted.hdd = hdd; // integer 1 step
+    appSpecFormatted.tiered = tiered; // boolean
+
+    if (tiered) {
+      let {
+        cpubasic,
+        cpusuper,
+        cpubamf,
+        rambasic,
+        ramsuper,
+        rambamf,
+        hddbasic,
+        hddsuper,
+        hddbamf,
+      } = appSpecification;
+      if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+        throw new Error('Flux App was requested as tiered setup but specifications are missing');
+      }
+      cpubasic = serviceHelper.ensureNumber(cpubasic);
+      cpusuper = serviceHelper.ensureNumber(cpusuper);
+      cpubamf = serviceHelper.ensureNumber(cpubamf);
+      rambasic = serviceHelper.ensureNumber(rambasic);
+      ramsuper = serviceHelper.ensureNumber(ramsuper);
+      rambamf = serviceHelper.ensureNumber(rambamf);
+      hddbasic = serviceHelper.ensureNumber(hddbasic);
+      hddsuper = serviceHelper.ensureNumber(hddsuper);
+      hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+      appSpecFormatted.cpubasic = cpubasic;
+      appSpecFormatted.cpusuper = cpusuper;
+      appSpecFormatted.cpubamf = cpubamf;
+      appSpecFormatted.rambasic = rambasic;
+      appSpecFormatted.ramsuper = ramsuper;
+      appSpecFormatted.rambamf = rambamf;
+      appSpecFormatted.hddbasic = hddbasic;
+      appSpecFormatted.hddsuper = hddsuper;
+      appSpecFormatted.hddbamf = hddbamf;
+    }
+  } else { // v4+
+    if (!compose) {
+      throw new Error('Missing Flux App specification parameter compose');
+    }
+    compose = serviceHelper.ensureObject(compose);
+    if (!Array.isArray(compose)) {
+      throw new Error('Flux App compose parameter is not valid');
+    }
+    compose.forEach((appComponent) => {
+      const appComponentCorrect = {};
+      appComponentCorrect.name = serviceHelper.ensureString(appComponent.name);
+      appComponentCorrect.description = serviceHelper.ensureString(appComponent.description);
+      appComponentCorrect.repotag = serviceHelper.ensureString(appComponent.repotag);
+      appComponentCorrect.ports = serviceHelper.ensureObject(appComponent.ports);
+      const portsCorrect = [];
+      if (Array.isArray(appComponentCorrect.ports)) {
+        appComponentCorrect.ports.forEach((parameter) => {
+          const param = serviceHelper.ensureNumber(parameter);
+          portsCorrect.push(param);
+        });
+        appComponentCorrect.ports = portsCorrect;
+      } else {
+        throw new Error(`Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+      appComponentCorrect.domains = serviceHelper.ensureObject(appComponent.domains);
+      const domainsCorect = [];
+      if (Array.isArray(appComponentCorrect.domains)) {
+        appComponentCorrect.domains.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          domainsCorect.push(param);
+        });
+        appComponentCorrect.domains = domainsCorect;
+      } else {
+        throw new Error(`Domains for Flux App component ${appComponent.name} are invalid`);
+      }
+      appComponentCorrect.environmentParameters = serviceHelper.ensureObject(appComponent.environmentParameters);
+      const envParamsCorrected = [];
+      if (Array.isArray(appComponentCorrect.environmentParameters)) {
+        appComponentCorrect.environmentParameters.forEach((parameter) => {
+          const param = serviceHelper.ensureString(parameter);
+          envParamsCorrected.push(param);
+        });
+        appComponentCorrect.environmentParameters = envParamsCorrected;
+      } else {
+        throw new Error(`Environmental parameters for Flux App component ${appComponent.name} are invalid`);
+      }
+      appComponentCorrect.commands = serviceHelper.ensureObject(appComponent.commands);
+      const commandsCorrected = [];
+      if (Array.isArray(appComponentCorrect.commands)) {
+        appComponentCorrect.commands.forEach((command) => {
+          const cmm = serviceHelper.ensureString(command);
+          commandsCorrected.push(cmm);
+        });
+        appComponentCorrect.commands = commandsCorrected;
+      } else {
+        throw new Error(`Flux App component ${appComponent.name} commands are invalid`);
+      }
+      appComponentCorrect.containerPorts = serviceHelper.ensureObject(appComponent.containerPorts);
+      const containerportsCorrect = [];
+      if (Array.isArray(appComponentCorrect.containerPorts)) {
+        appComponentCorrect.containerPorts.forEach((parameter) => {
+          const param = serviceHelper.ensureNumber(parameter);
+          containerportsCorrect.push(param);
+        });
+      } else {
+        throw new Error(`Container Ports for Flux App component ${appComponent.name} are invalid`);
+      }
+      appComponentCorrect.containerData = serviceHelper.ensureString(appComponent.containerData);
+      appComponentCorrect.cpu = serviceHelper.ensureNumber(appComponent.cpu);
+      appComponentCorrect.ram = serviceHelper.ensureNumber(appComponent.ram);
+      appComponentCorrect.hdd = serviceHelper.ensureNumber(appComponent.hdd);
+
+      if (version <= 7) {
+        appComponentCorrect.tiered = appComponent.tiered;
+        if (typeof appComponentCorrect.tiered !== 'boolean') {
+          throw new Error('Invalid tiered value obtained. Only boolean as true or false allowed.');
+        }
+        if (appComponentCorrect.tiered) {
+          let {
+            cpubasic,
+            cpusuper,
+            cpubamf,
+            rambasic,
+            ramsuper,
+            rambamf,
+            hddbasic,
+            hddsuper,
+            hddbamf,
+          } = appComponent;
+          if (!cpubasic || !cpusuper || !cpubamf || !rambasic || !ramsuper || !rambamf || !hddbasic || !hddsuper || !hddbamf) {
+            throw new Error(`Flux App component ${appComponent.name} was requested as tiered setup but specifications are missing`);
+          }
+          cpubasic = serviceHelper.ensureNumber(cpubasic);
+          cpusuper = serviceHelper.ensureNumber(cpusuper);
+          cpubamf = serviceHelper.ensureNumber(cpubamf);
+          rambasic = serviceHelper.ensureNumber(rambasic);
+          ramsuper = serviceHelper.ensureNumber(ramsuper);
+          rambamf = serviceHelper.ensureNumber(rambamf);
+          hddbasic = serviceHelper.ensureNumber(hddbasic);
+          hddsuper = serviceHelper.ensureNumber(hddsuper);
+          hddbamf = serviceHelper.ensureNumber(hddbamf);
+
+          appComponentCorrect.cpubasic = cpubasic;
+          appComponentCorrect.cpusuper = cpusuper;
+          appComponentCorrect.cpubamf = cpubamf;
+          appComponentCorrect.rambasic = rambasic;
+          appComponentCorrect.ramsuper = ramsuper;
+          appComponentCorrect.rambamf = rambamf;
+          appComponentCorrect.hddbasic = hddbasic;
+          appComponentCorrect.hddsuper = hddsuper;
+          appComponentCorrect.hddbamf = hddbamf;
+        }
+      }
+
+      if (version >= 7) {
+        appComponentCorrect.repoauth = serviceHelper.ensureString(appComponent.repoauth);
+        if (version === 7) {
+          appComponentCorrect.secrets = serviceHelper.ensureString(appComponent.secrets);
+        }
+      }
+      correctCompose.push(appComponentCorrect);
+    });
+    appSpecFormatted.compose = correctCompose;
+  }
+
+  if (version >= 3) {
+    if (!instances) {
+      throw new Error('Missing Flux App specification parameter instances');
+    }
+    instances = serviceHelper.ensureNumber(instances);
+    if (typeof instances !== 'number') {
+      throw new Error('Invalid instances specification');
+    }
+    if (Number.isInteger(instances) !== true) {
+      throw new Error('Invalid instances specified');
+    }
+    if (instances < config.fluxapps.minimumInstances) {
+      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
+    }
+    if (instances > config.fluxapps.maximumInstances) {
+      throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
+    }
+    appSpecFormatted.instances = instances;
   }
 
   if (version >= 5) {
-    formatted.contacts = contacts;
-    formatted.geolocation = geolocation;
+    if (!contacts || !geolocation) { // can be empty array for no contact or no geolocation requirements
+      throw new Error('Missing Flux App specification parameter contacts and/or geolocation');
+    }
+    contacts = serviceHelper.ensureObject(contacts);
+    const contactsCorrect = [];
+    if (Array.isArray(contacts)) {
+      contacts.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // string
+        contactsCorrect.push(param);
+      });
+    } else {
+      throw new Error('Contacts for Flux App are invalid');
+    }
+    appSpecFormatted.contacts = contactsCorrect;
+
+    geolocation = serviceHelper.ensureObject(geolocation);
+    const geolocationCorrect = [];
+    if (Array.isArray(geolocation)) {
+      geolocation.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // string
+        geolocationCorrect.push(param);
+      });
+    } else {
+      throw new Error('Geolocation for Flux App is invalid');
+    }
+    appSpecFormatted.geolocation = geolocationCorrect;
   }
 
   if (version >= 6) {
-    formatted.expire = expire;
+    if (!expire) {
+      throw new Error('Missing Flux App specification parameter expire');
+    }
+    expire = serviceHelper.ensureNumber(expire);
+    if (typeof expire !== 'number') {
+      throw new Error('Invalid instances specification');
+    }
+    if (Number.isInteger(expire) !== true) {
+      throw new Error('Invalid instances specified');
+    }
+    if (expire > config.fluxapps.maxBlocksAllowance) {
+      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
+    }
+    appSpecFormatted.expire = expire;
   }
 
   if (version >= 7) {
-    formatted.nodes = nodes;
-    formatted.secrets = secrets;
-    formatted.staticip = staticip;
+    if (!nodes) { // can be empty array for no nodes set
+      throw new Error('Missing Flux App specification parameter nodes');
+    }
+    nodes = serviceHelper.ensureObject(nodes);
+    const nodesCorrect = [];
+    if (Array.isArray(nodes)) {
+      nodes.forEach((parameter) => {
+        const param = serviceHelper.ensureString(parameter); // string
+        nodesCorrect.push(param);
+      });
+    } else {
+      throw new Error('Nodes for Flux App are invalid');
+    }
+    appSpecFormatted.nodes = nodesCorrect;
+
+    staticip = serviceHelper.ensureBoolean(staticip);
+    if (typeof staticip !== 'boolean') {
+      throw new Error('Invalid staticip specification. Only boolean as true or false allowed.');
+    }
+    appSpecFormatted.staticip = staticip;
   }
 
   if (version >= 8) {
-    formatted.enterprise = enterprise;
+    if (enterprise) {
+      enterprise = serviceHelper.ensureString(enterprise);
+    }
+
+    appSpecFormatted.enterprise = enterprise;
   }
 
-  // Always include hash and height if present
-  if (hash) formatted.hash = hash;
-  if (height) formatted.height = height;
-
-  return formatted;
+  return appSpecFormatted;
 }
 
 /**
