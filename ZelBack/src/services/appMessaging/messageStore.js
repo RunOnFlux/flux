@@ -104,9 +104,6 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         }
       }
     } else {
-      log.info(`Validating app specifications for message hash: ${message.hash}`);
-      log.info(`App specifications version: ${appSpecFormatted.version}`);
-      log.info(`App name: ${appSpecFormatted.name}`);
       try {
         await appValidator.verifyAppSpecifications(appSpecFormatted, block);
       } catch (error) {
