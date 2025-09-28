@@ -3,8 +3,8 @@ const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
 
 /**
- * Get array of chain params price updates
- * @returns {Promise<object[]>} Returns an array of price updates with height
+ * To get array of price specifications updates
+ * @returns {(object|object[])} Returns an array of app objects.
  */
 async function getChainParamsPriceUpdates() {
   try {
@@ -52,16 +52,28 @@ async function getChainParamsPriceUpdates() {
 }
 
 /**
- * Get array of team support address updates
- * @returns {object[]} Returns an array of team support addresses with height
+ * To get array of team support address updates
+ * @returns {(object|object[])} Returns an array of team support addresses with height.
  */
 function getChainTeamSupportAddressUpdates() {
   try {
+    /* to be adjusted in the future to check database
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.chainparams.database);
+    const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+    const query = { version: 'p' };
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    const priceMessages = await dbHelper.findInDatabase(database, chainParamsMessagesCollection, query, projection);
+    */
     const addressForks = [];
     config.fluxapps.teamSupportAddress.forEach((address) => {
       addressForks.push(address);
     });
-    // sort addressForks depending on height
+    // sort priceForks depending on height
     addressForks.sort((a, b) => {
       if (a.height > b.height) return 1;
       if (a.height < b.height) return -1;
