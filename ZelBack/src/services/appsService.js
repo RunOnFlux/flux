@@ -1825,7 +1825,6 @@ module.exports = {
   appMonitorStream: appInspector.appMonitorStream,
   appExec: appInspector.appExec,
   appChanges: appInspector.appChanges,
-  getContainerStorage: appInspector.getContainerStorage,
   startAppMonitoring: (appName) => appInspector.startAppMonitoring(appName, appsMonitored),
   stopAppMonitoring: (appName, deleteData) => appInspector.stopAppMonitoring(appName, deleteData, appsMonitored),
   listAppsImages: appInspector.listAppsImages,

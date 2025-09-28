@@ -5,6 +5,7 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const log = require('../../lib/log');
 const { appConstants } = require('../utils/appConstants');
+const { getContainerStorage } = require('../utils/appUtilities');
 
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -396,60 +397,6 @@ async function getAppFolderSize(appName) {
   } catch (error) {
     log.error(error);
     return 0;
-  }
-}
-
-/**
- * Get container storage usage including bind mounts and volumes
- * @param {string} appName - Container name
- * @returns {Promise<object>} Storage usage information
- */
-async function getContainerStorage(appName) {
-  try {
-    const containerInfo = await dockerService.dockerContainerInspect(appName, { size: true });
-    let bindMountsSize = 0;
-    let volumeMountsSize = 0;
-    const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
-
-    if (containerInfo.Mounts && Array.isArray(containerInfo.Mounts)) {
-      for (const mount of containerInfo.Mounts) {
-        try {
-          if (mount.Type === 'bind') {
-            const exec = `sudo du -s --block-size=1 "${mount.Source}" 2>/dev/null | cut -f1`;
-            const cmdres = await cmdAsync(exec);
-            const size = parseInt(serviceHelper.ensureString(cmdres).trim(), 10) || 0;
-            bindMountsSize += size;
-          } else if (mount.Type === 'volume') {
-            const exec = `sudo du -s --block-size=1 "${mount.Source}" 2>/dev/null | cut -f1`;
-            const cmdres = await cmdAsync(exec);
-            const size = parseInt(serviceHelper.ensureString(cmdres).trim(), 10) || 0;
-            volumeMountsSize += size;
-          }
-        } catch (error) {
-          log.warn(`Error calculating size for mount ${mount.Source}: ${error.message}`);
-        }
-      }
-    }
-
-    const totalUsed = bindMountsSize + volumeMountsSize + containerRootFsSize;
-
-    return {
-      bind: bindMountsSize,
-      volume: volumeMountsSize,
-      rootfs: containerRootFsSize,
-      used: totalUsed,
-      status: 'success',
-    };
-  } catch (error) {
-    log.error(`Error getting container storage for ${appName}: ${error.message}`);
-    return {
-      bind: 0,
-      volume: 0,
-      rootfs: 0,
-      used: 0,
-      status: 'error',
-      message: error.message,
-    };
   }
 }
 
@@ -922,7 +869,6 @@ module.exports = {
   appExec,
   appChanges,
   getAppFolderSize,
-  getContainerStorage,
   startAppMonitoring,
   stopAppMonitoring,
   listAppsImages,

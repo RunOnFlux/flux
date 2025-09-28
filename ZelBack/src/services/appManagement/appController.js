@@ -6,6 +6,7 @@ const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('./appInspector');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const { getContainerStorage } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 
 /**
@@ -77,6 +78,8 @@ function startAppMonitoring(appName) {
         }
         appsMonitored[appName].run += 1;
         const statsNow = await dockerService.dockerContainerStats(appName);
+        const containerStorageInfo = await getContainerStorage(appName);
+        statsNow.disk_stats = containerStorageInfo;
         const now = Date.now();
         if (appsMonitored[appName].run % 3 === 0) {
           const inspect = await dockerService.dockerContainerInspect(appName);
@@ -223,10 +226,6 @@ async function appStart(req, res) {
       }
     }
 
-    if (appRes && appRes.status === 'error') {
-      throw appRes.data;
-    }
-
     const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
@@ -300,10 +299,6 @@ async function appStop(req, res) {
       }
     }
 
-    if (appRes && appRes.status === 'error') {
-      throw appRes.data;
-    }
-
     const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
@@ -374,10 +369,6 @@ async function appRestart(req, res) {
       }
     }
 
-    if (appRes && appRes.status === 'error') {
-      throw appRes.data;
-    }
-
     const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
@@ -439,10 +430,6 @@ async function appKill(req, res) {
       }
     }
 
-    if (appRes && appRes.status === 'error') {
-      throw appRes.data;
-    }
-
     const appResponse = messageHelper.createDataMessage(appRes);
     return res ? res.json(appResponse) : appResponse;
   } catch (error) {
@@ -486,8 +473,8 @@ async function appPause(req, res) {
 
     if (global) {
       executeAppGlobalCommand(appname, 'apppause', req.headers.zelidauth); // do not wait
-      const message = messageHelper.createSuccessMessage(`Flux App ${appname} pause initiated globally`);
-      return res ? res.json(message) : message;
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global pause`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component pause
@@ -511,10 +498,6 @@ async function appPause(req, res) {
         }
         appRes = `Application ${appSpecs.name} paused`;
       }
-    }
-
-    if (appRes && appRes.status === 'error') {
-      throw appRes.data;
     }
 
     const appResponse = messageHelper.createDataMessage(appRes);
@@ -560,8 +543,8 @@ async function appUnpause(req, res) {
 
     if (global) {
       executeAppGlobalCommand(appname, 'appunpause', req.headers.zelidauth); // do not wait
-      const message = messageHelper.createSuccessMessage(`Flux App ${appname} unpause initiated globally`);
-      return res ? res.json(message) : message;
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global unpase`);
+      return res ? res.json(appResponse) : appResponse;
     }
 
     const isComponent = appname.includes('_'); // it is a component unpause
@@ -585,10 +568,6 @@ async function appUnpause(req, res) {
         }
         appRes = `Application ${appSpecs.name} unpaused`;
       }
-    }
-
-    if (appRes && appRes.status === 'error') {
-      throw appRes.data;
     }
 
     const appResponse = messageHelper.createDataMessage(appRes);
