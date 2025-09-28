@@ -6,9 +6,14 @@ const networkStateService = require('../networkStateService');
 const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
 const userconfig = require('../../../../config/userconfig');
+const upnpService = require('../upnpService');
+const serviceHelper = require('../serviceHelper');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
+
+// Global cache for failed nodes
+const failedNodesTestPortsCache = new Map();
 
 /**
  * Check if ports in array are unique
@@ -191,69 +196,115 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
       throw new Error(`Flux App ${appSpecFormatted.name} port ${appSpecFormatted.port} already used with different application. Installation aborted.`);
     }
   } else if (appSpecFormatted.version <= 3) {
-    // Check each port in the ports array
-    appSpecFormatted.ports.forEach((port) => {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const port of appSpecFormatted.ports) {
       const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(port)));
       if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
         throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already used with different application. Installation aborted.`);
       }
-    });
-  } else if (appSpecFormatted.version >= 4 && appSpecFormatted.compose) {
-    // Check ports for all components in compose applications
-    appSpecFormatted.compose.forEach((component) => {
-      if (component.ports && Array.isArray(component.ports)) {
-        component.ports.forEach((port) => {
-          const portAssigned = currentAppsPorts.find((app) => app.ports.includes(Number(port)));
-          if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
-            throw new Error(`Flux App ${appSpecFormatted.name} component port ${port} already used with different application. Installation aborted.`);
-          }
-        });
+    }
+  } else {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComponent of appSpecFormatted.compose) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appComponent.ports) {
+        const portAssigned = currentAppsPorts.find((app) => app.ports.includes(port));
+        if (portAssigned && portAssigned.name !== appSpecFormatted.name) {
+          throw new Error(`Flux App ${appSpecFormatted.name} port ${port} already used with different application. Installation aborted.`);
+        }
       }
-    });
+    }
   }
+  return true;
 }
 
 /**
- * Restore port support for Flux applications
- * @returns {Promise<void>}
+ * Restores FluxOS firewall, UPNP rules
  */
 async function restoreFluxPortsSupport() {
   try {
-    const installedApps = await assignedPortsInstalledApps();
+    const isUPNP = upnpService.isUPNP();
 
-    for (const app of installedApps) {
-      for (const port of app.ports) {
-        // Implementation would include actual firewall/iptables commands
-        // For now, just log the restoration
-        console.log(`Restoring port ${port} for app ${app.name}`);
-      }
+    const apiPort = userconfig.initial.apiport || config.server.apiport;
+    const homePort = +apiPort - 1;
+    const apiPortSSL = +apiPort + 1;
+    const syncthingPort = +apiPort + 2;
+
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      // setup UFW if active
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPort));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(homePort));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(apiPortSSL));
+      await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(syncthingPort));
+    }
+
+    // UPNP
+    if (isUPNP) {
+      // map our Flux API, UI and SYNCTHING port
+      await upnpService.setupUPNP(apiPort);
     }
   } catch (error) {
-    console.error(`Error restoring Flux ports: ${error.message}`);
+    log.error(error);
   }
 }
 
 /**
- * Restore port support for all applications
- * @returns {Promise<void>}
+ * Restores applications firewall, UPNP rules
  */
 async function restoreAppsPortsSupport() {
   try {
-    await restoreFluxPortsSupport();
+    const currentAppsPorts = await assignedPortsInstalledApps();
+    const isUPNP = upnpService.isUPNP();
+
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    // setup UFW for apps
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const application of currentAppsPorts) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of application.ports) {
+          // eslint-disable-next-line no-await-in-loop
+          await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
+        }
+      }
+    }
+
+    // UPNP
+    if (isUPNP) {
+      // map application ports
+      // eslint-disable-next-line no-restricted-syntax
+      for (const application of currentAppsPorts) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const port of application.ports) {
+          // eslint-disable-next-line no-await-in-loop
+          const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
+          if (!upnpOk) {
+            // Import locally to avoid circular dependency
+            const appsService = require('../appsService');
+            // eslint-disable-next-line no-await-in-loop
+            await appsService.removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(3 * 60 * 1000); // 3 mins
+            break;
+          }
+        }
+      }
+    }
   } catch (error) {
-    console.error(`Error restoring apps ports: ${error.message}`);
+    log.error(error);
   }
 }
 
 /**
- * Restore all port support
- * @returns {Promise<void>}
+ * Restores FluxOS and applications firewall, UPNP rules
  */
 async function restorePortsSupport() {
   try {
+    await restoreFluxPortsSupport();
     await restoreAppsPortsSupport();
   } catch (error) {
-    console.error(`Error restoring ports support: ${error.message}`);
+    log.error(error);
   }
 }
 
@@ -322,14 +373,8 @@ async function signCheckAppData(message) {
 }
 
 /**
- * Periodically call other nodes to establish a connection with the ports I have open on UPNP to remain OPEN
- * @param {object} failedNodesTestPortsCache - Cache for failed nodes
- * @param {function} installedApps - Function to get installed apps
- * @returns {Promise<void>}
+ * Periodically call other nodes to stablish a connection with the ports I have open on UPNP to remain OPEN
  */
-// Global cache for failed nodes
-const failedNodesTestPortsCache = new Map();
-
 async function callOtherNodeToKeepUpnpPortsOpen() {
   try {
     const apiPort = userconfig.initial.apiport || config.server.apiport;
@@ -337,10 +382,15 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     if (!myIP) {
       return;
     }
+
     const randomSocketAddress = await networkStateService.getRandomSocketAddress(myIP);
+
     if (!randomSocketAddress) return;
+
     const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
+
     myIP = myIP.split(':')[0];
+
     if (myIP === askingIP) {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
@@ -349,6 +399,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       callOtherNodeToKeepUpnpPortsOpen();
       return;
     }
+
     // Import locally to avoid circular dependency
     const appsService = require('../appsService');
     const installedAppsRes = await appsService.installedApps();
@@ -374,6 +425,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
         });
       }
     }
+
     // We don't add the api port, as the remote node will callback to our
     // api port to make sure it can connect before testing any other ports
     // this is so that we know the remote end can reach us. I also removed
@@ -386,9 +438,11 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     ports.push(apiPort + 1);
     ports.push(apiPort + 2);
     // ports.push(apiPort + 3);
+
     const axiosConfig = {
       timeout: 5_000,
     };
+
     const dataUPNP = {
       ip: myIP,
       apiPort,
@@ -396,11 +450,14 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
       pubKey,
       timestamp: Math.floor(Date.now() / 1000),
     };
+
     const stringData = JSON.stringify(dataUPNP);
     const signature = await signCheckAppData(stringData);
     dataUPNP.signature = signature;
+
     const logMsg = `callOtherNodeToKeepUpnpPortsOpen - calling ${askingIP}:${askingIpPort} to test ports: ${ports}`;
     log.info(logMsg);
+
     const url = `http://${askingIP}:${askingIpPort}/flux/keepupnpportsopen`;
     await axios.post(url, dataUPNP, axiosConfig).catch(() => {
       // callOtherNodeToKeepUpnpPortsOpen();
