@@ -8,6 +8,7 @@ const dockerService = require('../dockerService');
 const daemonServiceFluxnodeRpcs = require('../daemonService/daemonServiceFluxnodeRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const benchmarkService = require('../benchmarkService');
+const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchmarkRpcs');
 const generalService = require('../generalService');
 
 // Node specifications cache
@@ -31,9 +32,9 @@ async function getNodeSpecs() {
     }
     if (nodeSpecs.ssdStorage === 0) {
       // get my external IP and check that it is longer than 5 in length.
-      const benchmarkResponse = await benchmarkService.getBenchmarks();
+      const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
       if (benchmarkResponse.status === 'success') {
-        const benchmarkResponseData = benchmarkResponse.data;
+        const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
         log.info(`Gathered ssdstorage ${benchmarkResponseData.ssd}`);
         nodeSpecs.ssdStorage = benchmarkResponseData.ssd;
       } else {
@@ -67,27 +68,16 @@ function returnNodeSpecs() {
 }
 
 /**
- * Get system architecture
- * @returns {Promise<string>} System architecture (amd64, arm64, etc.)
+ * To get system architecture type (ARM64 or AMD64).
+ * @returns {Promise<string>} Architecture type (ARM64 or AMD64).
  */
 async function systemArchitecture() {
-  try {
-    const arch = os.arch();
-    switch (arch) {
-      case 'x64':
-        return 'amd64';
-      case 'arm64':
-        return 'arm64';
-      case 'arm':
-        return 'arm';
-      default:
-        log.warn(`Unknown architecture: ${arch}, defaulting to amd64`);
-        return 'amd64';
-    }
-  } catch (error) {
-    log.error(`Error detecting system architecture: ${error.message}`);
-    return 'amd64'; // Default fallback
+  // get benchmark architecture - valid are arm64, amd64
+  const benchmarkBenchRes = await benchmarkService.getBenchmarks();
+  if (benchmarkBenchRes.status === 'error') {
+    throw benchmarkBenchRes.data;
   }
+  return benchmarkBenchRes.data.architecture;
 }
 
 /**
@@ -137,163 +127,185 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
 }
 
 /**
- * Check app static IP requirements
- * @param {object} appSpecs - App specifications
- * @returns {boolean} True if static IP is required
+ * To check app requirements of staticip restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 function checkAppStaticIpRequirements(appSpecs) {
-  if (!appSpecs) {
-    return false;
+  if (appSpecs.version >= 7 && appSpecs.staticip) {
+    // Import locally to avoid circular dependency
+    const geolocationService = require('../geolocationService');
+    const isMyNodeStaticIP = geolocationService.isStaticIP();
+    if (isMyNodeStaticIP !== appSpecs.staticip) {
+      throw new Error(`Application ${appSpecs.name} requires static IP address to run. Aborting.`);
+    }
   }
-
-  // Check if app explicitly requires static IP
-  if (appSpecs.staticIp === true) {
-    return true;
-  }
-
-  // Check for enterprise features that may require static IP
-  if (appSpecs.version >= 8 && appSpecs.enterprise) {
-    return true;
-  }
-
-  return false;
+  return true;
 }
 
 /**
- * Check app nodes requirements
- * @param {object} appSpecs - App specifications
- * @returns {Promise<boolean>} True if node requirements are met
+ * To check app satisfaction of nodes restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 async function checkAppNodesRequirements(appSpecs) {
-  try {
-    if (!appSpecs || !appSpecs.nodes || appSpecs.nodes.length === 0) {
-      return true; // No specific node requirements
+  if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
+    const myCollateral = await generalService.obtainNodeCollateralInformation();
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+
+    if (benchmarkResponse.status === 'error') {
+      throw new Error('Unable to detect Flux IP address');
     }
 
-    // Get current node info
-    const nodeInfo = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
-    if (nodeInfo.status !== 'success') {
-      throw new Error('Unable to get node status');
+    let myIP = null;
+    if (benchmarkResponse.data.ipaddress) {
+      log.info(`Gathered IP ${benchmarkResponse.data.ipaddress}`);
+      myIP = benchmarkResponse.data.ipaddress.length > 5 ? benchmarkResponse.data.ipaddress : null;
     }
 
-    const myNodeData = nodeInfo.data;
-
-    // Check if this node meets the requirements
-    for (const requiredNode of appSpecs.nodes) {
-      if (myNodeData.ip === requiredNode.ip || myNodeData.collateral === requiredNode.collateral) {
-        return true;
-      }
+    if (myIP === null) {
+      throw new Error('Unable to detect Flux IP address');
     }
 
-    return false;
-  } catch (error) {
-    log.error(`Error checking app nodes requirements: ${error.message}`);
-    return false;
+    if (appSpecs.nodes.includes(myIP) || appSpecs.nodes.includes(`${myCollateral.txhash}:${myCollateral.txindex}`)) {
+      return true;
+    }
+    throw new Error(`Application ${appSpecs.name} is not allowed to run on this node. Aborting.`);
   }
+
+  return true;
 }
 
 /**
- * Check app geolocation requirements
- * @param {object} appSpecs - App specifications
- * @returns {boolean} True if geolocation requirements are met
+ * To check app requirements of geolocation restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 function checkAppGeolocationRequirements(appSpecs) {
-  try {
-    if (!appSpecs || !appSpecs.geolocation || appSpecs.geolocation.length === 0) {
-      return true; // No geolocation requirements
+  if (appSpecs.version >= 5 && appSpecs.geolocation && appSpecs.geolocation.length > 0) {
+    // Import locally to avoid circular dependency
+    const geolocationService = require('../geolocationService');
+    const nodeGeo = geolocationService.getNodeGeolocation();
+    if (!nodeGeo) {
+      throw new Error('Node Geolocation not set. Aborting.');
     }
+    // previous geolocation specification version (a, b) [aEU, bFR]
+    // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
+    const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
+    const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
+    const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
+    const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
 
-    // Get node's geolocation (this would need to be implemented)
-    const nodeGeolocation = getNodeGeolocation();
-
-    if (!nodeGeolocation) {
-      log.warn('Node geolocation not available');
-      return false;
+    const myNodeLocationContinent = nodeGeo.continentCode;
+    const myNodeLocationContCountry = `${nodeGeo.continentCode}_${nodeGeo.countryCode}`;
+    const myNodeLocationFull = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
+    const myNodeLocationContinentALL = 'ALL';
+    const myNodeLocationContCountryALL = `${nodeGeo.continentCode}_ALL`;
+    const myNodeLocationFullALL = `${nodeGeo.continentCode}_${nodeGeo.countryCode}_ALL`;
+    if (appContinent && !geoC.length && !geoCForbidden.length) { // backwards old style compatible. Can be removed after a month
+      if (appContinent.slice(1) !== nodeGeo.continentCode) {
+        throw new Error('App specs with continents geolocation set not matching node geolocation. Aborting.');
+      }
     }
-
-    // Check if node's location matches requirements
-    return appSpecs.geolocation.some((location) => {
-      return location.continent === nodeGeolocation.continent ||
-             location.country === nodeGeolocation.country ||
-             location.region === nodeGeolocation.region;
+    if (appCountry) {
+      if (appCountry.slice(1) !== nodeGeo.countryCode) {
+        throw new Error('App specs with countries geolocation set not matching node geolocation. Aborting.');
+      }
+    }
+    geoCForbidden.forEach((locationNotAllowed) => {
+      if (locationNotAllowed.slice(3) === myNodeLocationContinent || locationNotAllowed.slice(3) === myNodeLocationContCountry || locationNotAllowed.slice(3) === myNodeLocationFull) {
+        throw new Error('App specs of geolocation set is forbidden to run on node geolocation. Aborting.');
+      }
     });
-  } catch (error) {
-    log.error(`Error checking geolocation requirements: ${error.message}`);
-    return false;
+    if (geoC.length) {
+      const nodeLocationOK = geoC.find((locationAllowed) => locationAllowed.slice(2) === myNodeLocationContinent || locationAllowed.slice(2) === myNodeLocationContCountry || locationAllowed.slice(2) === myNodeLocationFull
+        || locationAllowed.slice(2) === myNodeLocationContinentALL || locationAllowed.slice(2) === myNodeLocationContCountryALL || locationAllowed.slice(2) === myNodeLocationFullALL);
+      if (!nodeLocationOK) {
+        throw new Error('App specs of geolocation set is not matching to run on node geolocation. Aborting.');
+      }
+    }
   }
+
+  return true;
 }
 
 /**
- * Check app hardware requirements against node specs
- * @param {object} appSpecs - App specifications
- * @returns {Promise<boolean>} True if hardware requirements are met
+ * Get full node geolocation string
+ * @returns {string} Full geolocation string
+ */
+function nodeFullGeolocation() {
+  // Import locally to avoid circular dependency
+  const geolocationService = require('../geolocationService');
+  const nodeGeo = geolocationService.getNodeGeolocation();
+  if (!nodeGeo) {
+    throw new Error('Node Geolocation not set. Aborting.');
+  }
+  return `${nodeGeo.continentCode}_${nodeGeo.countryCode}_${nodeGeo.regionName}`;
+}
+
+/**
+ * To check app requirements of HW for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 async function checkAppHWRequirements(appSpecs) {
-  try {
-    if (!appSpecs) {
-      return false;
-    }
+  // Import locally to avoid circular dependency
+  const appController = require('../appManagement/appController');
 
-    const nodeSpecifications = await getNodeSpecs();
-    const nodeTier = await generalService.nodeTier();
-
-    const totalRequirements = totalAppHWRequirements(appSpecs, nodeTier);
-
-    // Check CPU requirements
-    if (totalRequirements.cpu > nodeSpecifications.cpuCores) {
-      log.warn(`Insufficient CPU: Required ${totalRequirements.cpu}, Available ${nodeSpecifications.cpuCores}`);
-      return false;
-    }
-
-    // Check RAM requirements (convert to GB for comparison)
-    const availableRamGB = nodeSpecifications.ram / 1024;
-    if (totalRequirements.ram > availableRamGB) {
-      log.warn(`Insufficient RAM: Required ${totalRequirements.ram}GB, Available ${availableRamGB}GB`);
-      return false;
-    }
-
-    // Check storage requirements
-    if (totalRequirements.hdd > nodeSpecifications.ssdStorage) {
-      log.warn(`Insufficient Storage: Required ${totalRequirements.hdd}GB, Available ${nodeSpecifications.ssdStorage}GB`);
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    log.error(`Error checking hardware requirements: ${error.message}`);
-    return false;
+  // appSpecs has hdd, cpu and ram assigned to correct tier
+  const tier = await generalService.nodeTier();
+  const resourcesLocked = await appController.appsResources();
+  if (resourcesLocked.status !== 'success') {
+    throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
   }
+
+  const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
+  await getNodeSpecs();
+  const totalSpaceOnNode = nodeSpecs.ssdStorage;
+  if (totalSpaceOnNode === 0) {
+    throw new Error('Insufficient space on Flux Node to spawn an application');
+  }
+  const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
+  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
+  const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
+  // bigger or equal so we have the 1 gb free...
+  if (appHWrequirements.hdd > availableSpaceForApps) {
+    throw new Error('Insufficient space on Flux Node to spawn an application');
+  }
+
+  const totalCpuOnNode = nodeSpecs.cpuCores * 10;
+  const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
+  const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
+  const adjustedAppCpu = appHWrequirements.cpu * 10;
+  const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
+  if (adjustedAppCpu > availableCpuForApps) {
+    throw new Error('Insufficient CPU power on Flux Node to spawn an application');
+  }
+
+  const totalRamOnNode = nodeSpecs.ram;
+  const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
+  const ramLockedByApps = resourcesLocked.data.appsRamLocked;
+  const availableRamForApps = useableRamOnNode - ramLockedByApps;
+  if (appHWrequirements.ram > availableRamForApps) {
+    throw new Error('Insufficient RAM on Flux Node to spawn an application');
+  }
+
+  return true;
 }
 
 /**
- * Check all app requirements
- * @param {object} appSpecs - App specifications
- * @returns {Promise<object>} Requirements check result
+ * To check app requirements to include HDD space, CPU power, RAM and GEO for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 async function checkAppRequirements(appSpecs) {
-  try {
-    const results = {
-      hardware: await checkAppHWRequirements(appSpecs),
-      geolocation: checkAppGeolocationRequirements(appSpecs),
-      nodes: await checkAppNodesRequirements(appSpecs),
-      staticIp: checkAppStaticIpRequirements(appSpecs),
-    };
-
-    const allMet = Object.values(results).every(req => req === true);
-
-    return {
-      status: allMet ? 'success' : 'failure',
-      requirements: results,
-      allMet,
-    };
-  } catch (error) {
-    log.error(`Error checking app requirements: ${error.message}`);
-    return {
-      status: 'error',
-      message: error.message,
-      allMet: false,
-    };
-  }
+  // appSpecs has hdd, cpu and ram assigned to correct tier
+  await checkAppHWRequirements(appSpecs);
+  // check geolocation
+  checkAppStaticIpRequirements(appSpecs);
+  await checkAppNodesRequirements(appSpecs);
+  checkAppGeolocationRequirements(appSpecs);
+  return true;
 }
 
 /**
@@ -449,15 +461,6 @@ async function createFluxNetworkAPI(req, res) {
   }
 }
 
-/**
- * Get node geolocation (placeholder implementation)
- * @returns {object|null} Node geolocation data
- */
-function getNodeGeolocation() {
-  // This would be implemented to get actual node geolocation
-  // For now, return null to indicate unavailable
-  return null;
-}
 
 /**
  * Start monitoring of apps
@@ -519,6 +522,7 @@ module.exports = {
   checkAppStaticIpRequirements,
   checkAppNodesRequirements,
   checkAppGeolocationRequirements,
+  nodeFullGeolocation,
   checkAppHWRequirements,
   checkAppRequirements,
   checkHWParameters,
