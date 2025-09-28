@@ -399,15 +399,27 @@ async function getApplicationSpecifications(appName) {
       _id: 0,
     },
   };
-
-  let dbAppSpec = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-
-  if (!dbAppSpec) {
-    // Try local apps
-    dbAppSpec = await getApplicationLocalSpecifications(appName);
+  let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+  if (!appInfo) {
+    const allApps = await availableApps();
+    appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
 
-  return dbAppSpec;
+  // This is abusing the spec formatter. It's not meant for this. This whole thing
+  // is kind of broken. The reason we have to use the spec formatter here is the
+  // frontend is passing properties as strings (then stringify the whole object)
+  // the frontend should parse the strings up front, and just pass an encrypted,
+  // stringified object.
+  //
+  // Will fix this in v9 specs. Move to model based specs with pre sorted keys.
+  appInfo = await checkAndDecryptAppSpecs(appInfo);
+  if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
+    const { height, hash } = appInfo;
+    appInfo = specificationFormatter(appInfo);
+    appInfo.height = height;
+    appInfo.hash = hash;
+  }
+  return appInfo;
 }
 
 /**
@@ -588,38 +600,62 @@ async function availableApps(_req, res) {
  * @returns {Promise<boolean>} True if no conflicts found
  */
 async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
+  // check if name is not yet registered
+  const dbopen = dbHelper.databaseConnection();
 
-  const globalQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') };
-  const globalProjection = {
+  const appsDatabase = dbopen.db(config.database.appsglobal.database);
+  const appsQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') }; // case insensitive
+  const appsProjection = {
     projection: {
-      _id: 0, hash: 1, name: 1, owner: 1,
+      _id: 0,
+      name: 1,
+      height: 1,
+      expire: 1,
     },
   };
+  const appResult = await dbHelper.findOneInDatabase(appsDatabase, globalAppsInformation, appsQuery, appsProjection);
 
-  const globalAppResult = await dbHelper.findOneInDatabase(database, globalAppsInformation, globalQuery, globalProjection);
-
-  if (globalAppResult) {
-    if (globalAppResult.hash !== hash) {
-      if (globalAppResult.owner !== appSpecFormatted.owner) {
-        throw new Error(`Flux App ${appSpecFormatted.name} already registered and is owned by a different user.`);
+  if (appResult) {
+    // in this case, check if hash of the message is older than our current app
+    if (hash) {
+      // check if we have the hash of the app in our db
+      const query = { hash };
+      const projection = {
+        projection: {
+          _id: 0,
+          txid: 1,
+          hash: 1,
+          height: 1,
+        },
+      };
+      const database = dbopen.db(config.database.daemon.database);
+      const result = await dbHelper.findOneInDatabase(database, appsHashesCollection, query, projection);
+      if (!result) {
+        throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash not found in collection.`);
       }
+      if (appResult.height <= result.height) {
+        log.debug(appResult);
+        log.debug(result);
+        const currentExpiration = appResult.height + (appResult.expire || 22000);
+        if (currentExpiration >= result.height) {
+          throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash is not older than our current app.`);
+        } else {
+          log.warn(`Flux App ${appSpecFormatted.name} active specifications are outdated. Will be cleaned on next expiration`);
+        }
+      }
+    } else {
+      throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name.`);
     }
   }
 
-  // Check local apps as well
-  const localDb = dbHelper.databaseConnection();
-  const localDatabase = localDb.db(config.database.appslocal.database);
-  const localQuery = { name: new RegExp(`^${appSpecFormatted.name}$`, 'i') };
-  const localProjection = { projection: { _id: 0, name: 1, owner: 1 } };
-
-  const localAppResult = await dbHelper.findOneInDatabase(localDatabase, localAppsInformation, localQuery, localProjection);
-
-  if (localAppResult && localAppResult.owner !== appSpecFormatted.owner) {
-    throw new Error(`Flux App ${appSpecFormatted.name} already exists locally and is owned by a different user.`);
+  const localApps = await availableApps();
+  const appExists = localApps.find((localApp) => localApp.name.toLowerCase() === appSpecFormatted.name.toLowerCase());
+  if (appExists) {
+    throw new Error(`Flux App ${appSpecFormatted.name} already assigned to local application. Flux App has to be registered under different name.`);
   }
-
+  if (appSpecFormatted.name.toLowerCase() === 'share') {
+    throw new Error(`Flux App ${appSpecFormatted.name} already assigned to Flux main application. Flux App has to be registered under different name.`);
+  }
   return true;
 }
 
