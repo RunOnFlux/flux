@@ -2,15 +2,14 @@ const path = require('path');
 const util = require('util');
 const nodecmd = require('node-cmd');
 const config = require('config');
-const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
 const geolocationService = require('../geolocationService');
+const { getChainParamsPriceUpdates } = require('./chainUtilities');
 
 const cmdAsync = util.promisify(nodecmd.run);
 const fluxDirPath = path.join(__dirname, '../../../../');
-
 
 /**
  * Calculate app price per month
@@ -23,9 +22,9 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   if (!dataForAppRegistration) {
     return new Error('Application specification not provided');
   }
+  // eslint-disable-next-line global-require
   const fluxNetworkHelper = require('../fluxNetworkHelper');
-  const chainUtilities = require('./chainUtilities');
-  const appPrices = suppliedPrices || await chainUtilities.getChainParamsPriceUpdates();
+  const appPrices = suppliedPrices || await getChainParamsPriceUpdates();
   const intervals = appPrices.filter((i) => i.height < height);
   const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   let instancesAdditional = 0;
@@ -183,7 +182,7 @@ async function getAppFolderSize(appName) {
     const exec = `sudo du -s --block-size=1 ${directoryPath}`;
     const cmdres = await cmdAsync(exec);
     const size = serviceHelper.ensureString(cmdres).split('\t')[0] || 0;
-    return Number(size);
+    return size;
   } catch (error) {
     log.error(`Error getting app folder size: ${error.message}`);
     return 0;
@@ -201,7 +200,6 @@ async function getContainerStorage(appName) {
     let bindMountsSize = 0;
     let volumeMountsSize = 0;
     const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
-
     if (containerInfo?.Mounts?.length) {
       await Promise.all(containerInfo.Mounts.map(async (mount) => {
         let source = mount?.Source;
@@ -210,50 +208,45 @@ async function getContainerStorage(appName) {
           if (mountType === 'bind') {
             source = source.replace('/appdata', '');
             const exec = `sudo du -sb ${source}`;
-            try {
-              const mountInfo = await cmdAsync(exec);
-              if (mountInfo) {
-                const size = Number(serviceHelper.ensureString(mountInfo).split('\t')[0] || 0);
-                bindMountsSize += size;
-              }
-            } catch (error) {
-              log.warn(`Unable to get bind mount size for ${source}: ${error.message}`);
+            const mountInfo = await cmdAsync(exec);
+            if (mountInfo) {
+              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
+              bindMountsSize += sizeNum;
+            } else {
+              log.warn(`No mount info returned for source: ${source}`);
             }
           } else if (mountType === 'volume') {
-            const volumeName = mount?.Name;
-            if (volumeName) {
-              try {
-                const volumeInfo = await dockerService.dockerVolumeInspect(volumeName);
-                if (volumeInfo?.Mountpoint) {
-                  const exec = `sudo du -sb ${volumeInfo.Mountpoint}`;
-                  const mountInfo = await cmdAsync(exec);
-                  if (mountInfo) {
-                    const size = Number(serviceHelper.ensureString(mountInfo).split('\t')[0] || 0);
-                    volumeMountsSize += size;
-                  }
-                }
-              } catch (error) {
-                log.warn(`Unable to get volume mount size for ${volumeName}: ${error.message}`);
-              }
+            const exec = `sudo du -sb ${source}`;
+            const mountInfo = await cmdAsync(exec);
+            if (mountInfo) {
+              const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
+              volumeMountsSize += sizeNum;
+            } else {
+              log.warn(`No mount info returned for source: ${source}`);
             }
+          } else {
+            log.warn(`Unsupported mount type or source: Type: ${mountType}, Source: ${source}`);
           }
         }
       }));
     }
-
+    const usedSize = bindMountsSize + volumeMountsSize + containerRootFsSize;
     return {
-      containerRootFsSize,
-      bindMountsSize,
-      volumeMountsSize,
-      totalSize: containerRootFsSize + bindMountsSize + volumeMountsSize,
+      bind: bindMountsSize,
+      volume: volumeMountsSize,
+      rootfs: containerRootFsSize,
+      used: usedSize,
+      status: 'success',
     };
   } catch (error) {
-    log.error(`Error getting container storage: ${error.message}`);
+    log.error(`Error fetching container storage: ${error.message}`);
     return {
-      containerRootFsSize: 0,
-      bindMountsSize: 0,
-      volumeMountsSize: 0,
-      totalSize: 0,
+      bind: 0,
+      volume: 0,
+      rootfs: 0,
+      used: 0,
+      status: 'error',
+      message: error.message,
     };
   }
 }
@@ -760,168 +753,6 @@ function specificationFormatter(appSpecification) {
   return appSpecFormatted;
 }
 
-/**
- * Parse app specification from string or object
- * @param {string|object} specData - Specification data
- * @returns {object} Parsed specification
- */
-function parseAppSpecification(specData) {
-  try {
-    if (typeof specData === 'string') {
-      return JSON.parse(specData);
-    }
-    if (typeof specData === 'object' && specData !== null) {
-      return specData;
-    }
-    throw new Error('Invalid specification data type');
-  } catch (error) {
-    log.error(`Error parsing app specification: ${error.message}`);
-    throw new Error('Invalid app specification format');
-  }
-}
-
-/**
- * Validate app name format
- * @param {string} name - App name to validate
- * @returns {boolean} True if valid
- */
-function validateAppName(name) {
-  if (!name || typeof name !== 'string') {
-    return false;
-  }
-
-  // App name constraints
-  const minLength = 1;
-  const maxLength = 32;
-  const validPattern = /^[a-zA-Z0-9]+$/; // Only alphanumeric characters
-
-  return name.length >= minLength &&
-         name.length <= maxLength &&
-         validPattern.test(name);
-}
-
-/**
- * Sanitize app input data
- * @param {object} data - Input data to sanitize
- * @returns {object} Sanitized data
- */
-function sanitizeAppInput(data) {
-  if (!data || typeof data !== 'object') {
-    return {};
-  }
-
-  const sanitized = {};
-
-  // Sanitize string fields
-  Object.keys(data).forEach(key => {
-    const value = data[key];
-    if (typeof value === 'string') {
-      sanitized[key] = value.trim().substring(0, 1000); // Limit string length
-    } else if (typeof value === 'number') {
-      sanitized[key] = Number.isFinite(value) ? value : 0;
-    } else if (typeof value === 'boolean') {
-      sanitized[key] = Boolean(value);
-    } else if (Array.isArray(value)) {
-      sanitized[key] = value.slice(0, 100); // Limit array length
-    } else if (value && typeof value === 'object') {
-      sanitized[key] = sanitizeAppInput(value); // Recursive sanitization
-    }
-  });
-
-  return sanitized;
-}
-
-/**
- * Generate app hash from specifications
- * @param {object} appSpec - App specifications
- * @returns {string} Generated hash
- */
-function generateAppHash(appSpec) {
-  try {
-    const crypto = require('crypto');
-    const specString = JSON.stringify(appSpec);
-    return crypto.createHash('sha256').update(specString).digest('hex');
-  } catch (error) {
-    log.error(`Error generating app hash: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
- * Extract app metadata from specifications
- * @param {object} appSpec - App specifications
- * @returns {object} Extracted metadata
- */
-function extractAppMetadata(appSpec) {
-  if (!appSpec) {
-    return {};
-  }
-
-  return {
-    name: appSpec.name,
-    version: appSpec.version,
-    owner: appSpec.owner,
-    description: appSpec.description,
-    totalCpu: calculateTotalCpu(appSpec),
-    totalRam: calculateTotalRam(appSpec),
-    totalHdd: calculateTotalHdd(appSpec),
-    ports: getAppPorts(appSpec),
-    isCompose: appSpec.version >= 4 && appSpec.compose && appSpec.compose.length > 0,
-    isEnterprise: appSpec.version >= 8 && appSpec.enterprise,
-  };
-}
-
-/**
- * Calculate total CPU requirements
- * @param {object} appSpec - App specifications
- * @returns {number} Total CPU
- */
-function calculateTotalCpu(appSpec) {
-  if (!appSpec) return 0;
-
-  if (appSpec.version <= 3) {
-    return appSpec.cpu || 0;
-  } else if (appSpec.compose) {
-    return appSpec.compose.reduce((total, component) => total + (component.cpu || 0), 0);
-  }
-
-  return 0;
-}
-
-/**
- * Calculate total RAM requirements
- * @param {object} appSpec - App specifications
- * @returns {number} Total RAM
- */
-function calculateTotalRam(appSpec) {
-  if (!appSpec) return 0;
-
-  if (appSpec.version <= 3) {
-    return appSpec.ram || 0;
-  } else if (appSpec.compose) {
-    return appSpec.compose.reduce((total, component) => total + (component.ram || 0), 0);
-  }
-
-  return 0;
-}
-
-/**
- * Calculate total HDD requirements
- * @param {object} appSpec - App specifications
- * @returns {number} Total HDD
- */
-function calculateTotalHdd(appSpec) {
-  if (!appSpec) return 0;
-
-  if (appSpec.version <= 3) {
-    return appSpec.hdd || 0;
-  } else if (appSpec.compose) {
-    return appSpec.compose.reduce((total, component) => total + (component.hdd || 0), 0);
-  }
-
-  return 0;
-}
-
 module.exports = {
   appPricePerMonth,
   nodeFullGeolocation,
@@ -929,12 +760,4 @@ module.exports = {
   getContainerStorage,
   getAppPorts,
   specificationFormatter,
-  parseAppSpecification,
-  validateAppName,
-  sanitizeAppInput,
-  generateAppHash,
-  extractAppMetadata,
-  calculateTotalCpu,
-  calculateTotalRam,
-  calculateTotalHdd,
 };
