@@ -13,8 +13,7 @@ let nodeSpecs = {
 };
 
 /**
- * Get node specifications
- * @returns {Promise<object>} Node specifications
+ * To get node specifications (CPUs, RAM and SSD).
  */
 async function getNodeSpecs() {
   try {
@@ -42,10 +41,11 @@ async function getNodeSpecs() {
 }
 
 /**
- * Set node specifications
- * @param {number} cores - CPU cores
- * @param {number} ram - RAM amount
- * @param {number} ssdStorage - SSD storage amount
+ * Created for testing purposes
+ *
+ * @param {number} cores
+ * @param {number} ram
+ * @param {number} ssdStorage
  */
 function setNodeSpecs(cores, ram, ssdStorage) {
   nodeSpecs.cpuCores = cores;
@@ -54,18 +54,21 @@ function setNodeSpecs(cores, ram, ssdStorage) {
 }
 
 /**
- * Return current node specifications
- * @returns {object} Node specifications
+ * Created for testing purposes
+ *
+ * @param {number} cores
+ * @param {number} ram
+ * @param {number} ssdStorage
  */
 function returnNodeSpecs() {
   return nodeSpecs;
 }
 
 /**
- * Calculate total hardware requirements for an application
- * @param {object} appSpecifications - Application specifications
- * @param {string} myNodeTier - Node tier (basic, super, bamf)
- * @returns {object} Total hardware requirements
+ * To return total app hardware requirements (CPU, RAM and HDD).
+ * @param {object} appSpecifications App specifications.
+ * @param {string} myNodeTier Node tier.
+ * @returns {object} Values for CPU, RAM and HDD.
  */
 function totalAppHWRequirements(appSpecifications, myNodeTier) {
   let cpu = 0;
@@ -86,26 +89,27 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
       ram = appSpecifications.ram;
       hdd = appSpecifications.hdd;
     }
-  } else if (appSpecifications.version >= 4 && appSpecifications.compose) {
-    // For compose applications, sum all components
-    appSpecifications.compose.forEach((component) => {
-      cpu += component.cpu || 0;
-      ram += component.ram || 0;
-      hdd += component.hdd || 0;
-    });
   } else {
-    cpu = appSpecifications.cpu;
-    ram = appSpecifications.ram;
-    hdd = appSpecifications.hdd;
+    appSpecifications.compose.forEach((appComponent) => {
+      if (appComponent.tiered) {
+        cpu += appComponent[cpuTier] || appComponent.cpu;
+        ram += appComponent[ramTier] || appComponent.ram;
+        hdd += appComponent[hddTier] || appComponent.hdd;
+      } else {
+        cpu += appComponent.cpu;
+        ram += appComponent.ram;
+        hdd += appComponent.hdd;
+      }
+    });
   }
 
   return { cpu, ram, hdd };
 }
 
 /**
- * Check application hardware requirements against node capabilities
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<boolean>} True if requirements are met
+ * To check app requirements of HW for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 async function checkAppHWRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
@@ -151,9 +155,9 @@ async function checkAppHWRequirements(appSpecs) {
 }
 
 /**
- * Check application requirements (combined check)
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<boolean>} True if all requirements are met
+ * To check app requirements to include HDD space, CPU power, RAM and GEO for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
@@ -178,9 +182,9 @@ function nodeFullGeolocation() {
 }
 
 /**
- * Check application static IP requirements
- * @param {object} appSpecs - Application specifications
- * @returns {boolean} True if requirements are met
+ * To check app requirements of staticip restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 function checkAppStaticIpRequirements(appSpecs) {
   if (appSpecs.version >= 7 && appSpecs.staticip) {
@@ -193,9 +197,9 @@ function checkAppStaticIpRequirements(appSpecs) {
 }
 
 /**
- * Check application geolocation requirements
- * @param {object} appSpecs - Application specifications
- * @returns {boolean} True if requirements are met
+ * To check app requirements of geolocation restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 function checkAppGeolocationRequirements(appSpecs) {
   if (appSpecs.version >= 5 && appSpecs.geolocation && appSpecs.geolocation.length > 0) {
@@ -203,10 +207,11 @@ function checkAppGeolocationRequirements(appSpecs) {
     if (!nodeGeo) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
-
+    // previous geolocation specification version (a, b) [aEU, bFR]
+    // current geolocation style [acEU], [acEU_CZ], [acEU_CZ_PRG], [a!cEU], [a!cEU_CZ], [a!cEU_CZ_PRG]
     const appContinent = appSpecs.geolocation.find((x) => x.startsWith('a'));
     const appCountry = appSpecs.geolocation.find((x) => x.startsWith('b'));
-    const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac'));
+    const geoC = appSpecs.geolocation.filter((x) => x.startsWith('ac')); // this ensures that new specs can only run on updated nodes.
     const geoCForbidden = appSpecs.geolocation.filter((x) => x.startsWith('a!c'));
 
     const myNodeLocationContinent = nodeGeo.continentCode;
@@ -243,9 +248,9 @@ function checkAppGeolocationRequirements(appSpecs) {
 }
 
 /**
- * Check application node-specific requirements
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<boolean>} True if requirements are met
+ * To check app satisfaction of nodes restrictions for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
  */
 async function checkAppNodesRequirements(appSpecs) {
   if (appSpecs.version === 7 && appSpecs.nodes && appSpecs.nodes.length) {
@@ -276,7 +281,7 @@ async function checkAppNodesRequirements(appSpecs) {
 }
 
 /**
- * Check if a node's hardware is suitable for running the assigned app
+ * Check if a node's hardware is suitable for running the assigned app.
  * @param {object} appSpecs - App specifications
  * @returns {boolean} True if no errors are thrown
  */
@@ -324,7 +329,7 @@ function checkHWParameters(appSpecs) {
 }
 
 /**
- * Check if a node's hardware is suitable for running the assigned Docker Compose app
+ * Check if a node's hardware is suitable for running the assigned Docker Compose app. Advises if too much resources being assigned to an app.
  * @param {object} appSpecsComposed - App specifications composed
  * @returns {boolean} True if no errors are thrown
  */
@@ -342,74 +347,63 @@ function checkComposeHWParameters(appSpecsComposed) {
   let totalHddBasic = 0;
   let totalHddSuper = 0;
   let totalHddBamf = 0;
+  const isTiered = appSpecsComposed.compose.find((appComponent) => appComponent.tiered === true);
   appSpecsComposed.compose.forEach((appComponent) => {
-    if (appComponent.tiered) {
-      totalCpuBasic += appComponent.cpubasic;
-      totalCpuSuper += appComponent.cpusuper;
-      totalCpuBamf += appComponent.cpubamf;
-      totalRamBasic += appComponent.rambasic;
-      totalRamSuper += appComponent.ramsuper;
-      totalRamBamf += appComponent.rambamf;
-      totalHddBasic += appComponent.hddbasic;
-      totalHddSuper += appComponent.hddsuper;
-      totalHddBamf += appComponent.hddbamf;
+    if (isTiered) {
+      totalCpuBamf += ((appComponent.cpubamf || appComponent.cpu) * 10);
+      totalRamBamf += appComponent.rambamf || appComponent.ram;
+      totalHddBamf += appComponent.hddbamf || appComponent.hdd;
+      totalCpuSuper += ((appComponent.cpusuper || appComponent.cpu) * 10);
+      totalRamSuper += appComponent.ramsuper || appComponent.ram;
+      totalHddSuper += appComponent.hddsuper || appComponent.hdd;
+      totalCpuBasic += ((appComponent.cpubasic || appComponent.cpu) * 10);
+      totalRamBasic += appComponent.rambasic || appComponent.ram;
+      totalHddBasic += appComponent.hddbasic || appComponent.hdd;
     } else {
-      totalCpu += appComponent.cpu;
+      totalCpu += (appComponent.cpu * 10);
       totalRam += appComponent.ram;
       totalHdd += appComponent.hdd;
     }
   });
-
-  // Check total resources
-  if (totalCpu > 0) {
-    if ((totalCpu * 10) % 1 !== 0 || (totalCpu * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || totalCpu < 0.1) {
-      throw new Error(`Total CPU badly assigned for ${appSpecsComposed.name}`);
+  // check specs parameters. JS precision
+  if (totalCpu > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
+    throw new Error(`Too much CPU resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (totalRam > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
+    throw new Error(`Too much RAM resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (totalHdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
+    throw new Error(`Too much SSD resources assigned for ${appSpecsComposed.name}`);
+  }
+  if (isTiered) {
+    if (totalCpuBasic > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalRam % 100 !== 0 || totalRam > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || totalRam < 100) {
-      throw new Error(`Total RAM badly assigned for ${appSpecsComposed.name}`);
+    if (totalRamBasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Cumulus resources assigned for ${appSpecsComposed.name}`);
     }
-    if (totalHdd % 1 !== 0 || totalHdd > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || totalHdd < 1) {
-      throw new Error(`Total SSD badly assigned for ${appSpecsComposed.name}`);
+    if (totalHddBasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Cumulus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalCpuSuper > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamSuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddSuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Nimbus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalCpuBamf > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu)) {
+      throw new Error(`Too much CPU for Stratus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalRamBamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram)) {
+      throw new Error(`Too much RAM for Stratus resources assigned for ${appSpecsComposed.name}`);
+    }
+    if (totalHddBamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd)) {
+      throw new Error(`Too much SSD for Stratus resources assigned for ${appSpecsComposed.name}`);
     }
   }
-
-  // Check tiered resources
-  if (totalCpuBasic > 0) {
-    if ((totalCpuBasic * 10) % 1 !== 0 || (totalCpuBasic * 10) > (config.fluxSpecifics.cpu.cumulus - config.lockedSystemResources.cpu) || totalCpuBasic < 0.1) {
-      throw new Error(`Total CPU for Cumulus badly assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalRamBasic % 100 !== 0 || totalRamBasic > (config.fluxSpecifics.ram.cumulus - config.lockedSystemResources.ram) || totalRamBasic < 100) {
-      throw new Error(`Total RAM for Cumulus badly assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalHddBasic % 1 !== 0 || totalHddBasic > (config.fluxSpecifics.hdd.cumulus - config.lockedSystemResources.hdd) || totalHddBasic < 1) {
-      throw new Error(`Total SSD for Cumulus badly assigned for ${appSpecsComposed.name}`);
-    }
-  }
-
-  if (totalCpuSuper > 0) {
-    if ((totalCpuSuper * 10) % 1 !== 0 || (totalCpuSuper * 10) > (config.fluxSpecifics.cpu.nimbus - config.lockedSystemResources.cpu) || totalCpuSuper < 0.1) {
-      throw new Error(`Total CPU for Nimbus badly assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalRamSuper % 100 !== 0 || totalRamSuper > (config.fluxSpecifics.ram.nimbus - config.lockedSystemResources.ram) || totalRamSuper < 100) {
-      throw new Error(`Total RAM for Nimbus badly assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalHddSuper % 1 !== 0 || totalHddSuper > (config.fluxSpecifics.hdd.nimbus - config.lockedSystemResources.hdd) || totalHddSuper < 1) {
-      throw new Error(`Total SSD for Nimbus badly assigned for ${appSpecsComposed.name}`);
-    }
-  }
-
-  if (totalCpuBamf > 0) {
-    if ((totalCpuBamf * 10) % 1 !== 0 || (totalCpuBamf * 10) > (config.fluxSpecifics.cpu.stratus - config.lockedSystemResources.cpu) || totalCpuBamf < 0.1) {
-      throw new Error(`Total CPU for Stratus badly assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalRamBamf % 100 !== 0 || totalRamBamf > (config.fluxSpecifics.ram.stratus - config.lockedSystemResources.ram) || totalRamBamf < 100) {
-      throw new Error(`Total RAM for Stratus badly assigned for ${appSpecsComposed.name}`);
-    }
-    if (totalHddBamf % 1 !== 0 || totalHddBamf > (config.fluxSpecifics.hdd.stratus - config.lockedSystemResources.hdd) || totalHddBamf < 1) {
-      throw new Error(`Total SSD for Stratus badly assigned for ${appSpecsComposed.name}`);
-    }
-  }
-
   return true;
 }
 
