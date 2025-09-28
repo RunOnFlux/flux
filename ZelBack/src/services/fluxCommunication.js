@@ -45,9 +45,6 @@ async function handleAppMessages(message, fromIP, port) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    log.info(`Handling app message from ${fromIP}:${port}`);
-    log.info(`Message type: ${message.data?.type || 'unknown'}`);
-    log.info(`Message hash: ${message.data?.hash || 'unknown'}`);
     const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
