@@ -2089,8 +2089,6 @@ module.exports = {
   checkAppSecrets: imageManager.checkAppSecrets,
   checkApplicationImagesComplience: imageManager.checkApplicationImagesComplience,
   checkApplicationImagesBlocked: imageManager.checkApplicationImagesBlocked,
-  validateImageSecurity: imageManager.validateImageSecurity,
-  clearBlockedRepositoriesCache: imageManager.clearBlockedRepositoriesCache,
   checkApplicationsCompliance: () => imageManager.checkApplicationsCompliance(installedApps, (app, res, force, endResponse, sendMessage) =>
     appUninstaller.removeAppLocally(app, res, force, endResponse, sendMessage, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored))),
 
