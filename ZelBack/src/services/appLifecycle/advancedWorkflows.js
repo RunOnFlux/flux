@@ -3,6 +3,7 @@ const util = require('util');
 const df = require('node-df');
 const path = require('node:path');
 const nodecmd = require('node-cmd');
+const systemcrontab = require('crontab');
 const dbHelper = require('../dbHelper');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
@@ -12,6 +13,7 @@ const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const generalService = require('../generalService');
+const upnpService = require('../upnpService');
 const {
   localAppsInformation,
   globalAppsInformation,
@@ -20,7 +22,20 @@ const {
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const appUninstaller = require('./appUninstaller');
+const appInstaller = require('./appInstaller');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { stopAppMonitoring } = require('../appManagement/appInspector');
 const globalState = require('../utils/globalState');
+
+// Legacy apps that use old gateway IP assignment method
+const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
+
+// Promisified functions
+const cmdAsync = util.promisify(nodecmd.run);
+const crontabLoad = util.promisify(systemcrontab.load);
+const fluxDirPath = path.join(process.env.FLUX_APPS_FOLDER || path.join(__dirname, '../../../../'), 'flux/');
+const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+const appsFolder = `${appsFolderPath}/`;
 
 // We need to avoid circular dependency, so we'll implement getInstalledAppsForDocker locally
 function getInstalledAppsForDocker() {
@@ -153,12 +168,6 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
 
   return formattedPrev;
 }
-
-// Path constants
-const cmdAsync = util.promisify(nodecmd.run);
-const fluxDirPath = path.join(__dirname, '../../../../');
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-const appsFolder = `${appsFolderPath}/`;
 
 // Global state management - using globalState module instead of local variables
 // These are now managed through the globalState module
@@ -506,11 +515,11 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
 }
 
 /**
- * Soft register app locally with enhanced error handling
- * @param {object} appSpecs - App specifications
- * @param {object} componentSpecs - Component specifications
- * @param {object} res - Response object
- * @returns {Promise<void>}
+ * To soft register an app locally (with data volume already in existence). Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs soft install. If registration fails, the app is removed locally.
+ * @param {object} appSpecs App specifications.
+ * @param {object} componentSpecs Component specifications.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
   // cpu, ram, hdd were assigned to correct tiered specs.
@@ -538,40 +547,349 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       return;
     }
     globalState.installationInProgress = true;
-
-    const softRegistrationBeginStatus = {
-      status: 'Beginning soft registration...',
+    const tier = await generalService.nodeTier().catch((error) => log.error(error));
+    if (!tier) {
+      const rStatus = messageHelper.createErrorMessage('Failed to get Node Tier');
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
+      return;
+    }
+    const appSpecifications = appSpecs;
+    const appComponent = componentSpecs;
+    const appName = appSpecifications.name;
+    let isComponent = !!appComponent;
+    const precheckForInstallation = {
+      status: 'Running initial checks for Flux App...',
     };
-    log.info(softRegistrationBeginStatus);
+    log.info(precheckForInstallation);
     if (res) {
-      res.write(serviceHelper.ensureString(softRegistrationBeginStatus));
+      res.write(serviceHelper.ensureString(precheckForInstallation));
       if (res.flush) res.flush();
     }
-
-    // Enhanced validation and registration logic would go here
-    // This is a complex function that would need the full context
-
-    const softRegistrationCompleteStatus = {
-      status: 'Soft registration completed successfully',
+    // connect to mongodb
+    const dbOpenTest = {
+      status: 'Connecting to database...',
     };
-    log.info(softRegistrationCompleteStatus);
+    log.info(dbOpenTest);
     if (res) {
-      res.write(serviceHelper.ensureString(softRegistrationCompleteStatus));
+      res.write(serviceHelper.ensureString(dbOpenTest));
+      if (res.flush) res.flush();
+    }
+    const dbopen = dbHelper.databaseConnection();
+
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const appsQuery = { name: appName };
+    const appsProjection = {
+      projection: {
+        _id: 0,
+        name: 1,
+      },
+    };
+
+    // check if app is already installed
+    const checkDb = {
+      status: 'Checking database...',
+    };
+    log.info(checkDb);
+    if (res) {
+      res.write(serviceHelper.ensureString(checkDb));
+      if (res.flush) res.flush();
+    }
+    const appResult = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    if (appResult && !isComponent) {
+      globalState.installationInProgress = false;
+      const rStatus = messageHelper.createErrorMessage(`Flux App ${appName} already installed`);
+      log.error(rStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(rStatus));
+        res.end();
+      }
+      return;
+    }
+
+    if (!isComponent) {
+      let dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      if (appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+        dockerNetworkAddrValue = appName.charCodeAt(appName.length - 1);
+      }
+      const fluxNetworkStatus = {
+        status: `Checking Flux App network of ${appName}...`,
+      };
+      log.info(fluxNetworkStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetworkStatus));
+        if (res.flush) res.flush();
+      }
+      let fluxNet = null;
+      for (let i = 0; i <= 20; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        fluxNet = await dockerService.createFluxAppDockerNetwork(appName, dockerNetworkAddrValue).catch((error) => log.error(error));
+        if (fluxNet || appsThatMightBeUsingOldGatewayIpAssignment.includes(appName)) {
+          break;
+        }
+        dockerNetworkAddrValue = Math.floor(Math.random() * 256);
+      }
+      if (!fluxNet) {
+        throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
+      }
+      log.info(serviceHelper.ensureString(fluxNet));
+      const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
+      const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
+      const accessRemovedRes = {
+        status: accessRemoved ? `Private network access removed for ${appName}` : `Error removing private network access for ${appName}`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(accessRemovedRes));
+        if (res.flush) res.flush();
+      }
+      const fluxNetResponse = {
+        status: `Docker network of ${appName} initiated.`,
+      };
+      if (res) {
+        res.write(serviceHelper.ensureString(fluxNetResponse));
+        if (res.flush) res.flush();
+      }
+    }
+
+    const appInstallation = {
+      status: isComponent ? `Initiating Flux App component ${appComponent.name} installation...` : `Initiating Flux App ${appName} installation...`,
+    };
+    log.info(appInstallation);
+    if (res) {
+      res.write(serviceHelper.ensureString(appInstallation));
+      if (res.flush) res.flush();
+    }
+    if (!isComponent) {
+      // register the app
+
+      const isEnterprise = Boolean(
+        appSpecifications.version >= 8 && appSpecifications.enterprise,
+      );
+
+      const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+      if (isEnterprise) {
+        dbSpecs.compose = [];
+        dbSpecs.contacts = [];
+      }
+
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+      appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+      appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+    } else {
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+      appComponent.ram = appComponent[ramTier] || appComponent.ram;
+      appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+    }
+
+    const specificationsToInstall = isComponent ? appComponent : appSpecifications;
+
+    if (specificationsToInstall.version >= 4) { // version is undefined for component
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComponentSpecs of specificationsToInstall.compose) {
+        isComponent = true;
+        const hddTier = `hdd${tier}`;
+        const ramTier = `ram${tier}`;
+        const cpuTier = `cpu${tier}`;
+        appComponentSpecs.cpu = appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
+        appComponentSpecs.ram = appComponentSpecs[ramTier] || appComponentSpecs.ram;
+        appComponentSpecs.hdd = appComponentSpecs[hddTier] || appComponentSpecs.hdd;
+        // eslint-disable-next-line no-await-in-loop
+        await appInstaller.installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications);
+      }
+    } else {
+      await appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
+    }
+    // all done message
+    const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
+    log.info(successStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(successStatus));
       res.end();
     }
-  } catch (error) {
-    log.error(`Soft registration failed: ${error.message}`);
-    throw error;
-  } finally {
     globalState.installationInProgress = false;
+  } catch (error) {
+    globalState.installationInProgress = false;
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    log.error(errorResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
+    }
+    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    log.info(removeStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(removeStatus));
+      if (res.flush) res.flush();
+    }
+    appUninstaller.removeAppLocally(appSpecs.name, res, true);
   }
 }
 
 /**
- * Soft remove app locally with cleanup
- * @param {string} app - Application name
- * @param {object} res - Response object
- * @returns {Promise<void>}
+ * Helper function to uninstall app components softly
+ * @param {string} appName App name
+ * @param {string} appId App ID
+ * @param {object} appSpecifications App specifications
+ * @param {boolean} isComponent Whether this is a component
+ * @param {object} res Response object
+ */
+async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res) {
+  const stopStatus = {
+    status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
+  };
+  log.info(stopStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(stopStatus));
+    if (res.flush) res.flush();
+  }
+  let monitoredName = appName;
+  if (isComponent) {
+    monitoredName = `${appSpecifications.name}_${appName}`;
+  }
+  stopAppMonitoring(monitoredName, false);
+  await dockerService.appDockerStop(appId).catch((error) => {
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
+    }
+  });
+
+  const stopStatus2 = {
+    status: isComponent ? `Flux App Component ${appSpecifications.name} stopped` : `Flux App ${appName} stopped`,
+  };
+  log.info(stopStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(stopStatus2));
+    if (res.flush) res.flush();
+  }
+
+  const removeStatus = {
+    status: isComponent ? `Removing Flux App component ${appSpecifications.name} container...` : `Removing Flux App ${appName} container...`,
+  };
+  log.info(removeStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(removeStatus));
+    if (res.flush) res.flush();
+  }
+
+  await dockerService.appDockerRemove(appId);
+
+  const removeStatus2 = {
+    status: isComponent ? `Flux App component ${appSpecifications.name}container removed` : `Flux App ${appName} container removed`,
+  };
+  log.info(removeStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(removeStatus2));
+    if (res.flush) res.flush();
+  }
+
+  const imageStatus = {
+    status: isComponent ? `Removing Flux App component ${appSpecifications.name} image...` : `Removing Flux App ${appName} image...`,
+  };
+  log.info(imageStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(imageStatus));
+    if (res.flush) res.flush();
+  }
+  await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    log.error(errorResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(errorResponse));
+      if (res.flush) res.flush();
+    }
+  });
+  const imageStatus2 = {
+    status: isComponent ? `Flux App component ${appSpecifications.name} image operations done` : `Flux App ${appName} image operations done`,
+  };
+  log.info(imageStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(imageStatus2));
+    if (res.flush) res.flush();
+  }
+
+  const portStatus = {
+    status: isComponent ? `Denying Flux App component ${appSpecifications.name} ports...` : `Denying Flux App ${appName} ports...`,
+  };
+  log.info(portStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatus));
+    if (res.flush) res.flush();
+  }
+  if (appSpecifications.ports) {
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(port));
+      }
+    }
+    const isUPNP = upnpService.isUPNP();
+    if (isUPNP) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
+      }
+    }
+    // v1 compatibility
+  } else if (appSpecifications.port) {
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(appSpecifications.port));
+    }
+    const isUPNP = upnpService.isUPNP();
+    if (isUPNP) {
+      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+    }
+  }
+  const portStatus2 = {
+    status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
+  };
+  log.info(portStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatus2));
+    if (res.flush) res.flush();
+  }
+  const appRemovalResponse = {
+    status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
+  };
+  log.info(appRemovalResponse);
+  if (res) {
+    res.write(serviceHelper.ensureString(appRemovalResponse));
+    if (res.flush) res.flush();
+  }
+}
+
+/**
+ * To remove an app locally (including any components) without storage and cache deletion (keeps mounted volumes and cron job). First finds app specifications in database and then deletes the app from database. For app reload. Only for internal usage. We are throwing in functions using this.
+ * @param {string} app App name.
+ * @param {object} res Response.
  */
 async function softRemoveAppLocally(app, res) {
   // remove app from local machine.
@@ -583,78 +901,80 @@ async function softRemoveAppLocally(app, res) {
   if (globalState.installationInProgress) {
     throw new Error('Another application is undergoing installation');
   }
-  globalState.setRemovalInProgressToTrue();
+  globalState.removalInProgress = true;
   if (!app) {
     throw new Error('No Flux App specified');
   }
 
-  try {
-    const isComponent = app.includes('_'); // component is defined by appComponent.name_appSpecs.name
-    const appName = isComponent ? app.split('_')[1] : app;
-    const appComponent = app.split('_')[0];
+  let isComponent = app.includes('_'); // copmonent is defined by appComponent.name_appSpecs.name
 
-    const softRemovalBeginStatus = {
-      status: `Beginning soft removal of ${app}...`,
-    };
-    log.info(softRemovalBeginStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(softRemovalBeginStatus));
-      if (res.flush) res.flush();
+  const appName = isComponent ? app.split('_')[1] : app;
+  const appComponent = app.split('_')[0];
+
+  // first find the appSpecifications in our database.
+  // connect to mongodb
+  const dbopen = dbHelper.databaseConnection();
+
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+
+  const appsQuery = { name: appName };
+  const appsProjection = {};
+  let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+  if (!appSpecifications) {
+    throw new Error('Flux App not found');
+  }
+
+  let appId = dockerService.getAppIdentifier(app);
+
+  // do this temporarily - otherwise we have to move a bunch of functions around
+  appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+  appSpecifications = specificationFormatter(appSpecifications);
+
+  if (appSpecifications.version >= 4 && !isComponent) {
+    // it is a composed application
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appComposedComponent of appSpecifications.compose.reverse()) {
+      isComponent = true;
+      appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
+      const appComponentSpecifications = appComposedComponent;
+      // eslint-disable-next-line no-await-in-loop
+      await appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res);
     }
+    isComponent = false;
+  } else if (isComponent) {
+    const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
+    await appUninstallSoft(appName, appId, componentSpecifications, isComponent, res);
+  } else {
+    await appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+  }
 
-    // first find the appSpecifications in our database.
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
-    const query = { name: new RegExp(`^${app}$`, 'i') };
-    const projection = { projection: { _id: 0 } };
-    const appInfo = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, query, projection);
-
-    if (!appInfo) {
-      throw new Error('Flux App not found');
-    }
-
-    // Stop and remove containers, volumes, etc.
-    const appId = dockerService.getAppIdentifier(appInfo.name);
-    await appUninstaller.appUninstallSoft(appName, appId, appInfo, isComponent, res, () => {
-      // No monitoring stop needed in this simplified version
-    });
-
-    // Remove from database
-    const dbCleanupStatus = {
+  if (!isComponent) {
+    const databaseStatus = {
       status: 'Cleaning up database...',
     };
-    log.info(dbCleanupStatus);
+    log.info(databaseStatus);
     if (res) {
-      res.write(serviceHelper.ensureString(dbCleanupStatus));
+      res.write(serviceHelper.ensureString(databaseStatus));
       if (res.flush) res.flush();
     }
-
-    await dbHelper.removeDocumentsFromCollection(appsDatabase, localAppsInformation, query);
-
-    const dbCleanedStatus = {
+    await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    const databaseStatus2 = {
       status: 'Database cleaned',
     };
-    log.info(dbCleanedStatus);
+    log.info(databaseStatus2);
     if (res) {
-      res.write(serviceHelper.ensureString(dbCleanedStatus));
+      res.write(serviceHelper.ensureString(databaseStatus2));
       if (res.flush) res.flush();
     }
-
-    const softRemovalCompleteStatus = {
-      status: `Soft removal of ${app} completed successfully`,
-    };
-    log.info(softRemovalCompleteStatus);
+    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
+    log.info(appRemovalResponseDone);
     if (res) {
-      res.write(serviceHelper.ensureString(softRemovalCompleteStatus));
-      res.end();
+      res.write(serviceHelper.ensureString(appRemovalResponseDone));
+      if (res.flush) res.flush();
     }
-  } catch (error) {
-    log.error(`Soft removal failed: ${error.message}`);
-    throw error;
-  } finally {
-    globalState.removalInProgressReset();
   }
+
+  globalState.removalInProgress = false;
 }
 
 /**
