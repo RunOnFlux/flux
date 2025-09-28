@@ -2,9 +2,7 @@ const os = require('os');
 const config = require('config');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
-const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchmarkRpcs');
-// For compatibility with original, alias as benchmarkService
-const benchmarkService = daemonServiceBenchmarkRpcs;
+const benchmarkService = require('../benchmarkService');
 const log = require('../../lib/log');
 
 // Node specifications (shared state)
@@ -28,7 +26,7 @@ async function getNodeSpecs() {
     }
     if (nodeSpecs.ssdStorage === 0) {
       // get my external IP and check that it is longer than 5 in length.
-      const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+      const benchmarkResponse = await benchmarkService.getBenchmarks();
       if (benchmarkResponse.status === 'success') {
         const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
         log.info(`Gathered ssdstorage ${benchmarkResponseData.ssd}`);

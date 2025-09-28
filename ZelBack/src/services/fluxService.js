@@ -659,7 +659,7 @@ function getNodeJsVersions(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function getFluxIP(req, res) {
-  const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+  const benchmarkResponse = await benchmarkService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
     const benchmarkResponseData = JSON.parse(benchmarkResponse.data);

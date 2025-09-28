@@ -5,7 +5,6 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const dockerService = require('../dockerService');
-const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceFluxnodeRpcs = require('../daemonService/daemonServiceFluxnodeRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const benchmarkService = require('../benchmarkService');
@@ -32,7 +31,7 @@ async function getNodeSpecs() {
     }
     if (nodeSpecs.ssdStorage === 0) {
       // get my external IP and check that it is longer than 5 in length.
-      const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+      const benchmarkResponse = await benchmarkService.getBenchmarks();
       if (benchmarkResponse.status === 'success') {
         const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
         log.info(`Gathered ssdstorage ${benchmarkResponseData.ssd}`);

@@ -10,7 +10,7 @@ const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
-const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
+const benchmarkService = require('./benchmarkService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const geolocationService = require('./geolocationService');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -405,7 +405,7 @@ async function checkAndNotifyPeersOfRunningApps() {
     }
 
     // get my external IP and check that it is longer than 5 in length.
-    const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
     let myIP = null;
     if (benchmarkResponse.status === 'success') {
       const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
@@ -2192,7 +2192,7 @@ module.exports = {
       }
       globalState.fluxNodeWasAlreadyConfirmed = true;
 
-      const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+      const benchmarkResponse = await benchmarkService.getBenchmarks();
       if (benchmarkResponse.status === 'error') {
         log.info('FluxBench status Error. Global applications will not be installed');
         await serviceHelper.delay(config.fluxapps.installation.delay * 1000);
