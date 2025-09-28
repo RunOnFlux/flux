@@ -19,6 +19,7 @@ let dosState = 0;
 let dosMessage = null;
 
 const cmdAsync = util.promisify(nodecmd.run);
+const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
 
 /**
  * Get top processes running in an application container
@@ -364,7 +365,7 @@ async function appMonitorStream(req, res) {
 
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (authorized === true) {
-      await dockerService.dockerContainerStatsStream(appname, req, res);
+      await dockerStatsStreamPromise(appname, req, res);
       res.end();
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
@@ -408,63 +409,56 @@ async function getAppFolderSize(appName) {
 function startAppMonitoring(appName, appsMonitored) {
   if (!appName) {
     throw new Error('No App specified');
-  }
-
-  log.info('Initialize Monitoring...');
-  appsMonitored[appName] = {};
-  if (!appsMonitored[appName].statsStore) {
-    appsMonitored[appName].statsStore = [];
-  }
-  if (!appsMonitored[appName].lastHourstatsStore) {
-    appsMonitored[appName].lastHourstatsStore = [];
-  }
-
-  // Clear previous interval for this app to prevent multiple intervals
-  clearInterval(appsMonitored[appName].oneMinuteInterval);
-  appsMonitored[appName].run = 0;
-
-  appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
-    try {
-      if (!appsMonitored[appName]) {
-        log.error(`Monitoring of ${appName} already stopped`);
-        return;
-      }
-
-      const dockerContainer = await dockerService.getDockerContainerOnly(appName);
-      if (!dockerContainer) {
-        log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
-        stopAppMonitoring(appName, true, appsMonitored);
-        return;
-      }
-
-      appsMonitored[appName].run += 1;
-      const statsNow = await dockerService.dockerContainerStats(appName);
-      const containerStorageInfo = await getContainerStorage(appName);
-
-      statsNow.disk_stats = containerStorageInfo;
-      statsNow.timestamp = Date.now();
-
-      // Store in statsStore (24 hours of data, every minute for first hour, then every 15 minutes)
-      appsMonitored[appName].statsStore.push(statsNow);
-
-      // Keep only 24 hours of data
-      const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
-      appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
-        (stat) => stat.timestamp > twentyFourHoursAgo,
-      );
-
-      // Store detailed stats for last hour
-      appsMonitored[appName].lastHourstatsStore.push(statsNow);
-
-      // Keep only 1 hour of detailed data
-      const oneHourAgo = Date.now() - (60 * 60 * 1000);
-      appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
-        (stat) => stat.timestamp > oneHourAgo,
-      );
-    } catch (error) {
-      log.error(`Error monitoring ${appName}: ${error.message}`);
+  } else {
+    log.info('Initialize Monitoring...');
+    appsMonitored[appName] = {}; // Initialize the app's monitoring object
+    if (!appsMonitored[appName].statsStore) {
+      appsMonitored[appName].statsStore = [];
     }
-  }, 60 * 1000); // Every minute
+    if (!appsMonitored[appName].lastHourstatsStore) {
+      appsMonitored[appName].lastHourstatsStore = [];
+    }
+    // Clear previous interval for this app to prevent multiple intervals
+    clearInterval(appsMonitored[appName].oneMinuteInterval);
+    appsMonitored[appName].run = 0;
+    appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
+      try {
+        if (!appsMonitored[appName]) {
+          log.error(`Monitoring of ${appName} already stopped`);
+          return;
+        }
+        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
+        if (!dockerContainer) {
+          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
+          // eslint-disable-next-line no-use-before-define
+          stopAppMonitoring(appName, true, appsMonitored);
+          return;
+        }
+        appsMonitored[appName].run += 1;
+        const statsNow = await dockerService.dockerContainerStats(appName);
+        const containerStorageInfo = await getContainerStorage(appName);
+        statsNow.disk_stats = containerStorageInfo;
+        const now = Date.now();
+        if (appsMonitored[appName].run % 3 === 0) {
+          const inspect = await dockerService.dockerContainerInspect(appName);
+          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
+          appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
+          const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
+          const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
+          log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
+          appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
+            (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
+          );
+        }
+        appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
+        appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
+          (stat) => now - stat.timestamp <= 60 * 60 * 1000,
+        );
+      } catch (error) {
+        log.error(error);
+      }
+    }, 1 * 60 * 1000);
+  }
 }
 
 /**
@@ -476,10 +470,9 @@ function startAppMonitoring(appName, appsMonitored) {
 function stopAppMonitoring(appName, deleteData, appsMonitored) {
   if (appsMonitored[appName]) {
     clearInterval(appsMonitored[appName].oneMinuteInterval);
-    if (deleteData) {
-      delete appsMonitored[appName];
-    }
-    log.info(`Monitoring stopped for ${appName}`);
+  }
+  if (deleteData) {
+    delete appsMonitored[appName];
   }
 }
 
@@ -654,11 +647,19 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
           } else if (cpuPercentage <= 0.8) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
-            log.info(`checkApplicationsCpuUSage ${app.name} adjusting cpu to 85%.`);
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 85.`);
+          } else if (cpuPercentage <= 0.85) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 90.`);
+          } else if (cpuPercentage <= 0.9) {
+            // eslint-disable-next-line no-await-in-loop
+            await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.95));
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 95.`);
           } else if (cpuPercentage < 1) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
-            log.info(`checkApplicationsCpuUSage ${app.name} restoring cpu to 100%.`);
+            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 100.`);
           }
         } else if (app.version >= 4) {
           // eslint-disable-next-line no-restricted-syntax
@@ -703,11 +704,19 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
               } else if (cpuPercentage <= 0.8) {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.85));
-                log.info(`checkApplicationsCpuUSage ${monitoredName} adjusting cpu to 85%.`);
+                log.info(`checkApplicationsCpuUSage ${monitoredName} increasing cpu 85.`);
+              } else if (cpuPercentage <= 0.85) {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.9));
+                log.info(`checkApplicationsCpuUSage ${monitoredName} increasing cpu 90.`);
+              } else if (cpuPercentage <= 0.9) {
+                // eslint-disable-next-line no-await-in-loop
+                await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.95));
+                log.info(`checkApplicationsCpuUSage ${monitoredName} increasing cpu 95.`);
               } else if (cpuPercentage < 1) {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9));
-                log.info(`checkApplicationsCpuUSage ${monitoredName} restoring cpu to 100%.`);
+                log.info(`checkApplicationsCpuUSage ${monitoredName} increasing cpu 100.`);
               }
             }
           }
