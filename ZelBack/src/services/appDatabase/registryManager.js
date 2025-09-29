@@ -7,7 +7,7 @@ const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { specificationFormatter } = require('../utils/appUtilities');
 const {
   globalAppsInformation,
   localAppsInformation,
