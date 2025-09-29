@@ -2412,18 +2412,10 @@ module.exports = {
       await hwRequirements.checkAppRequirements(appSpecifications);
 
       // ensure ports unused
-      // appNames on Ip
-      const runningAppsRes = await registryManager.getRunningApps();
-      const runningAppsNames = [];
-      if (runningAppsRes.status === 'success') {
-        runningAppsRes.data.forEach((app) => {
-          // Filter for apps running on this IP and extract app name from container name
-          if (app.Names && app.Names[0]) {
-            const appName = app.Names[0].startsWith('/flux') ? app.Names[0].slice(5) : app.Names[0].slice(1);
-            runningAppsNames.push(appName);
-          }
-        });
-      }
+      // Get apps running specifically on this IP
+      const myIPAddress = myIP.split(':')[0]; // just IP address without port
+      const runningAppsOnThisIP = await registryManager.getRunningAppIpList(myIPAddress);
+      const runningAppsNames = runningAppsOnThisIP.map((app) => app.name);
 
       await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
@@ -2438,8 +2430,14 @@ module.exports = {
         }
       });
 
-      // Port availability check has been moved to portManager.ensureApplicationPortsNotUsed above
-      // This provides sufficient validation for port conflicts
+      // Check if ports are publicly available - critical for proper Flux network operation
+      const portsPubliclyAvailable = await portManager.checkInstallingAppPortAvailable(appPorts);
+      if (portsPubliclyAvailable === false) {
+        log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
+        await serviceHelper.delay(5 * 60 * 1000);
+        module.exports.trySpawningGlobalApplication();
+        return;
+      }
 
       // double check if app is installed on the number of instances requested
       runningAppList = await registryManager.appLocation(appToRun);

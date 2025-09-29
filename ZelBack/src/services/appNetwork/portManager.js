@@ -8,6 +8,7 @@ const log = require('../../lib/log');
 const userconfig = require('../../../../config/userconfig');
 const upnpService = require('../upnpService');
 const serviceHelper = require('../serviceHelper');
+const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { localAppsInformation, globalAppsInformation } = require('../utils/appConstants');
@@ -373,6 +374,202 @@ async function signCheckAppData(message) {
 }
 
 /**
+ * To check if app ports are available publicly before installation
+ * @param {Array} portsToTest Array of ports to test
+ * @returns {Promise<boolean>} True if ports are available, false otherwise
+ */
+async function checkInstallingAppPortAvailable(portsToTest = []) {
+  const beforeAppInstallTestingServers = [];
+  const isUPNP = upnpService.isUPNP();
+  let portsStatus = false;
+  const portsNotWorking = new Set();
+  let originalPortFailed = null;
+  let nextTestingPort = 0;
+
+  try {
+    const localSocketAddress = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!localSocketAddress) {
+      throw new Error('Failed to detect Public IP');
+    }
+    const [myIP, myPort = '16127'] = localSocketAddress.split(':');
+
+    const pubKey = await fluxNetworkHelper.getFluxNodePublicKey();
+    let somePortBanned = false;
+    portsToTest.forEach((portToTest) => {
+      const iBP = fluxNetworkHelper.isPortBanned(portToTest);
+      if (iBP) {
+        somePortBanned = true;
+      }
+    });
+    if (somePortBanned) {
+      return false;
+    }
+    if (isUPNP) {
+      somePortBanned = false;
+      portsToTest.forEach((portToTest) => {
+        const iBP = fluxNetworkHelper.isPortUPNPBanned(portToTest);
+        if (iBP) {
+          somePortBanned = true;
+        }
+      });
+      if (somePortBanned) {
+        return false;
+      }
+    }
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const portToTest of portsToTest) {
+      // now open this port properly and launch listening on it
+      if (firewallActive) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.allowPort(portToTest);
+      }
+      if (isUPNP) {
+        // eslint-disable-next-line no-await-in-loop
+        const upnpMapResult = await upnpService.mapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+        if (!upnpMapResult) {
+          throw new Error('Failed to create map UPNP port');
+        }
+      }
+      const testHttpServer = new fluxHttpTestServer.FluxHttpTestServer();
+
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(5 * 1000);
+
+      beforeAppInstallTestingServers.push(testHttpServer);
+
+      // Tested: This catches EADDRINUSE. Previously, this was crashing the entire app
+      // note - if you kill the port with:
+      //    ss --kill state listening src :<the port>
+      // nodeJS does not raise an error.
+      const listening = new Promise((resolve, reject) => {
+        testHttpServer
+          .once('error', (err) => {
+            testHttpServer.removeAllListeners('listening');
+            reject(err.message);
+          })
+          .once('listening', () => {
+            testHttpServer.removeAllListeners('error');
+            resolve(null);
+          });
+        testHttpServer.listen(portToTest);
+      });
+
+      // eslint-disable-next-line no-await-in-loop
+      const error = await listening.catch((err) => err);
+
+      if (error) throw error;
+    }
+
+    await serviceHelper.delay(10 * 1000);
+    const timeout = 30000;
+    const axiosConfig = {
+      timeout,
+    };
+    const data = {
+      ip: myIP,
+      port: myPort,
+      appname: 'appPortsTest',
+      ports: portsToTest,
+      pubKey,
+    };
+    const stringData = JSON.stringify(data);
+    // eslint-disable-next-line no-await-in-loop
+    const signature = await signCheckAppData(stringData);
+    data.signature = signature;
+    let i = 0;
+    let finished = false;
+    while (!finished && i < 5) {
+      i += 1;
+      // eslint-disable-next-line no-await-in-loop
+      const randomSocketAddress = await networkStateService.getRandomSocketAddress(
+        localSocketAddress,
+      );
+
+      // this should never happen as the list should be populated here
+      if (!randomSocketAddress) {
+        throw new Error('Unable to get random test connection');
+      }
+
+      const [askingIP, askingIpPort = '16127'] = randomSocketAddress.split(':');
+
+      // first check against our IP address
+      // eslint-disable-next-line no-await-in-loop
+      const resMyAppAvailability = await axios.post(`http://${askingIP}:${askingIpPort}/flux/checkappavailability`, JSON.stringify(data), axiosConfig).catch((error) => {
+        log.error(`${askingIP} for app availability is not reachable`);
+        log.error(error);
+      });
+      if (resMyAppAvailability && resMyAppAvailability.data.status === 'error') {
+        if (resMyAppAvailability.data.data && resMyAppAvailability.data.data.message && resMyAppAvailability.data.data.message.includes('Failed port: ')) {
+          const portToRetest = serviceHelper.ensureNumber(resMyAppAvailability.data.data.message.split('Failed port: ')[1]);
+          if (portToRetest > 0) {
+            portsNotWorking.add(portToRetest);
+            // if we aren't already testing ports, we set it here, otherwise, just continue
+            if (!originalPortFailed) {
+              originalPortFailed = portToRetest;
+              nextTestingPort = portToRetest < 65535 ? portToRetest + 1 : portToRetest - 1;
+            }
+          }
+        }
+        portsStatus = false;
+        finished = true;
+      } else if (resMyAppAvailability && resMyAppAvailability.data.status === 'success') {
+        portsStatus = true;
+        finished = true;
+      }
+    }
+    // stop listening on the port, close the port
+    // eslint-disable-next-line no-restricted-syntax
+    for (const portToTest of portsToTest) {
+      if (firewallActive) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.deleteAllowPortRule(portToTest);
+      }
+      if (isUPNP) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
+      }
+    }
+    beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
+      beforeAppInstallTestingServer.close((err) => {
+        if (err) {
+          log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
+        }
+      });
+    });
+    return portsStatus;
+  } catch (error) {
+    let firewallActive = true;
+    firewallActive = await fluxNetworkHelper.isFirewallActive().catch((e) => log.error(e));
+    // stop listening on the testing port, close the port
+    // eslint-disable-next-line no-restricted-syntax
+    for (const portToTest of portsToTest) {
+      if (firewallActive) {
+        // eslint-disable-next-line no-await-in-loop
+        await fluxNetworkHelper.deleteAllowPortRule(portToTest).catch((e) => log.error(e));
+      }
+      if (isUPNP) {
+        // eslint-disable-next-line no-await-in-loop
+        await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e));
+      }
+    }
+    beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
+      try {
+        beforeAppInstallTestingServer.shutdown((err) => {
+          if (err) {
+            log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
+          }
+        });
+      } catch (e) {
+        log.warn(e);
+      }
+    });
+    log.error(error);
+    return false;
+  }
+}
+
+/**
  * Periodically call other nodes to stablish a connection with the ports I have open on UPNP to remain OPEN
  */
 async function callOtherNodeToKeepUpnpPortsOpen() {
@@ -480,5 +677,6 @@ module.exports = {
   isPortAvailable,
   findNextAvailablePort,
   signCheckAppData,
+  checkInstallingAppPortAvailable,
   callOtherNodeToKeepUpnpPortsOpen,
 };

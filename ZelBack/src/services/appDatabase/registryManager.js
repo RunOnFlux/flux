@@ -857,6 +857,32 @@ async function getRunningApps() {
 }
 
 /**
+ * To get all apps running on a specific IP address. Returns all apps running on this ip
+ * @param {string} ip IP address to check
+ * @returns {Promise<Array>} Array of apps running on the specified IP
+ */
+async function getRunningAppIpList(ip) {
+  const dbopen = dbHelper.databaseConnection();
+  const database = dbopen.db(config.database.appsglobal.database);
+  const query = { ip: new RegExp(`^${ip}`) };
+  const projection = {
+    projection: {
+      _id: 0,
+      name: 1,
+      hash: 1,
+      ip: 1,
+      broadcastedAt: 1,
+      expireAt: 1,
+      runningSince: 1,
+      osUptime: 1,
+      staticIp: 1,
+    },
+  };
+  const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+  return results;
+}
+
+/**
  * Get registration information for Flux apps
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -1249,6 +1275,7 @@ module.exports = {
   getAllAppsInformation,
   getInstalledApps,
   getRunningApps,
+  getRunningAppIpList,
   registrationInformation,
   getAllGlobalApplications,
   expireGlobalApplications,
