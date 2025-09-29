@@ -2290,7 +2290,7 @@ module.exports = {
       } else {
         const myNodeLocation = systemIntegration.nodeFullGeolocation();
 
-        const runningApps = await registryManager.getRunningApps();
+        const runningApps = await listRunningApps();
         if (runningApps.status !== 'success') {
           throw new Error('trySpawningGlobalApplication - Unable to check running apps on this Flux');
         }
