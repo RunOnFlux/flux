@@ -749,6 +749,13 @@ describe('explorerService tests', () => {
       dbStubUpdate = sinon.stub(dbHelper, 'updateOneInDatabase');
       dbStubCollectionStats = sinon.stub(dbHelper, 'collectionStats');
       expireGlobalApplicationsStub = sinon.stub(appsService, 'expireGlobalApplications');
+      // Ensure functions exist before stubbing (circular dependency workaround)
+      if (!appsService.checkAndRemoveApplicationInstance) {
+        appsService.checkAndRemoveApplicationInstance = () => {};
+      }
+      if (!appsService.reinstallOldApplications) {
+        appsService.reinstallOldApplications = () => {};
+      }
       checkAndRemoveApplicationInstanceStub = sinon.stub(appsService, 'checkAndRemoveApplicationInstance');
       restorePortsSupportStub = sinon.stub(appsService, 'restorePortsSupport');
       await dbHelper.initiateDB();
@@ -1708,6 +1715,13 @@ describe('explorerService tests', () => {
         avgObjSize: 1111,
       });
       sinon.stub(appsService, 'expireGlobalApplications').returns(true);
+      // Ensure functions exist before stubbing (circular dependency workaround)
+      if (!appsService.checkAndRemoveApplicationInstance) {
+        appsService.checkAndRemoveApplicationInstance = () => {};
+      }
+      if (!appsService.reinstallOldApplications) {
+        appsService.reinstallOldApplications = () => {};
+      }
       sinon.stub(appsService, 'checkAndRemoveApplicationInstance').returns(true);
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').returns({
         status: 'success',

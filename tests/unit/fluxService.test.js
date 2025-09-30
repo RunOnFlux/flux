@@ -1156,23 +1156,23 @@ describe('fluxService tests', () => {
   });
 
   describe('getFluxIP tests', () => {
-    let daemonStub;
+    let benchmarkStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+      benchmarkStub = sinon.stub(benchmarkService, 'getBenchmarks');
     });
 
     afterEach(() => {
-      daemonStub.restore();
+      benchmarkStub.restore();
     });
 
     it('should return IP and Port if benchmark response is correct, no response passed', async () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchmarkStub.resolves(getBenchmarkResponseData);
       const expectedResponse = {
         status: 'success',
         data: ip,
@@ -1181,16 +1181,16 @@ describe('fluxService tests', () => {
       const getIpResult = await fluxService.getFluxIP();
 
       expect(getIpResult).to.eql(expectedResponse);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchmarkStub);
     });
 
     it('should return IP and Port if benchmark response is correct, response passed', async () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchmarkStub.resolves(getBenchmarkResponseData);
       const expectedResponse = {
         status: 'success',
         data: ip,
@@ -1200,14 +1200,14 @@ describe('fluxService tests', () => {
       const getIpResult = await fluxService.getFluxIP(undefined, res);
 
       expect(getIpResult).to.eql(`Response: ${expectedResponse}`);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchmarkStub);
     });
 
     it('should return null if daemon\'s response is invalid', async () => {
       const getBenchmarkResponseData = {
         status: 'error',
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchmarkStub.resolves(getBenchmarkResponseData);
       const expectedResponse = {
         status: 'success',
         data: null,
@@ -1216,16 +1216,16 @@ describe('fluxService tests', () => {
       const getIpResult = await fluxService.getFluxIP();
 
       expect(getIpResult).to.be.eql(expectedResponse);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchmarkStub);
     });
 
     it('should return null if daemon\'s response IP is too short', async () => {
       const ip = '12734';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchmarkStub.resolves(getBenchmarkResponseData);
       const expectedResponse = {
         status: 'success',
         data: null,
@@ -1234,7 +1234,7 @@ describe('fluxService tests', () => {
       const getIpResult = await fluxService.getFluxIP();
 
       expect(getIpResult).to.be.eql(expectedResponse);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchmarkStub);
     });
   });
 
