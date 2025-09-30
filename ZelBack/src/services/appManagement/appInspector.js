@@ -404,70 +404,82 @@ async function getAppFolderSize(appName) {
 /**
  * Start monitoring an application
  * @param {string} appName - Application name
- * @param {object} appsMonitored - Apps monitoring data reference
+ * @param {object} appsMonitored - Apps monitoring data reference (optional, will get from appsService if not provided)
  */
 function startAppMonitoring(appName, appsMonitored) {
   if (!appName) {
     throw new Error('No App specified');
-  } else {
-    log.info('Initialize Monitoring...');
-    appsMonitored[appName] = {}; // Initialize the app's monitoring object
-    if (!appsMonitored[appName].statsStore) {
-      appsMonitored[appName].statsStore = [];
-    }
-    if (!appsMonitored[appName].lastHourstatsStore) {
-      appsMonitored[appName].lastHourstatsStore = [];
-    }
-    // Clear previous interval for this app to prevent multiple intervals
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
-    appsMonitored[appName].run = 0;
-    appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
-      try {
-        if (!appsMonitored[appName]) {
-          log.error(`Monitoring of ${appName} already stopped`);
-          return;
-        }
-        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
-        if (!dockerContainer) {
-          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
-          // eslint-disable-next-line no-use-before-define
-          stopAppMonitoring(appName, true, appsMonitored);
-          return;
-        }
-        appsMonitored[appName].run += 1;
-        const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerStorageInfo = await getContainerStorage(appName);
-        statsNow.disk_stats = containerStorageInfo;
-        const now = Date.now();
-        if (appsMonitored[appName].run % 3 === 0) {
-          const inspect = await dockerService.dockerContainerInspect(appName);
-          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
-          appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
-          const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
-          const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
-          log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
-          appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
-            (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
-          );
-        }
-        appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
-        appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
-          (stat) => now - stat.timestamp <= 60 * 60 * 1000,
-        );
-      } catch (error) {
-        log.error(error);
-      }
-    }, 1 * 60 * 1000);
   }
+
+  // Get appsMonitored from appsService if not provided (to avoid circular dependency)
+  if (!appsMonitored) {
+    const appsService = require('../appsService');
+    appsMonitored = appsService.getAppsMonitored();
+  }
+
+  log.info('Initialize Monitoring...');
+  appsMonitored[appName] = {}; // Initialize the app's monitoring object
+  if (!appsMonitored[appName].statsStore) {
+    appsMonitored[appName].statsStore = [];
+  }
+  if (!appsMonitored[appName].lastHourstatsStore) {
+    appsMonitored[appName].lastHourstatsStore = [];
+  }
+  // Clear previous interval for this app to prevent multiple intervals
+  clearInterval(appsMonitored[appName].oneMinuteInterval);
+  appsMonitored[appName].run = 0;
+  appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
+    try {
+      if (!appsMonitored[appName]) {
+        log.error(`Monitoring of ${appName} already stopped`);
+        return;
+      }
+      const dockerContainer = await dockerService.getDockerContainerOnly(appName);
+      if (!dockerContainer) {
+        log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
+        // eslint-disable-next-line no-use-before-define
+        stopAppMonitoring(appName, true, appsMonitored);
+        return;
+      }
+      appsMonitored[appName].run += 1;
+      const statsNow = await dockerService.dockerContainerStats(appName);
+      const containerStorageInfo = await getContainerStorage(appName);
+      statsNow.disk_stats = containerStorageInfo;
+      const now = Date.now();
+      if (appsMonitored[appName].run % 3 === 0) {
+        const inspect = await dockerService.dockerContainerInspect(appName);
+        statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
+        appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
+        const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
+        const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
+        log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
+        appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
+          (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
+        );
+      }
+      appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
+      appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
+        (stat) => now - stat.timestamp <= 60 * 60 * 1000,
+      );
+    } catch (error) {
+      log.error(error);
+    }
+  }, 1 * 60 * 1000);
 }
 
 /**
  * Stop monitoring an application
  * @param {string} appName - Application name
  * @param {boolean} deleteData - Whether to delete monitoring data
- * @param {object} appsMonitored - Apps monitoring data reference
+ * @param {object} appsMonitored - Apps monitoring data reference (optional, will get from appsService if not provided)
  */
 function stopAppMonitoring(appName, deleteData, appsMonitored) {
+  // Get appsMonitored from appsService if not provided (to avoid circular dependency)
+  if (!appsMonitored) {
+    const appsService = require('../appsService');
+    appsMonitored = appsService.getAppsMonitored();
+  }
+
   if (appsMonitored[appName]) {
     clearInterval(appsMonitored[appName].oneMinuteInterval);
   }
