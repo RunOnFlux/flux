@@ -9,7 +9,6 @@ const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
-const appsService = require('../appsService');
 const appUninstaller = require('./appUninstaller');
 const advancedWorkflows = require('./advancedWorkflows');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
@@ -153,6 +152,8 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       return false;
     }
 
+    // Lazy-load appsService to avoid circular dependency issues
+    const appsService = require('../appsService');
     const installedAppsRes = await appsService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
