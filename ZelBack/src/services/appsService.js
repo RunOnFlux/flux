@@ -2779,4 +2779,5 @@ module.exports = {
   verifyAppRegistrationParameters: appValidator.verifyAppRegistrationParameters,
   verifyAppUpdateParameters: appValidator.verifyAppUpdateParameters,
   checkDockerAccessibility: imageManager.checkDockerAccessibility,
+  registrationInformation: registryManager.registrationInformation,
 };

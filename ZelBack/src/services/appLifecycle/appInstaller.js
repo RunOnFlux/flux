@@ -30,7 +30,7 @@ const {
   checkAppStaticIpRequirements,
   checkAppNodesRequirements,
   checkAppGeolocationRequirements,
-} = require('../appRequirements/appValidator');
+} = require('../appRequirements/hwRequirements');
 const config = require('config');
 
 // Legacy apps that use old gateway IP assignment method
