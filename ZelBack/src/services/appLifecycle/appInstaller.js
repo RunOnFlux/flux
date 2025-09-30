@@ -25,12 +25,7 @@ const log = require('../../lib/log');
 const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
 const { availableApps, getApplicationGlobalSpecifications } = require('../appDatabase/registryManager');
-const {
-  checkAppHWRequirements,
-  checkAppStaticIpRequirements,
-  checkAppNodesRequirements,
-  checkAppGeolocationRequirements,
-} = require('../appRequirements/hwRequirements');
+const hwRequirements = require('../appRequirements/hwRequirements');
 const config = require('config');
 
 // Legacy apps that use old gateway IP assignment method
@@ -921,14 +916,14 @@ async function installAppLocally(req, res) {
  */
 async function checkAppRequirements(appSpecs) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
-  await checkAppHWRequirements(appSpecs);
+  await hwRequirements.checkAppHWRequirements(appSpecs);
   // check geolocation
 
-  checkAppStaticIpRequirements(appSpecs);
+  hwRequirements.checkAppStaticIpRequirements(appSpecs);
 
-  await checkAppNodesRequirements(appSpecs);
+  await hwRequirements.checkAppNodesRequirements(appSpecs);
 
-  checkAppGeolocationRequirements(appSpecs);
+  hwRequirements.checkAppGeolocationRequirements(appSpecs);
 
   return true;
 }
