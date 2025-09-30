@@ -222,11 +222,14 @@ async function fluxUsage(req, res) {
     const runningApps = await listRunningApps();
     const totalRunning = runningApps.data ? runningApps.data.length : 0;
 
+    // Ensure node specs are loaded before accessing them
+    const nodeSpecs = await hwRequirements.getNodeSpecs();
+
     const usage = {
       totalApps,
       runningApps: totalRunning,
       stoppedApps: totalApps - totalRunning,
-      nodeSpecs: hwRequirements.returnNodeSpecs(),
+      nodeSpecs,
     };
 
     const dataResponse = messageHelper.createDataMessage(usage);
@@ -2697,8 +2700,7 @@ module.exports = {
     }
 
     const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecs, tier);
-    await hwRequirements.getNodeSpecs();
-    const nodeSpecs = hwRequirements.returnNodeSpecs();
+    const nodeSpecs = await hwRequirements.getNodeSpecs();
     const totalSpaceOnNode = nodeSpecs.ssdStorage;
     if (totalSpaceOnNode === 0) {
       throw new Error('Insufficient space on Flux Node to spawn an application');

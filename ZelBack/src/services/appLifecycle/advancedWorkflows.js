@@ -214,8 +214,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
 
   // Dynamic require to avoid circular dependency
   const appsService = require('../appsService');
-  await appsService.getNodeSpecs();
-  const nodeSpecs = appsService.nodeSpecs;
+  const nodeSpecs = await appsService.getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
   const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
   const resourcesLocked = await appsService.appsResources();
