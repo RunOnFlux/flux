@@ -413,8 +413,8 @@ function checkComposeHWParameters(appSpecsComposed) {
  */
 async function appsResources() {
   // Import locally to avoid circular dependency
-  const appController = require('../appManagement/appController');
-  return appController.appsResources();
+  const appsService = require('../appsService');
+  return appsService.appsResources();
 }
 
 module.exports = {
