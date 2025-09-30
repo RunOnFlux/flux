@@ -121,8 +121,8 @@ async function checkAppHWRequirements(appSpecs) {
   }
 
   const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
-  await getNodeSpecs();
-  const totalSpaceOnNode = nodeSpecs.ssdStorage;
+  const specs = await getNodeSpecs();
+  const totalSpaceOnNode = specs.ssdStorage;
   if (totalSpaceOnNode === 0) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
@@ -134,7 +134,7 @@ async function checkAppHWRequirements(appSpecs) {
     throw new Error('Insufficient space on Flux Node to spawn an application');
   }
 
-  const totalCpuOnNode = nodeSpecs.cpuCores * 10;
+  const totalCpuOnNode = specs.cpuCores * 10;
   const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
   const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
   const adjustedAppCpu = appHWrequirements.cpu * 10;
@@ -143,7 +143,7 @@ async function checkAppHWRequirements(appSpecs) {
     throw new Error('Insufficient CPU power on Flux Node to spawn an application');
   }
 
-  const totalRamOnNode = nodeSpecs.ram;
+  const totalRamOnNode = specs.ram;
   const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
   const ramLockedByApps = resourcesLocked.data.appsRamLocked;
   const availableRamForApps = useableRamOnNode - ramLockedByApps;
