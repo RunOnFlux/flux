@@ -44,7 +44,7 @@ const supportedArchitectures = ['amd64', 'arm64'];
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
  */
 async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
@@ -442,13 +442,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
 
 /**
  * Install application (hard installation with Docker)
- * @param {object} appSpecifications - App specifications
+ * @param {object} appSpecifications - App specifications or component specifications
  * @param {string} appName - Application name
  * @param {boolean} isComponent - Whether this is a component
  * @param {object} res - Response object
  * @param {object} fullAppSpecs - Full app specifications
  * @param {boolean} test - Whether this is a test installation
- * @returns {Promise<object>} Installation result
+ * @returns {Promise<void>} Installation result
  */
 async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
   // check image and its architecture
@@ -637,12 +637,12 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
 /**
  * To soft install app. Pulls image/s, creates components/app, assigns ports to components/app and starts all containers. Does not create data volumes.
- * @param {object} appSpecifications App specifications.
+ * @param {object} appSpecifications App specifications or component specifications.
  * @param {string} appName App name.
  * @param {boolean} isComponent True if a Docker Compose component.
  * @param {object} res Response.
  * @param {object} fullAppSpecs Full app specifications.
- * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
   const architecture = await systemArchitecture();
@@ -824,9 +824,9 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
 /**
  * Install application locally - Main API entry point
- * @param {object} req - Request object
+ * @param {object} req - Request object containing appname in params or query
  * @param {object} res - Response object
- * @returns {Promise<void>} Installation result
+ * @returns {Promise<void>}
  */
 async function installAppLocally(req, res) {
   try {
@@ -933,8 +933,8 @@ async function installAppLocally(req, res) {
 }
 
 /**
- * Check application requirements (wrapper for verifyAppSpecifications)
- * @param {object} appSpecifications - Application specifications to check
+ * Check application requirements - validates hardware, static IP, nodes, and geolocation requirements
+ * @param {object} appSpecs - Application specifications to check
  * @returns {Promise<boolean>} True if requirements are met
  */
 async function checkAppRequirements(appSpecs) {
@@ -952,10 +952,10 @@ async function checkAppRequirements(appSpecs) {
 }
 
 /**
- * Test application installation - Similar to installAppLocally but for testing
- * @param {object} req - Request object
+ * Test application installation - Similar to installAppLocally but for testing with reduced resource requirements
+ * @param {object} req - Request object containing appname in params or query
  * @param {object} res - Response object
- * @returns {Promise<void>} Test installation result
+ * @returns {Promise<void>}
  */
 async function testAppInstall(req, res) {
   try {
