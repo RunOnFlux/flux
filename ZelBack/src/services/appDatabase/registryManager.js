@@ -884,9 +884,9 @@ async function getRunningAppIpList(ip) {
 
 /**
  * Get registration information for Flux apps
- * @param {object} req - Request object
+ * @param {object} _req - Request object (unused)
  * @param {object} res - Response object
- * @returns {Promise<void>} Registration information
+ * @returns {void} Registration information
  */
 function registrationInformation(_req, res) {
   try {
@@ -1223,7 +1223,7 @@ async function reconstructAppMessagesHashCollection() {
  * API endpoint to reconstruct app messages hash collection
  * @param {object} req - Request object
  * @param {object} res - Response object
- * @returns {Promise<void>} Reconstruction result
+ * @returns {Promise<object>} Reconstruction result message
  */
 async function reconstructAppMessagesHashCollectionAPI(req, res) {
   try {
