@@ -1834,7 +1834,7 @@ module.exports = {
   getAppsDOSState: appInspector.getAppsDOSState,
   checkApplicationsCpuUSage: () => appInspector.checkApplicationsCpuUSage(appsMonitored, installedApps),
   monitorSharedDBApps: () => appInspector.monitorSharedDBApps(installedApps, (app, res, force, endResponse, sendMessage) =>
-    appUninstaller.removeAppLocally(app, res, force, endResponse, sendMessage, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored))),
+    appUninstaller.removeAppLocally(app, res, force, endResponse, sendMessage, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored)), getGlobalState()),
   checkStorageSpaceForApps: () => appInspector.checkStorageSpaceForApps(installedApps, (app, res, force, endResponse, sendMessage) =>
     appUninstaller.removeAppLocally(app, res, force, endResponse, sendMessage, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored)), null, []),
 
