@@ -561,26 +561,17 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
     // Find app specifications in database
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const database = dbopen.db(config.database.appsglobal.database);
 
-    let appQuery = {};
-    if (isComponent) {
-      appQuery = {
-        name: appComponent,
-      };
-    } else {
-      appQuery = {
-        name: app,
-      };
-    }
-
-    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appQuery);
+    const appsQuery = { name: appName };
+    const appsProjection = {};
+    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (!appSpecifications) {
       if (!force) {
         throw new Error('Flux App not found');
       }
       // get it from global Specifications
-      const database = dbopen.db(config.database.appsglobal.database);
-      appSpecifications = await dbHelper.findOneInDatabase(database, globalAppsInformation, appQuery);
+      appSpecifications = await dbHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
       if (!appSpecifications) {
         // get it from locally available Specifications
         const allApps = await availableApps();
@@ -611,14 +602,29 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       throw new Error('Flux App not found');
     }
 
+    let appId = dockerService.getAppIdentifier(app); // get app or app component identifier
+
     // do this temporarily - otherwise we have to move a bunch of functions around
     appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     appSpecifications = specificationFormatter(appSpecifications);
 
-    const appId = dockerService.getAppIdentifier(app); // get app or app component identifier
-
-    // Perform hard uninstall - stopAppMonitoring needs to be provided by caller
-    await appUninstallHard(appName, appId, appSpecifications, isComponent, res, () => {});
+    if (appSpecifications.version >= 4 && !isComponent) {
+      // it is a composed application
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComposedComponent of appSpecifications.compose.reverse()) {
+        isComponent = true;
+        appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
+        const appComponentSpecifications = appComposedComponent;
+        // eslint-disable-next-line no-await-in-loop
+        await appUninstallHard(appName, appId, appComponentSpecifications, isComponent, res, () => {});
+      }
+      isComponent = false;
+    } else if (isComponent) {
+      const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
+      await appUninstallHard(appName, appId, componentSpecifications, isComponent, res, () => {});
+    } else {
+      await appUninstallHard(appName, appId, appSpecifications, isComponent, res, () => {});
+    }
 
     if (sendMessage) {
       const ip = await fluxNetworkHelper.getMyFluxIPandPort();
@@ -639,22 +645,47 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
     }
 
-    // Remove from database
-    if (res) {
-      const cleanupDbMessage = {
+    if (!isComponent) {
+      const dockerNetworkStatus = {
+        status: 'Cleaning up docker network...',
+      };
+      log.info(dockerNetworkStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerNetworkStatus));
+        if (res.flush) res.flush();
+      }
+      await dockerService.removeFluxAppDockerNetwork(appName).catch((error) => log.error(error));
+      const dockerNetworkStatus2 = {
+        status: 'Docker network cleaned',
+      };
+      log.info(dockerNetworkStatus2);
+      if (res) {
+        res.write(serviceHelper.ensureString(dockerNetworkStatus2));
+        if (res.flush) res.flush();
+      }
+      const databaseStatus = {
         status: 'Cleaning up database...',
       };
-      res.write(serviceHelper.ensureString(cleanupDbMessage));
-      if (res.flush) res.flush();
+      log.info(databaseStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(databaseStatus));
+        if (res.flush) res.flush();
+      }
+      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      const databaseStatus2 = {
+        status: 'Database cleaned',
+      };
+      log.info(databaseStatus2);
+      if (res) {
+        res.write(serviceHelper.ensureString(databaseStatus2));
+        if (res.flush) res.flush();
+      }
     }
-    const deleteResult = await dbHelper.removeDocumentsFromCollection(appsDatabase, localAppsInformation, appQuery);
-    log.info(`Database deletion result: ${JSON.stringify(deleteResult)}`);
-
-    const successMessage = messageHelper.createSuccessMessage(`Flux App ${app} successfully removed`);
-    log.info(successMessage);
+    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was successfuly removed`);
+    log.info(appRemovalResponseDone);
 
     if (res) {
-      res.write(serviceHelper.ensureString(successMessage));
+      res.write(serviceHelper.ensureString(appRemovalResponseDone));
       if (res.flush) res.flush();
       if (endResponse) {
         res.end();
@@ -704,7 +735,7 @@ async function softRemoveAppLocally(app, res, globalState, stopAppMonitoring) {
       throw new Error('No Flux App specified');
     }
 
-    const isComponent = app.includes('_');
+    let isComponent = app.includes('_');
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
 
@@ -712,52 +743,61 @@ async function softRemoveAppLocally(app, res, globalState, stopAppMonitoring) {
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
 
-    let appQuery = {};
-    if (isComponent) {
-      appQuery = {
-        name: appComponent,
-      };
+    const appsQuery = { name: appName };
+    const appsProjection = {};
+    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    if (!appSpecifications) {
+      throw new Error('Flux App not found');
+    }
+
+    let appId = dockerService.getAppIdentifier(app);
+
+    // do this temporarily - otherwise we have to move a bunch of functions around
+    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+    appSpecifications = specificationFormatter(appSpecifications);
+
+    if (appSpecifications.version >= 4 && !isComponent) {
+      // it is a composed application
+      // eslint-disable-next-line no-restricted-syntax
+      for (const appComposedComponent of appSpecifications.compose.reverse()) {
+        isComponent = true;
+        appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
+        const appComponentSpecifications = appComposedComponent;
+        // eslint-disable-next-line no-await-in-loop
+        await appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res, stopAppMonitoring);
+      }
+      isComponent = false;
+    } else if (isComponent) {
+      const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
+      await appUninstallSoft(appName, appId, componentSpecifications, isComponent, res, stopAppMonitoring);
     } else {
-      appQuery = {
-        name: app,
-      };
+      await appUninstallSoft(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring);
     }
 
-    const appSpecs = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appQuery);
-    if (!appSpecs) {
-      throw new Error('Flux App not found in database');
-    }
-
-    const appId = isComponent ? `${appComponent}_${appName}` : app;
-
-    // Perform soft uninstall
-    await appUninstallSoft(appName, appId, appSpecs, isComponent, res, stopAppMonitoring);
-
-    // Remove from database
-    if (res) {
-      const cleanupDbMessage = {
+    if (!isComponent) {
+      const databaseStatus = {
         status: 'Cleaning up database...',
       };
-      res.write(serviceHelper.ensureString(cleanupDbMessage));
-      if (res.flush) res.flush();
-    }
-
-    await dbHelper.removeDocumentsFromCollection(appsDatabase, localAppsInformation, appQuery);
-
-    if (res) {
-      const dbCleanedMessage = {
+      log.info(databaseStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(databaseStatus));
+        if (res.flush) res.flush();
+      }
+      await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+      const databaseStatus2 = {
         status: 'Database cleaned',
       };
-      res.write(serviceHelper.ensureString(dbCleanedMessage));
-      if (res.flush) res.flush();
-    }
-
-    const successMessage = messageHelper.createSuccessMessage(`Flux App ${app} successfully soft removed`);
-    log.info(successMessage);
-
-    if (res) {
-      res.write(serviceHelper.ensureString(successMessage));
-      if (res.flush) res.flush();
+      log.info(databaseStatus2);
+      if (res) {
+        res.write(serviceHelper.ensureString(databaseStatus2));
+        if (res.flush) res.flush();
+      }
+      const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
+      log.info(appRemovalResponseDone);
+      if (res) {
+        res.write(serviceHelper.ensureString(appRemovalResponseDone));
+        if (res.flush) res.flush();
+      }
     }
 
   } catch (error) {
