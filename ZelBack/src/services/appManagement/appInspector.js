@@ -505,39 +505,66 @@ function stopAppMonitoring(appName, deleteData, appsMonitored) {
  * @param {object} res - Response object
  */
 async function appExec(req, res) {
-  try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-    let { cmd } = req.params;
-    cmd = cmd || req.query.cmd;
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
 
-    if (!appname) {
-      throw new Error('No Flux App specified');
-    }
-    if (!cmd) {
-      throw new Error('No command specified');
-    }
+      if (!processedBody.appname) {
+        throw new Error('No Flux App specified');
+      }
 
-    const mainAppName = appname.split('_')[1] || appname;
+      if (!processedBody.cmd) {
+        throw new Error('No command specified');
+      }
 
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
-    if (authorized === true) {
-      const response = await dockerService.dockerContainerExec(appname, cmd);
-      const appResponse = messageHelper.createDataMessage(response);
-      res.json(appResponse);
-    } else {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
+      const mainAppName = processedBody.appname.split('_')[1] || processedBody.appname;
+
+      const authorized = await verificationHelper.verifyPrivilege('appowner', req, mainAppName);
+      if (authorized === true) {
+        let cmd = processedBody.cmd || [];
+        let env = processedBody.env || [];
+
+        cmd = serviceHelper.ensureObject(cmd);
+        env = serviceHelper.ensureObject(env);
+
+        const containers = await dockerService.dockerListContainers(true);
+        const myContainer = containers.find((container) => (container.Names[0] === dockerService.getAppDockerNameIdentifier(processedBody.appname) || container.Id === processedBody.appname));
+        const dockerContainer = dockerService.getDockerContainer(myContainer.Id);
+
+        res.setHeader('Content-Type', 'application/json');
+
+        dockerService.dockerContainerExec(dockerContainer, cmd, env, res, (error) => {
+          if (error) {
+            log.error(error);
+            const errorResponse = messageHelper.createErrorMessage(
+              error.message || error,
+              error.name,
+              error.code,
+            );
+            res.write(errorResponse);
+            res.end();
+          } else {
+            res.end();
+          }
+        });
+      } else {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+      }
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+  });
 }
 
 /**
@@ -684,63 +711,62 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
             log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 100.`);
           }
-        } else if (app.version >= 4) {
-          // eslint-disable-next-line no-restricted-syntax
-          for (const component of app.compose) {
-            const monitoredName = `${component.name}_${app.name}`;
-            stats = appsMonitored[monitoredName].lastHourstatsStore;
-            // eslint-disable-next-line no-await-in-loop
-            const inspect = await dockerService.dockerContainerInspect(monitoredName);
-            if (inspect && stats && stats.length > 4) {
-              const nanoCpus = inspect.HostConfig.NanoCpus;
-              let cpuThrottlingRuns = 0;
-              let cpuThrottling = false;
-              const cpuPercentage = nanoCpus / component.cpu / 1e9;
-              // eslint-disable-next-line no-restricted-syntax
-              for (const stat of stats) {
-                const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
-                const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
-                const cpu = ((cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus * 100) / component.cpu || 0;
-                const realCpu = cpu / cpuPercentage;
-                if (realCpu >= 92) {
-                  cpuThrottlingRuns += 1;
+        }
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of app.compose) {
+          stats = appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore;
+          // eslint-disable-next-line no-await-in-loop
+          const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
+          if (inspect && stats && stats.length > 4) {
+            const nanoCpus = inspect.HostConfig.NanoCpus;
+            let cpuThrottlingRuns = 0;
+            let cpuThrottling = false;
+            const cpuPercentage = nanoCpus / appComponent.cpu / 1e9;
+            // eslint-disable-next-line no-restricted-syntax
+            for (const stat of stats) {
+              const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
+              const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
+              const cpu = ((cpuUsage / systemCpuUsage) * 100 * stat.data.cpu_stats.online_cpus) / appComponent.cpu || 0;
+              const realCpu = cpu / cpuPercentage;
+              if (realCpu >= 92) {
+                cpuThrottlingRuns += 1;
+              }
+            }
+            if (cpuThrottlingRuns >= stats.length * 0.8) {
+              // cpu was high on 80% of the checks
+              cpuThrottling = true;
+            }
+            appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
+            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
+            log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+            if (cpuThrottling && appComponent.cpu > 1) {
+              if (cpuPercentage === 1) {
+                if (appComponent.cpu > 2) {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.8));
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
                 }
+                log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} lowering cpu.`);
               }
-              if (cpuThrottlingRuns >= stats.length * 0.8) {
-                // cpu was high on 80% of the checks
-                cpuThrottling = true;
-              }
-              appsMonitored[monitoredName].lastHourstatsStore = [];
-              log.info(`checkApplicationsCpuUSage ${monitoredName} cpu high load: ${cpuThrottling}`);
-              log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
-              if (cpuThrottling && component.cpu > 1) {
-                if (cpuPercentage === 1) {
-                  if (component.cpu > 2) {
-                    // eslint-disable-next-line no-await-in-loop
-                    await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.8));
-                  } else {
-                    // eslint-disable-next-line no-await-in-loop
-                    await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.9));
-                  }
-                  log.info(`checkApplicationsCpuUSage ${monitoredName} lowering cpu.`);
-                }
-              } else if (cpuPercentage <= 0.8) {
-                // eslint-disable-next-line no-await-in-loop
-                await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.85));
-                log.info(`checkApplicationsCpuUSage ${monitoredName} increasing cpu 85.`);
-              } else if (cpuPercentage <= 0.85) {
-                // eslint-disable-next-line no-await-in-loop
-                await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.9));
-                log.info(`checkApplicationsCpuUSage ${monitoredName} increasing cpu 90.`);
-              } else if (cpuPercentage <= 0.9) {
-                // eslint-disable-next-line no-await-in-loop
-                await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9 * 0.95));
-                log.info(`checkApplicationsCpuUSage ${monitoredName} increasing cpu 95.`);
-              } else if (cpuPercentage < 1) {
-                // eslint-disable-next-line no-await-in-loop
-                await dockerService.appDockerUpdateCpu(monitoredName, Math.round(component.cpu * 1e9));
-                log.info(`checkApplicationsCpuUSage ${monitoredName} increasing cpu 100.`);
-              }
+            } else if (cpuPercentage <= 0.8) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.85));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 85.`);
+            } else if (cpuPercentage <= 0.85) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 90.`);
+            } else if (cpuPercentage <= 0.9) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.95));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 95.`);
+            } else if (cpuPercentage < 1) {
+              // eslint-disable-next-line no-await-in-loop
+              await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
+              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 100.`);
             }
           }
         }
@@ -755,10 +781,15 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
  * Monitor shared database applications and handle uninstall signals
  * @param {Function} installedApps - Function to get installed apps
  * @param {Function} removeAppLocally - Function to remove app locally
+ * @param {object} globalState - Global state object with installation/removal flags
  * @returns {Promise<void>}
  */
-async function monitorSharedDBApps(installedApps, removeAppLocally) {
+async function monitorSharedDBApps(installedApps, removeAppLocally, globalState) {
   try {
+    // do not run if installationInProgress or removalInProgress
+    if (globalState.installationInProgress || globalState.removalInProgress) {
+      return;
+    }
     // get list of all installed apps
     const appsInstalled = await installedApps();
 
@@ -792,7 +823,7 @@ async function monitorSharedDBApps(installedApps, removeAppLocally) {
     log.error(`monitorSharedDBApps: ${error}`);
   } finally {
     await serviceHelper.delay(5 * 60 * 1000);
-    monitorSharedDBApps(installedApps, removeAppLocally);
+    monitorSharedDBApps(installedApps, removeAppLocally, globalState);
   }
 }
 
@@ -805,8 +836,8 @@ async function monitorSharedDBApps(installedApps, removeAppLocally) {
  * @returns {Promise<void>}
  */
 async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations) {
-  const config = require('config');
   try {
+    const config = require('config');
     // get list of locally installed apps.
     const installedAppsRes = await installedApps();
     if (installedAppsRes.status !== 'success') {
@@ -841,8 +872,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
               log.error(error);
             });
             const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
-            appsStorageViolations.length = 0;
-            appsStorageViolations.push(...adjArray);
+            appsStorageViolations = adjArray;
           } else {
             log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Soft redeploying...`);
             // eslint-disable-next-line no-await-in-loop
@@ -869,8 +899,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
                 log.error(error);
               });
               const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
-              appsStorageViolations.length = 0;
-              appsStorageViolations.push(...adjArray);
+              appsStorageViolations = adjArray;
             } else {
               log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);
               // eslint-disable-next-line no-await-in-loop
@@ -884,8 +913,14 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
         }
       }
     }
+    setTimeout(() => {
+      checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations);
+    }, 30 * 60 * 1000);
   } catch (error) {
     log.error(error);
+    setTimeout(() => {
+      checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations);
+    }, 30 * 60 * 1000);
   }
 }
 
