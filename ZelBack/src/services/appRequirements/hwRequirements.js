@@ -56,9 +56,7 @@ function setNodeSpecs(cores, ram, ssdStorage) {
 /**
  * Created for testing purposes
  *
- * @param {number} cores
- * @param {number} ram
- * @param {number} ssdStorage
+ * @returns {object} Node specifications object
  */
 function returnNodeSpecs() {
   return nodeSpecs;
