@@ -21,6 +21,7 @@ const dbHelper = require('../dbHelper');
 /**
  * Verify type correctness of application specification
  * @param {object} appSpecification - Application specification to validate
+ * @returns {boolean} True if validation passes
  * @throws {Error} If validation fails
  */
 function verifyTypeCorrectnessOfApp(appSpecification) {
@@ -536,6 +537,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
  * Verify restriction correctness of application specification
  * @param {object} appSpecifications - Application specifications
  * @param {number} height - Block height for validation context
+ * @returns {void}
  * @throws {Error} If validation fails
  */
 function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
@@ -835,6 +837,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
 /**
  * Verify object keys correctness of application specification
  * @param {object} appSpecifications - Application specifications
+ * @returns {void}
  * @throws {Error} If validation fails
  */
 function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
@@ -1045,6 +1048,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
 /**
  * Check hardware parameters for application
  * @param {object} appSpecs - Application specifications
+ * @returns {boolean} True if validation passes
  * @throws {Error} If validation fails
  */
 function checkHWParameters(appSpecs) {
@@ -1093,6 +1097,7 @@ function checkHWParameters(appSpecs) {
 /**
  * Check compose hardware parameters for multi-component applications
  * @param {object} appSpecsComposed - Composed application specifications
+ * @returns {boolean} True if validation passes
  * @throws {Error} If validation fails
  */
 function checkComposeHWParameters(appSpecsComposed) {
@@ -1519,6 +1524,7 @@ async function registerAppGlobalyApi(req, res) {
 /**
  * Validate application name conflicts with existing apps
  * @param {string} appName - Application name to validate
+ * @returns {Promise<void>}
  * @throws {Error} If name conflicts exist
  */
 async function validateApplicationNameConflict(appName) {
@@ -1560,6 +1566,7 @@ async function validateApplicationNameConflict(appName) {
 /**
  * Validate enterprise application secrets
  * @param {object} appSpec - Application specification
+ * @returns {Promise<void>}
  * @throws {Error} If enterprise validation fails
  */
 async function validateEnterpriseSecrets(appSpec) {
@@ -1579,6 +1586,7 @@ async function validateEnterpriseSecrets(appSpec) {
 /**
  * Validate application update permissions and existence
  * @param {object} appSpec - Application specification for update
+ * @returns {Promise<void>}
  * @throws {Error} If update validation fails
  */
 async function validateAppUpdatePermissions(appSpec) {
