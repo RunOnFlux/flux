@@ -738,6 +738,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(removeStatus));
       if (res.flush) res.flush();
     }
+    const appUninstaller = require('./appUninstaller');
     appUninstaller.removeAppLocally(appSpecs.name, res, true);
   }
 }
