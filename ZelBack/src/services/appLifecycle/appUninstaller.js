@@ -812,8 +812,6 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
  * API endpoint for removing application locally
  * @param {object} req - Request object
  * @param {object} res - Response object
- * @param {object} globalStateRef - Global state reference
- * @param {function} stopAppMonitoring - Function to stop monitoring
  * @returns {Promise<void>}
  */
 async function removeAppLocallyApi(req, res) {
