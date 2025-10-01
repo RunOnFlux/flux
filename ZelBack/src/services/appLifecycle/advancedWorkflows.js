@@ -1037,9 +1037,6 @@ async function redeployAPI(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
 
-    const appUninstaller = require('./appUninstaller');
-    const appInstaller = require('./appInstaller');
-
     if (force) {
       // Hard redeploy: uninstall then reinstall
       await appUninstaller.appUninstallHard(appname, null, specifications, false, res, true);
@@ -2212,8 +2209,6 @@ async function reinstallOldApplications() {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
               // soft redeployment
               // eslint-disable-next-line no-await-in-loop
-              const appUninstaller = require('./appUninstaller');
-              const appInstaller = require('./appInstaller');
               await appUninstaller.appUninstallSoft(appSpecifications.name, null, appSpecifications, false, null, true);
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications);
@@ -2221,8 +2216,6 @@ async function reinstallOldApplications() {
               log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
               // hard redeployment
               // eslint-disable-next-line no-await-in-loop
-              const appUninstaller = require('./appUninstaller');
-              const appInstaller = require('./appInstaller');
               await appUninstaller.appUninstallHard(appSpecifications.name, null, appSpecifications, false, null, true);
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.installApplicationHard(appSpecifications, appSpecifications.name, false, null, appSpecifications);
@@ -2238,8 +2231,6 @@ async function reinstallOldApplications() {
               log.warn('Another application is undergoing installation');
               return;
             }
-            const appUninstaller = require('./appUninstaller');
-            const appInstaller = require('./appInstaller');
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(appSpecifications.name, null, true);
             // eslint-disable-next-line no-await-in-loop
