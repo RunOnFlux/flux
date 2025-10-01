@@ -21,8 +21,6 @@ const {
   globalAppsMessages,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
-const appUninstaller = require('./appUninstaller');
-const appInstaller = require('./appInstaller');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const globalState = require('../utils/globalState');
@@ -1036,6 +1034,10 @@ async function redeployAPI(req, res) {
     }
 
     res.setHeader('Content-Type', 'application/json');
+
+    // Dynamic require to avoid circular dependency
+    const appUninstaller = require('./appUninstaller');
+    const appInstaller = require('./appInstaller');
 
     if (force) {
       // Hard redeploy: uninstall then reinstall
@@ -2205,6 +2207,10 @@ async function reinstallOldApplications() {
               return;
             }
 
+            // Dynamic require to avoid circular dependency
+            const appUninstaller = require('./appUninstaller');
+            const appInstaller = require('./appInstaller');
+
             if (appSpecifications.hdd === installedApp.hdd) {
               log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
               // soft redeployment
@@ -2231,6 +2237,9 @@ async function reinstallOldApplications() {
               log.warn('Another application is undergoing installation');
               return;
             }
+            // Dynamic require to avoid circular dependency
+            const appUninstaller = require('./appUninstaller');
+            const appInstaller = require('./appInstaller');
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(appSpecifications.name, null, true);
             // eslint-disable-next-line no-await-in-loop
