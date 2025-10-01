@@ -22,7 +22,7 @@ const { specificationFormatter } = require('../utils/appSpecHelpers');
  * Store temporary app message
  * @param {object} message - Message to store
  * @param {boolean} furtherVerification - Whether further verification is needed
- * @returns {Promise<object>} Storage result
+ * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
 async function storeAppTemporaryMessage(message, furtherVerification = false) {
   /* message object
@@ -156,7 +156,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 /**
  * Store permanent app message
  * @param {object} message - Message to store
- * @returns {Promise<object>} Storage result
+ * @returns {Promise<boolean>} Whether message was stored successfully
  */
 async function storeAppPermanentMessage(message) {
   /* message object
@@ -187,7 +187,7 @@ async function storeAppPermanentMessage(message) {
 /**
  * Store app running message
  * @param {object} message - Message to store
- * @returns {Promise<object>} Storage result
+ * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
 async function storeAppRunningMessage(message) {
   /* message object
@@ -314,7 +314,7 @@ async function storeAppRunningMessage(message) {
 /**
  * Store app installing message
  * @param {object} message - Message to store
- * @returns {Promise<object>} Storage result
+ * @returns {Promise<boolean|Error>} Whether message should be rebroadcast or Error if invalid
  */
 async function storeAppInstallingMessage(message) {
   /* message object
