@@ -65,7 +65,6 @@ async function verifyRepository(repotag, options = {}) {
 
 /**
  * Get blocked repositories from official source
- * @param {object} myLongCache - Cache reference
  * @returns {Promise<Array|null>} List of blocked repositories
  */
 async function getBlockedRepositores() {
@@ -179,7 +178,6 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner) {
 /**
  * Check application images compliance against blocked repositories
  * @param {object} appSpecs - Application specifications
- * @param {object} myLongCache - Cache reference
  * @returns {Promise<boolean>} True if images are compliant
  */
 async function checkApplicationImagesComplience(appSpecs) {
@@ -254,7 +252,6 @@ async function checkApplicationImagesComplience(appSpecs) {
 /**
  * Check if application images are blocked (non-throwing version)
  * @param {object} appSpecs - Application specifications
- * @param {object} myLongCache - Cache reference
  * @returns {Promise<boolean>} True if blocked
  */
 async function checkApplicationImagesBlocked(appSpecs) {
