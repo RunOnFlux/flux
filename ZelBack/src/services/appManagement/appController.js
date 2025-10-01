@@ -46,9 +46,9 @@ async function appLocation(appname) {
  * @param {string} appname - Application name
  * @param {string} command - Command to execute
  * @param {string} zelidauth - Authorization header
- * @param {string} paramA - Additional parameter
- * @param {boolean} bypassMyIp - Whether to bypass own IP
- * @returns {Promise<object>} Execution result
+ * @param {string} [paramA] - Additional parameter to append to URL
+ * @param {boolean} [bypassMyIp] - Whether to bypass own IP
+ * @returns {Promise<void>}
  */
 async function executeAppGlobalCommand(appname, command, zelidauth, paramA, bypassMyIp) {
   try {
