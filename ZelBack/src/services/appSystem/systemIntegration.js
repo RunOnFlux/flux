@@ -20,8 +20,8 @@ let nodeSpecs = {
 };
 
 /**
- * Get node specifications (CPU, RAM, Storage)
- * @returns {Promise<object>} Node specifications
+ * Get node specifications (CPU, RAM, Storage) and cache them
+ * @returns {Promise<void>}
  */
 async function getNodeSpecs() {
   try {
@@ -419,7 +419,7 @@ async function createFluxNetworkAPI(req, res) {
 
 /**
  * Start monitoring of apps
- * @param {Array} appSpecsToMonitor - Array of app specifications to monitor
+ * @param {object[]} appSpecsToMonitor - Array of app specifications to monitor
  * @returns {Promise<void>}
  */
 async function startMonitoringOfApps(appSpecsToMonitor) {
@@ -442,8 +442,8 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
 
 /**
  * Stop monitoring of apps
- * @param {Array} appSpecsToMonitor - Array of app specifications to stop monitoring
- * @param {boolean} deleteData - Whether to delete monitoring data
+ * @param {object[]} appSpecsToMonitor - Array of app specifications to stop monitoring
+ * @param {boolean} [deleteData=false] - Whether to delete monitoring data
  * @returns {Promise<void>}
  */
 async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
