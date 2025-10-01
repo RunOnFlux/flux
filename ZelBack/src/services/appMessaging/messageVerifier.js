@@ -264,6 +264,7 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
 /**
  * Request app message from network
  * @param {string} hash - Message hash to request
+ * @returns {Promise<void>}
  */
 async function requestAppMessage(hash) {
   // some message type request app message, message hash
@@ -282,6 +283,7 @@ async function requestAppMessage(hash) {
  * Request multiple app messages from network
  * @param {Array} apps - List of apps with hash property
  * @param {boolean} incoming - If true, request from incoming peers
+ * @returns {Promise<void>}
  */
 async function requestAppsMessage(apps, incoming) {
   // some message type request app message, message hash
@@ -303,6 +305,7 @@ async function requestAppsMessage(apps, incoming) {
  * Request app message via API
  * @param {object} req - Request object
  * @param {object} res - Response object
+ * @returns {Promise<void>}
  */
 async function requestAppMessageAPI(req, res) {
   try {
@@ -501,7 +504,7 @@ async function getAppsPermanentMessages(req, res) {
  * @param {number} height - Block height
  * @param {number} valueSat - Transaction value in satoshis
  * @param {number} i - Retry counter
- * @returns {Promise<object|null>} Message if found, null otherwise
+ * @returns {Promise<boolean>} True if message found or stored, false otherwise
  */
 async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
   try {
