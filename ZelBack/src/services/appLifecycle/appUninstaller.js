@@ -516,8 +516,6 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
  * @param {boolean} force - Force removal
  * @param {boolean} endResponse - Whether to end response
  * @param {boolean} sendMessage - Whether to send message to network
- * @param {object} globalStateRef - Global state reference
- * @param {function} stopAppMonitoring - Function to stop monitoring
  * @returns {Promise<void>}
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
@@ -717,11 +715,12 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
  * Soft remove application locally (database and container only)
  * @param {string} app - Application name
  * @param {object} res - Response object for streaming
- * @param {object} globalState - Global state reference
+ * @param {object} globalStateRef - Global state reference
  * @param {function} stopAppMonitoring - Function to stop monitoring
  * @returns {Promise<void>}
  */
-async function softRemoveAppLocally(app, res, globalState, stopAppMonitoring) {
+async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring) {
+  const globalState = globalStateRef;
   if (globalState.removalInProgress) {
     throw new Error('Another application is undergoing removal');
   }
@@ -813,6 +812,8 @@ async function softRemoveAppLocally(app, res, globalState, stopAppMonitoring) {
  * API endpoint for removing application locally
  * @param {object} req - Request object
  * @param {object} res - Response object
+ * @param {object} globalStateRef - Global state reference
+ * @param {function} stopAppMonitoring - Function to stop monitoring
  * @returns {Promise<void>}
  */
 async function removeAppLocallyApi(req, res) {
