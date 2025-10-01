@@ -636,167 +636,189 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 }
 
 /**
- * Install application (soft installation without Docker)
- * @param {object} appSpecifications - App specifications
- * @param {string} appName - Application name
- * @param {boolean} isComponent - Whether this is a component
- * @param {object} res - Response object
- * @param {object} fullAppSpecs - Full app specifications
- * @returns {Promise<object>} Installation result
+ * To soft install app. Pulls image/s, creates components/app, assigns ports to components/app and starts all containers. Does not create data volumes.
+ * @param {object} appSpecifications App specifications.
+ * @param {string} appName App name.
+ * @param {boolean} isComponent True if a Docker Compose component.
+ * @param {object} res Response.
+ * @param {object} fullAppSpecs Full app specifications.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
-  try {
-    log.info(`Starting soft installation of app ${appName}`);
+  const architecture = await systemArchitecture();
+  if (!supportedArchitectures.includes(architecture)) {
+    throw new Error(`Invalid architecture ${architecture} detected.`);
+  }
 
-    // Check if app already exists
-    // eslint-disable-next-line no-use-before-define
-    const existingApp = await getInstalledApps(appName);
-    if (existingApp && existingApp.length > 0) {
-      throw new Error(`App ${appName} already exists`);
+  // check blacklist
+  await checkApplicationImagesComplience(fullAppSpecs);
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    appSpecifications.repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
+
+  const pullConfig = { repoTag: appSpecifications.repotag };
+
+  let authToken = null;
+
+  if (appSpecifications.repoauth) {
+    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+
+    if (!authToken) {
+      throw new Error('Unable to decrypt provided credentials');
     }
 
-    // Soft register app in database
-    const componentSpecs = isComponent ? [appSpecifications] : null;
-    // eslint-disable-next-line no-use-before-define
-    await softRegisterAppLocally(fullAppSpecs || appSpecifications, componentSpecs, res);
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
+    }
 
-    log.info(`Successfully soft-installed app ${appName}`);
-
-    const result = {
-      status: 'success',
-      message: `App ${appName} soft-installed successfully`,
-      data: {
-        appName,
-        type: 'soft',
-      },
-    };
-
-    return result;
-  } catch (error) {
-    log.error(`Error soft-installing app ${appName}: ${error.message}`);
-    throw new Error(`Soft installation failed for ${appName}: ${error.message}`);
+    imgVerifier.addCredentials(authToken);
+    pullConfig.authToken = authToken;
   }
-}
 
-/**
- * Soft register application locally (without Docker operations)
- * @param {object} appSpecs - Application specifications
- * @param {object} componentSpecs - Component specifications
- * @param {object} res - Response object
- * @returns {Promise<object>} Registration result
- */
-async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
-  try {
-    log.info(`Soft registering app ${appSpecs.name} locally`);
+  await imgVerifier.verifyImage();
+  imgVerifier.throwIfError();
 
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
+  if (!imgVerifier.supported) {
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
 
-    // Prepare app registration data for soft install
-    const appData = {
-      ...appSpecs,
-      registeredAt: Date.now(),
-      status: 'soft-registered',
-      installType: 'soft',
-    };
+  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
+  pullConfig.provider = imgVerifier.provider;
 
-    // Insert app into local database
-    await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, appData);
+  await dockerPullStreamPromise(pullConfig, res);
 
-    // Handle components if they exist
-    if (componentSpecs && Array.isArray(componentSpecs)) {
-      for (const component of componentSpecs) {
-        const componentData = {
-          ...component,
-          parentApp: appSpecs.name,
-          registeredAt: Date.now(),
-          status: 'soft-registered',
-          installType: 'soft',
-        };
-        await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, componentData);
+  const pullStatus = {
+    status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(pullStatus));
+    if (res.flush) res.flush();
+  }
+
+  const createApp = {
+    status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,
+  };
+  log.info(createApp);
+  if (res) {
+    res.write(serviceHelper.ensureString(createApp));
+    if (res.flush) res.flush();
+  }
+
+  await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
+
+  const portStatusInitial = {
+    status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
+  };
+  log.info(portStatusInitial);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatusInitial));
+    if (res.flush) res.flush();
+  }
+  if (appSpecifications.ports) {
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: `Port ${port} OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+            if (res.flush) res.flush();
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to open.`);
+        }
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    const isUPNP = upnpService.isUPNP();
+    if (isUPNP) {
+      log.info('Custom port specified, mapping ports');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
+        if (portResponse === true) {
+          const portStatus = {
+            status: `Port ${port} mapped OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+            if (res.flush) res.flush();
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to map.`);
+        }
       }
     }
-
-    log.info(`Successfully soft registered app ${appSpecs.name} locally`);
-    return { status: 'success', message: `App ${appSpecs.name} soft registered locally` };
-  } catch (error) {
-    log.error(`Error soft registering app ${appSpecs.name}: ${error.message}`);
-    throw new Error(`Failed to soft register app locally: ${error.message}`);
-  }
-}
-
-/**
- * Get installed applications
- * @param {string} appName - Optional app name filter
- * @returns {Promise<Array>} List of installed apps
- */
-async function getInstalledApps(appName = null) {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
-    const query = appName ? { name: appName } : {};
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, query);
-
-    return apps;
-  } catch (error) {
-    log.error(`Error getting installed apps: ${error.message}`);
-    return [];
-  }
-}
-
-/**
- * Update application status
- * @param {string} appName - Application name
- * @param {string} status - New status
- * @returns {Promise<void>}
- */
-async function updateAppStatus(appName, status) {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
-    const filter = { name: appName };
-    const update = { $set: { status, updatedAt: Date.now() } };
-
-    await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, filter, update);
-    log.info(`Updated status of app ${appName} to ${status}`);
-  } catch (error) {
-    log.error(`Error updating app status: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
- * Cleanup failed installation
- * @param {string} appName - Application name to cleanup
- * @returns {Promise<void>}
- */
-async function cleanupFailedInstallation(appName) {
-  try {
-    log.info(`Cleaning up failed installation for ${appName}`);
-
-    // Stop and remove container if it exists
-    try {
-      await dockerService.dockerStopContainer(appName);
-      await dockerService.dockerRemoveContainer(appName);
-    } catch (dockerError) {
-      log.warn(`Docker cleanup warning for ${appName}: ${dockerError.message}`);
+  } else if (appSpecifications.port) {
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      // v1 compatibility
+      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+      if (portResponse.status === true) {
+        const portStatus = {
+          status: 'Port OK',
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
     }
-
-    // Remove from database
-    try {
-      const dbopen = dbHelper.databaseConnection();
-      const appsDatabase = dbopen.db(config.database.appslocal.database);
-      await dbHelper.removeDocumentsFromCollection(appsDatabase, localAppsInformation, { name: appName });
-    } catch (dbError) {
-      log.warn(`Database cleanup warning for ${appName}: ${dbError.message}`);
+    const isUPNP = upnpService.isUPNP();
+    if (isUPNP) {
+      log.info('Custom port specified, mapping ports');
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+      if (portResponse === true) {
+        const portStatus = {
+          status: `Port ${appSpecifications.port} mapped OK`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+      }
     }
-
-    log.info(`Cleanup completed for ${appName}`);
-  } catch (error) {
-    log.error(`Cleanup error for ${appName}: ${error.message}`);
-    throw error;
+  }
+  const startStatus = {
+    status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
+  };
+  log.info(startStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(startStatus));
+    if (res.flush) res.flush();
+  }
+  if (!appSpecifications.containerData.includes('g:')) {
+    const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+    const app = await dockerService.appDockerStart(identifier);
+    if (!app) {
+      return;
+    }
+    startAppMonitoring(identifier);
+    const appResponse = messageHelper.createDataMessage(app);
+    log.info(appResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(appResponse));
+      if (res.flush) res.flush();
+    }
   }
 }
 
@@ -1021,10 +1043,6 @@ module.exports = {
   registerAppLocally,
   installApplicationHard,
   installApplicationSoft,
-  softRegisterAppLocally,
-  getInstalledApps,
-  updateAppStatus,
-  cleanupFailedInstallation,
   installAppLocally,
   checkAppRequirements,
   testAppInstall,

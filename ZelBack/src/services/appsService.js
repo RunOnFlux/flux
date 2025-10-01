@@ -217,7 +217,7 @@ async function listAllApps(req, res) {
  */
 async function fluxUsage(req, res) {
   try {
-    const apps = await appInstaller.getInstalledApps();
+    const apps = await registryManager.getInstalledApps();
     const totalApps = apps.length;
     const runningApps = await listRunningApps();
     const totalRunning = runningApps.data ? runningApps.data.length : 0;
@@ -1869,10 +1869,6 @@ module.exports = {
   },
   installApplicationHard: appInstaller.installApplicationHard,
   installApplicationSoft: appInstaller.installApplicationSoft,
-  softRegisterAppLocally: appInstaller.softRegisterAppLocally,
-  getInstalledApps: appInstaller.getInstalledApps,
-  updateAppStatus: appInstaller.updateAppStatus,
-  cleanupFailedInstallation: appInstaller.cleanupFailedInstallation,
 
   // Re-exported from appUninstaller
   appUninstallHard: async (appName, appId, appSpecs, isComponent, res) =>
