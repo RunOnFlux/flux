@@ -696,6 +696,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
 
+    const appInstaller = require('./appInstaller');
     if (specificationsToInstall.version >= 4) { // version is undefined for component
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponentSpecs of specificationsToInstall.compose) {
