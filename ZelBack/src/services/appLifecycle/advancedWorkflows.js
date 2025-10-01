@@ -980,6 +980,90 @@ async function softRemoveAppLocally(app, res) {
 }
 
 /**
+ * Soft redeploy - removes and reinstalls app locally (soft)
+ * @param {object} appSpecs - App specifications
+ * @param {object} res - Response object
+ */
+async function softRedeploy(appSpecs, res) {
+  try {
+    if (globalState.removalInProgress) {
+      log.warn('Another application is undergoing removal');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.installationInProgress) {
+      log.warn('Another application is undergoing installation');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    log.info('Starting softRedeploy');
+    try {
+      await softRemoveAppLocally(appSpecs.name, res);
+    } catch (error) {
+      log.error(error);
+      globalState.removalInProgress = false;
+      throw error;
+    }
+    const appRedeployResponse = messageHelper.createSuccessMessage('Application softly removed. Awaiting installation...');
+    log.info(appRedeployResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(appRedeployResponse));
+      if (res.flush) res.flush();
+    }
+    await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
+    // verify requirements
+    const appsService = require('../appsService');
+    await appsService.checkAppRequirements(appSpecs);
+    // register
+    await softRegisterAppLocally(appSpecs, undefined, res);
+    log.info('Application softly redeployed');
+  } catch (error) {
+    log.info('Error on softRedeploy');
+    log.error(error);
+    const appUninstaller = require('./appUninstaller');
+    appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
+  }
+}
+
+/**
+ * Hard redeploy - removes and reinstalls app locally (hard)
+ * @param {object} appSpecs - App specifications
+ * @param {object} res - Response object
+ */
+async function hardRedeploy(appSpecs, res) {
+  try {
+    const appUninstaller = require('./appUninstaller');
+    await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
+    const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
+    log.info(appRedeployResponse);
+    if (res) {
+      res.write(serviceHelper.ensureString(appRedeployResponse));
+      if (res.flush) res.flush();
+    }
+    await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
+    // verify requirements
+    const appsService = require('../appsService');
+    await appsService.checkAppRequirements(appSpecs);
+    // register
+    const appInstaller = require('./appInstaller');
+    await appInstaller.registerAppLocally(appSpecs, undefined, res); // can throw
+    log.info('Application redeployed');
+  } catch (error) {
+    log.error(error);
+    const appUninstaller = require('./appUninstaller');
+    appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
+  }
+}
+
+/**
  * Redeploy app via API
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -1035,18 +1119,10 @@ async function redeployAPI(req, res) {
 
     res.setHeader('Content-Type', 'application/json');
 
-    // Dynamic require to avoid circular dependency
-    const appUninstaller = require('./appUninstaller');
-    const appInstaller = require('./appInstaller');
-
     if (force) {
-      // Hard redeploy: uninstall then reinstall
-      await appUninstaller.appUninstallHard(appname, null, specifications, false, res, true);
-      await appInstaller.installApplicationHard(specifications, appname, false, res, specifications);
+      await hardRedeploy(specifications, res);
     } else {
-      // Soft redeploy: soft uninstall then soft install
-      await appUninstaller.appUninstallSoft(appname, null, specifications, false, res, true);
-      await appInstaller.installApplicationSoft(specifications, appname, false, res, specifications);
+      await softRedeploy(specifications, res);
     }
   } catch (error) {
     log.error(error);
