@@ -74,24 +74,33 @@ async function decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey, own
  * @returns {string} Decrypted content
  */
 function decryptWithAesSession(appName, nonceCiphertextTag, base64AesKey) {
-  const aesKey = Buffer.from(base64AesKey, 'base64');
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
 
-  // Extract nonce, ciphertext and auth tag
-  const nonce = nonceCiphertextTag.subarray(0, 16);
-  const authTag = nonceCiphertextTag.subarray(nonceCiphertextTag.length - 16);
-  const ciphertext = nonceCiphertextTag.subarray(16, nonceCiphertextTag.length - 16);
+  try {
+    const aesKey = Buffer.from(base64AesKey, 'base64');
 
-  // Decrypt using AES-256-GCM
-  const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, nonce);
-  decipher.setAuthTag(authTag);
+    // Extract nonce, ciphertext and auth tag
+    const nonce = nonceCiphertextTag.subarray(0, 12);
+    const authTag = nonceCiphertextTag.subarray(nonceCiphertextTag.length - 16);
+    const ciphertext = nonceCiphertextTag.subarray(12, nonceCiphertextTag.length - 16);
 
-  let decrypted = decipher.update(ciphertext, null, 'utf8');
-  decrypted += decipher.final('utf8');
+    // Decrypt using AES-256-GCM
+    const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, nonce);
+    decipher.setAuthTag(authTag);
 
-  // The decrypted content is base64 encoded JSON
-  const jsonString = Buffer.from(decrypted, 'base64').toString('utf8');
+    let decrypted = decipher.update(ciphertext, null, 'utf8');
+    decrypted += decipher.final('utf8');
 
-  return jsonString;
+    // The decrypted content is base64 encoded JSON
+    const jsonString = Buffer.from(decrypted, 'base64').toString('utf8');
+
+    return jsonString;
+  } catch (error) {
+    log.error(`Error decrypting ${appName}`);
+    throw error;
+  }
 }
 
 /**
