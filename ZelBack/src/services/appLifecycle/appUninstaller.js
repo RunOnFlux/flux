@@ -554,7 +554,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       throw new Error('No App specified');
     }
 
-    const isComponent = app.includes('_');
+    let isComponent = app.includes('_');
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
 
