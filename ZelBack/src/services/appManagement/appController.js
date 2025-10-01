@@ -6,7 +6,6 @@ const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('./appInspector');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
-const { getContainerStorage } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 
 /**
@@ -40,81 +39,6 @@ async function appLocation(appname) {
   };
   const results = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
   return results;
-}
-
-// Global monitoring object to store app monitoring data
-const appsMonitored = {};
-
-/**
- * Starts app monitoring for a single app and saves monitoring data in-memory to the appsMonitored object.
- * @param {string} appName monitored component name
- */
-function startAppMonitoring(appName) {
-  if (!appName) {
-    throw new Error('No App specified');
-  } else {
-    log.info('Initialize Monitoring...');
-    appsMonitored[appName] = {}; // Initialize the app's monitoring object
-    if (!appsMonitored[appName].statsStore) {
-      appsMonitored[appName].statsStore = [];
-    }
-    if (!appsMonitored[appName].lastHourstatsStore) {
-      appsMonitored[appName].lastHourstatsStore = [];
-    }
-    // Clear previous interval for this app to prevent multiple intervals
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
-    appsMonitored[appName].run = 0;
-    appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
-      try {
-        if (!appsMonitored[appName]) {
-          log.error(`Monitoring of ${appName} already stopped`);
-          return;
-        }
-        const dockerContainer = await dockerService.getDockerContainerOnly(appName);
-        if (!dockerContainer) {
-          log.error(`Monitoring of ${appName} not possible. App does not exist. Forcing stopping of monitoring`);
-          stopAppMonitoring(appName, true);
-          return;
-        }
-        appsMonitored[appName].run += 1;
-        const statsNow = await dockerService.dockerContainerStats(appName);
-        const containerStorageInfo = await getContainerStorage(appName);
-        statsNow.disk_stats = containerStorageInfo;
-        const now = Date.now();
-        if (appsMonitored[appName].run % 3 === 0) {
-          const inspect = await dockerService.dockerContainerInspect(appName);
-          statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
-          appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
-          const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
-          const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
-          log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
-          appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
-            (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
-          );
-        }
-        appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
-        appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
-          (stat) => now - stat.timestamp <= 60 * 60 * 1000,
-        );
-      } catch (error) {
-        log.error(error);
-      }
-    }, 1 * 60 * 1000);
-  }
-}
-
-/**
- * Stop app monitoring
- * @param {string} appName - Application name
- * @param {boolean} deleteData - Whether to delete monitoring data
- */
-function stopAppMonitoring(appName, deleteData) {
-  if (appsMonitored[appName]) {
-    clearInterval(appsMonitored[appName].oneMinuteInterval);
-  }
-  if (deleteData) {
-    delete appsMonitored[appName];
-  }
 }
 
 /**
@@ -205,7 +129,7 @@ async function appStart(req, res) {
 
     if (isComponent) {
       appRes = await dockerService.appDockerStart(appname);
-      startAppMonitoring(appname);
+      appInspector.startAppMonitoring(appname);
     } else {
       // Check if app exists before starting
       const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
@@ -215,12 +139,12 @@ async function appStart(req, res) {
 
       if (appSpecs.version <= 3) {
         appRes = await dockerService.appDockerStart(appname);
-        startAppMonitoring(appname);
+        appInspector.startAppMonitoring(appname);
       } else {
         // For composed applications (version > 3), start all components
         for (const appComponent of appSpecs.compose) {
           await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
-          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+          appInspector.startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} started`;
       }
@@ -277,7 +201,7 @@ async function appStop(req, res) {
     let appRes;
 
     if (isComponent) {
-      stopAppMonitoring(appname, false);
+      appInspector.stopAppMonitoring(appname, false);
       appRes = await dockerService.appDockerStop(appname);
     } else {
       // Check if app exists before stopping
@@ -287,12 +211,12 @@ async function appStop(req, res) {
       }
 
       if (appSpecs.version <= 3) {
-        stopAppMonitoring(appname, false);
+        appInspector.stopAppMonitoring(appname, false);
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // For composed applications (version > 3), stop all components in reverse order
         for (const appComponent of appSpecs.compose.reverse()) {
-          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
+          appInspector.stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} stopped`;

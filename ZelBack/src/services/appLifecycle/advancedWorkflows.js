@@ -494,6 +494,11 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(cleaningRemoval));
       if (res.flush) res.flush();
     }
+    // Unmount the volume if it's mounted
+    const execUnmount = `sudo umount ${appsFolder + appId}`;
+    await cmdAsync(execUnmount).catch((e) => {
+      log.warn('Volume not mounted or already unmounted during cleanup');
+    });
     let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${appId}FLUXFSVOL`;
     if (useThisVolume.mount === '/') {
       execRemoveAlloc = `sudo rm -rf ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;

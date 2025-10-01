@@ -417,6 +417,11 @@ function startAppMonitoring(appName, appsMonitored) {
     appsMonitored = appsService.getAppsMonitored();
   }
 
+  // Safety check: if appsMonitored is still undefined, throw a more descriptive error
+  if (!appsMonitored) {
+    throw new Error('Failed to initialize app monitoring: appsMonitored object is undefined');
+  }
+
   log.info('Initialize Monitoring...');
   appsMonitored[appName] = {}; // Initialize the app's monitoring object
   if (!appsMonitored[appName].statsStore) {
@@ -478,6 +483,12 @@ function stopAppMonitoring(appName, deleteData, appsMonitored) {
   if (!appsMonitored) {
     const appsService = require('../appsService');
     appsMonitored = appsService.getAppsMonitored();
+  }
+
+  // Safety check: if appsMonitored is still undefined, log warning and return early
+  if (!appsMonitored) {
+    log.warn(`Cannot stop monitoring for ${appName}: appsMonitored object is undefined`);
+    return;
   }
 
   if (appsMonitored[appName]) {
