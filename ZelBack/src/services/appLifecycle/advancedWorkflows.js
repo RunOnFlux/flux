@@ -1041,8 +1041,8 @@ async function softRedeploy(appSpecs, res) {
  * @param {object} res - Response object
  */
 async function hardRedeploy(appSpecs, res) {
+  const appUninstaller = require('./appUninstaller');
   try {
-    const appUninstaller = require('./appUninstaller');
     await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
     const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
@@ -1060,7 +1060,6 @@ async function hardRedeploy(appSpecs, res) {
     log.info('Application redeployed');
   } catch (error) {
     log.error(error);
-    const appUninstaller = require('./appUninstaller');
     appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
   }
 }
