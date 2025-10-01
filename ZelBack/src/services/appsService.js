@@ -1872,7 +1872,7 @@ module.exports = {
 
   // Re-exported from appUninstaller
   appUninstallHard: async (appName, appId, appSpecs, isComponent, res) =>
-    appUninstaller.appUninstallHard(appName, appId, appSpecs, isComponent, res, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored)),
+    appUninstaller.appUninstallHard(appName, appId, appSpecs, isComponent, res, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored), receiveOnlySyncthingAppsCache),
   appUninstallSoft: async (appName, appId, appSpecs, isComponent, res) =>
     appUninstaller.appUninstallSoft(appName, appId, appSpecs, isComponent, res, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored)),
   removeAppLocally: async (app, res, force, endResponse, sendMessage) =>

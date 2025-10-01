@@ -1228,14 +1228,14 @@ async function sendChunk(res, chunk) {
  * @param {string} appComponentName - App component name
  * @param {object} res - Response object
  * @param {boolean} isBackRestore - Whether this is for backup/restore
+ * @param {Map} receiveOnlySyncthingAppsCache - Optional cache from appsService
  * @returns {Promise<void>}
  */
-async function stopSyncthingApp(appComponentName, res, isBackRestore) {
+async function stopSyncthingApp(appComponentName, res, isBackRestore, receiveOnlySyncthingAppsCache) {
   try {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
-    const { receiveOnlySyncthingAppsCache } = require('../utils/appCaches');
-    if (!isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
+    if (receiveOnlySyncthingAppsCache && !isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
       receiveOnlySyncthingAppsCache.delete(appId);
     }
     const folder = `${appsFolder + appId}`;

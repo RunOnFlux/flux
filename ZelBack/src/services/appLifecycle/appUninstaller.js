@@ -33,9 +33,10 @@ const crontabLoad = util.promisify(systemcrontab.load);
  * @param {boolean} isComponent - Whether this is a component
  * @param {object} res - Response object for streaming
  * @param {function} stopAppMonitoring - Function to stop monitoring
+ * @param {Map} receiveOnlySyncthingAppsCache - Cache from appsService
  * @returns {Promise<object>} Uninstallation result
  */
-async function appUninstallHard(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring) {
+async function appUninstallHard(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring, receiveOnlySyncthingAppsCache) {
   const stopStatus = {
     status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
   };
@@ -73,7 +74,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   }
 
   try {
-    await advancedWorkflows.stopSyncthingApp(monitoredName, res);
+    await advancedWorkflows.stopSyncthingApp(monitoredName, res, false, receiveOnlySyncthingAppsCache);
   } catch (error) {
     log.error(`Error stopping Syncthing app: ${error.message}`);
   }
