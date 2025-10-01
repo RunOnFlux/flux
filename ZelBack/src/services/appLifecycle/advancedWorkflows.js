@@ -1838,7 +1838,7 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
  * @param {boolean} state - Installation progress state
  */
 function setInstallationInProgress(state) {
-  installationInProgress = state;
+  globalState.installationInProgress = state;
 }
 
 /**
@@ -1846,7 +1846,7 @@ function setInstallationInProgress(state) {
  * @param {boolean} state - Removal progress state
  */
 function setRemovalInProgress(state) {
-  removalInProgress = state;
+  globalState.removalInProgress = state;
 }
 
 /**
@@ -1854,7 +1854,7 @@ function setRemovalInProgress(state) {
  * @returns {boolean} Current installation state
  */
 function getInstallationInProgress() {
-  return installationInProgress;
+  return globalState.installationInProgress;
 }
 
 /**
@@ -1862,7 +1862,7 @@ function getInstallationInProgress() {
  * @returns {boolean} Current removal state
  */
 function getRemovalInProgress() {
-  return removalInProgress;
+  return globalState.removalInProgress;
 }
 
 /**
@@ -2398,6 +2398,7 @@ async function forceAppRemovals(installedApps, listAllApps, getApplicationGlobal
  * @param {Function} listRunningApps - Function to get running apps
  * @param {Map} receiveOnlySyncthingAppsCache - Cache for receive-only syncthing apps
  * @param {Array} backupInProgress - Array of apps with backup in progress
+ * @param {Array} restoreInProgress - Array of apps with restore in progress
  * @param {object} https - HTTPS module
  * @returns {Promise<void>}
  */
