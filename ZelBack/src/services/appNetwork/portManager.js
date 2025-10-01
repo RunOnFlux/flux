@@ -181,6 +181,7 @@ async function assignedPortsGlobalApps(appNames) {
  * Ensure application ports are not already in use
  * @param {object} appSpecFormatted - App specifications
  * @param {string[]} globalCheckedApps - Global apps to check against
+ * @returns {Promise<boolean>} True if ports are available
  * @throws {Error} If ports are already in use
  */
 async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps) {
@@ -221,6 +222,7 @@ async function ensureApplicationPortsNotUsed(appSpecFormatted, globalCheckedApps
 
 /**
  * Restores FluxOS firewall, UPNP rules
+ * @returns {Promise<void>}
  */
 async function restoreFluxPortsSupport() {
   try {
@@ -252,6 +254,7 @@ async function restoreFluxPortsSupport() {
 
 /**
  * Restores applications firewall, UPNP rules
+ * @returns {Promise<void>}
  */
 async function restoreAppsPortsSupport() {
   try {
@@ -299,6 +302,7 @@ async function restoreAppsPortsSupport() {
 
 /**
  * Restores FluxOS and applications firewall, UPNP rules
+ * @returns {Promise<void>}
  */
 async function restorePortsSupport() {
   try {
@@ -570,7 +574,8 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
 }
 
 /**
- * Periodically call other nodes to stablish a connection with the ports I have open on UPNP to remain OPEN
+ * Periodically call other nodes to establish a connection with the ports I have open on UPNP to remain OPEN
+ * @returns {Promise<void>}
  */
 async function callOtherNodeToKeepUpnpPortsOpen() {
   try {
