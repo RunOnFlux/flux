@@ -2218,6 +2218,7 @@ async function reinstallOldApplications() {
               return;
             }
             log.warn('Updating from old application version, doing hard redeploy...');
+            const appUninstaller = require('./appUninstaller');
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(appSpecifications.name, null, true, false);
             // connect to mongodb

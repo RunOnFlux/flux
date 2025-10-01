@@ -461,7 +461,7 @@ async function checkAndNotifyPeersOfRunningApps() {
           // proceed ONLY if it's a global App
           const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
           // eslint-disable-next-line no-await-in-loop
-          const appDetails = await getApplicationGlobalSpecifications(mainAppName);
+          const appDetails = await registryManager.getApplicationGlobalSpecifications(mainAppName);
           const appInstalledMasterSlave = appsInstalled.find((app) => app.name === mainAppName);
           const appInstalledSyncthing = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:'));
           const appInstalledMasterSlaveCheck = appInstalledMasterSlave.compose.find((comp) => comp.containerData.includes('g:'));
