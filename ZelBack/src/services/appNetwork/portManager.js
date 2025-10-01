@@ -555,7 +555,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
     }
     beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
       try {
-        beforeAppInstallTestingServer.shutdown((err) => {
+        beforeAppInstallTestingServer.close((err) => {
           if (err) {
             log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
           }
