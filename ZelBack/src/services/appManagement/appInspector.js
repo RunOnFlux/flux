@@ -103,6 +103,7 @@ async function appLog(req, res) {
  * Stream application logs
  * @param {object} req - Request object
  * @param {object} res - Response object
+ * @returns {Promise<void>}
  */
 async function appLogStream(req, res) {
   try {
@@ -217,6 +218,7 @@ async function appLogPolling(req, res) {
  * Inspect application container
  * @param {object} req - Request object
  * @param {object} res - Response object
+ * @returns {Promise<void>}
  */
 async function appInspect(req, res) {
   try {
@@ -253,6 +255,7 @@ async function appInspect(req, res) {
  * Get application statistics
  * @param {object} req - Request object
  * @param {object} res - Response object
+ * @returns {Promise<void>}
  */
 async function appStats(req, res) {
   try {
@@ -294,6 +297,7 @@ async function appStats(req, res) {
  * @param {object} req - Request object
  * @param {object} res - Response object
  * @param {object} appsMonitored - Apps monitoring data
+ * @returns {Promise<void>}
  */
 async function appMonitor(req, res, appsMonitored) {
   try {
@@ -351,6 +355,7 @@ async function appMonitor(req, res, appsMonitored) {
  * Stream application monitoring data
  * @param {object} req - Request object
  * @param {object} res - Response object
+ * @returns {Promise<void>}
  */
 async function appMonitorStream(req, res) {
   try {
@@ -404,7 +409,8 @@ async function getAppFolderSize(appName) {
 /**
  * Start monitoring an application
  * @param {string} appName - Application name
- * @param {object} appsMonitored - Apps monitoring data reference (optional, will get from appsService if not provided)
+ * @param {object} [appsMonitored] - Apps monitoring data reference (optional, will get from appsService if not provided)
+ * @returns {void}
  */
 function startAppMonitoring(appName, appsMonitored) {
   if (!appName) {
@@ -476,7 +482,8 @@ function startAppMonitoring(appName, appsMonitored) {
  * Stop monitoring an application
  * @param {string} appName - Application name
  * @param {boolean} deleteData - Whether to delete monitoring data
- * @param {object} appsMonitored - Apps monitoring data reference (optional, will get from appsService if not provided)
+ * @param {object} [appsMonitored] - Apps monitoring data reference (optional, will get from appsService if not provided)
+ * @returns {void}
  */
 function stopAppMonitoring(appName, deleteData, appsMonitored) {
   // Get appsMonitored from appsService if not provided (to avoid circular dependency)
@@ -503,6 +510,7 @@ function stopAppMonitoring(appName, deleteData, appsMonitored) {
  * Execute command in application container
  * @param {object} req - Request object
  * @param {object} res - Response object
+ * @returns {Promise<void>}
  */
 async function appExec(req, res) {
   let body = '';
@@ -571,6 +579,7 @@ async function appExec(req, res) {
  * Get application changes/diff
  * @param {object} req - Request object
  * @param {object} res - Response object
+ * @returns {Promise<void>}
  */
 async function appChanges(req, res) {
   try {
@@ -643,7 +652,7 @@ function getAppsDOSState(req, res) {
 /**
  * Check if applications are throttling CPU and adjust CPU limits
  * @param {object} appsMonitored - Applications monitoring data
- * @param {Function} installedApps - Function to get installed apps
+ * @param {Function} installedApps - Async function to get installed apps
  * @returns {Promise<void>}
  */
 async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
@@ -779,8 +788,8 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
 
 /**
  * Monitor shared database applications and handle uninstall signals
- * @param {Function} installedApps - Function to get installed apps
- * @param {Function} removeAppLocally - Function to remove app locally
+ * @param {Function} installedApps - Async function to get installed apps
+ * @param {Function} removeAppLocally - Async function to remove app locally
  * @param {object} globalState - Global state object with installation/removal flags
  * @returns {Promise<void>}
  */
@@ -829,9 +838,9 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
 
 /**
  * Check storage space usage of applications and enforce limits
- * @param {Function} installedApps - Function to get installed apps
- * @param {Function} removeAppLocally - Function to remove app locally
- * @param {Function} softRedeploy - Function to soft redeploy app
+ * @param {Function} installedApps - Async function to get installed apps
+ * @param {Function} removeAppLocally - Async function to remove app locally
+ * @param {Function} softRedeploy - Async function to soft redeploy app (can be null)
  * @param {Array} appsStorageViolations - Array tracking storage violations
  * @returns {Promise<void>}
  */
