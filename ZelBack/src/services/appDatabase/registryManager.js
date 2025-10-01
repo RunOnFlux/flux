@@ -1228,14 +1228,14 @@ async function reconstructAppMessagesHashCollection() {
 async function reconstructAppMessagesHashCollectionAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
-    if (!authorized) {
+    if (authorized) {
+      const result = await reconstructAppMessagesHashCollection();
+      const message = messageHelper.createSuccessMessage(result);
+      res.json(message);
+    } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
-      return res.json(errMessage);
+      res.json(errMessage);
     }
-
-    const result = await reconstructAppMessagesHashCollection();
-    const response = messageHelper.createDataMessage(result);
-    return res.json(response);
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1243,7 +1243,7 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
       error.name,
       error.code,
     );
-    return res.json(errorResponse);
+    res.json(errorResponse);
   }
 }
 
