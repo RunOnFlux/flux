@@ -417,7 +417,7 @@ async function appPause(req, res) {
         appRes = await dockerService.appDockerPause(appname);
       } else {
         // For composed applications (version > 3), pause all components
-        for (const appComponent of appSpecs.compose) {
+        for (const appComponent of appSpecs.compose.reverse()) {
           await dockerService.appDockerPause(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} paused`;
