@@ -1012,28 +1012,38 @@ async function redeployAPI(req, res) {
     force = force || req.query.force || false;
     force = serviceHelper.ensureBoolean(force);
 
-    // Verify authorization
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
       return;
     }
+    if (global) {
+      // Dynamic require to avoid circular dependency
+      const appsService = require('../appsService');
+      appsService.executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, force); // do not wait
+      const hardOrSoft = force ? 'hard' : 'soft';
+      const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
+      res.json(appResponse);
+      return;
+    }
 
-    // Perform redeploy logic
-    const redeployStatus = {
-      status: `Starting redeploy of ${appname}...`,
-    };
-    log.info(redeployStatus);
+    // Dynamic require to avoid circular dependency
+    const appsService = require('../appsService');
+    const specifications = await appsService.getApplicationSpecifications(appname);
+    if (!specifications) {
+      throw new Error('Application not found');
+    }
 
-    // This would contain the full redeploy logic including:
-    // - Stop current app
-    // - Pull latest image
-    // - Recreate containers
-    // - Start app
+    res.setHeader('Content-Type', 'application/json');
 
-    const successResponse = messageHelper.createSuccessMessage(`Application ${appname} redeploy initiated`);
-    res.json(successResponse);
+    if (force) {
+      const appDeployment = require('./appDeployment');
+      appDeployment.hardRedeploy(specifications, res);
+    } else {
+      const appDeployment = require('./appDeployment');
+      appDeployment.softRedeploy(specifications, res);
+    }
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -1051,61 +1061,85 @@ async function redeployAPI(req, res) {
  * @param {object} res - Response object
  */
 async function verifyAppUpdateParameters(req, res) {
-  try {
-    // Verify daemon is synced
-    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
-    if (!syncStatus.data.synced) {
-      throw new Error('Daemon not yet synced.');
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      const isEnterprise = Boolean(
+        appSpecification.version >= 8 && appSpecification.enterprise,
+      );
+
+      const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+
+      const appSpecFormatted = specificationFormatter(decryptedSpecs);
+
+      // Dynamic require to avoid circular dependency
+      const appRequirements = require('../appRequirements/appValidator');
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await appRequirements.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets) {
+            const appSecurity = require('../appSecurity/appSecrets');
+            // eslint-disable-next-line no-await-in-loop
+            await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+        }
+      }
+
+      // check if name is not yet registered
+      const timestamp = Date.now();
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+      if (isEnterprise) {
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
+      }
+
+      // app is valid and can be registered
+      // respond with formatted specifications
+      const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
+      res.json(respondPrice);
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
     }
+  });
+}
 
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-
-    if (!appname) {
-      throw new Error('No Application Name specified');
-    }
-
-    // Verify authorization
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
-    }
-
-    // Get current app specifications
-    const dbopen = dbHelper.databaseConnection();
-    const database = dbopen.db(config.database.appslocal.database);
-
-    const query = { name: new RegExp(`^${appname}$`, 'i') };
-    const projection = { projection: { _id: 0 } };
-
-    const currentApp = await dbHelper.findOneInDatabase(database, localAppsInformation, query, projection);
-
-    if (!currentApp) {
-      throw new Error('Flux App not found');
-    }
-
-    // Validate update parameters
-    const validationResult = {
-      status: 'success',
-      message: 'App update parameters verified',
-      data: {
-        currentVersion: currentApp.version || 1,
-        canUpdate: true,
-      },
-    };
-
-    res.json(validationResult);
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
-  }
+/**
+ * Helper function to send chunk of data to response stream with delay
+ * @param {object} res - Response object
+ * @param {string} chunk - Data chunk to send
+ * @returns {Promise<void>}
+ */
+async function sendChunk(res, chunk) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      res.write(`${chunk}\n`);
+      if (res.flush) res.flush();
+      resolve();
+    }, 3000); // Adjust the delay as needed
+  });
 }
 
 /**
@@ -1117,25 +1151,166 @@ async function verifyAppUpdateParameters(req, res) {
  */
 async function stopSyncthingApp(appComponentName, res, isBackRestore) {
   try {
-    const stopStatus = {
-      status: `Stopping Syncthing for ${appComponentName}...`,
-    };
-    log.info(stopStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(stopStatus));
-      if (res.flush) res.flush();
+    const identifier = appComponentName;
+    const appId = dockerService.getAppIdentifier(identifier);
+    const { receiveOnlySyncthingAppsCache } = require('../utils/appCaches');
+    if (!isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
+      receiveOnlySyncthingAppsCache.delete(appId);
     }
-
-    // Stop Syncthing service
-    await dockerService.appDockerStop(appComponentName);
-
-    if (isBackRestore) {
-      // Additional cleanup for backup/restore operations
-      log.info(`Syncthing stopped for backup/restore operation: ${appComponentName}`);
+    const folder = `${appsFolder + appId}`;
+    const syncthingService = require('../syncthingService');
+    const allSyncthingFolders = await syncthingService.getConfigFolders();
+    if (allSyncthingFolders.status === 'error') {
+      return;
+    }
+    let folderId = null;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const syncthingFolder of allSyncthingFolders.data) {
+      if (syncthingFolder.path === folder || syncthingFolder.path.includes(`${folder}/`)) {
+        folderId = syncthingFolder.id;
+      }
+      if (folderId) {
+        const adjustSyncthingA = {
+          status: `Stopping syncthing on folder ${syncthingFolder.path}...`,
+        };
+        // remove folder from syncthing
+        // eslint-disable-next-line no-await-in-loop
+        await syncthingService.adjustConfigFolders('delete', undefined, folderId);
+        // check if restart is needed
+        // eslint-disable-next-line no-await-in-loop
+        const restartRequired = await syncthingService.getConfigRestartRequired();
+        if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
+          log.info('Syncthing restart required, restarting...');
+          // eslint-disable-next-line no-await-in-loop
+          await syncthingService.systemRestart();
+        }
+        const adjustSyncthingB = {
+          status: 'Syncthing adjusted',
+        };
+        log.info(adjustSyncthingA);
+        if (res) {
+          res.write(serviceHelper.ensureString(adjustSyncthingA));
+          if (res.flush) res.flush();
+        }
+        if (res) {
+          res.write(serviceHelper.ensureString(adjustSyncthingB));
+          if (res.flush) res.flush();
+        }
+      }
+      folderId = null;
     }
   } catch (error) {
-    log.error(`Error stopping Syncthing app: ${error.message}`);
-    throw error;
+    log.error(error);
+  }
+}
+
+/**
+ * Helper function to start app docker containers
+ * @param {string} appname - App name
+ * @returns {Promise<void>}
+ */
+async function appDockerStart(appname) {
+  try {
+    const { startAppMonitoring } = require('../appManagement/appInspector');
+    const registryManager = require('../appDatabase/registryManager');
+
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_');
+    if (isComponent) {
+      await dockerService.appDockerStart(appname);
+      startAppMonitoring(appname);
+    } else {
+      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerStart(appname);
+        startAppMonitoring(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Helper function to stop app docker containers
+ * @param {string} appname - App name
+ * @returns {Promise<void>}
+ */
+async function appDockerStop(appname) {
+  try {
+    const registryManager = require('../appDatabase/registryManager');
+
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_');
+    if (isComponent) {
+      await dockerService.appDockerStop(appname);
+      stopAppMonitoring(appname, false);
+    } else {
+      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerStop(appname);
+        stopAppMonitoring(appname, false);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
+          stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
+ * Helper function to restart app docker containers
+ * @param {string} appname - App name
+ * @returns {Promise<void>}
+ */
+async function appDockerRestart(appname) {
+  try {
+    const { startAppMonitoring } = require('../appManagement/appInspector');
+    const registryManager = require('../appDatabase/registryManager');
+
+    const mainAppName = appname.split('_')[1] || appname;
+    const isComponent = appname.includes('_');
+    if (isComponent) {
+      await dockerService.appDockerRestart(appname);
+      startAppMonitoring(appname);
+    } else {
+      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      if (appSpecs.version <= 3) {
+        await dockerService.appDockerRestart(appname);
+        startAppMonitoring(appname);
+      } else {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
+          startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+        }
+      }
+    }
+  } catch (error) {
+    log.error(error);
   }
 }
 
@@ -1145,81 +1320,266 @@ async function stopSyncthingApp(appComponentName, res, isBackRestore) {
  * @param {object} res - Response object
  */
 async function appendBackupTask(req, res) {
+  let appname;
+  let backup;
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-
-    if (!appname) {
-      throw new Error('No Application Name specified');
+    const processedBody = serviceHelper.ensureObject(req.body);
+    log.info(processedBody);
+    // eslint-disable-next-line prefer-destructuring
+    appname = processedBody.appname;
+    // eslint-disable-next-line prefer-destructuring
+    backup = processedBody.backup;
+    if (!appname || !backup) {
+      throw new Error('appname and backup parameters are mandatory');
     }
-
-    // Verify authorization
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
+    const indexBackup = globalState.backupInProgress.indexOf(appname);
+    if (indexBackup !== -1) {
+      throw new Error('Backup in progress...');
     }
-
-    // Add to backup queue
-    const backupTask = {
-      appname,
-      timestamp: Date.now(),
-      status: 'queued',
-    };
-
-    log.info(`Backup task added for ${appname}`);
-
-    const successResponse = messageHelper.createSuccessMessage(`Backup task added for ${appname}`);
-    res.json(successResponse);
+    const hasTrueBackup = backup.some((backupitem) => backupitem.backup);
+    if (hasTrueBackup === false) {
+      throw new Error('No backup jobs...');
+    }
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    if (authorized === true) {
+      globalState.backupInProgress.push(appname);
+      // Check if app using syncthing, stop syncthing for all component that using it
+      const registryManager = require('../appDatabase/registryManager');
+      const appDetails = await registryManager.getApplicationGlobalSpecifications(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      if (syncthing) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await stopSyncthingApp(appname, res, true);
+      }
+
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+      await serviceHelper.delay(5 * 1000);
+      const IOUtils = require('../IOUtils');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of backup) {
+        if (component.backup) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          const existStatus = await IOUtils.checkFileExists(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+          if (existStatus === true) {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing exists backup archive for ${component.component.toLowerCase()}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Creating backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.createTarGz(targetPath, tarGzPath);
+          if (tarStatus.status === false) {
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(`${componentPath[0].mount}/backup/local/backup_${component.component.toLowerCase()}.tar.gz`);
+            throw new Error(`Error: Failed to create backup archive for ${component.component.toLowerCase()}, ${tarStatus.error}`);
+          }
+        }
+      }
+      await serviceHelper.delay(5 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      if (!syncthing) {
+        await appDockerStart(appname);
+      } else {
+        const componentsWithoutGSyncthing = appDetails.compose.filter((comp) => !comp.containerData.includes('g:'));
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of componentsWithoutGSyncthing) {
+          // eslint-disable-next-line no-await-in-loop
+          await appDockerStart(`${component.name}_${appname}`);
+        }
+      }
+      await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = globalState.backupInProgress.indexOf(appname);
+      globalState.backupInProgress.splice(indexToRemove, 1);
+      res.end();
+      return true;
+      // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const indexToRemove = globalState.backupInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
+      globalState.backupInProgress.splice(indexToRemove, 1);
+    }
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
   }
 }
 
 /**
- * Append restore task to queue
- * @param {object} req - Request object
- * @param {object} res - Response object
+ * Append a restore task based on the provided parameters.
+ * @async
+ * @param {object} req - Request object.
+ * @param {object} res - Response object.
+ * @returns {boolean} - True if the restore task is successfully appended, otherwise false.
+ * @throws {object} - JSON error response if an error occurs.
  */
 async function appendRestoreTask(req, res) {
+  let appname;
+  let restore;
+  let type;
   try {
-    let { appname } = req.params;
-    appname = appname || req.query.appname;
-
-    if (!appname) {
-      throw new Error('No Application Name specified');
+    const processedBody = serviceHelper.ensureObject(req.body);
+    log.info(processedBody);
+    // eslint-disable-next-line prefer-destructuring
+    appname = processedBody.appname;
+    // eslint-disable-next-line prefer-destructuring
+    restore = processedBody.restore;
+    // eslint-disable-next-line prefer-destructuring
+    type = processedBody.type;
+    if (!appname || !restore || !type) {
+      throw new Error('appname, restore and type parameters are mandatory');
     }
-
-    // Verify authorization
-    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      res.json(errMessage);
-      return;
+    const indexRestore = globalState.restoreInProgress.indexOf(appname);
+    if (indexRestore !== -1) {
+      throw new Error(`Restore for app ${appname} is running...`);
     }
-
-    // Add to restore queue
-    globalState.restoreInProgress.push(appname);
-
-    log.info(`Restore task added for ${appname}`);
-
-    const successResponse = messageHelper.createSuccessMessage(`Restore task added for ${appname}`);
-    res.json(successResponse);
+    const hasTrueRestore = restore.some((restoreitem) => restoreitem.restore);
+    if (hasTrueRestore === false) {
+      throw new Error('No restore jobs...');
+    }
   } catch (error) {
     log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    res.json(errorResponse);
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
+  }
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('appownerabove', req, appname) : true;
+    if (authorized === true) {
+      const componentItem = restore.map((restoreItem) => restoreItem);
+      globalState.restoreInProgress.push(appname);
+      const registryManager = require('../appDatabase/registryManager');
+      const appDetails = await registryManager.getApplicationGlobalSpecifications(appname);
+      // eslint-disable-next-line no-restricted-syntax
+      const syncthing = appDetails.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
+      if (syncthing) {
+        // eslint-disable-next-line no-await-in-loop
+        await sendChunk(res, `Stopping syncthing for ${appname}\n`);
+        // eslint-disable-next-line no-await-in-loop
+        await stopSyncthingApp(appname, res, true);
+      }
+      await sendChunk(res, 'Stopping application...\n');
+      await appDockerStop(appname);
+      await serviceHelper.delay(5 * 1000);
+      const IOUtils = require('../IOUtils');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentVolumeInfo = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const appDataPath = `${componentVolumeInfo[0].mount}/appdata`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Removing ${component.component} component data...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2 * 1000);
+          // eslint-disable-next-line no-await-in-loop
+          await IOUtils.removeDirectory(appDataPath, true);
+        }
+      }
+
+      if (type === 'remote') {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const restoreItem of componentItem) {
+          if (restoreItem?.url !== '') {
+            // eslint-disable-next-line no-await-in-loop
+            const componentPath = await IOUtils.getVolumeInfo(appname, restoreItem.component, 'B', 0, 'mount');
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeDirectory(`${componentPath[0].mount}/backup/remote`, true);
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Downloading ${restoreItem.url}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            const downloadStatus = await IOUtils.downloadFileFromUrl(restoreItem.url, `${componentPath[0].mount}/backup/remote`, restoreItem.component, true);
+            if (downloadStatus !== true) {
+              throw new Error(`Error: Failed to download ${restoreItem.url}...`);
+            }
+          }
+        }
+      }
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of restore) {
+        if (component.restore) {
+          // eslint-disable-next-line no-await-in-loop
+          const componentPath = await IOUtils.getVolumeInfo(appname, component.component, 'B', 0, 'mount');
+          const targetPath = `${componentPath[0].mount}/appdata`;
+          const tarGzPath = `${componentPath[0].mount}/backup/${type}/backup_${component.component.toLowerCase()}.tar.gz`;
+          // eslint-disable-next-line no-await-in-loop
+          await sendChunk(res, `Unpacking backup archive for ${component.component.toLowerCase()}...\n`);
+          // eslint-disable-next-line no-await-in-loop
+          const tarStatus = await IOUtils.untarFile(targetPath, tarGzPath);
+          if (tarStatus.status === false) {
+            throw new Error(`Error: Failed to unpack archive file for ${component.component.toLowerCase()}, ${tarStatus.error}`);
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            await sendChunk(res, `Removing backup file for ${component.component.toLowerCase()}...\n`);
+            // eslint-disable-next-line no-await-in-loop
+            await IOUtils.removeFile(tarGzPath);
+          }
+          const syncthingAux = appDetails.compose.find((comp) => comp.name === component.component && (comp.containerData.includes('g:') || comp.containerData.includes('r:')));
+          if (syncthingAux) {
+            const identifier = `${component.component}_${appname}`;
+            const appId = dockerService.getAppIdentifier(identifier);
+            const { receiveOnlySyncthingAppsCache } = require('../utils/appCaches');
+            const cache = {
+              restarted: true,
+              numberOfExecutionsRequired: 4,
+              numberOfExecutions: 10,
+            };
+            receiveOnlySyncthingAppsCache.set(appId, cache);
+          }
+        }
+      }
+      await serviceHelper.delay(1 * 5 * 1000);
+      await sendChunk(res, 'Starting application...\n');
+      await appDockerStart(appname);
+      if (syncthing) {
+        await sendChunk(res, 'Redeploying other instances...\n');
+        const appController = require('../appManagement/appController');
+        appController.executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
+        await serviceHelper.delay(1 * 60 * 1000);
+      }
+      await sendChunk(res, 'Finalizing...\n');
+      await serviceHelper.delay(5 * 1000);
+      const indexToRemove = globalState.restoreInProgress.indexOf(appname);
+      globalState.restoreInProgress.splice(indexToRemove, 1);
+      res.end();
+      return true;
+      // eslint-disable-next-line no-else-return
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const indexToRemove = globalState.restoreInProgress.indexOf(appname);
+    if (indexToRemove >= 0) {
+      globalState.restoreInProgress.splice(indexToRemove, 1);
+    }
+    await sendChunk(res, `${error?.message}\n`);
+    res.end();
+    return false;
   }
 }
 
@@ -1492,35 +1852,34 @@ async function updateAppGlobalyApi(req, res) {
         res.json(errMessage);
         return;
       }
-
-      // TODO: Add peer count checks
-      // if (outgoingPeers.length < config.fluxapps.minOutgoing) {
-      //   throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
-      // }
-
+      // Dynamic require to avoid circular dependency
+      const { outgoingPeers, incomingPeers } = require('../utils/establishedConnections');
+      // first check if this node is available for application update
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
+      }
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
+      }
       const processedBody = serviceHelper.ensureObject(body);
+      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+      // name and ports HAVE to be unique for application. Check if they don't exist in global database
+      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
       let { appSpecification, timestamp, signature } = processedBody;
-      let messageType = processedBody.type;
-      let typeVersion = processedBody.version;
-
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
       if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
         throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
       }
-
       if (messageType !== 'zelappupdate' && messageType !== 'fluxappupdate') {
         throw new Error('Invalid type of message');
       }
-
       if (typeVersion !== 1) {
         throw new Error('Invalid version of message');
       }
-
       appSpecification = serviceHelper.ensureObject(appSpecification);
       timestamp = serviceHelper.ensureNumber(timestamp);
-      // Don't use ensureString on signature - it needs to be a valid base64 string
-      if (typeof signature !== 'string') {
-        throw new Error('Invalid signature - must be a string');
-      }
+      signature = serviceHelper.ensureString(signature);
       messageType = serviceHelper.ensureString(messageType);
       typeVersion = serviceHelper.ensureNumber(typeVersion);
 
@@ -1535,20 +1894,113 @@ async function updateAppGlobalyApi(req, res) {
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
       }
+      const daemonHeight = syncStatus.data.height;
 
-      // Format the app specification
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      const appSpecDecrypted = await checkAndDecryptAppSpecs(
+        appSpecification,
+        {
+          daemonHeight,
+        },
+      );
 
-      // TODO: Add complete validation logic from original function
-      // This is a simplified version - full implementation would include:
-      // - Signature verification
-      // - App existence checks
-      // - Update validation
-      // - Broadcast logic
+      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
-      const successMessage = messageHelper.createDataMessage(appSpecFormatted);
-      res.json(successMessage);
+      // Dynamic require to avoid circular dependency
+      const appRequirements = require('../appRequirements/appValidator');
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await appRequirements.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets) {
+            const appSecurity = require('../appSecurity/appSecrets');
+            // eslint-disable-next-line no-await-in-loop
+            await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+        }
+      }
+
+      // verify that app exists, does not change repotag and is signed by app owner.
+      const db = dbHelper.databaseConnection();
+      const database = db.db(config.database.appsglobal.database);
+      // may throw
+      const query = { name: appSpecFormatted.name };
+      const projection = {
+        projection: {
+          _id: 0,
+        },
+      };
+      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      if (!appInfo) {
+        throw new Error('Flux App update received but application to update does not exist!');
+      }
+      if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
+        throw new Error('Flux App update of repotag is not allowed');
+      }
+      const appOwner = appInfo.owner; // ensure previous app owner is signing this message
+
+      const isEnterprise = Boolean(
+        appSpecification.version >= 8 && appSpecification.enterprise,
+      );
+
+      const toVerify = isEnterprise
+        ? specificationFormatter(appSpecification)
+        : appSpecFormatted;
+
+      const appMessaging = require('../appMessaging/appMessageVerification');
+      const { isArcane } = require('../utils/arcaneHelper');
+      // here signature is checked against PREVIOUS app owner
+      await appMessaging.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
+
+      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
+      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+      if (isEnterprise) {
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
+      }
+
+      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
+      // We respond with a hash that is supposed to go to transaction.
+      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
+      const messageHASH = await generalService.messageHash(message);
+
+      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      const temporaryAppMessage = { // specification of temp message
+        type: messageType,
+        version: typeVersion,
+        appSpecifications: appSpecFormatted,
+        hash: messageHASH,
+        timestamp,
+        signature,
+        arcaneSender: isArcane,
+      };
+      const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+      const appMessagingManagement = require('../appMessaging/appMessageManagement');
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await appMessagingManagement.requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+      // check temporary message storage
+      let tempMessage = await appMessagingManagement.checkAppTemporaryMessageExistence(messageHASH);
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await appMessagingManagement.checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
+        res.json(responseHash); // all ok
+        return;
+      }
+      throw new Error('Unable to update application on the network. Try again later.');
     } catch (error) {
       log.warn(error);
       const errorResponse = messageHelper.createErrorMessage(
@@ -1612,107 +2064,180 @@ async function checkAndRemoveApplicationInstance() {
  */
 async function reinstallOldApplications() {
   try {
-    // Check if synced first
     const synced = await generalService.checkSynced();
     if (synced !== true) {
       log.info('Checking application status paused. Not yet synced');
       return;
     }
-
-    // Get locally installed apps from database
+    // first get installed apps
     const installedAppsRes = await getInstalledAppsFromDb();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
     const appsInstalled = installedAppsRes.data;
-
+    globalState.reinstallationOfOldAppsInProgress = true;
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
-      try {
-        // get current app specifications for the app name
+      // get current app specifications for the app name
+      // if match found. Check if hash found.
+      // if same, do nothing. if different remove and install.
+
+      // eslint-disable-next-line no-await-in-loop
+      const appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+      const randomNumber = Math.floor((Math.random() * config.fluxapps.redeploy.probability)); // 50%
+      if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
         // eslint-disable-next-line no-await-in-loop
-        const appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
-        const randomNumber = Math.floor((Math.random() * config.fluxapps.redeploy.probability)); // probability based redeploy
+        log.warn(`Application ${installedApp.name} version is obsolete.`);
+        if (randomNumber === 0) {
+          // check if the app spec was changed
+          const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
+          const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
+          delete auxAppSpecifications.description;
+          delete auxAppSpecifications.expire;
+          delete auxAppSpecifications.hash;
+          delete auxAppSpecifications.height;
+          delete auxAppSpecifications.instances;
+          delete auxAppSpecifications.owner;
 
-        if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
-          log.warn(`Application ${installedApp.name} version is obsolete.`);
+          delete auxInstalledApp.description;
+          delete auxInstalledApp.expire;
+          delete auxInstalledApp.hash;
+          delete auxInstalledApp.height;
+          delete auxInstalledApp.instances;
+          delete auxInstalledApp.owner;
 
-          if (randomNumber === 0) {
-            // check if the app spec was changed
-            const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
-            const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
-            delete auxAppSpecifications.description;
-            delete auxAppSpecifications.expire;
-            delete auxAppSpecifications.hash;
-            delete auxAppSpecifications.height;
-            delete auxAppSpecifications.instances;
-            delete auxAppSpecifications.owner;
+          if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
+            log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
+            // connect to mongodb
+            const dbopen = dbHelper.databaseConnection();
+            const appsDatabase = dbopen.db(config.database.appslocal.database);
+            const appsQuery = { name: appSpecifications.name };
+            const options = {
+              upsert: true,
+            };
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appSpecifications, options);
+            log.info(`Application ${installedApp.name} Database updated`);
+            // eslint-disable-next-line no-continue
+            continue;
+          }
 
-            delete auxInstalledApp.description;
-            delete auxInstalledApp.expire;
-            delete auxInstalledApp.hash;
-            delete auxInstalledApp.height;
-            delete auxInstalledApp.instances;
-            delete auxInstalledApp.owner;
-
-            if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
-              log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
-              // connect to mongodb
-              const dbopen = dbHelper.databaseConnection();
-              const appsDatabase = dbopen.db(config.database.appslocal.database);
-              const appsQuery = { name: appSpecifications.name };
-              const options = {
-                upsert: true,
-              };
-              // eslint-disable-next-line no-await-in-loop
-              await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
-            } else {
-              // Full reinstall logic for applications with new specifications
-              log.info(`Application ${installedApp.name} needs to be reinstalled with new specifications`);
-
-              try {
-                // First, remove the application locally (preserves data if configured)
-                log.info(`Removing old version of ${installedApp.name}`);
-                await removeAppLocally(installedApp.name, null, true); // true = preserve data
-
-                // Wait for cleanup to complete
-                await serviceHelper.delay(2000);
-
-                // Install the new version with updated specifications
-                log.info(`Installing new version of ${installedApp.name}`);
-                const installResult = await installApplication(appSpecifications);
-
-                if (installResult && installResult.status === 'success') {
-                  log.info(`Successfully reinstalled ${installedApp.name} with new specifications`);
-
-                  // Update local database
-                  const dbopen = dbHelper.databaseConnection();
-                  const appsDatabase = dbopen.db(config.database.appslocal.database);
-                  const appsQuery = { name: appSpecifications.name };
-                  const options = { upsert: true };
-                  await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
-                } else {
-                  log.error(`Failed to reinstall ${installedApp.name}:`, installResult?.data || 'Unknown error');
-                }
-              } catch (reinstallError) {
-                log.error(`Error during reinstall of ${installedApp.name}:`, reinstallError);
-                // Attempt to restore original app if reinstall fails
-                try {
-                  log.info(`Attempting to restore original version of ${installedApp.name}`);
-                  await installApplication(installedApp);
-                } catch (restoreError) {
-                  log.error(`Failed to restore original ${installedApp.name}:`, restoreError);
-                }
-              }
+          // check if node is capable to run it according to specifications
+          // run the verification
+          // get tier and adjust specifications
+          // eslint-disable-next-line no-await-in-loop
+          const tier = await generalService.nodeTier();
+          if (appSpecifications.version >= 4 && installedApp.version <= 3) {
+            if (globalState.removalInProgress) {
+              log.warn('Another application is undergoing removal');
+              return;
             }
+            if (globalState.installationInProgress) {
+              log.warn('Another application is undergoing installation');
+              return;
+            }
+            log.warn('Updating from old application version, doing hard redeploy...');
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstaller.removeAppLocally(appSpecifications.name, null, true, false);
+            // connect to mongodb
+            const dbopen = dbHelper.databaseConnection();
+            const appsDatabase = dbopen.db(config.database.appslocal.database);
+            const appsQuery = { name: appSpecifications.name };
+            const appsProjection = {};
+            log.warn('Cleaning up database...');
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+            const databaseStatus2 = {
+              status: 'Database cleaned',
+            };
+            log.warn('Database cleaned');
+            log.warn(databaseStatus2);
+            log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
+            // composition removal done. Remove from installed apps and being installation
+            // eslint-disable-next-line no-await-in-loop
+            await appInstaller.checkAppRequirements(appSpecifications); // entire app
+            // eslint-disable-next-line no-restricted-syntax
+            for (const appComponent of appSpecifications.compose) {
+              log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+              // install the app
+              // eslint-disable-next-line no-await-in-loop
+              await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+            }
+            // register the app
+
+            const isEnterprise = Boolean(
+              appSpecifications.version >= 8 && appSpecifications.enterprise,
+            );
+
+            const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+            if (isEnterprise) {
+              dbSpecs.compose = [];
+              dbSpecs.contacts = [];
+            }
+
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+            log.warn(`Composed application ${appSpecifications.name} updated.`);
+            log.warn(`Restarting application ${appSpecifications.name}`);
+            // eslint-disable-next-line no-await-in-loop, no-use-before-define
+            await appDockerRestart(appSpecifications.name);
+          } else if (appSpecifications.version <= 3) {
+            if (appSpecifications.tiered) {
+              const hddTier = `hdd${tier}`;
+              const ramTier = `ram${tier}`;
+              const cpuTier = `cpu${tier}`;
+              appSpecifications.cpu = appSpecifications[cpuTier] || appSpecifications.cpu;
+              appSpecifications.ram = appSpecifications[ramTier] || appSpecifications.ram;
+              appSpecifications.hdd = appSpecifications[hddTier] || appSpecifications.hdd;
+            }
+
+            if (globalState.removalInProgress) {
+              log.warn('Another application is undergoing removal');
+              return;
+            }
+            if (globalState.installationInProgress) {
+              log.warn('Another application is undergoing installation');
+              return;
+            }
+
+            if (appSpecifications.hdd === installedApp.hdd) {
+              log.warn(`Beginning Soft Redeployment of ${appSpecifications.name}...`);
+              // soft redeployment
+              // eslint-disable-next-line no-await-in-loop
+              const appDeployment = require('./appDeployment');
+              await appDeployment.softRedeploy(appSpecifications);
+            } else {
+              log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
+              // hard redeployment
+              // eslint-disable-next-line no-await-in-loop
+              const appDeployment = require('./appDeployment');
+              await appDeployment.hardRedeploy(appSpecifications);
+            }
+          } else {
+            // composed application
+            log.warn(`Beginning Redeployment of ${appSpecifications.name}...`);
+            if (globalState.removalInProgress) {
+              log.warn('Another application is undergoing removal');
+              return;
+            }
+            if (globalState.installationInProgress) {
+              log.warn('Another application is undergoing installation');
+              return;
+            }
+            const appDeployment = require('./appDeployment');
+            // eslint-disable-next-line no-await-in-loop
+            await appDeployment.redeploy(appSpecifications, installedApp, tier);
           }
         }
-      } catch (error) {
-        log.error(`Error checking app version for ${installedApp.name}:`, error);
       }
     }
+    globalState.reinstallationOfOldAppsInProgress = false;
   } catch (error) {
-    log.error('Error reinstalling old applications:', error);
+    globalState.reinstallationOfOldAppsInProgress = false;
+    log.error(error);
   }
 }
 
@@ -1884,6 +2409,30 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
             if (fdmUSAData && fdmUSAData.length > 0) {
               // eslint-disable-next-line no-restricted-syntax
               for (const fdmData of fdmUSAData) {
+                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
+                if (serviceName) {
+                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
+                  if (ipElement) {
+                    ip = ipElement.value.value;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+        if (!ip) {
+          fdmOk = true;
+          // eslint-disable-next-line no-await-in-loop
+          let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
+            log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
+            fdmOk = false;
+          });
+          if (fdmOk) {
+            fdmASIAData = fdmASIAData.data;
+            if (fdmASIAData && fdmASIAData.length > 0) {
+              // eslint-disable-next-line no-restricted-syntax
+              for (const fdmData of fdmASIAData) {
                 const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
                 if (serviceName) {
                   const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
