@@ -9,7 +9,7 @@ const { appPricePerMonth } = require('./appUtilities');
 const { specificationFormatter } = require('./appUtilities');
 const { getChainParamsPriceUpdates } = require('./chainUtilities');
 const registryManager = require('../appDatabase/registryManager');
-const cacheManager = require('./cacheManager');
+const cacheManager = require('./cacheManager').default;
 const hwRequirements = require('../appRequirements/hwRequirements');
 const log = require('../../lib/log');
 
