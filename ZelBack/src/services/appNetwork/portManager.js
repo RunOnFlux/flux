@@ -534,13 +534,17 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`);
       }
     }
-    beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
-      beforeAppInstallTestingServer.close((err) => {
-        if (err) {
-          log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
-        }
-      });
-    });
+    // Close all test servers and wait for them to finish
+    await Promise.all(
+      beforeAppInstallTestingServers.map((server) => new Promise((resolve) => {
+        server.close((err) => {
+          if (err) {
+            log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
+          }
+          resolve();
+        });
+      })),
+    );
     return portsStatus;
   } catch (error) {
     let firewallActive = true;
@@ -557,17 +561,22 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
         await upnpService.removeMapUpnpPort(portToTest, `Flux_Prelaunch_App_${portToTest}`).catch((e) => log.error(e));
       }
     }
-    beforeAppInstallTestingServers.forEach((beforeAppInstallTestingServer) => {
-      try {
-        beforeAppInstallTestingServer.close((err) => {
-          if (err) {
-            log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
-          }
-        });
-      } catch (e) {
-        log.warn(e);
-      }
-    });
+    // Close all test servers and wait for them to finish
+    await Promise.all(
+      beforeAppInstallTestingServers.map((server) => new Promise((resolve) => {
+        try {
+          server.close((err) => {
+            if (err) {
+              log.error(`beforeAppInstallTestingServer Shutdown failed: ${err.message}`);
+            }
+            resolve();
+          });
+        } catch (e) {
+          log.warn(e);
+          resolve();
+        }
+      })),
+    );
     log.error(error);
     return false;
   }
