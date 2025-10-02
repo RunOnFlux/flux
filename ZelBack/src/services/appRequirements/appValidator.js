@@ -9,14 +9,14 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const imageManager = require('../appSecurity/imageManager');
+const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
 const { supportedArchitectures } = require('../utils/appConstants');
-const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { specificationFormatter } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const portManager = require('../appNetwork/portManager');
 const {
   outgoingPeers, incomingPeers,
 } = require('../utils/establishedConnections');
-const dbHelper = require('../dbHelper');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1256,10 +1256,6 @@ async function verifyAppRegistrationParameters(req, res) {
     try {
       const appSpecification = serviceHelper.ensureObject(body);
 
-      if (!appSpecification) {
-        throw new Error('Invalid application specification provided.');
-      }
-
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
@@ -1281,23 +1277,29 @@ async function verifyAppRegistrationParameters(req, res) {
 
       const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
-      // Validate the application specifications
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      // Check if application name conflicts with existing apps
-      await validateApplicationNameConflict(appSpecFormatted.name);
-
-      // Validate enterprise secrets if needed
-      if (isEnterprise && appSpecFormatted.enterprise) {
-        await validateEnterpriseSecrets(appSpecFormatted);
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets) {
+            // eslint-disable-next-line no-await-in-loop
+            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+        }
       }
+
+      // check if name is not yet registered
+      await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
         appSpecFormatted.compose = [];
       }
 
-      // App is valid and can be registered
+      // app is valid and can be registered
+      // respond with formatted specifications
       const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
       res.json(respondPrice);
     } catch (error) {
@@ -1325,7 +1327,9 @@ async function verifyAppUpdateParameters(req, res) {
   });
   req.on('end', async () => {
     try {
-      const appSpecification = serviceHelper.ensureObject(body);
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+      appSpecification = serviceHelper.ensureObject(appSpecification);
 
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
@@ -1333,25 +1337,38 @@ async function verifyAppUpdateParameters(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
 
-      // For app updates, we need to verify the app exists and validate the update
-      const appSpecDecrypted = appSpecification;
-      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+      const isEnterprise = Boolean(
+        appSpecification.version >= 8 && appSpecification.enterprise,
+      );
 
-      // Validate the updated application specifications
+      const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+
+      const appSpecFormatted = specificationFormatter(decryptedSpecs);
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
 
-      // Validate update permissions and app existence
-      await validateAppUpdatePermissions(appSpecFormatted);
-
-      // Check peer counts for safe update
-      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
-        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets) {
+            // eslint-disable-next-line no-await-in-loop
+            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+        }
       }
-      if (incomingPeers.length < config.fluxapps.minIncoming) {
-        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
+
+      // check if name is not yet registered
+      const timestamp = Date.now();
+      await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+
+      if (isEnterprise) {
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
       }
 
-      // App update is valid
+      // app is valid and can be registered
+      // respond with formatted specifications
       const respondPrice = messageHelper.createDataMessage(appSpecFormatted);
       res.json(respondPrice);
     } catch (error) {
@@ -1529,117 +1546,6 @@ async function registerAppGlobalyApi(req, res) {
   });
 }
 
-/**
- * Validate application name conflicts with existing apps
- * @param {string} appName - Application name to validate
- * @returns {Promise<void>}
- * @throws {Error} If name conflicts exist
- */
-async function validateApplicationNameConflict(appName) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
-
-  const projection = {
-    projection: {
-      _id: 0,
-      'appSpecifications.name': 1,
-    },
-  };
-
-  // Check for existing app with same name
-  const existingApp = await dbHelper.findInDatabase(
-    database,
-    globalAppsMessages,
-    { 'appSpecifications.name': appName },
-    projection
-  );
-
-  if (existingApp.length > 0) {
-    throw new Error(`Application name '${appName}' already exists`);
-  }
-
-  // Check for reserved names
-  const reservedNames = ['flux', 'zel', 'zelcash', 'admin', 'api', 'www', 'mail', 'ftp'];
-  if (reservedNames.includes(appName.toLowerCase())) {
-    throw new Error(`Application name '${appName}' is reserved`);
-  }
-
-  // Validate name format
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9-_]*[a-zA-Z0-9]$/.test(appName) || appName.length < 2 || appName.length > 32) {
-    throw new Error('Invalid application name format. Must be 2-32 characters, alphanumeric with hyphens/underscores, cannot start/end with special characters');
-  }
-}
-
-/**
- * Validate enterprise application secrets
- * @param {object} appSpec - Application specification
- * @returns {Promise<void>}
- * @throws {Error} If enterprise validation fails
- */
-async function validateEnterpriseSecrets(appSpec) {
-  if (!appSpec.enterprise) {
-    throw new Error('Enterprise field is required for enterprise applications');
-  }
-
-  // Validate that enterprise field is properly encrypted
-  if (typeof appSpec.enterprise !== 'string' || appSpec.enterprise.length < 100) {
-    throw new Error('Invalid enterprise field format');
-  }
-
-  // Additional enterprise validation can be added here
-  log.info(`Enterprise application '${appSpec.name}' secrets validated`);
-}
-
-/**
- * Validate application update permissions and existence
- * @param {object} appSpec - Application specification for update
- * @returns {Promise<void>}
- * @throws {Error} If update validation fails
- */
-async function validateAppUpdatePermissions(appSpec) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-  const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
-
-  const projection = {
-    projection: {
-      _id: 0,
-      owner: 1,
-      'appSpecifications.version': 1,
-      'appSpecifications.owner': 1,
-    },
-  };
-
-  // Find existing app
-  const existingApp = await dbHelper.findInDatabase(
-    database,
-    globalAppsMessages,
-    { 'appSpecifications.name': appSpec.name },
-    projection
-  );
-
-  if (existingApp.length === 0) {
-    throw new Error(`Application '${appSpec.name}' does not exist and cannot be updated`);
-  }
-
-  const lastApp = existingApp[existingApp.length - 1];
-  const originalOwner = lastApp.owner || lastApp.appSpecifications.owner;
-
-  // Validate owner matches
-  if (originalOwner !== appSpec.owner) {
-    throw new Error('Only the original owner can update this application');
-  }
-
-  // Validate version increment
-  const currentVersion = lastApp.appSpecifications.version || 1;
-  if (appSpec.version <= currentVersion) {
-    throw new Error('Application version must be incremented for updates');
-  }
-
-  log.info(`Update permissions validated for application '${appSpec.name}'`);
-}
-
 module.exports = {
   verifyTypeCorrectnessOfApp,
   verifyRestrictionCorrectnessOfApp,
@@ -1650,7 +1556,4 @@ module.exports = {
   verifyAppRegistrationParameters,
   verifyAppUpdateParameters,
   registerAppGlobalyApi,
-  validateApplicationNameConflict,
-  validateEnterpriseSecrets,
-  validateAppUpdatePermissions,
 };
