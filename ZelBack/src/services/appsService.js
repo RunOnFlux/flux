@@ -1,6 +1,7 @@
 // Complete Modular Apps Service - Main Orchestrator
 const os = require('os');
 const config = require('config');
+const path = require('node:path');
 const axios = require('axios');
 const util = require('util');
 const archiver = require('archiver');
@@ -114,6 +115,8 @@ let lastUPNPMapFailed = false;
 let nextTestingPort = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 const portsNotWorking = new Set();
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+const fluxDirPath = path.join(__dirname, '../../../');
+// ToDo: Fix all the string concatenation in this file and use path.join()
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
 
