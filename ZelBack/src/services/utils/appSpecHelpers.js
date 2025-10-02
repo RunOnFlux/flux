@@ -201,6 +201,11 @@ async function getAppFiatAndFluxPrice(req, res) {
       let appSpecification = processedBody;
 
       appSpecification = serviceHelper.ensureObject(appSpecification);
+
+      if (!appSpecification) {
+        throw new Error('Invalid application specification provided.');
+      }
+
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');

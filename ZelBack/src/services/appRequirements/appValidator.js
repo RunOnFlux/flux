@@ -1256,6 +1256,10 @@ async function verifyAppRegistrationParameters(req, res) {
     try {
       const appSpecification = serviceHelper.ensureObject(body);
 
+      if (!appSpecification) {
+        throw new Error('Invalid application specification provided.');
+      }
+
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       if (!syncStatus.data.synced) {
         throw new Error('Daemon not yet synced.');
@@ -1267,7 +1271,13 @@ async function verifyAppRegistrationParameters(req, res) {
       );
 
       // Decrypt enterprise specifications if needed
-      const appSpecDecrypted = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
+      const appSpecDecrypted = await checkAndDecryptAppSpecs(
+        appSpecification,
+        {
+          daemonHeight,
+          owner: appSpecification.owner,
+        },
+      );
 
       const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
