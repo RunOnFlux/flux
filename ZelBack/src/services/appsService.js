@@ -2532,6 +2532,31 @@ async function downloadAppsFile(req, res) {
   }
 }
 
+async function getAppPublicKey(fluxID, appName, blockHeight) {
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  const inputData = JSON.stringify({
+    fluxID,
+    appName,
+    blockHeight,
+  });
+  const dataReturned = await benchmarkService.getPublicKey(inputData);
+  const { status, data } = dataReturned;
+  let publicKey = null;
+  if (status === 'success') {
+    const dataParsed = JSON.parse(data);
+    publicKey = dataParsed.status === 'ok' ? dataParsed.publicKey : null;
+    if (!publicKey) {
+      throw new Error('Error getting public key to encrypt app enterprise content from SAS.');
+    }
+  } else {
+    throw new Error('Error getting public key to encrypt app enterprise content.');
+  }
+
+  return publicKey;
+}
+
 /**
  * To get Public Key to Encrypt Enterprise Content.
  * @param {object} req Request.
