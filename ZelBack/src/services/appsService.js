@@ -2,6 +2,10 @@
 const os = require('os');
 const config = require('config');
 const axios = require('axios');
+const util = require('util');
+const archiver = require('archiver');
+const fs = require('fs').promises;
+const { PassThrough } = require('stream');
 const dbHelper = require('./dbHelper');
 const messageHelper = require('./messageHelper');
 const dockerService = require('./dockerService');
@@ -18,8 +22,13 @@ const syncthingService = require('./syncthingService');
 const upnpService = require('./upnpService');
 const networkStateService = require('./networkStateService');
 const fluxHttpTestServer = require('./utils/fluxHttpTestServer');
+const IOUtils = require('./IOUtils');
 const cmdAsync = require('util').promisify(require('child_process').exec);
+const execShell = util.promisify(require('child_process').exec);
 const log = require('../lib/log');
+const {
+  outgoingPeers, incomingPeers,
+} = require('./utils/establishedConnections');
 
 // Import all modularized components
 const appConstants = require('./utils/appConstants');
@@ -59,6 +68,9 @@ const backupInProgress = globalState.backupInProgress;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
+const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
+const globalAppsInstallingErrorsLocations = config.database.appsglobal.collections.appsInstallingErrorsLocations;
 
 // App hash verification state
 let continuousFluxAppHashesCheckRunning = false;
@@ -1760,6 +1772,811 @@ async function checkMyAppsAvailability() {
   }
 }
 
+/**
+ * To get deployment information. Returns information needed for application deployment regarding specification limitation and prices.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function deploymentInformation(req, res) {
+  try {
+    // respond with information needed for application deployment regarding specification limitation and prices
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height;
+    let deployAddr = config.fluxapps.address;
+    if (daemonHeight >= config.fluxapps.appSpecsEnforcementHeights[6]) {
+      deployAddr = config.fluxapps.addressMultisig;
+    }
+    if (daemonHeight >= config.fluxapps.multisigAddressChange) {
+      deployAddr = config.fluxapps.addressMultisigB;
+    }
+    // search in chainparams db for chainmessages of p version
+    const appPrices = await chainUtilities.getChainParamsPriceUpdates();
+    const { fluxapps: { portMin, portMax } } = config;
+    const information = {
+      price: appPrices,
+      appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
+      address: deployAddr,
+      portMin,
+      portMax,
+      enterprisePorts: config.fluxapps.enterprisePorts,
+      bannedPorts: config.fluxapps.bannedPorts,
+      maxImageSize: config.fluxapps.maxImageSize,
+      minimumInstances: config.fluxapps.minimumInstances,
+      maximumInstances: config.fluxapps.maximumInstances,
+      blocksLasting: config.fluxapps.blocksLasting,
+      minBlocksAllowance: config.fluxapps.minBlocksAllowance,
+      maxBlocksAllowance: config.fluxapps.maxBlocksAllowance,
+      blocksAllowanceInterval: config.fluxapps.blocksAllowanceInterval,
+    };
+    const respondPrice = messageHelper.createDataMessage(information);
+    res.json(respondPrice);
+  } catch (error) {
+    log.warn(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To get application specification usd prices.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Returns object with application specification usd prices.
+ */
+async function getAppSpecsUSDPrice(req, res) {
+  try {
+    const resMessage = messageHelper.createDataMessage(config.fluxapps.usdprice);
+    res.json(resMessage);
+  } catch (error) {
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+    log.error(error);
+  }
+}
+
+/**
+ * To get latest application specification API version.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getlatestApplicationSpecificationAPI(req, res) {
+  const latestSpec = config.fluxapps.latestAppSpecification || 1;
+
+  const message = messageHelper.createDataMessage(latestSpec);
+
+  res.json(message);
+}
+
+/**
+ * To register an app globally via API. Performs various checks before the app can be registered. Only accessible by users.
+ * @param {express.Request} req Request.
+ * @param {express.Response} res Response.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function registerAppGlobalyApi(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      // first check if this node is available for application registration
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
+      }
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
+      }
+      const processedBody = serviceHelper.ensureObject(body);
+      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+      // name and port HAVE to be unique for application. Check if they don't exist in global database
+      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
+      let { appSpecification, timestamp, signature } = processedBody;
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
+      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+        throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and signature are provided.');
+      }
+      if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
+        throw new Error('Invalid type of message');
+      }
+      if (typeVersion !== 1) {
+        throw new Error('Invalid version of message');
+      }
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      timestamp = serviceHelper.ensureNumber(timestamp);
+      signature = serviceHelper.ensureString(signature);
+      messageType = serviceHelper.ensureString(messageType);
+      typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      const appSpecDecrypted = await checkAndDecryptAppSpecs(
+        appSpecification,
+        {
+          daemonHeight,
+          owner: appSpecification.owner,
+        },
+      );
+
+      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets) {
+            // eslint-disable-next-line no-await-in-loop
+            await checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+        }
+      }
+
+      // check if name is not yet registered
+      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+      const isEnterprise = Boolean(
+        appSpecification.version >= 8 && appSpecification.enterprise,
+      );
+
+      const toVerify = isEnterprise
+        ? specificationFormatter(appSpecification)
+        : appSpecFormatted;
+
+      // check if zelid owner is correct ( done in message verification )
+      // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
+      await verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
+
+      if (isEnterprise) {
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
+      }
+
+      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
+      // We respond with a hash that is supposed to go to transaction.
+      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
+      const messageHASH = await generalService.messageHash(message);
+
+      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      const temporaryAppMessage = { // specification of temp message
+        type: messageType,
+        version: typeVersion,
+        appSpecifications: appSpecFormatted,
+        hash: messageHASH,
+        timestamp,
+        signature,
+        arcaneSender: isArcane,
+      };
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+      // check temporary message storage
+      let tempMessage = await checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
+        res.json(responseHash); // all ok
+        return;
+      }
+      throw new Error('Unable to register application on the network. Try again later.');
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
+}
+
+/**
+ * To reindex global apps location via API. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function reindexGlobalAppsLocationAPI(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      await reindexGlobalAppsLocation();
+      const message = messageHelper.createSuccessMessage('Reindex successfull');
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To reindex global apps information via API. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function reindexGlobalAppsInformationAPI(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      await reindexGlobalAppsInformation();
+      const message = messageHelper.createSuccessMessage('Reindex successfull');
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To rescan global apps information via API. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function rescanGlobalAppsInformationAPI(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
+      blockheight = blockheight || req.query.blockheight;
+      if (!blockheight) {
+        const errMessage = messageHelper.createErrorMessage('No blockheight provided');
+        res.json(errMessage);
+      }
+      blockheight = serviceHelper.ensureNumber(blockheight);
+      const dbopen = dbHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      const query = { generalScannedHeight: { $gte: 0 } };
+      const projection = {
+        projection: {
+          _id: 0,
+          generalScannedHeight: 1,
+        },
+      };
+      const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      if (!currentHeight) {
+        throw new Error('No scanned height found');
+      }
+      if (currentHeight.generalScannedHeight <= blockheight) {
+        throw new Error('Block height shall be lower than currently scanned');
+      }
+      if (blockheight < 0) {
+        throw new Error('BlockHeight lower than 0');
+      }
+      let { removelastinformation } = req.params;
+      removelastinformation = removelastinformation || req.query.removelastinformation || false;
+      removelastinformation = serviceHelper.ensureBoolean(removelastinformation);
+      await rescanGlobalAppsInformation(blockheight, removelastinformation);
+      const message = messageHelper.createSuccessMessage('Rescan successfull');
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To get application original owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getApplicationOriginalOwner(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    if (!appname) {
+      throw new Error('No Application Name specified');
+    }
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const projection = {
+      projection: {
+        _id: 0,
+      },
+    };
+    log.info(`Searching register permanent messages for ${appname}`);
+    const appsQuery = {
+      'appSpecifications.name': appname,
+      type: 'fluxappregister',
+    };
+    const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+    const lastAppRegistration = permanentAppMessage[permanentAppMessage.length - 1];
+    const ownerResponse = messageHelper.createDataMessage(lastAppRegistration.appSpecifications.owner);
+    res.json(ownerResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To get apps installing locations.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsInstallingLocations(req, res) {
+  try {
+    const results = await appInstallingLocation();
+    const resultsResponse = messageHelper.createDataMessage(results);
+    res.json(resultsResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To get apps folder contents.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const options = {
+        withFileTypes: false,
+      };
+      const files = await fs.readdir(filepath, options);
+      const filesWithDetails = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const file of files) {
+        // eslint-disable-next-line no-await-in-loop
+        const fileStats = await fs.lstat(`${filepath}/${file}`);
+        const isDirectory = fileStats.isDirectory();
+        const isFile = fileStats.isFile();
+        const isSymbolicLink = fileStats.isSymbolicLink();
+        let fileFolderSize = fileStats.size;
+        if (isDirectory) {
+          // eslint-disable-next-line no-await-in-loop
+          fileFolderSize = await IOUtils.getFolderSize(`${filepath}/${file}`);
+        }
+        const detailedFile = {
+          name: file,
+          size: fileFolderSize, // bytes
+          isDirectory,
+          isFile,
+          isSymbolicLink,
+          createdAt: fileStats.birthtime,
+          modifiedAt: fileStats.mtime,
+        };
+        filesWithDetails.push(detailedFile);
+      }
+      const resultsResponse = messageHelper.createDataMessage(filesWithDetails);
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To create a folder
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function createAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder || '';
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo mkdir "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
+      res.json(resultsResponse);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errMessage = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    res.json(errMessage);
+  }
+}
+
+/**
+ * To rename a file or folder. Oldpath is relative path to default fluxshare directory; newname is just a new name of folder/file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function renameAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { oldpath } = req.params;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!appname || !component) {
+        throw new Error('appname and component parameters are mandatory');
+      }
+      oldpath = oldpath || req.query.oldpath;
+      if (!oldpath) {
+        throw new Error('No file nor folder to rename specified');
+      }
+      let { newname } = req.params;
+      newname = newname || req.query.newname;
+      if (!newname) {
+        throw new Error('No new name specified');
+      }
+      if (newname.includes('/')) {
+        throw new Error('New name is invalid');
+      }
+      // stop sharing of ALL files that start with the path
+      const fileURI = encodeURIComponent(oldpath);
+      let oldfullpath;
+      let newfullpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        oldfullpath = `${appVolumePath[0].mount}/appdata/${oldpath}`;
+        newfullpath = `${appVolumePath[0].mount}/appdata/${newname}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const fileURIArray = fileURI.split('%2F');
+      fileURIArray.pop();
+      if (fileURIArray.length > 0) {
+        const renamingFolder = fileURIArray.join('/');
+        newfullpath = `${appVolumePath[0].mount}/appdata/${renamingFolder}/${newname}`;
+      }
+      const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('Rename successful');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To remove a specified shared file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function removeAppsObject(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { object } = req.params;
+      object = object || req.query.object;
+      let { component } = req.params;
+      component = component || req.query.component || '';
+      if (!component) {
+        throw new Error('component parameter is mandatory');
+      }
+      if (!object) {
+        throw new Error('No object specified');
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${object}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo rm -rf "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const response = messageHelper.createSuccessMessage('File Removed');
+      res.json(response);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a zip folder for a specified directory. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @param {boolean} authorized False until verified as an admin.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFolder(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { folder } = req.params;
+      folder = folder || req.query.folder;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!folder || !component) {
+        const errorResponse = messageHelper.createErrorMessage('folder and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let folderpath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        folderpath = `${appVolumePath[0].mount}/appdata/${folder}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const zip = archiver('zip');
+      const sizeStream = new PassThrough();
+      let compressedSize = 0;
+      sizeStream.on('data', (chunk) => {
+        compressedSize += chunk.length;
+      });
+      sizeStream.on('end', () => {
+        const folderNameArray = folderpath.split('/');
+        const folderName = folderNameArray[folderNameArray.length - 1];
+        res.writeHead(200, {
+          'Content-Type': 'application/zip',
+          'Content-disposition': `attachment; filename=${folderName}.zip`,
+          'Content-Length': compressedSize,
+        });
+        // Now, pipe the compressed data to the response stream
+        const zipFinal = archiver('zip');
+        zipFinal.pipe(res);
+        zipFinal.directory(folderpath, false);
+        zipFinal.finalize();
+      });
+      zip.pipe(sizeStream);
+      zip.directory(folderpath, false);
+      zip.finalize();
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To download a specified file. Only accessible by admins.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function downloadAppsFile(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname || '';
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (authorized) {
+      let { file } = req.params;
+      file = file || req.query.file;
+      let { component } = req.params;
+      component = component || req.query.component;
+      if (!file || !component) {
+        const errorResponse = messageHelper.createErrorMessage('file and component parameters are mandatory');
+        res.json(errorResponse);
+        return;
+      }
+      let filepath;
+      const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
+      if (appVolumePath.length > 0) {
+        filepath = `${appVolumePath[0].mount}/appdata/${file}`;
+      } else {
+        throw new Error('Application volume not found');
+      }
+      const cmd = `sudo chmod 777 "${filepath}"`;
+      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // beautify name
+      const fileNameArray = filepath.split('/');
+      const fileName = fileNameArray[fileNameArray.length - 1];
+      res.download(filepath, fileName);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    try {
+      res.write(serviceHelper.ensureString(errorResponse));
+      res.end();
+    } catch (e) {
+      log.error(e);
+    }
+  }
+}
+
+/**
+ * To get Public Key to Encrypt Enterprise Content.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {string} Key.
+ */
+async function getPublicKey(req, res) {
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        return res.json(errMessage);
+      }
+
+      const processedBody = serviceHelper.ensureObject(body);
+      let appSpecification = processedBody;
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      if (!appSpecification.owner || !appSpecification.name) {
+        throw new Error('Input parameters missing.');
+      }
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      const publicKey = await getAppPublicKey(appSpecification.owner, appSpecification.name, daemonHeight);
+      // respond with formatted specifications
+      const response = messageHelper.createDataMessage(publicKey);
+      return res.json(response);
+    } catch (error) {
+      log.error(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      return res.json(errorResponse);
+    }
+  });
+}
+
 // Re-export ALL functions from modules for complete backward compatibility
 module.exports = {
   // Local orchestrator functions
@@ -2778,5 +3595,23 @@ module.exports = {
   verifyAppRegistrationParameters: appValidator.verifyAppRegistrationParameters,
   verifyAppUpdateParameters: appValidator.verifyAppUpdateParameters,
   checkDockerAccessibility: imageManager.checkDockerAccessibility,
+  deploymentInformation,
   registrationInformation: registryManager.registrationInformation,
+
+  // Added API functions from parent branch
+  getAppSpecsUSDPrice,
+  getlatestApplicationSpecificationAPI,
+  registerAppGlobalyApi,
+  reindexGlobalAppsLocationAPI,
+  reindexGlobalAppsInformationAPI,
+  rescanGlobalAppsInformationAPI,
+  getApplicationOriginalOwner,
+  getAppsInstallingLocations,
+  getAppsFolder,
+  createAppsFolder,
+  renameAppsObject,
+  removeAppsObject,
+  downloadAppsFolder,
+  downloadAppsFile,
+  getPublicKey,
 };
