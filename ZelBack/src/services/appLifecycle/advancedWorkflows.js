@@ -2034,7 +2034,7 @@ async function updateAppGlobalyApi(req, res) {
         ? specificationFormatter(appSpecification)
         : appSpecFormatted;
 
-      const appMessaging = require('../appMessaging/appMessageVerification');
+      const appMessaging = require('../appMessaging/messageVerifier');
       const { isArcane } = require('../utils/arcaneHelper');
       // here signature is checked against PREVIOUS app owner
       await appMessaging.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
@@ -2064,21 +2064,20 @@ async function updateAppGlobalyApi(req, res) {
         arcaneSender: isArcane,
       };
       const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-      const appMessagingManagement = require('../appMessaging/appMessageManagement');
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
       await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
       // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
-      await appMessagingManagement.requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      await appMessaging.requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
       await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
       // check temporary message storage
-      let tempMessage = await appMessagingManagement.checkAppTemporaryMessageExistence(messageHASH);
+      let tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
       for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed.
         if (!tempMessage) {
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(500);
           // eslint-disable-next-line no-await-in-loop
-          tempMessage = await appMessagingManagement.checkAppTemporaryMessageExistence(messageHASH);
+          tempMessage = await appMessaging.checkAppTemporaryMessageExistence(messageHASH);
         }
       }
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
