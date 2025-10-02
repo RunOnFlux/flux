@@ -65,7 +65,7 @@ let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
 const backupInProgress = globalState.backupInProgress;
-// restoreInProgress is managed in globalState
+const restoreInProgress = globalState.restoreInProgress;
 
 // Database collections
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
