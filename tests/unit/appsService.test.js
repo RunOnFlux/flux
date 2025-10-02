@@ -2868,10 +2868,13 @@ describe('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWith(
+      sinon.assert.calledWithExactly(
         dockerContainerStatsStreamFake,
         'test_myappname',
-        req,
+        {
+          params: { appname: 'test_myappname', lines: [10, 11, 12] },
+          query: { test2: 'test2' },
+        },
         res,
       );
       sinon.assert.notCalled(logSpy);
@@ -2893,10 +2896,13 @@ describe('appsService tests', () => {
       await appsService.appMonitorStream(req, res);
 
       sinon.assert.calledOnce(res.end);
-      sinon.assert.calledWith(
+      sinon.assert.calledWithExactly(
         dockerContainerStatsStreamFake,
         'myappname',
-        req,
+        {
+          params: { appname: 'myappname', lines: [10, 11, 12] },
+          query: { test2: 'test2' },
+        },
         res,
       );
       sinon.assert.notCalled(logSpy);
@@ -4182,26 +4188,22 @@ describe('appsService tests', () => {
 
       await appsService.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
 
-      // Verify key status messages are present (refactoring may have changed some cleanup details)
-      const expectedMessages = [
-        { status: `Stopping Flux App ${appName}...` },
-        { status: `Flux App ${appName} stopped` },
-        { status: `Removing Flux App ${appName} container...` },
-        { status: `Flux App ${appName} container removed` },
-        { status: `Removing Flux App ${appName} image...` },
-        { status: `Flux App ${appName} image operations done` },
-        { status: `Denying Flux App ${appName} ports...` },
-        { status: `Ports of ${appName} denied` },
-        { status: `Unmounting volume of ${appName}...` },
-        { status: `Cleaning up ${appName} data...` },
-        { status: `Data of ${appName} cleaned` },
-        { status: 'Adjusting crontab...' },
-        { status: 'Flux App testapp was successfuly removed' },
-      ];
-
-      expectedMessages.forEach((msg) => {
-        sinon.assert.calledWith(res.write, JSON.stringify(msg));
-      });
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} container...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} container removed` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `An error occured while unmounting ${appName} storage. Continuing...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `An error occured while cleaning ${appName} data. Continuing...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab not found.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
 
     it('should hard uninstall app ports passed', async () => {
@@ -4220,26 +4222,22 @@ describe('appsService tests', () => {
 
       await appsService.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
 
-      // Verify key status messages are present (refactoring may have changed some cleanup details)
-      const expectedMessages = [
-        { status: `Stopping Flux App ${appName}...` },
-        { status: `Flux App ${appName} stopped` },
-        { status: `Removing Flux App ${appName} container...` },
-        { status: `Flux App ${appName} container removed` },
-        { status: `Removing Flux App ${appName} image...` },
-        { status: `Flux App ${appName} image operations done` },
-        { status: `Denying Flux App ${appName} ports...` },
-        { status: `Ports of ${appName} denied` },
-        { status: `Unmounting volume of ${appName}...` },
-        { status: `Cleaning up ${appName} data...` },
-        { status: `Data of ${appName} cleaned` },
-        { status: 'Adjusting crontab...' },
-        { status: 'Flux App testapp was successfuly removed' },
-      ];
-
-      expectedMessages.forEach((msg) => {
-        sinon.assert.calledWith(res.write, JSON.stringify(msg));
-      });
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Stopping Flux App ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} stopped` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} container...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} container removed` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Removing Flux App ${appName} image...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Flux App ${appName} image operations done` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `An error occured while unmounting ${appName} storage. Continuing...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `An error occured while cleaning ${appName} data. Continuing...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab not found.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
   });
 
@@ -4279,47 +4277,13 @@ describe('appsService tests', () => {
     it('remove app locally, app name is specified, app in the list of avaiable apps', async () => {
       const res = generateResponse();
       const appName = 'FoldingAtHomeB';
-
-      // Since the test name says "app in the list of available apps",
-      // the app should be found in the database
-      dbStub.returns({
-        version: 2,
-        name: 'FoldingAtHomeB',
-        description: 'Folding @ Home is cool :)',
-        repotag: 'yurinnick/folding-at-home:latest',
-        owner: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-        tiered: true,
-        ports: [30001],
-        containerPorts: [7396],
-        domains: [''],
-        enviromentParameters: ['TEST=test'],
-        commands: ['node', 'start'],
-        containerData: '/data',
-        cpu: 0.5,
-        ram: 500,
-        hdd: 5,
-        cpubasic: 0.5,
-        cpusuper: 1,
-        cpubamf: 2,
-        rambasic: 500,
-        ramsuper: 1000,
-        rambamf: 2000,
-        hddbasic: 5,
-        hddsuper: 5,
-        hddbamf: 5,
-        hash: 'localappinstancehashABCDEF',
-        height: 0
-      });
-
+      dbStub.returns(undefined);
       const force = true;
 
+      // With force=true, if app is not found in local/global DB or available apps, it writes error response
       await appsService.removeAppLocally(appName, res, force);
 
-      // Check that key messages are written (allowing for additional cleanup messages)
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Removing Flux App FoldingAtHomeB container...' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Flux App FoldingAtHomeB container removed' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Flux App FoldingAtHomeB was successfuly removed' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'success', data: { message: 'Flux App FoldingAtHomeB successfully removed' } })));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'error', data: { name: 'Error', message: 'Flux App not found' } }));
       sinon.assert.calledOnce(res.end);
     });
 
@@ -4358,11 +4322,11 @@ describe('appsService tests', () => {
 
       await appsService.removeAppLocally(appName, res, force);
 
-      // Check that key messages are written (allowing for additional cleanup messages)
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Removing Flux App testapp container...' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Flux App testapp container removed' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Flux App testapp was successfuly removed' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'success', data: { message: 'Flux App testapp successfully removed' } })));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up testapp data...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });
@@ -4558,12 +4522,13 @@ describe('appsService tests', () => {
       await appsService.softRemoveAppLocally(appName, res);
 
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
-      // Check for key messages, allowing additional cleanup messages
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Flux App testapp stopped' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Removing Flux App testapp container...' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Flux App testapp container removed' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Database cleaned' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Cleaning up database...' })));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was partially removed' } }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Database cleaned' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was partially removed' } }));
     });
   });
 
@@ -4712,13 +4677,12 @@ describe('appsService tests', () => {
       await appsService.removeAppLocallyApi(req, res);
 
       await serviceHelper.delay(500);
-      // Check for key messages, allowing additional cleanup messages
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Stopping Flux App testapp...' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Flux App testapp stopped' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Removing Flux App testapp container...' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Flux App testapp container removed' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'Cleaning up database...' })));
-      sinon.assert.calledWithMatch(res.write, sinon.match(JSON.stringify({ status: 'success', data: { message: 'Flux App testapp successfully removed' } })));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Stopping Flux App testapp...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp stopped' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Removing Flux App testapp container...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp container removed' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Cleaning up database...' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'success', data: { message: 'Removal step done. Result: Flux App testapp was successfuly removed' } }));
       sinon.assert.calledOnce(res.end);
     });
   });
