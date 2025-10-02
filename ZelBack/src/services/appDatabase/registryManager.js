@@ -6,8 +6,8 @@ const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 // Removed appsService to avoid circular dependency - will use dynamic require where needed
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { specificationFormatter } = require('../utils/appUtilities');
+const { checkAndDecryptAppSpecs, encryptEnterpriseFromSession } = require('../utils/enterpriseHelper');
+const { specificationFormatter, updateToLatestAppSpecifications } = require('../utils/appUtilities');
 const {
   globalAppsInformation,
   localAppsInformation,
@@ -465,7 +465,7 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('Daemon not yet synced.');
     }
 
-    // const { data: { height: daemonHeight } } = syncStatus; // Not used currently
+    const { data: { height: daemonHeight } } = syncStatus;
 
     let { appname, decrypt } = req.params;
     appname = appname || req.query.appname;
@@ -474,37 +474,94 @@ async function getApplicationSpecificationAPI(req, res) {
       throw new Error('No Application Name specified');
     }
 
+    // query params take precedence over params (they were set explictly)
     decrypt = req.query.decrypt || decrypt;
 
     const specifications = await getApplicationSpecifications(appname);
-    // const mainAppName = appname.split('_')[1] || appname; // Not used currently
+    const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
       throw new Error('Application not found');
     }
 
-    // Check enterprise status for future use
-    // const isEnterprise = Boolean(specifications.version >= 8 && specifications.enterprise);
+    const isEnterprise = Boolean(
+      specifications.version >= 8 && specifications.enterprise,
+    );
 
     if (!decrypt) {
-      const specificationsResponse = messageHelper.createDataMessage(specifications);
-      return res.json(specificationsResponse);
+      if (isEnterprise) {
+        specifications.compose = [];
+        specifications.contacts = [];
+      }
+
+      const specResponse = messageHelper.createDataMessage(specifications);
+      res.json(specResponse);
+      return null;
     }
 
-    // Add decryption logic for enterprise apps
-    const decryptedSpecs = await checkAndDecryptAppSpecs(specifications);
+    if (!isEnterprise) {
+      throw new Error('App spec decryption is only possible for version 8+ Apps.');
+    }
 
-    const specificationsResponse = messageHelper.createDataMessage(decryptedSpecs);
-    return res.json(specificationsResponse);
+    const encryptedEnterpriseKey = req.headers['enterprise-key'];
+    if (!encryptedEnterpriseKey) {
+      throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+    }
+
+    const ownerAuthorized = await verificationHelper.verifyPrivilege(
+      'appowner',
+      req,
+      mainAppName,
+    );
+
+    const fluxTeamAuthorized = ownerAuthorized === true
+      ? false
+      : await verificationHelper.verifyPrivilege(
+        'appownerabove',
+        req,
+        mainAppName,
+      );
+
+    if (ownerAuthorized !== true && fluxTeamAuthorized !== true) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return null;
+    }
+
+    if (fluxTeamAuthorized) {
+      specifications.compose.forEach((component) => {
+        const comp = component;
+        comp.environmentParameters = [];
+        comp.repoauth = '';
+      });
+    }
+
+    // this seems a bit weird, but the client can ask for the specs encrypted or decrypted.
+    // If decrypted, they pass us another session key and we use that to encrypt.
+    specifications.enterprise = await encryptEnterpriseFromSession(
+      specifications,
+      daemonHeight,
+      encryptedEnterpriseKey,
+    );
+
+    specifications.contacts = [];
+    specifications.compose = [];
+
+    const specResponse = messageHelper.createDataMessage(specifications);
+    res.json(specResponse);
   } catch (error) {
     log.error(error);
+
     const errorResponse = messageHelper.createErrorMessage(
       error.message || error,
       error.name,
       error.code,
     );
-    return res.json(errorResponse);
+
+    res.json(errorResponse);
   }
+
+  return null;
 }
 
 /**
@@ -534,6 +591,85 @@ async function getApplicationOwnerAPI(req, res) {
     );
     res.json(errorResponse);
   }
+}
+
+/**
+ * Update application specification to latest version via API
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ * @returns {Promise<object|null>} Response with updated specifications
+ */
+async function updateApplicationSpecificationAPI(req, res) {
+  try {
+    const { appname } = req.params;
+    if (!appname) {
+      throw new Error('appname parameter is mandatory');
+    }
+
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    if (!syncStatus.data.synced) {
+      throw new Error('Daemon not yet synced.');
+    }
+
+    const { data: { height: daemonHeight } } = syncStatus;
+
+    const specifications = await getApplicationSpecifications(appname);
+    if (!specifications) {
+      throw new Error('Application not found');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const isEnterprise = Boolean(
+      specifications.version >= 8 && specifications.enterprise,
+    );
+
+    let encryptedEnterpriseKey = null;
+    if (isEnterprise) {
+      encryptedEnterpriseKey = req.headers['enterprise-key'];
+      if (!encryptedEnterpriseKey) {
+        throw new Error('Header with enterpriseKey is mandatory for enterprise Apps.');
+      }
+    }
+
+    const authorized = await verificationHelper.verifyPrivilege(
+      'appownerabove',
+      req,
+      mainAppName,
+    );
+
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return null;
+    }
+
+    const updatedSpecs = updateToLatestAppSpecifications(specifications);
+
+    if (isEnterprise) {
+      const enterprise = await encryptEnterpriseFromSession(
+        updatedSpecs,
+        daemonHeight,
+        encryptedEnterpriseKey,
+      );
+
+      updatedSpecs.enterprise = enterprise;
+      updatedSpecs.contact = [];
+      updatedSpecs.compose = [];
+    }
+
+    const specResponse = messageHelper.createDataMessage(updatedSpecs);
+    res.json(specResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+  return null;
 }
 
 /**
@@ -1262,6 +1398,7 @@ module.exports = {
   getApplicationLocalSpecifications,
   getApplicationSpecifications,
   getApplicationSpecificationAPI,
+  updateApplicationSpecificationAPI,
   getApplicationOwner,
   getApplicationOwnerAPI,
   getGlobalAppsSpecifications,

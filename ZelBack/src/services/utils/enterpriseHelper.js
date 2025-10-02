@@ -219,6 +219,72 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
 }
 
 /**
+ * Encrypts content with AES session key
+ * @param {string} base64Encrypted - Base64 encrypted enterprise content
+ * @param {string} dataToEncrypt - Data to encrypt
+ * @param {string} base64AesKey - Base64 encoded AES key
+ * @returns {string} Base64 encoded encrypted content
+ */
+function encryptWithAesSession(base64Encrypted, dataToEncrypt, base64AesKey) {
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  try {
+    const key = Buffer.from(base64AesKey, 'base64');
+    const nonce = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
+
+    const encryptedStart = cipher.update(dataToEncrypt, 'utf8');
+    const encryptedEnd = cipher.final();
+
+    const nonceCyphertextTag = Buffer.concat([
+      nonce,
+      encryptedStart,
+      encryptedEnd,
+      cipher.getAuthTag(),
+    ]);
+
+    const base64NonceCyphertextTag = nonceCyphertextTag.toString('base64');
+    return base64NonceCyphertextTag;
+  } catch (error) {
+    log.error(`Error encrypting data`);
+    throw error;
+  }
+}
+
+/**
+ * Encrypts enterprise specifications from session
+ * @param {object} appSpec - Application specifications
+ * @param {number} daemonHeight - Daemon block height
+ * @param {string} enterpriseKey - Encrypted enterprise key
+ * @returns {Promise<string>} Encrypted enterprise content
+ */
+async function encryptEnterpriseFromSession(appSpec, daemonHeight, enterpriseKey) {
+  if (!isArcane) {
+    throw new Error('Application Specifications can only be validated on a node running Arcane OS.');
+  }
+  if (!enterpriseKey) {
+    throw new Error('enterpriseKey is mandatory for enterprise Apps.');
+  }
+
+  const appName = appSpec.name;
+
+  const enterpriseSpec = {
+    contacts: appSpec.contacts,
+    compose: appSpec.compose,
+  };
+
+  const encoded = JSON.stringify(enterpriseSpec);
+
+  const base64AesKey = await decryptAesKeyWithRsaKey(appName, daemonHeight, enterpriseKey);
+  const encryptedEnterprise = encryptWithAesSession(appSpec.enterprise, encoded, base64AesKey);
+  if (encryptedEnterprise) {
+    return encryptedEnterprise;
+  }
+  throw new Error('Error encrypting enterprise object.');
+}
+
+/**
  * Encrypts enterprise content with AES
  * @param {object} enterprise - Content to be encrypted
  * @param {string} appName - Application name
@@ -292,7 +358,9 @@ async function encryptEnterpriseWithAes(enterprise, appName, daemonHeight = null
 module.exports = {
   checkAndDecryptAppSpecs,
   encryptEnterpriseWithAes,
+  encryptEnterpriseFromSession,
   decryptEnterpriseFromSession,
   decryptAesKeyWithRsaKey,
   decryptWithAesSession,
+  encryptWithAesSession,
 };

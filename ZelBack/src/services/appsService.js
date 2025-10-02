@@ -2104,6 +2104,7 @@ module.exports = {
   getApplicationLocalSpecifications: registryManager.getApplicationLocalSpecifications,
   getApplicationSpecifications: registryManager.getApplicationSpecifications,
   getApplicationSpecificationAPI: registryManager.getApplicationSpecificationAPI,
+  updateApplicationSpecificationAPI: registryManager.updateApplicationSpecificationAPI,
   getApplicationOwnerAPI: registryManager.getApplicationOwnerAPI,
   getGlobalAppsSpecifications: registryManager.getGlobalAppsSpecifications,
   availableApps: registryManager.availableApps,

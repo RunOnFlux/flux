@@ -753,6 +753,265 @@ function specificationFormatter(appSpecification) {
   return appSpecFormatted;
 }
 
+/**
+ * Update app specifications to latest version (v8)
+ * @param {object} appSpec - Application specifications
+ * @returns {object} Updated app specifications
+ */
+function updateToLatestAppSpecifications(appSpec) {
+  // current latest version is 8
+  if (appSpec.version === 1) {
+    const component = {
+      name: appSpec.name,
+      description: appSpec.description,
+      repotag: appSpec.repotag,
+      ports: [appSpec.port],
+      containerPorts: [appSpec.containerPort],
+      environmentParameters: appSpec.enviromentParameters,
+      commands: appSpec.commands,
+      containerData: appSpec.containerData,
+      cpu: appSpec.cpu || 0,
+      ram: appSpec.ram || 0,
+      hdd: appSpec.hdd || 0,
+      repoauth: '',
+    };
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: [],
+      expire: 22000,
+      geolocation: [],
+      istances: 3,
+      nodes: [],
+      owner: appSpec.owner,
+      staticip: false,
+      compose: [component],
+      enterprise: '',
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    return newAppSpec;
+  } if (appSpec.version === 2) {
+    const component = {
+      name: appSpec.name,
+      description: appSpec.description,
+      repotag: appSpec.repotag,
+      ports: appSpec.ports,
+      containerPorts: appSpec.containerPorts,
+      environmentParameters: appSpec.enviromentParameters,
+      commands: appSpec.commands,
+      domains: appSpec.domains,
+      containerData: appSpec.containerData,
+      cpu: appSpec.cpu || 0,
+      ram: appSpec.ram || 0,
+      hdd: appSpec.hdd || 0,
+      repoauth: '',
+    };
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: [],
+      expire: 22000,
+      geolocation: [],
+      istances: 3,
+      nodes: [],
+      owner: appSpec.owner,
+      staticip: false,
+      compose: [component],
+      enterprise: '',
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    return newAppSpec;
+  } if (appSpec.version === 3) {
+    const component = {
+      name: appSpec.name,
+      description: appSpec.description,
+      repotag: appSpec.repotag,
+      ports: appSpec.ports,
+      containerPorts: appSpec.containerPorts,
+      environmentParameters: appSpec.enviromentParameters,
+      commands: appSpec.commands,
+      domains: appSpec.domains,
+      containerData: appSpec.containerData,
+      cpu: appSpec.cpu || 0,
+      ram: appSpec.ram || 0,
+      hdd: appSpec.hdd || 0,
+      repoauth: '',
+    };
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: [],
+      expire: 22000,
+      geolocation: [],
+      istances: appSpec.instances,
+      nodes: [],
+      owner: appSpec.owner,
+      staticip: false,
+      compose: [component],
+      enterprise: '',
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    return newAppSpec;
+  } if (appSpec.version === 4) {
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: [],
+      expire: 22000,
+      geolocation: [],
+      istances: appSpec.instances,
+      nodes: [],
+      staticip: false,
+      enterprise: '',
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    const components = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of appSpec.compose) {
+      const newComponent = {
+        name: component.name,
+        description: component.description,
+        repotag: component.repotag,
+        ports: component.ports,
+        containerPorts: component.containerPorts,
+        environmentParameters: component.environmentParameters,
+        commands: component.commands,
+        domains: component.domains,
+        containerData: component.containerData,
+        cpu: component.cpu || 0,
+        ram: component.ram || 0,
+        hdd: component.hdd || 0,
+        repoauth: '',
+      };
+      components.push(newComponent);
+    }
+    newAppSpec.compose = components;
+    return newAppSpec;
+  } if (appSpec.version === 5) {
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: appSpec.contacts,
+      expire: 22000,
+      geolocation: appSpec.geolocation,
+      istances: appSpec.instances,
+      nodes: [],
+      staticip: false,
+      enterprise: '',
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    const components = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of appSpec.compose) {
+      const newComponent = {
+        name: component.name,
+        description: component.description,
+        repotag: component.repotag,
+        ports: component.ports,
+        containerPorts: component.containerPorts,
+        environmentParameters: component.environmentParameters,
+        commands: component.commands,
+        domains: component.domains,
+        containerData: component.containerData,
+        cpu: component.cpu || 0,
+        ram: component.ram || 0,
+        hdd: component.hdd || 0,
+        repoauth: '',
+      };
+      components.push(newComponent);
+    }
+    newAppSpec.compose = components;
+    return newAppSpec;
+  } if (appSpec.version === 6) {
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: appSpec.contacts,
+      expire: appSpec.expire,
+      geolocation: appSpec.geolocation,
+      istances: appSpec.instances,
+      nodes: [],
+      staticip: false,
+      enterprise: '',
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    const components = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of appSpec.compose) {
+      const newComponent = {
+        name: component.name,
+        description: component.description,
+        repotag: component.repotag,
+        ports: component.ports,
+        containerPorts: component.containerPorts,
+        environmentParameters: component.environmentParameters,
+        commands: component.commands,
+        domains: component.domains,
+        containerData: component.containerData,
+        cpu: component.cpu || 0,
+        ram: component.ram || 0,
+        hdd: component.hdd || 0,
+        repoauth: '',
+      };
+      components.push(newComponent);
+    }
+    newAppSpec.compose = components;
+    return newAppSpec;
+  } if (appSpec.version === 7) {
+    const newAppSpec = {
+      version: 8,
+      name: appSpec.name,
+      description: appSpec.description,
+      contacts: appSpec.contacts,
+      expire: appSpec.expire,
+      geolocation: appSpec.geolocation,
+      istances: appSpec.instances,
+      nodes: [], // we don't fill the nodes as they were used for different thing.
+      staticip: appSpec.staticip,
+      enterprise: '',
+      hash: appSpec.hash,
+      height: appSpec.height,
+    };
+    const components = [];
+    // eslint-disable-next-line no-restricted-syntax
+    for (const component of appSpec.compose) {
+      const newComponent = {
+        name: component.name,
+        description: component.description,
+        repotag: component.repotag,
+        ports: component.ports,
+        containerPorts: component.containerPorts,
+        environmentParameters: component.environmentParameters,
+        commands: component.commands,
+        domains: component.domains,
+        containerData: component.containerData,
+        cpu: component.cpu || 0,
+        ram: component.ram || 0,
+        hdd: component.hdd || 0,
+        repoauth: component.repoauth,
+      };
+      components.push(newComponent);
+    }
+    newAppSpec.compose = components;
+    return newAppSpec;
+  } if (appSpec.version === 8) {
+    return appSpec;
+  }
+  throw new Error('Original application version not recognized');
+}
+
 module.exports = {
   appPricePerMonth,
   nodeFullGeolocation,
@@ -760,4 +1019,5 @@ module.exports = {
   getContainerStorage,
   getAppPorts,
   specificationFormatter,
+  updateToLatestAppSpecifications,
 };
