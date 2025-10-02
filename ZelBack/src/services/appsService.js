@@ -113,7 +113,7 @@ let originalPortFailed = null;
 let lastUPNPMapFailed = false;
 let nextTestingPort = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 const portsNotWorking = new Set();
-const isArcane = false; // Set based on environment
+const isArcane = Boolean(process.env.FLUXOS_PATH);
 const appsFolder = config.fluxapps.appInstallSpace || '/';
 
 /**
