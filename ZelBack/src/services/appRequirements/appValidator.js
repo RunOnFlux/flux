@@ -18,6 +18,8 @@ const {
 } = require('../utils/establishedConnections');
 const dbHelper = require('../dbHelper');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 /**
  * Verify type correctness of application specification
  * @param {object} appSpecification - Application specification to validate
@@ -1374,7 +1376,7 @@ async function registerAppGlobalyApi(req, res) {
         return;
       }
 
-      // Check peer counts for safe registration
+      // first check if this node is available for application registration
       if (outgoingPeers.length < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
       }
@@ -1383,12 +1385,15 @@ async function registerAppGlobalyApi(req, res) {
       }
 
       const processedBody = serviceHelper.ensureObject(body);
+      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+      // name and port HAVE to be unique for application. Check if they don't exist in global database
+      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
       let { appSpecification, timestamp, signature } = processedBody;
-      let messageType = processedBody.type;
-      let typeVersion = processedBody.version;
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
 
       if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
-        throw new Error('Incomplete message received. Check if appSpecification, timestamp, type, version and signature are provided.');
+        throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and signature are provided.');
       }
 
       if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
@@ -1464,50 +1469,43 @@ async function registerAppGlobalyApi(req, res) {
 
       // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
       // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
-      const messageHASH = await generalService.messageHash(messageType + typeVersion + JSON.stringify(appSpecification) + timestamp + signature);
+      // We respond with a hash that is supposed to go to transaction.
+      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
+      const messageHASH = await generalService.messageHash(message);
 
-      // Prepare the complete message for broadcast
-      const completeMessage = {
+      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      const temporaryAppMessage = { // specification of temp message
         type: messageType,
         version: typeVersion,
         appSpecifications: appSpecFormatted,
         hash: messageHASH,
         timestamp,
-        signature
+        signature,
+        arcaneSender: isArcane,
       };
-
-      // Broadcast temporary app message to network
-      log.info('Broadcasting temporary app message to network');
-      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(completeMessage);
-      await serviceHelper.delay(1200); // Wait for processing
-
-      // Request the message back from peers for verification
-      log.info('Requesting app message from network for verification');
-      await messageVerifier.requestAppMessage(messageHASH);
-      await serviceHelper.delay(1200); // Wait for peer response
-
-      // Check if message was stored successfully by waiting up to 10 seconds
-      let attempts = 0;
-      let tempMessage = null;
-      while (attempts < 10 && !tempMessage) {
-        tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(messageHASH);
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await messageVerifier.requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+      // check temporary message storage
+      let tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
         if (!tempMessage) {
-          await serviceHelper.delay(1000);
-          attempts += 1;
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(messageHASH);
         }
       }
-
-      if (tempMessage) {
-        log.info(`App registration successful for ${appSpecFormatted.name} with hash ${messageHASH}`);
-        const response = messageHelper.createDataMessage({
-          message: 'Application registration successful',
-          hash: messageHASH,
-          appSpecification: appSpecFormatted
-        });
-        res.json(response);
-      } else {
-        throw new Error('App registration failed - network consensus not achieved');
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
+        res.json(responseHash); // all ok
+        return;
       }
+      throw new Error('Unable to register application on the network. Try again later.');
 
     } catch (error) {
       log.warn(error);
