@@ -3897,4 +3897,5 @@ module.exports = {
   downloadAppsFolder,
   downloadAppsFile,
   getPublicKey,
+  appLocation,
 };
