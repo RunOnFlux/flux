@@ -664,14 +664,18 @@ async function signCheckAppData(message) {
   return signature;
 }
 
-async function getDeviceID(name) {
-  // Implementation for getting device ID from remote node
-  const [ip, port = '16127'] = name.split(':');
+async function getDeviceID(fluxIP) {
   try {
-    const response = await axios.get(`http://${ip}:${port}/flux/deviceid`, { timeout: 5000 });
-    return response.data?.data?.deviceid || null;
+    const axiosConfig = {
+      timeout: 5000,
+    };
+    const response = await axios.get(`http://${fluxIP}/syncthing/deviceid`, axiosConfig);
+    if (response.data.status === 'success') {
+      return response.data.data;
+    }
+    throw new Error(`Unable to get deviceid from ${fluxIP}`);
   } catch (error) {
-    log.error(`Failed to get device ID from ${name}: ${error.message}`);
+    log.error(error);
     return null;
   }
 }
