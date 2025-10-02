@@ -114,7 +114,8 @@ let lastUPNPMapFailed = false;
 let nextTestingPort = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 const portsNotWorking = new Set();
 const isArcane = Boolean(process.env.FLUXOS_PATH);
-const appsFolder = config.fluxapps.appInstallSpace || '/';
+const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+const appsFolder = `${appsFolderPath}/`;
 
 /**
  * To get a list of installed apps. Where req can be equal to appname.
