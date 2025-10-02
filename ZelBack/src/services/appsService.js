@@ -1236,7 +1236,7 @@ async function syncthingApps() {
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
-      const restoreSkip = globalState.restoreInProgress.some((backupItem) => installedApp.name === backupItem);
+      const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
       if (backupSkip || restoreSkip) {
         log.info(`syncthingApps - Backup is running for ${installedApp.name}, syncthing disabled for that app`);
         // eslint-disable-next-line no-continue
@@ -1256,7 +1256,7 @@ async function syncthingApps() {
             const id = appId;
             const label = appId;
             const devices = [{ deviceID: myDeviceId }];
-            const execDIRst = `[ ! -d \"${folder}/.stfolder\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
+            const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execDIRst);
             // eslint-disable-next-line no-await-in-loop
@@ -1385,7 +1385,6 @@ async function syncthingApps() {
                 });
                 if (myIP) {
                   const index = runningAppList.findIndex((x) => x.ip === myIP);
-                  log.info(`syncthingApps - appIdentifier ${appId} is node index ${index}`);
                   let numberOfExecutionsRequired = 2;
                   if (index > 0) {
                     numberOfExecutionsRequired = 2 + 10 * index;
@@ -1397,11 +1396,10 @@ async function syncthingApps() {
 
                   syncthingFolder.type = 'receiveonly';
                   cache.numberOfExecutions += 1;
-                  log.info(`syncthingApps - appIdentifier ${appId} execution ${cache.numberOfExecutions} of ${cache.numberOfExecutionsRequired + 1} to start the app`);
                   if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                     syncthingFolder.type = 'sendreceive';
-                  } else if (cache.numberOfExecutions === cache.numberOfExecutionsRequired + 1) {
-                    log.info(`syncthingApps - starting appIdentifier ${appId}`);
+                  } else if (cache.numberOfExecutions >= cache.numberOfExecutionsRequired + 1) {
+                    log.info(`syncthingApps - changing syncthing type to sendreceive for appIdentifier ${appId}`);
                     syncthingFolder.type = 'sendreceive';
                     if (containerDataFlags.includes('r')) {
                       log.info(`syncthingApps - starting appIdentifier ${appId}`);
@@ -1454,7 +1452,7 @@ async function syncthingApps() {
               const id = appId;
               const label = appId;
               const devices = [{ deviceID: myDeviceId }];
-              const execDIRst = `[ ! -d \"${folder}/.stfolder\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
+              const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
               // eslint-disable-next-line no-await-in-loop
               await cmdAsync(execDIRst);
               // eslint-disable-next-line no-await-in-loop
