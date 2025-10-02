@@ -667,7 +667,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
       if (app.version <= 3) {
-        stats = appsMonitored[app.name].lastHourstatsStore;
+        stats = appsMonitored[app.name]?.lastHourstatsStore;
         // eslint-disable-next-line no-await-in-loop
         const inspect = await dockerService.dockerContainerInspect(app.name);
         if (inspect && stats && stats.length > 4) {
@@ -724,7 +724,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of app.compose) {
-          stats = appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore;
+          stats = appsMonitored[`${appComponent.name}_${app.name}`]?.lastHourstatsStore;
           // eslint-disable-next-line no-await-in-loop
           const inspect = await dockerService.dockerContainerInspect(`${appComponent.name}_${app.name}`);
           if (inspect && stats && stats.length > 4) {
