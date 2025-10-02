@@ -26,6 +26,8 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 const globalState = require('../utils/globalState');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
@@ -2035,7 +2037,6 @@ async function updateAppGlobalyApi(req, res) {
         : appSpecFormatted;
 
       const appMessaging = require('../appMessaging/messageVerifier');
-      const { isArcane } = require('../utils/arcaneHelper');
       // here signature is checked against PREVIOUS app owner
       await appMessaging.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
 
