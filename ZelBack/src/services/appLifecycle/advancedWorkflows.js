@@ -2659,6 +2659,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     log.error(`masterSlaveApps: ${error}`);
   } finally {
     globalStateParam.masterSlaveAppsRunning = false;
+    await serviceHelper.delay(30 * 1000);
+    masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
   }
 }
 
