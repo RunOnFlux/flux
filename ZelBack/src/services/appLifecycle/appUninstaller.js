@@ -18,6 +18,7 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const { availableApps } = require('../appDatabase/registryManager');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { stopAppMonitoring } = require('../appManagement/appInspector');
 
 const fluxDirPath = path.join(__dirname, '../../../../');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -615,14 +616,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
         const appComponentSpecifications = appComposedComponent;
         // eslint-disable-next-line no-await-in-loop
-        await appUninstallHard(appName, appId, appComponentSpecifications, isComponent, res, () => {});
+        await appUninstallHard(appName, appId, appComponentSpecifications, isComponent, res, stopAppMonitoring);
       }
       isComponent = false;
     } else if (isComponent) {
       const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
-      await appUninstallHard(appName, appId, componentSpecifications, isComponent, res, () => {});
+      await appUninstallHard(appName, appId, componentSpecifications, isComponent, res, stopAppMonitoring);
     } else {
-      await appUninstallHard(appName, appId, appSpecifications, isComponent, res, () => {});
+      await appUninstallHard(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring);
     }
 
     if (sendMessage) {

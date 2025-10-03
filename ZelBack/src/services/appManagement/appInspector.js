@@ -500,9 +500,9 @@ function stopAppMonitoring(appName, deleteData, appsMonitored) {
 
   if (appsMonitored[appName]) {
     clearInterval(appsMonitored[appName].oneMinuteInterval);
-  }
-  if (deleteData) {
-    delete appsMonitored[appName];
+    if (deleteData) {
+      delete appsMonitored[appName];
+    }
   }
 }
 
