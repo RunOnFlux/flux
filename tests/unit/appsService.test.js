@@ -77,6 +77,7 @@ const appsService = proxyquire('../../ZelBack/src/services/appsService', {
     isUPNP: sinon.stub().returns(false),
   },
   './appLifecycle/appUninstaller': proxyquire('../../ZelBack/src/services/appLifecycle/appUninstaller', {
+    util: utilFake,
     '../upnpService': {
       removeMapUpnpPort: sinon.stub().resolves(true),
       removePortUPnP: sinon.stub().resolves(true),
@@ -4197,12 +4198,13 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: `An error occured while unmounting ${appName} storage. Continuing...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: `An error occured while cleaning ${appName} data. Continuing...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab not found.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up data volume of ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Volume of ${appName} cleaned` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
 
@@ -4231,12 +4233,13 @@ describe('appsService tests', () => {
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Denying Flux App ${appName} ports...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Ports of ${appName} denied` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Unmounting volume of ${appName}...` }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: `An error occured while unmounting ${appName} storage. Continuing...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Volume of ${appName} unmounted` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up ${appName} data...` }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: `An error occured while cleaning ${appName} data. Continuing...` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: `Data of ${appName} cleaned` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Adjusting crontab...' }));
-      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab not found.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Crontab Adjusted.' }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Cleaning up data volume of ${appName}...` }));
+      sinon.assert.calledWith(res.write, JSON.stringify({ status: `Volume of ${appName} cleaned` }));
       sinon.assert.calledWith(res.write, JSON.stringify({ status: 'Flux App testapp was successfuly removed' }));
     });
   });
