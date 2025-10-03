@@ -142,10 +142,16 @@ async function appStart(req, res) {
         appInspector.startAppMonitoring(appname);
       } else {
         // For composed applications (version > 3), start all components
+        log.info(`Starting composed app ${appSpecs.name} with ${appSpecs.compose.length} components`);
         for (const appComponent of appSpecs.compose) {
-          await dockerService.appDockerStart(`${appComponent.name}_${appSpecs.name}`);
-          appInspector.startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
+          const componentName = `${appComponent.name}_${appSpecs.name}`;
+          log.info(`Starting component: ${componentName}`);
+          await dockerService.appDockerStart(componentName);
+          log.info(`Component ${componentName} started, starting monitoring`);
+          appInspector.startAppMonitoring(componentName);
+          log.info(`Monitoring started for ${componentName}`);
         }
+        log.info(`All components started for ${appSpecs.name}`);
         appRes = `Application ${appSpecs.name} started`;
       }
     }
