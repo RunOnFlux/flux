@@ -20,6 +20,7 @@ let fluxNodeWasAlreadyConfirmed = false;
 // Cache and delay lists
 const appsToBeCheckedLater = [];
 const appsSyncthingToBeCheckedLater = [];
+const receiveOnlySyncthingAppsCache = new Map();
 
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
@@ -68,6 +69,7 @@ module.exports = {
 
   get appsToBeCheckedLater() { return appsToBeCheckedLater; },
   get appsSyncthingToBeCheckedLater() { return appsSyncthingToBeCheckedLater; },
+  get receiveOnlySyncthingAppsCache() { return receiveOnlySyncthingAppsCache; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },
