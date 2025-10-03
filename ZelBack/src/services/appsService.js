@@ -1383,7 +1383,6 @@ async function syncthingApps() {
                 const cache = receiveOnlySyncthingAppsCache.get(appId);
                 // eslint-disable-next-line no-await-in-loop
                 const runningAppList = await appLocation(installedApp.name);
-                log.info(`syncthingApps - appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
                     return -1;
@@ -1424,7 +1423,7 @@ async function syncthingApps() {
 
                   syncthingFolder.type = 'receiveonly';
                   cache.numberOfExecutions += 1;
-                  log.info(`syncthingApps - App ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}, index: ${index}`);
+                  log.info(`syncthingApps - App ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
                   if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                     log.info(`syncthingApps - App ${appId} reached exact required executions, setting to sendreceive`);
                     syncthingFolder.type = 'sendreceive';
@@ -1612,7 +1611,6 @@ async function syncthingApps() {
                   const cache = receiveOnlySyncthingAppsCache.get(appId);
                   // eslint-disable-next-line no-await-in-loop
                   const runningAppList = await appLocation(installedApp.name);
-                  log.info(`syncthingApps - appIdentifier ${appId} is running on nodes ${JSON.stringify(runningAppList)}`);
                   runningAppList.sort((a, b) => {
                     if (!a.runningSince && b.runningSince) {
                       return -1;
@@ -1654,7 +1652,7 @@ async function syncthingApps() {
 
                     syncthingFolder.type = 'receiveonly';
                     cache.numberOfExecutions += 1;
-                    log.info(`syncthingApps - Component ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}, index: ${index}`);
+                    log.info(`syncthingApps - Component ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
                     if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
                       log.info(`syncthingApps - Component ${appId} reached exact required executions, setting to sendreceive`);
                       syncthingFolder.type = 'sendreceive';
