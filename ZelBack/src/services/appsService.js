@@ -1682,7 +1682,7 @@ async function syncthingApps() {
         log.error(`syncthingApps - Errors detected on syncthing folderId:${folder.id} - app is going to be uninstalled`);
         log.error(folderError);
         let appName = folder.id;
-        if (appName.contains('_')) {
+        if (appName.includes('_')) {
           appName = appName.split('_')[1];
         }
         // eslint-disable-next-line no-await-in-loop
