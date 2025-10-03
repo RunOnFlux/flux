@@ -1370,7 +1370,16 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(500);
                 } else {
-                  log.info(`syncthingApps - First run, sync folder exists - setting restarted cache`);
+                  log.info(`syncthingApps - First run, sync folder exists - checking container status`);
+                  let containerRunning = false;
+                  try {
+                    const containerInspect = await dockerService.dockerContainerInspect(id);
+                    containerRunning = containerInspect.State.Running;
+                    log.info(`syncthingApps - App ${appId} running status: ${containerRunning}`);
+                  } catch (error) {
+                    log.warn(`syncthingApps - Could not inspect app ${appId}: ${error.message}`);
+                  }
+
                   const cache = {
                     restarted: true,
                   };
@@ -1380,6 +1389,14 @@ async function syncthingApps() {
                     cache.restarted = false;
                     cache.numberOfExecutions = 1;
                     receiveOnlySyncthingAppsCache.set(appId, cache);
+                  } else if (!containerRunning) {
+                    log.info(`syncthingApps - Container not running, starting app ${appId}`);
+                    try {
+                      // eslint-disable-next-line no-await-in-loop
+                      await dockerService.appDockerStart(id);
+                    } catch (error) {
+                      log.error(`syncthingApps - Error starting app ${appId}: ${error.message}`);
+                    }
                   }
                   log.info(`syncthingApps - Set cache for ${appId}: ${JSON.stringify(cache)}`);
                 }
@@ -1607,7 +1624,16 @@ async function syncthingApps() {
                     // eslint-disable-next-line no-await-in-loop
                     await serviceHelper.delay(500);
                   } else {
-                    log.info(`syncthingApps - First run, sync folder exists - setting restarted cache`);
+                    log.info(`syncthingApps - First run, sync folder exists - checking container status`);
+                    let containerRunning = false;
+                    try {
+                      const containerInspect = await dockerService.dockerContainerInspect(id);
+                      containerRunning = containerInspect.State.Running;
+                      log.info(`syncthingApps - Component ${appId} running status: ${containerRunning}`);
+                    } catch (error) {
+                      log.warn(`syncthingApps - Could not inspect component ${appId}: ${error.message}`);
+                    }
+
                     const cache = {
                       restarted: true,
                     };
@@ -1617,6 +1643,14 @@ async function syncthingApps() {
                       cache.restarted = false;
                       cache.numberOfExecutions = 1;
                       receiveOnlySyncthingAppsCache.set(appId, cache);
+                    } else if (!containerRunning) {
+                      log.info(`syncthingApps - Container not running, starting component ${appId}`);
+                      try {
+                        // eslint-disable-next-line no-await-in-loop
+                        await dockerService.appDockerStart(id);
+                      } catch (error) {
+                        log.error(`syncthingApps - Error starting component ${appId}: ${error.message}`);
+                      }
                     }
                     log.info(`syncthingApps - Set cache for ${appId}: ${JSON.stringify(cache)}`);
                   }
