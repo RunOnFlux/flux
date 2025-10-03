@@ -418,6 +418,8 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
  */
 async function checkAndNotifyPeersOfRunningApps() {
   try {
+    // Sync global state before checking
+    getGlobalState();
     let isNodeConfirmed = false;
     isNodeConfirmed = await generalService.isNodeStatusConfirmed().catch(() => null);
     if (!isNodeConfirmed) {
@@ -1205,6 +1207,8 @@ async function monitorNodeStatus() {
 // Main functions: syncthingApps and checkMyAppsAvailability
 async function syncthingApps() {
   try {
+    // Sync global state before checking
+    getGlobalState();
     // do not run if installationInProgress or removalInProgress
     if (installationInProgress || removalInProgress || updateSyncthingRunning) {
       return;
