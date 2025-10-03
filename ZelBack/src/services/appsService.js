@@ -1462,6 +1462,20 @@ async function syncthingApps() {
                 await appDeleteDataInMountPoint(id);
                 // eslint-disable-next-line no-await-in-loop
                 await serviceHelper.delay(500);
+              } else {
+                log.info(`syncthingApps - App ${appId} in cache and already restarted, checking if container is running`);
+                try {
+                  const containerInspect = await dockerService.dockerContainerInspect(id);
+                  if (!containerInspect.State.Running) {
+                    log.info(`syncthingApps - App ${appId} is not running, starting it`);
+                    // eslint-disable-next-line no-await-in-loop
+                    await dockerService.appDockerStart(id);
+                  } else {
+                    log.info(`syncthingApps - App ${appId} is already running`);
+                  }
+                } catch (error) {
+                  log.error(`syncthingApps - Error checking/starting app ${appId}: ${error.message}`);
+                }
               }
             }
             folderIds.push(id);
@@ -1688,7 +1702,19 @@ async function syncthingApps() {
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(500);
                 } else {
-                  log.info(`syncthingApps - Component ${appId} in cache and already restarted, skipping receive-only logic`);
+                  log.info(`syncthingApps - Component ${appId} in cache and already restarted, checking if container is running`);
+                  try {
+                    const containerInspect = await dockerService.dockerContainerInspect(id);
+                    if (!containerInspect.State.Running) {
+                      log.info(`syncthingApps - Component ${appId} is not running, starting it`);
+                      // eslint-disable-next-line no-await-in-loop
+                      await dockerService.appDockerStart(id);
+                    } else {
+                      log.info(`syncthingApps - Component ${appId} is already running`);
+                    }
+                  } catch (error) {
+                    log.error(`syncthingApps - Error checking/starting component ${appId}: ${error.message}`);
+                  }
                 }
               }
               folderIds.push(id);
