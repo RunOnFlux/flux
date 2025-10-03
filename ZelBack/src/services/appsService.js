@@ -1207,22 +1207,18 @@ async function monitorNodeStatus() {
 // Main functions: syncthingApps and checkMyAppsAvailability
 async function syncthingApps() {
   try {
-    log.info('syncthingApps - Starting execution');
     // Sync global state before checking
     getGlobalState();
     // do not run if installationInProgress or removalInProgress
     if (installationInProgress || removalInProgress || updateSyncthingRunning) {
-      log.info(`syncthingApps - Skipped - installationInProgress: ${installationInProgress}, removalInProgress: ${removalInProgress}, updateSyncthingRunning: ${updateSyncthingRunning}`);
       return;
     }
     updateSyncthingRunning = true;
     // get list of all installed apps
     const appsInstalled = await installedApps();
     if (appsInstalled.status === 'error') {
-      log.error('syncthingApps - Failed to get installed apps');
       return;
     }
-    log.info(`syncthingApps - Found ${appsInstalled.data.length} installed apps`);
     // go through every containerData of all components of every app
     const devicesIds = [];
     const devicesConfiguration = [];
@@ -1235,7 +1231,6 @@ async function syncthingApps() {
       log.error('syncthingApps - Failed to get myDeviceId');
       return;
     }
-    log.info(`syncthingApps - My device ID: ${myDeviceId}`);
 
     // eslint-disable-next-line no-await-in-loop
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
@@ -1243,14 +1238,11 @@ async function syncthingApps() {
       log.error('syncthingApps - Failed to get myIP');
       return;
     }
-    log.info(`syncthingApps - My IP: ${myIP}`);
 
     const allFoldersResp = await syncthingService.getConfigFolders();
     const allDevicesResp = await syncthingService.getConfigDevices();
-    log.info(`syncthingApps - Existing syncthing folders: ${allFoldersResp.data ? allFoldersResp.data.length : 0}, devices: ${allDevicesResp.data ? allDevicesResp.data.length : 0}`);
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
-      log.info(`syncthingApps - Processing app: ${installedApp.name}, version: ${installedApp.version}`);
       const backupSkip = backupInProgress.some((backupItem) => installedApp.name === backupItem);
       const restoreSkip = restoreInProgress.some((backupItem) => installedApp.name === backupItem);
       if (backupSkip || restoreSkip) {
@@ -1259,15 +1251,12 @@ async function syncthingApps() {
         continue;
       }
       if (installedApp.version <= 3) {
-        log.info(`syncthingApps - App ${installedApp.name} containerData: ${installedApp.containerData}`);
         const containersData = installedApp.containerData.split('|');
         // eslint-disable-next-line no-restricted-syntax
         for (let i = 0; i < containersData.length; i += 1) {
           const container = containersData[i];
           const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-          log.info(`syncthingApps - App ${installedApp.name} container ${i} flags: ${containerDataFlags}`);
           if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-            log.info(`syncthingApps - App ${installedApp.name} has syncthing flags, setting up folder`);
             const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
             const identifier = installedApp.name;
             const appId = dockerService.getAppIdentifier(identifier);
@@ -1275,13 +1264,11 @@ async function syncthingApps() {
             const id = appId;
             const label = appId;
             const devices = [{ deviceID: myDeviceId }];
-            log.info(`syncthingApps - App ${installedApp.name} folder: ${folder}, appId: ${appId}`);
             const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execDIRst);
             // eslint-disable-next-line no-await-in-loop
             let locations = await appLocation(installedApp.name);
-            log.info(`syncthingApps - App ${installedApp.name} found ${locations.length} instances running`);
             locations.sort((a, b) => {
               if (a.ip < b.ip) {
                 return -1;
@@ -1292,7 +1279,6 @@ async function syncthingApps() {
               return 0;
             });
             locations = locations.filter((loc) => loc.ip !== myIP);
-            log.info(`syncthingApps - App ${installedApp.name} has ${locations.length} other instances (excluding self)`);
             // eslint-disable-next-line no-restricted-syntax
             for (const appInstance of locations) {
               const ip = appInstance.ip.split(':')[0];
@@ -1302,15 +1288,11 @@ async function syncthingApps() {
               let deviceID;
               if (syncthingDevicesIDCache.has(name)) {
                 deviceID = syncthingDevicesIDCache.get(name);
-                log.info(`syncthingApps - Using cached device ID for ${name}: ${deviceID}`);
               } else {
                 // eslint-disable-next-line no-await-in-loop
                 deviceID = await getDeviceID(name);
                 if (deviceID) {
                   syncthingDevicesIDCache.set(name, deviceID);
-                  log.info(`syncthingApps - Got device ID for ${name}: ${deviceID}`);
-                } else {
-                  log.warn(`syncthingApps - Failed to get device ID for ${name}`);
                 }
               }
               if (deviceID) {
@@ -1349,9 +1331,7 @@ async function syncthingApps() {
               maxConflicts: 0,
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
-            log.info(`syncthingApps - App ${installedApp.name} existing syncFolder: ${syncFolder ? 'found' : 'not found'}, flags: ${containerDataFlags}`);
             if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-              log.info(`syncthingApps - App ${installedApp.name} has receive-only/global flags, syncthingAppsFirstRun: ${syncthingAppsFirstRun}`);
               if (syncthingAppsFirstRun) {
                 if (!syncFolder) {
                   log.info(`syncthingApps - First run, no sync folder - stopping and cleaning appIdentifier ${appId}`);
@@ -1360,7 +1340,6 @@ async function syncthingApps() {
                     numberOfExecutions: 1,
                   };
                   receiveOnlySyncthingAppsCache.set(appId, cache);
-                  log.info(`syncthingApps - Set cache for ${appId}: ${JSON.stringify(cache)}`);
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
@@ -1398,7 +1377,6 @@ async function syncthingApps() {
                       log.error(`syncthingApps - Error starting app ${appId}: ${error.message}`);
                     }
                   }
-                  log.info(`syncthingApps - Set cache for ${appId}: ${JSON.stringify(cache)}`);
                 }
               } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
                 log.info(`syncthingApps - App ${appId} in cache and not restarted, processing receive-only logic`);
@@ -1461,11 +1439,9 @@ async function syncthingApps() {
                     cache.restarted = true;
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
-                  log.info(`syncthingApps - Updated cache for ${appId}: ${JSON.stringify(cache)}`);
                 }
               } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
-                log.info(`syncthingApps - App ${appId} NOT in cache, will stop and clean`);
-                log.info(`syncthingApps - stopping and cleaning appIdentifier ${appId}`);
+                log.info(`syncthingApps - App ${appId} NOT in cache. stopping and cleaning appIdentifier ${appId}`);
                 syncthingFolder.type = 'receiveonly';
                 const cache = {
                   numberOfExecutions: 1,
@@ -1497,31 +1473,22 @@ async function syncthingApps() {
             }
             folderIds.push(id);
             foldersConfiguration.push(syncthingFolder);
-            log.info(`syncthingApps - Adding folder ${id} to configuration, type: ${syncthingFolder.type}, devices: ${syncthingFolder.devices.length}`);
             if (!syncFolder) {
-              log.info(`syncthingApps - Folder ${id} is NEW, adding to newFoldersConfiguration`);
               newFoldersConfiguration.push(syncthingFolder);
             } else if (syncFolder && (syncFolder.maxConflicts !== 0 || syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
-              log.info(`syncthingApps - Folder ${id} needs UPDATE (conflicts: ${syncFolder.maxConflicts !== 0}, paused: ${syncFolder.paused}, type change: ${syncFolder.type !== syncthingFolder.type}, devices change: ${JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices)})`);
               newFoldersConfiguration.push(syncthingFolder);
-            } else {
-              log.info(`syncthingApps - Folder ${id} already exists and is up to date, skipping`);
             }
           }
         }
       } else {
-        log.info(`syncthingApps - App ${installedApp.name} is compose app with ${installedApp.compose.length} components`);
         // eslint-disable-next-line no-restricted-syntax
         for (const installedComponent of installedApp.compose) {
-          log.info(`syncthingApps - Processing component ${installedComponent.name} of app ${installedApp.name}, containerData: ${installedComponent.containerData}`);
           const containersData = installedComponent.containerData.split('|');
           // eslint-disable-next-line no-restricted-syntax
           for (let i = 0; i < containersData.length; i += 1) {
             const container = containersData[i];
             const containerDataFlags = container.split(':')[1] ? container.split(':')[0] : '';
-            log.info(`syncthingApps - Component ${installedComponent.name} container ${i} flags: ${containerDataFlags}`);
             if (containerDataFlags.includes('s') || containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-              log.info(`syncthingApps - Component ${installedComponent.name} has syncthing flags, setting up folder`);
               const containerFolder = i === 0 ? '' : `/appdata${container.split(':')[1].replace(containersData[0], '')}`;
               const identifier = `${installedComponent.name}_${installedApp.name}`;
               const appId = dockerService.getAppIdentifier(identifier);
@@ -1529,13 +1496,11 @@ async function syncthingApps() {
               const id = appId;
               const label = appId;
               const devices = [{ deviceID: myDeviceId }];
-              log.info(`syncthingApps - Component ${installedComponent.name} folder: ${folder}, appId: ${appId}`);
               const execDIRst = `[ ! -d \\"${folder}/.stfolder\\" ] && sudo mkdir -p ${folder}/.stfolder`; // if stfolder doesn't exist creates it
               // eslint-disable-next-line no-await-in-loop
               await cmdAsync(execDIRst);
               // eslint-disable-next-line no-await-in-loop
               let locations = await appLocation(installedApp.name);
-              log.info(`syncthingApps - Component ${installedComponent.name} found ${locations.length} instances running`);
               locations.sort((a, b) => {
                 if (a.ip < b.ip) {
                   return -1;
@@ -1546,7 +1511,6 @@ async function syncthingApps() {
                 return 0;
               });
               locations = locations.filter((loc) => loc.ip !== myIP);
-              log.info(`syncthingApps - Component ${installedComponent.name} has ${locations.length} other instances (excluding self)`);
               // eslint-disable-next-line no-restricted-syntax
               for (const appInstance of locations) {
                 const ip = appInstance.ip.split(':')[0];
@@ -1556,15 +1520,11 @@ async function syncthingApps() {
                 let deviceID;
                 if (syncthingDevicesIDCache.has(name)) {
                   deviceID = syncthingDevicesIDCache.get(name);
-                  log.info(`syncthingApps - Component ${installedComponent.name} using cached device ID for ${name}: ${deviceID}`);
                 } else {
                   // eslint-disable-next-line no-await-in-loop
                   deviceID = await getDeviceID(name);
                   if (deviceID) {
                     syncthingDevicesIDCache.set(name, deviceID);
-                    log.info(`syncthingApps - Component ${installedComponent.name} got device ID for ${name}: ${deviceID}`);
-                  } else {
-                    log.warn(`syncthingApps - Component ${installedComponent.name} failed to get device ID for ${name}`);
                   }
                 }
                 if (deviceID) {
@@ -1603,9 +1563,7 @@ async function syncthingApps() {
                 maxConflicts: 0,
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
-              log.info(`syncthingApps - Component ${installedComponent.name} existing syncFolder: ${syncFolder ? 'found' : 'not found'}, flags: ${containerDataFlags}`);
               if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-                log.info(`syncthingApps - Component ${installedComponent.name} has receive-only/global flags, syncthingAppsFirstRun: ${syncthingAppsFirstRun}`);
                 if (syncthingAppsFirstRun) {
                   if (!syncFolder) {
                     log.info(`syncthingApps - First run, no sync folder - stopping and cleaning component ${appId}`);
@@ -1614,7 +1572,6 @@ async function syncthingApps() {
                       numberOfExecutions: 1,
                     };
                     receiveOnlySyncthingAppsCache.set(appId, cache);
-                    log.info(`syncthingApps - Set cache for ${appId}: ${JSON.stringify(cache)}`);
                     // eslint-disable-next-line no-await-in-loop
                     await appDockerStop(id);
                     // eslint-disable-next-line no-await-in-loop
@@ -1652,7 +1609,6 @@ async function syncthingApps() {
                         log.error(`syncthingApps - Error starting component ${appId}: ${error.message}`);
                       }
                     }
-                    log.info(`syncthingApps - Set cache for ${appId}: ${JSON.stringify(cache)}`);
                   }
                 } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
                   log.info(`syncthingApps - Component ${appId} in cache and not restarted, processing receive-only logic`);
@@ -1716,17 +1672,14 @@ async function syncthingApps() {
                       cache.restarted = true;
                     }
                     receiveOnlySyncthingAppsCache.set(appId, cache);
-                    log.info(`syncthingApps - Updated cache for ${appId}: ${JSON.stringify(cache)}`);
                   }
                 } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
-                  log.info(`syncthingApps - Component ${appId} NOT in cache, will stop and clean`);
-                  log.info(`syncthingApps - stopping and cleaning component ${appId}`);
+                  log.info(`syncthingApps - Component ${appId} NOT in cache. Stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
                   const cache = {
                     numberOfExecutions: 1,
                   };
                   receiveOnlySyncthingAppsCache.set(appId, cache);
-                  log.info(`syncthingApps - Set cache for ${appId}: ${JSON.stringify(cache)}`);
                   // eslint-disable-next-line no-await-in-loop
                   await appDockerStop(id);
                   // eslint-disable-next-line no-await-in-loop
@@ -1753,15 +1706,10 @@ async function syncthingApps() {
               }
               folderIds.push(id);
               foldersConfiguration.push(syncthingFolder);
-              log.info(`syncthingApps - Adding component folder ${id} to configuration, type: ${syncthingFolder.type}, devices: ${syncthingFolder.devices.length}`);
               if (!syncFolder) {
-                log.info(`syncthingApps - Component folder ${id} is NEW, adding to newFoldersConfiguration`);
                 newFoldersConfiguration.push(syncthingFolder);
               } else if (syncFolder && (syncFolder.maxConflicts !== 0 || syncFolder.paused || syncFolder.type !== syncthingFolder.type || JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices))) {
-                log.info(`syncthingApps - Component folder ${id} needs UPDATE (conflicts: ${syncFolder.maxConflicts !== 0}, paused: ${syncFolder.paused}, type change: ${syncFolder.type !== syncthingFolder.type}, devices change: ${JSON.stringify(syncFolder.devices) !== JSON.stringify(syncthingFolder.devices)})`);
                 newFoldersConfiguration.push(syncthingFolder);
-              } else {
-                log.info(`syncthingApps - Component folder ${id} already exists and is up to date, skipping`);
               }
             }
           }
@@ -1770,9 +1718,7 @@ async function syncthingApps() {
     }
 
     // remove folders that should not be synced anymore (this shall actually not trigger)
-    log.info(`syncthingApps - Summary: ${folderIds.length} total folders, ${newFoldersConfiguration.length} new/updated folders, ${devicesConfiguration.length} new devices`);
     const nonUsedFolders = allFoldersResp.data.filter((syncthingFolder) => !folderIds.includes(syncthingFolder.id));
-    log.info(`syncthingApps - Found ${nonUsedFolders.length} unused folders to remove`);
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedFolder of nonUsedFolders) {
       log.info(`syncthingApps - Removing unused Syncthing of folder ${nonUsedFolder.id}`);
@@ -1781,7 +1727,6 @@ async function syncthingApps() {
     }
     // remove obsolete devices
     const nonUsedDevices = allDevicesResp.data.filter((syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID));
-    log.info(`syncthingApps - Found ${nonUsedDevices.length} unused devices to remove`);
     // eslint-disable-next-line no-restricted-syntax
     for (const nonUsedDevice of nonUsedDevices) {
       // exclude our deviceID
@@ -1795,14 +1740,12 @@ async function syncthingApps() {
     // now we have new accurate devicesConfiguration and foldersConfiguration
     // add more of current devices
     // excludes our current deviceID adjustment
-    log.info(`syncthingApps - Applying configuration: ${devicesConfiguration.length} devices, ${newFoldersConfiguration.length} folders`);
     if (devicesConfiguration.length >= 0) {
       await syncthingService.adjustConfigDevices('put', devicesConfiguration);
     }
     if (newFoldersConfiguration.length >= 0) {
       await syncthingService.adjustConfigFolders('put', newFoldersConfiguration);
     }
-    log.info(`syncthingApps - Configuration applied successfully`);
     // all configuration changes applied
 
     // check for errors in folders and if true reset that index database
@@ -1828,18 +1771,12 @@ async function syncthingApps() {
     if (restartRequired.status === 'success' && restartRequired.data.requiresRestart === true) {
       log.info('syncthingApps - New configuration applied. Syncthing restart required, restarting...');
       await syncthingService.systemRestart();
-      log.info('syncthingApps - Syncthing restarted successfully');
-    } else {
-      log.info('syncthingApps - No syncthing restart required');
     }
-    log.info('syncthingApps - Execution completed successfully');
   } catch (error) {
-    log.error(`syncthingApps - Error during execution: ${error.message}`);
     log.error(error);
   } finally {
     updateSyncthingRunning = false;
     syncthingAppsFirstRun = false;
-    log.info('syncthingApps - Scheduling next run in 30 seconds');
     await serviceHelper.delay(30 * 1000);
     syncthingApps();
   }
