@@ -112,6 +112,10 @@ class ImageVerifier {
     return this.parseError || this.lookupError || this.evaluationError;
   }
 
+  get errorDetail() {
+    return this.#lookupErrorDetail || this.#parseErrorDetail || this.#evaluationErrorDetail || '';
+  }
+
   get parts() {
     const parts = [this.provider, this.namespace, this.repository, this.tag];
     return parts.filter((x) => x);

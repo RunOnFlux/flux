@@ -285,35 +285,19 @@ function ensureString(parameter) {
 }
 
 /**
- * To return the owner of a FluxOS application.
- * @param {string} appName Name of app.
- * @returns {number} Owner.
+ * To ensure a parameter is an array.
+ * @param {*} parameter Value to check
+ * @returns {array} Returns the parameter as array or empty array if invalid.
  */
-// helper owner flux app function
-async function getApplicationOwner(appName) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
-  const projection = {
-    projection: {
-      _id: 0,
-      owner: 1,
-    },
-  };
-  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
-  const appSpecs = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (appSpecs) {
-    return appSpecs.owner;
+function ensureArray(parameter) {
+  if (Array.isArray(parameter)) {
+    return parameter;
   }
-  // eslint-disable-next-line global-require
-  const appsService = require('./appsService');
-  const allApps = await appsService.availableApps();
-  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
-  if (appInfo) {
-    return appInfo.owner;
+  if (parameter === null || parameter === undefined) {
+    return [];
   }
-  return null;
+  // Convert single value to array
+  return [parameter];
 }
 
 /**
@@ -716,7 +700,7 @@ module.exports = {
   ensureNumber,
   ensureObject,
   ensureString,
-  getApplicationOwner,
+  ensureArray,
   ipInSubnet,
   isDecimalLimit,
   isPrivateAddress,
