@@ -707,7 +707,7 @@ async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
         appsToRemove.push(app);
       }
     }
-    apps.filter((item) => !appsToRemove.includes(item));
+    apps = apps.filter((item) => !appsToRemove.includes(item));
     if (apps.length > 0 && i < 5) {
       await checkAndRequestMultipleApps(apps, i % 2 === 0, i + 1);
     }

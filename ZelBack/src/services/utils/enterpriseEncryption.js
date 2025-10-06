@@ -20,10 +20,10 @@ function decryptWithAesSession(appName, base64NonceCiphertextTag, base64AesKey) 
     const ciphertext = nonceCiphertextTag.slice(12, -16);
 
     // Create decipher
-    const decipher = crypto.createDecipherGCM('aes-256-gcm');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, nonce);
     decipher.setAutoPadding(false);
 
-    // Set the IV (nonce) and auth tag
+    // Set the auth tag
     decipher.setAuthTag(tag);
 
     // Decrypt
@@ -54,7 +54,7 @@ function encryptWithAesSession(appName, dataToEncrypt, base64AesKey) {
     const nonce = crypto.randomBytes(12);
 
     // Create cipher
-    const cipher = crypto.createCipherGCM('aes-256-gcm');
+    const cipher = crypto.createCipheriv('aes-256-gcm', aesKey, nonce);
     cipher.setAutoPadding(false);
 
     // Encrypt the data

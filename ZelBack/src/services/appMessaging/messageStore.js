@@ -83,7 +83,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
   if (furtherVerification) {
-    const appRegistraiton = message.type === 'zelappregister' || message.type === 'fluxappregister';
+    const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
       if (!message.arcaneSender) {
         return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
@@ -99,7 +99,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         // eslint-disable-next-line no-use-before-define
         const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
         await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
-        if (appRegistraiton) {
+        if (appRegistration) {
           await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
         } else {
           await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
@@ -107,7 +107,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       }
     } else {
       await appValidator.verifyAppSpecifications(appSpecFormatted, block);
-      if (appRegistraiton) {
+      if (appRegistration) {
         await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
         await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
@@ -115,7 +115,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     }
 
     await messageVerifier.verifyAppHash(message);
-    if (appRegistraiton) {
+    if (appRegistration) {
       await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
     } else {
       // get previousAppSpecifications as we need previous owner
@@ -144,7 +144,10 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 
   database = db.db(config.database.appsglobal.database);
   // message does not exist anywhere and is ok, store it
-  await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value);
+  await dbHelper.insertOneToDatabase(database, globalAppsTempMessages, value).catch((error) => {
+    log.error(error);
+    throw error;
+  });
   // it is stored and rebroadcasted
   if (isAppRequested) {
     // node received the message but it is coming from a requestappmessage we should not rebroadcast to all peers
@@ -261,7 +264,7 @@ async function storeAppRunningMessage(message) {
 
     // indexes over name, hash, ip. Then name + ip and name + ip + broadcastedAt.
     const queryFind = { name: newAppRunningMessage.name, ip: newAppRunningMessage.ip };
-    const projection = { _id: 0, runningSince: 1 };
+    const projection = { _id: 0, runningSince: 1, broadcastedAt: 1 };
     // we already have the exact same data
     // eslint-disable-next-line no-await-in-loop
     const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);

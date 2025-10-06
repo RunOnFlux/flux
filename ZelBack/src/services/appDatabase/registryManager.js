@@ -201,11 +201,11 @@ async function storeAppInstallingMessage(message) {
   */
   if (!message || typeof message !== 'object' || typeof message.type !== 'string' || typeof message.version !== 'number'
     || typeof message.broadcastedAt !== 'number' || typeof message.ip !== 'string' || typeof message.name !== 'string') {
-    return new Error('Invalid Flux App Installing message for storing');
+    throw new Error('Invalid Flux App Installing message for storing');
   }
 
   if (message.version !== 1) {
-    return new Error(`Invalid Flux App Installing message for storing version ${message.version} not supported`);
+    throw new Error(`Invalid Flux App Installing message for storing version ${message.version} not supported`);
   }
 
   const validTill = message.broadcastedAt + (5 * 60 * 1000); // 5 minutes
@@ -659,7 +659,7 @@ async function updateApplicationSpecificationAPI(req, res) {
       );
 
       updatedSpecs.enterprise = enterprise;
-      updatedSpecs.contact = [];
+      updatedSpecs.contacts = [];
       updatedSpecs.compose = [];
     }
 

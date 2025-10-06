@@ -100,7 +100,7 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     }
   });
   const removeStatus2 = {
-    status: isComponent ? `Flux App component ${appSpecifications.name}container removed` : `Flux App ${appName} container removed`,
+    status: isComponent ? `Flux App component ${appSpecifications.name} container removed` : `Flux App ${appName} container removed`,
   };
   log.info(removeStatus2);
   if (res) {
@@ -182,33 +182,33 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
     if (res.flush) res.flush();
   }
 
-  const unmuontStatus = {
+  const unmountStatus = {
     status: isComponent ? `Unmounting volume of component ${appName}...` : `Unmounting volume of ${appName}...`,
   };
-  log.info(unmuontStatus);
+  log.info(unmountStatus);
   if (res) {
-    res.write(serviceHelper.ensureString(unmuontStatus));
+    res.write(serviceHelper.ensureString(unmountStatus));
     if (res.flush) res.flush();
   }
   const execUnmount = `sudo umount ${appsFolder + appId}`;
   const execSuccess = await cmdAsync(execUnmount).catch((e) => {
     log.error(e);
-    const unmuontStatus3 = {
+    const unmountStatus3 = {
       status: isComponent ? `An error occured while unmounting component ${appSpecifications.name} storage. Continuing...` : `An error occured while unmounting ${appName} storage. Continuing...`,
     };
-    log.info(unmuontStatus3);
+    log.info(unmountStatus3);
     if (res) {
-      res.write(serviceHelper.ensureString(unmuontStatus3));
+      res.write(serviceHelper.ensureString(unmountStatus3));
       if (res.flush) res.flush();
     }
   });
   if (execSuccess) {
-    const unmuontStatus2 = {
+    const unmountStatus2 = {
       status: isComponent ? `Volume of component ${appSpecifications.name} unmounted` : `Volume of ${appName} unmounted`,
     };
-    log.info(unmuontStatus2);
+    log.info(unmountStatus2);
     if (res) {
-      res.write(serviceHelper.ensureString(unmuontStatus2));
+      res.write(serviceHelper.ensureString(unmountStatus2));
       if (res.flush) res.flush();
     }
   }
@@ -418,7 +418,7 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
   await dockerService.appDockerRemove(appId);
 
   const removeStatus2 = {
-    status: isComponent ? `Flux App component ${appSpecifications.name}container removed` : `Flux App ${appName} container removed`,
+    status: isComponent ? `Flux App component ${appSpecifications.name} container removed` : `Flux App ${appName} container removed`,
   };
   log.info(removeStatus2);
   if (res) {
@@ -862,54 +862,10 @@ async function removeAppLocallyApi(req, res) {
   }
 }
 
-/**
- * Clean up application data and volumes
- * @param {string} appName - Application name
- * @returns {Promise<void>}
- */
-async function cleanupAppData(appName) {
-  try {
-    // Remove app data directory
-    const appsDataPath = process.env.FLUX_APPS_FOLDER || '/home/flux/ZelApps';
-    const appDataPath = `${appsDataPath}/${appName}`;
-
-    log.info(`Cleaning up app data at ${appDataPath}`);
-    // Implementation would include actual file system cleanup
-
-  } catch (error) {
-    log.error(`Error cleaning up app data for ${appName}: ${error.message}`);
-  }
-}
-
-/**
- * Remove Docker volumes associated with application
- * @param {string} appName - Application name
- * @returns {Promise<void>}
- */
-async function removeAppVolumes(appName) {
-  try {
-    log.info(`Removing volumes for app ${appName}`);
-
-    // Get all volumes associated with the app
-    const volumes = await dockerService.dockerListVolumes();
-    const appVolumes = volumes.filter(volume => volume.Name.includes(appName));
-
-    for (const volume of appVolumes) {
-      await dockerService.dockerVolumeRemove(volume.Name);
-      log.info(`Removed volume ${volume.Name}`);
-    }
-
-  } catch (error) {
-    log.error(`Error removing volumes for ${appName}: ${error.message}`);
-  }
-}
-
 module.exports = {
   appUninstallHard,
   appUninstallSoft,
   removeAppLocally,
   softRemoveAppLocally,
   removeAppLocallyApi,
-  cleanupAppData,
-  removeAppVolumes,
 };

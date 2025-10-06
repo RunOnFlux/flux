@@ -621,7 +621,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
-      return;
+      throw new Error(`Failed to start ${identifier} container`);
     }
     if (!test) {
       startAppMonitoring(identifier);
@@ -810,7 +810,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
     const app = await dockerService.appDockerStart(identifier);
     if (!app) {
-      return;
+      throw new Error(`Failed to start ${identifier} container`);
     }
     startAppMonitoring(identifier);
     const appResponse = messageHelper.createDataMessage(app);
@@ -916,7 +916,7 @@ async function installAppLocally(req, res) {
       await checkAppRequirements(appSpecifications); // entire app
 
       res.setHeader('Content-Type', 'application/json');
-      registerAppLocally(appSpecifications, undefined, res); // can throw
+      await registerAppLocally(appSpecifications, undefined, res); // can throw
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1022,7 +1022,7 @@ async function testAppInstall(req, res) {
       res.setHeader('Content-Type', 'application/json');
 
       // Run test installation (registerAppLocally with test=true)
-      registerAppLocally(appSpecifications, undefined, res, true);
+      await registerAppLocally(appSpecifications, undefined, res, true);
 
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();

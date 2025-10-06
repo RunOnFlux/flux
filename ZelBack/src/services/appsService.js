@@ -3054,8 +3054,6 @@ module.exports = {
     appUninstaller.softRemoveAppLocally(app, res, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored)),
   removeAppLocallyApi: async (req, res) =>
     appUninstaller.removeAppLocallyApi(req, res, getGlobalState(), (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored)),
-  cleanupAppData: appUninstaller.cleanupAppData,
-  removeAppVolumes: appUninstaller.removeAppVolumes,
 
   // Re-exported from portManager
   appPortsUnique: portManager.appPortsUnique,

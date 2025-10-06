@@ -762,7 +762,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         }
       }
       if (appSpecifications.version >= 8) {
-        if (!appSpecifications.enterpise) { // this is NOT an enterprise app
+        if (!appSpecifications.enterprise) { // this is NOT an enterprise app
           if (appComponent.repoauth.length) { // pgp encrypted message.
             throw new Error('Private repositories are only allowed for Enterprise Applications');
           }
@@ -986,7 +986,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
     const specsKeys = Object.keys(appSpecifications);
     specsKeys.forEach((sKey) => {
       if (!specifications.includes(sKey)) {
-        log.error(`Unsupported top-level parameter detected in v6 app specifications: ${sKey}`);
+        log.error(`Unsupported top-level parameter detected in v7 app specifications: ${sKey}`);
         log.error(`Allowed top-level parameters: ${specifications.join(', ')}`);
         log.error(`Received top-level parameters: ${specsKeys.join(', ')}`);
         log.error(`Full app specifications: ${JSON.stringify(appSpecifications, null, 2)}`);
@@ -997,7 +997,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
       const specsKeysComponent = Object.keys(appComponent);
       specsKeysComponent.forEach((sKey) => {
         if (!componentSpecifications.includes(sKey)) {
-          log.error(`Unsupported component parameter detected in v6 app specifications: ${sKey}`);
+          log.error(`Unsupported component parameter detected in v7 app specifications: ${sKey}`);
           log.error(`Component index: ${appSpecifications.compose.indexOf(appComponent)}`);
           log.error(`Component name: ${appComponent.name || 'unnamed'}`);
           log.error(`Allowed component parameters: ${componentSpecifications.join(', ')}`);

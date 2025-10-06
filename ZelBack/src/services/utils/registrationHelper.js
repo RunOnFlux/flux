@@ -60,50 +60,6 @@ async function registrationInformation(req, res) {
   }
 }
 
-/**
- * Check if node meets requirements for app registration
- * @param {object} appSpecs - Application specifications
- * @returns {Promise<object>} Requirements check result
- */
-async function checkNodeRegistrationRequirements(appSpecs) {
-  try {
-    const nodeTier = await generalService.nodeTier();
-    const hwRequirements = require('../appRequirements/hwRequirements');
-
-    // Check hardware requirements
-    const hwCheck = await hwRequirements.checkAppHWRequirements(appSpecs);
-
-    // Check geolocation requirements
-    const geoCheck = hwRequirements.checkAppGeolocationRequirements(appSpecs);
-
-    // Check static IP requirements
-    const staticIpCheck = hwRequirements.checkAppStaticIpRequirements(appSpecs);
-
-    // Check node-specific requirements
-    const nodesCheck = await hwRequirements.checkAppNodesRequirements(appSpecs);
-
-    return {
-      hardware: hwCheck,
-      geolocation: geoCheck,
-      staticIp: staticIpCheck,
-      nodes: nodesCheck,
-      nodeTier,
-      allRequirementsMet: hwCheck && geoCheck && staticIpCheck && nodesCheck,
-    };
-  } catch (error) {
-    log.error(`Error checking node registration requirements: ${error.message}`);
-    return {
-      hardware: false,
-      geolocation: false,
-      staticIp: false,
-      nodes: false,
-      allRequirementsMet: false,
-      error: error.message,
-    };
-  }
-}
-
 module.exports = {
   registrationInformation,
-  checkNodeRegistrationRequirements,
 };
