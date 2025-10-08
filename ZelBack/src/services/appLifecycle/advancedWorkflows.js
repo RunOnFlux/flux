@@ -169,7 +169,7 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
   }
   const heightForDecrypt = latestPermanentRegistrationMessage.height;
   const decryptedPrev = await checkAndDecryptAppSpecs(appSpecs, { daemonHeight: heightForDecrypt });
-  const formattedPrev = specificationFormatter(decryptedPrev);
+  const formattedPrev = await specificationFormatter(decryptedPrev);
 
   return formattedPrev;
 }
@@ -939,7 +939,7 @@ async function softRemoveAppLocally(app, res) {
 
   // do this temporarily - otherwise we have to move a bunch of functions around
   appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-  appSpecifications = specificationFormatter(appSpecifications);
+  appSpecifications = await specificationFormatter(appSpecifications);
 
   if (appSpecifications.version >= 4 && !isComponent) {
     // it is a composed application
@@ -1171,7 +1171,7 @@ async function verifyAppUpdateParameters(req, res) {
 
       const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
 
-      const appSpecFormatted = specificationFormatter(decryptedSpecs);
+      const appSpecFormatted = await specificationFormatter(decryptedSpecs);
 
       // Dynamic require to avoid circular dependency
       const appRequirements = require('../appRequirements/appValidator');
@@ -1992,7 +1992,7 @@ async function updateAppGlobalyApi(req, res) {
         },
       );
 
-      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
+      const appSpecFormatted = await specificationFormatter(appSpecDecrypted);
 
       // Dynamic require to avoid circular dependency
       const appRequirements = require('../appRequirements/appValidator');
@@ -2034,7 +2034,7 @@ async function updateAppGlobalyApi(req, res) {
       );
 
       const toVerify = isEnterprise
-        ? specificationFormatter(appSpecification)
+        ? await specificationFormatter(appSpecification)
         : appSpecFormatted;
 
       const appMessaging = require('../appMessaging/messageVerifier');

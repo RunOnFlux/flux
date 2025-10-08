@@ -43,7 +43,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
 
   const specifications = message.appSpecifications || message.zelAppSpecifications;
   // eslint-disable-next-line no-use-before-define
-  const appSpecFormatted = specificationFormatter(specifications);
+  const appSpecFormatted = await specificationFormatter(specifications);
   const messageTimestamp = serviceHelper.ensureNumber(message.timestamp);
   const messageVersion = serviceHelper.ensureNumber(message.version);
 
@@ -97,7 +97,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
           { daemonHeight: block, owner: appSpecFormatted.owner },
         );
         // eslint-disable-next-line no-use-before-define
-        const appSpecFormattedDecrypted = specificationFormatter(appSpecDecrypted);
+        const appSpecFormattedDecrypted = await specificationFormatter(appSpecDecrypted);
         await appValidator.verifyAppSpecifications(appSpecFormattedDecrypted, block);
         if (appRegistration) {
           await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);

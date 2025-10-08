@@ -605,7 +605,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
 
     // do this temporarily - otherwise we have to move a bunch of functions around
     appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-    appSpecifications = specificationFormatter(appSpecifications);
+    appSpecifications = await specificationFormatter(appSpecifications);
 
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application
@@ -754,7 +754,7 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
 
     // do this temporarily - otherwise we have to move a bunch of functions around
     appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-    appSpecifications = specificationFormatter(appSpecifications);
+    appSpecifications = await specificationFormatter(appSpecifications);
 
     if (appSpecifications.version >= 4 && !isComponent) {
       // it is a composed application

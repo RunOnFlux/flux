@@ -27,7 +27,7 @@ const myLongCache = cacheManager.appPriceBlockedRepoCache;
  */
 async function getAppFluxOnChainPrice(appSpecification) {
   try {
-    const appSpecFormatted = specificationFormatter(appSpecification);
+    const appSpecFormatted = await specificationFormatter(appSpecification);
 
     // check if app exists or its a new registration price
     const db = dbHelper.databaseConnection();
@@ -212,7 +212,7 @@ async function getAppFiatAndFluxPrice(req, res) {
       }
       const daemonHeight = syncStatus.data.height;
       appSpecification = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
-      const appSpecFormatted = specificationFormatter(appSpecification);
+      const appSpecFormatted = await specificationFormatter(appSpecification);
 
       // verifications skipped. This endpoint is only for price evaluation
 

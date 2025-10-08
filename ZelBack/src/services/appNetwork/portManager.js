@@ -82,7 +82,7 @@ async function assignedPortsInstalledApps() {
     if (isEnterprise) {
       // eslint-disable-next-line no-await-in-loop
       const decrypted = await checkAndDecryptAppSpecs(spec);
-      const formatted = specificationFormatter(decrypted);
+      const formatted = await specificationFormatter(decrypted);
       decryptedApps.push(formatted);
     } else {
       decryptedApps.push(spec);
