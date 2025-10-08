@@ -2101,47 +2101,79 @@ async function updateAppGlobalyApi(req, res) {
 }
 
 /**
- * Check if too many instances of apps are running and remove excess instances
- * @returns {Promise<void>} Completion status
+ * To find and remove apps that are spawned more than maximum number of instances allowed locally.
+ * @returns {void} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function checkAndRemoveApplicationInstance() {
+  // To check if more than allowed instances of application are running
+  // check if synced
   try {
-    // Get running apps and check instances
-    const runningApps = await dockerService.dockerListContainers({
-      all: false,
-      filters: { name: [config.fluxapps.appNamePrefix] }
-    });
+    const synced = await generalService.checkSynced();
+    if (synced !== true) {
+      log.info('Application duplication removal paused. Not yet synced');
+      return;
+    }
 
-    const appInstanceCounts = {};
-
-    // Count instances per app
-    runningApps.forEach(container => {
-      const appName = container.Names[0].replace(`/${config.fluxapps.appNamePrefix}`, '').split('_')[0];
-      appInstanceCounts[appName] = (appInstanceCounts[appName] || 0) + 1;
-    });
-
-    // Check for excess instances and remove them
-    for (const [appName, instanceCount] of Object.entries(appInstanceCounts)) {
-      if (instanceCount > 1) {
-        log.info(`App ${appName} has ${instanceCount} instances, removing excess`);
-
-        // Keep only the first instance, remove others
-        const appContainers = runningApps.filter(container =>
-          container.Names[0].includes(`${config.fluxapps.appNamePrefix}${appName}`)
-        );
-
-        for (let i = 1; i < appContainers.length; i++) {
-          try {
-            await dockerService.dockerRemoveContainer(appContainers[i].Id, { force: true });
-            log.info(`Removed excess instance ${appContainers[i].Names[0]}`);
-          } catch (error) {
-            log.error(`Failed to remove excess instance ${appContainers[i].Names[0]}:`, error);
+    // get list of locally installed apps.
+    const installedAppsRes = await getInstalledAppsFromDb();
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const appsInstalled = installedAppsRes.data;
+    // lazy load to avoid circular dependency
+    const appsService = require('../appsService');
+    const appUninstaller = require('./appUninstaller');
+    const registryManager = require('../appDatabase/registryManager');
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of appsInstalled) {
+      // eslint-disable-next-line no-await-in-loop
+      const runningAppList = await appsService.appLocation(installedApp.name);
+      const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
+      if (runningAppList.length > minInstances) {
+        // eslint-disable-next-line no-await-in-loop
+        const appDetails = await registryManager.getApplicationGlobalSpecifications(installedApp.name);
+        if (appDetails) {
+          log.info(`Application ${installedApp.name} is already spawned on ${runningAppList.length} instances. Checking if should be unninstalled from the FluxNode..`);
+          runningAppList.sort((a, b) => {
+            if (!a.runningSince && b.runningSince) {
+              return 1;
+            }
+            if (a.runningSince && !b.runningSince) {
+              return -1;
+            }
+            if (a.runningSince < b.runningSince) {
+              return 1;
+            }
+            if (a.runningSince > b.runningSince) {
+              return -1;
+            }
+            if (a.ip < b.ip) {
+              return 1;
+            }
+            if (a.ip > b.ip) {
+              return -1;
+            }
+            return 0;
+          });
+          // eslint-disable-next-line no-await-in-loop
+          const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          if (myIP) {
+            const index = runningAppList.findIndex((x) => x.ip === myIP);
+            if (index === 0) {
+              log.info(`Application ${installedApp.name} going to be removed from node as it was the latest one running it to install it..`);
+              log.warn(`Removing application ${installedApp.name} locally`);
+              // eslint-disable-next-line no-await-in-loop
+              await appUninstaller.removeAppLocally(installedApp.name, null, false, true, true);
+              log.warn(`Application ${installedApp.name} locally removed`);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.fluxapps.removal.delay * 1000); // wait for 6 mins so we don't have more removals at the same time
+            }
           }
         }
       }
     }
   } catch (error) {
-    log.error('Error checking and removing application instances:', error);
+    log.error(error);
   }
 }
 
