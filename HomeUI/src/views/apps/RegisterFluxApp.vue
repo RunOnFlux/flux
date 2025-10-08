@@ -2830,8 +2830,21 @@ export default {
           return expTime;
         }
         const blocks = expire;
-        const blockTime = 2 * 60 * 1000;
-        const validTime = blocks * blockTime;
+        // Calculate time considering the fork at block 2020000
+        // Before 2020000: 2 minutes per block, After: 30 seconds per block
+        const forkBlock = 2020000;
+        const currentBlock = this.currentHeight;
+        const targetBlock = currentBlock + blocks;
+
+        let validTime = 0;
+        if (targetBlock <= forkBlock) {
+          // All blocks before fork
+          validTime = blocks * 2 * 60 * 1000;
+        } else {
+          // All blocks after fork
+          validTime = blocks * 30 * 1000;
+        }
+
         const expTime = this.timestamp + validTime;
         return expTime;
       }
