@@ -628,7 +628,17 @@ export default {
         return 'Not possible to calculate expiration';
       }
       const expires = expire || 22000;
-      const blocksToExpire = height + expires - this.currentBlockHeight;
+      const forkBlock = 2020000;
+      let effectiveExpiry = height + expires;
+
+      // If app was registered before the fork (block 2020000) and we're currently past the fork,
+      // adjust the expiry calculation since the blockchain moves 4x faster post-fork
+      if (height < forkBlock && this.currentBlockHeight >= forkBlock && effectiveExpiry > forkBlock) {
+        const remainingBlocksAfterFork = effectiveExpiry - forkBlock;
+        effectiveExpiry = forkBlock + (remainingBlocksAfterFork * 4);
+      }
+
+      const blocksToExpire = effectiveExpiry - this.currentBlockHeight;
       if (blocksToExpire < 1) {
         return 'Application Expired';
       }
