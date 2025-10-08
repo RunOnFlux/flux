@@ -1057,6 +1057,7 @@ import {
 import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
 import IDService from '@/services/IDService';
+import DaemonService from '@/services/DaemonService';
 import tierColors from '@/libs/colors';
 import SignClient from '@walletconnect/sign-client';
 import { WalletConnectModal } from '@walletconnect/modal';
@@ -1833,6 +1834,26 @@ export default {
         time: 365 * 24 * 60 * 60 * 1000,
       },
     ];
+
+    // Function to adjust expire options based on block height
+    const adjustExpireOptionsForBlockHeight = async () => {
+      try {
+        const response = await DaemonService.getBlockchainInfo();
+        if (response.data.status === 'success' && response.data.data) {
+          const currentHeight = response.data.data.blocks;
+          // After block 2020000, chain works 4x faster, so multiply block periods by 4
+          if (currentHeight >= 2020000) {
+            expireOptions.value = expireOptions.value.map((option) => ({
+              ...option,
+              value: option.value * 4,
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch blockchain info for expire options adjustment:', error);
+        // Keep default values if fetch fails
+      }
+    };
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -2995,6 +3016,8 @@ export default {
       if (!userZelid.value) {
         getZelIdLoginPhrase();
       }
+      // Adjust expire options based on current block height
+      await adjustExpireOptionsForBlockHeight();
     });
 
     return {
