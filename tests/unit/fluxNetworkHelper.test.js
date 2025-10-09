@@ -20,6 +20,7 @@ const benchmarkService = require('../../ZelBack/src/services/benchmarkService');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
+const upnpService = require('../../ZelBack/src/services/upnpService');
 
 const net = require('node:net');
 
@@ -31,6 +32,17 @@ chai.use(chaiAsPromised);
 const { expect } = chai;
 
 describe('fluxNetworkHelper tests', () => {
+  // Global beforeEach to mock UPnP service for all tests
+  beforeEach(() => {
+    sinon.stub(upnpService, 'isUPNP').returns(false);
+    sinon.stub(upnpService, 'removeMapUpnpPort').resolves(true);
+    sinon.stub(upnpService, 'mapUpnpPort').resolves(true);
+  });
+
+  afterEach(() => {
+    sinon.restore();
+  });
+
   describe('checkFluxAvailability tests', () => {
     let stub;
     const axiosConfig = {
@@ -945,19 +957,40 @@ describe('fluxNetworkHelper tests', () => {
 
   describe('adjustExternalIP tests', () => {
     let writeFileStub;
+    let originalUserConfig;
 
     beforeEach(() => {
-      writeFileStub = sinon.stub(fs, 'writeFile').returns({});
+      writeFileStub = sinon.stub(fs, 'writeFile').resolves();
+      // Backup original userconfig
+      originalUserConfig = global.userconfig;
+      // Mock userconfig with expected test values
+      global.userconfig = {
+        initial: {
+          ipaddress: '127.0.0.1',
+          zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
+          kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
+          testnet: false,
+          development: false,
+          apiport: 16127,
+          routerIP: '',
+          pgpPrivateKey: '',
+          pgpPublicKey: '',
+          blockedPorts: [],
+          blockedRepositories: [],
+        }
+      };
     });
     afterEach(() => {
       sinon.restore();
+      // Restore original userconfig
+      global.userconfig = originalUserConfig;
     });
 
-    it('should properly write a new ip to the config', () => {
+    it('should properly write a new ip to the config', async () => {
       const newIp = '127.0.0.66';
       const callPath = path.join(__dirname, '../../config/userconfig.js');
 
-      fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIP(newIp);
 
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/module.exports = {/gm));
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/initial: {/gm));
@@ -972,34 +1005,34 @@ describe('fluxNetworkHelper tests', () => {
       sinon.assert.calledOnceWithMatch(writeFileStub, callPath, sinon.match(/pgpPublicKey: ``,/gm));
     });
 
-    it('should not write to file if the config already has same exact ip', () => {
+    it('should not write to file if the config already has same exact ip', async () => {
       const newIp = userconfig.initial.ipaddress;
 
-      fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIP(newIp);
 
       sinon.assert.notCalled(writeFileStub);
     });
 
-    it('should not write to file if ip does not have a proper format', () => {
+    it('should not write to file if ip does not have a proper format', async () => {
       const newIp = '127111111';
 
-      fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIP(newIp);
 
       sinon.assert.notCalled(writeFileStub);
     });
 
-    it('should not write to file if ip is not a string', () => {
+    it('should not write to file if ip is not a string', async () => {
       const newIp = 121;
 
-      fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIP(newIp);
 
       sinon.assert.notCalled(writeFileStub);
     });
 
-    it('should not write to file if ip is empty', () => {
+    it('should not write to file if ip is empty', async () => {
       const newIp = '';
 
-      fluxNetworkHelper.adjustExternalIP(newIp);
+      await fluxNetworkHelper.adjustExternalIP(newIp);
 
       sinon.assert.notCalled(writeFileStub);
     });

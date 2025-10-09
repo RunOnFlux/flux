@@ -265,7 +265,7 @@ function decodeMessage(asm) {
  * @param {string} message Already decoded message.
  */
 async function processSoftFork(txid, height, message) {
-  // let it throw to stop block processing
+  // Process soft fork messages - errors are caught in calling functions
   const splittedMess = message.split('_');
   const version = splittedMess[0];
   if (!version || splittedMess.length < 2) {
@@ -373,8 +373,13 @@ async function processInsight(blockDataVerbose, database) {
       // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
-        // eslint-disable-next-line no-await-in-loop
-        await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        } catch (error) {
+          log.error('Error processing soft fork message:', error);
+          // Continue processing other transactions even if soft fork processing fails
+        }
       }
     }
   }
@@ -535,7 +540,12 @@ async function processStandard(blockDataVerbose, database) {
       // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
-        await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        try {
+          await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        } catch (error) {
+          log.error('Error processing soft fork message:', error);
+          // Continue processing other transactions even if soft fork processing fails
+        }
       }
     }
   }));
@@ -653,6 +663,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await insertAndRequestAppHashes(appsTransactions, database, true);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
+      log.info(`Processing Explorer Number of Transactions: ${appsTransactions.length}.`);
       await appsService.expireGlobalApplications(); // in case node was shutdown for a while and it is started
       await insertTransactions(appsTransactions, database);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
@@ -1168,8 +1179,8 @@ async function getAllAddresses(req, res) {
  */
 async function getAddressUtxos(req, res) {
   try {
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
-    address = address || req.query.address;
+    let { address } = req?.params || {}; // we accept both help/command and help?command=getinfo
+    address = address || req?.query?.address;
     if (!address) {
       throw new Error('No address provided');
     }
@@ -1237,8 +1248,8 @@ async function getAddressFusionCoinbase(req, res) {
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
-    address = address || req.query.address;
+    let { address } = req?.params || {}; // we accept both help/command and help?command=getinfo
+    address = address || req?.query?.address;
     if (!address) {
       throw new Error('No address provided');
     }
@@ -1274,7 +1285,7 @@ async function getAddressFusionCoinbase(req, res) {
  */
 async function getAddressTransactions(req, res) {
   try {
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
+    let { address } = req.params || {}; // we accept both help/command and help?command=getinfo
     address = address || req.query.address;
     if (!address) {
       throw new Error('No address provided');
@@ -1428,8 +1439,8 @@ async function reindexExplorer(req, res) {
   if (authorized === true) {
     // stop block processing
     const i = 0;
-    let { reindexapps } = req.params;
-    reindexapps = reindexapps ?? req.query.rescanapps ?? false;
+    let { reindexapps } = req?.params || {};
+    reindexapps = reindexapps ?? req?.query?.rescanapps ?? false;
     reindexapps = serviceHelper.ensureBoolean(reindexapps);
     checkBlockProcessingStopped(i, async (response) => {
       if (response.status === 'error') {
@@ -1523,8 +1534,8 @@ async function rescanExplorer(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       // since what blockheight
-      let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
-      blockheight = blockheight || req.query.blockheight;
+      let { blockheight } = req?.params || {}; // we accept both help/command and help?command=getinfo
+      blockheight = blockheight || req?.query?.blockheight;
       if (!blockheight) {
         const errMessage = messageHelper.createErrorMessage('No blockheight provided');
         res.json(errMessage);
@@ -1549,8 +1560,8 @@ async function rescanExplorer(req, res) {
       if (blockheight < 0) {
         throw new Error('BlockHeight lower than 0');
       }
-      let { rescanapps } = req.params;
-      rescanapps = rescanapps ?? req.query.rescanapps ?? false;
+      let { rescanapps } = req?.params || {};
+      rescanapps = rescanapps ?? req?.query?.rescanapps ?? false;
       rescanapps = serviceHelper.ensureBoolean(rescanapps);
       // stop block processing
       const i = 0;

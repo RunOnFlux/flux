@@ -6,6 +6,7 @@ const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonS
 const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceAddressRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceAddressRpcs');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
+const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const log = require('../../ZelBack/src/lib/log');
 
@@ -748,6 +749,13 @@ describe('explorerService tests', () => {
       dbStubUpdate = sinon.stub(dbHelper, 'updateOneInDatabase');
       dbStubCollectionStats = sinon.stub(dbHelper, 'collectionStats');
       expireGlobalApplicationsStub = sinon.stub(appsService, 'expireGlobalApplications');
+      // Ensure functions exist before stubbing (circular dependency workaround)
+      if (!appsService.checkAndRemoveApplicationInstance) {
+        appsService.checkAndRemoveApplicationInstance = () => {};
+      }
+      if (!appsService.reinstallOldApplications) {
+        appsService.reinstallOldApplications = () => {};
+      }
       checkAndRemoveApplicationInstanceStub = sinon.stub(appsService, 'checkAndRemoveApplicationInstance');
       restorePortsSupportStub = sinon.stub(appsService, 'restorePortsSupport');
       await dbHelper.initiateDB();
@@ -1040,6 +1048,7 @@ describe('explorerService tests', () => {
     beforeEach(async () => {
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
       isInsightExplorerStub = sinon.stub(daemonServiceMiscRpcs, 'isInsightExplorer');
+      sinon.stub(daemonServiceUtils, 'getConfigValue').returns('5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ'); // Valid WIF private key
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logErrorSpy = sinon.spy(log, 'error');
@@ -1693,6 +1702,7 @@ describe('explorerService tests', () => {
       dropCollectionStub = sinon.stub(dbHelper, 'dropCollection');
       sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true } });
       getBlockCountStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount');
+      sinon.stub(daemonServiceUtils, 'getConfigValue').returns('5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ'); // Valid WIF private key
       await dbHelper.initiateDB();
       dbHelper.databaseConnection();
       logErrorSpy = sinon.spy(log, 'error');
@@ -1705,6 +1715,13 @@ describe('explorerService tests', () => {
         avgObjSize: 1111,
       });
       sinon.stub(appsService, 'expireGlobalApplications').returns(true);
+      // Ensure functions exist before stubbing (circular dependency workaround)
+      if (!appsService.checkAndRemoveApplicationInstance) {
+        appsService.checkAndRemoveApplicationInstance = () => {};
+      }
+      if (!appsService.reinstallOldApplications) {
+        appsService.reinstallOldApplications = () => {};
+      }
       sinon.stub(appsService, 'checkAndRemoveApplicationInstance').returns(true);
       sinon.stub(daemonServiceBlockchainRpcs, 'getBlock').returns({
         status: 'success',

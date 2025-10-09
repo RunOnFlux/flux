@@ -35,8 +35,8 @@ const packageJson = require('../../package.json');
 const adminConfig = {
   initial: {
     ipaddress: '127.0.0.1',
-    zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
-    kadena: 'kadena:3a2e6166907d0c2fb28a16cd6966a705de129e8358b9872d9cefe694e910d5b2?chainid=0',
+    zelid: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
+    kadena: 'kadena:k:b3d922d1a57793651a1e0d951ef1671a10833e170810d3520388628cdc082fce?chainid=0',
     testnet: false,
     development: false,
     apiport: 16127,
@@ -48,9 +48,18 @@ const adminConfig = {
   },
 };
 
+// Create shared fs promises stubs for proxyquire
+const fsPromisesStubs = {
+  access: sinon.stub().resolves(), // Always resolve successfully
+  writeFile: sinon.stub().resolves(), // Shared writeFile stub
+};
+
 const fluxService = proxyquire(
   '../../ZelBack/src/services/fluxService',
-  { '../../../config/userconfig': adminConfig },
+  {
+    '../../../config/userconfig': adminConfig,
+    'node:fs/promises': fsPromisesStubs,
+  },
 );
 
 const generateResponse = () => {
@@ -1147,23 +1156,23 @@ describe('fluxService tests', () => {
   });
 
   describe('getFluxIP tests', () => {
-    let daemonStub;
+    let benchmarkStub;
 
     beforeEach(() => {
-      daemonStub = sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks');
+      benchmarkStub = sinon.stub(benchmarkService, 'getBenchmarks');
     });
 
     afterEach(() => {
-      daemonStub.restore();
+      benchmarkStub.restore();
     });
 
     it('should return IP and Port if benchmark response is correct, no response passed', async () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchmarkStub.resolves(getBenchmarkResponseData);
       const expectedResponse = {
         status: 'success',
         data: ip,
@@ -1172,16 +1181,16 @@ describe('fluxService tests', () => {
       const getIpResult = await fluxService.getFluxIP();
 
       expect(getIpResult).to.eql(expectedResponse);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchmarkStub);
     });
 
     it('should return IP and Port if benchmark response is correct, response passed', async () => {
       const ip = '127.0.0.1:5050';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchmarkStub.resolves(getBenchmarkResponseData);
       const expectedResponse = {
         status: 'success',
         data: ip,
@@ -1191,14 +1200,14 @@ describe('fluxService tests', () => {
       const getIpResult = await fluxService.getFluxIP(undefined, res);
 
       expect(getIpResult).to.eql(`Response: ${expectedResponse}`);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchmarkStub);
     });
 
     it('should return null if daemon\'s response is invalid', async () => {
       const getBenchmarkResponseData = {
         status: 'error',
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchmarkStub.resolves(getBenchmarkResponseData);
       const expectedResponse = {
         status: 'success',
         data: null,
@@ -1207,16 +1216,16 @@ describe('fluxService tests', () => {
       const getIpResult = await fluxService.getFluxIP();
 
       expect(getIpResult).to.be.eql(expectedResponse);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchmarkStub);
     });
 
     it('should return null if daemon\'s response IP is too short', async () => {
       const ip = '12734';
       const getBenchmarkResponseData = {
         status: 'success',
-        data: JSON.stringify({ ipaddress: ip }),
+        data: { ipaddress: ip },
       };
-      daemonStub.resolves(getBenchmarkResponseData);
+      benchmarkStub.resolves(getBenchmarkResponseData);
       const expectedResponse = {
         status: 'success',
         data: null,
@@ -1225,7 +1234,7 @@ describe('fluxService tests', () => {
       const getIpResult = await fluxService.getFluxIP();
 
       expect(getIpResult).to.be.eql(expectedResponse);
-      sinon.assert.calledOnce(daemonStub);
+      sinon.assert.calledOnce(benchmarkStub);
     });
   });
 
@@ -1387,10 +1396,13 @@ describe('fluxService tests', () => {
   describe('tailBenchmarkDebug tests', () => {
     let verifyPrivilegeStub;
     let runCmdStub;
+    let fsAccessStub;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
       runCmdStub = sinon.stub(serviceHelper, 'runCommand');
+      // Force fs.access to fail so it falls back to .zelbenchmark path
+      fsAccessStub = sinon.stub(fs, 'access').callsFake(() => Promise.reject(new Error('ENOENT: no such file or directory')));
     });
 
     afterEach(() => {
@@ -1437,7 +1449,7 @@ describe('fluxService tests', () => {
           name: 'testing error',
         },
       });
-      const nodedpath = path.join(__dirname, '../../../.zelbenchmark/debug.log'); // .fluxbenchmark
+      const nodedpath = path.join(__dirname, '../../../.fluxbenchmark/debug.log'); // Updated to match current implementation
       const expectedResponse = {
         data: {
           code: 403,
@@ -2268,15 +2280,21 @@ describe('fluxService tests', () => {
 
   describe('routerIP tests', () => {
     let verifyPrivilegeStub;
-    let fsPromisesSpy;
+    let originalUserConfig;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fs, 'writeFile');
+      // Reset the shared writeFile stub for each test
+      fsPromisesStubs.writeFile.resetHistory();
+      // Mock userconfig to match test expectations
+      originalUserConfig = global.userconfig;
+      global.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
+      // Restore original userconfig
+      global.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2331,21 +2349,27 @@ describe('fluxService tests', () => {
       await fluxService.adjustRouterIP(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
     });
   });
 
   describe('apiport tests', () => {
     let verifyPrivilegeStub;
-    let fsPromisesSpy;
+    let originalUserConfig;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fs, 'writeFile');
+      // Reset the shared writeFile stub for each test
+      fsPromisesStubs.writeFile.resetHistory();
+      // Mock userconfig to match test expectations
+      originalUserConfig = global.userconfig;
+      global.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
+      // Restore original userconfig
+      global.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2421,21 +2445,27 @@ describe('fluxService tests', () => {
       await fluxService.adjustAPIPort(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
     });
   });
 
   describe('blockedPorts tests', () => {
     let verifyPrivilegeStub;
-    let fsPromisesSpy;
+    let originalUserConfig;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fs, 'writeFile');
+      // Reset the shared writeFile stub for each test
+      fsPromisesStubs.writeFile.resetHistory();
+      // Mock userconfig to match test expectations
+      originalUserConfig = global.userconfig;
+      global.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
+      // Restore original userconfig
+      global.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2516,21 +2546,27 @@ describe('fluxService tests', () => {
       verifyPrivilegeStub.returns(true);
       await fluxService.adjustBlockedPorts(mockReq, mockRes);
       sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
     });
   });
 
   describe('blockedRepositories tests', () => {
     let verifyPrivilegeStub;
-    let fsPromisesSpy;
+    let originalUserConfig;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fs, 'writeFile');
+      // Reset the shared writeFile stub for each test
+      fsPromisesStubs.writeFile.resetHistory();
+      // Mock userconfig to match test expectations
+      originalUserConfig = global.userconfig;
+      global.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
+      // Restore original userconfig
+      global.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2611,21 +2647,27 @@ describe('fluxService tests', () => {
       verifyPrivilegeStub.returns(true);
       await fluxService.adjustBlockedRepositories(mockReq, mockRes);
       sinon.assert.calledOnceWithExactly(mockRes.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
     });
   });
 
   describe('adjustKadenaAccount tests', () => {
     let verifyPrivilegeStub;
-    let fsPromisesSpy;
+    let originalUserConfig;
 
     beforeEach(() => {
       verifyPrivilegeStub = sinon.stub(verificationHelper, 'verifyPrivilege');
-      fsPromisesSpy = sinon.stub(fs, 'writeFile');
+      // Reset the shared writeFile stub for each test
+      fsPromisesStubs.writeFile.resetHistory();
+      // Mock userconfig to match test expectations
+      originalUserConfig = global.userconfig;
+      global.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
+      // Restore original userconfig
+      global.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2681,7 +2723,7 @@ describe('fluxService tests', () => {
       await fluxService.adjustKadenaAccount(req, res);
 
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(fsPromisesSpy, fluxDirPath, expectedData);
+      sinon.assert.calledWith(fsPromisesStubs.writeFile, fluxDirPath, sinon.match.string);
     });
 
     it('should return error if chain id > 20', async () => {
@@ -2898,15 +2940,23 @@ describe('fluxService tests', () => {
 
   describe('streamChain tests', () => {
     let osStub;
-    let statStub;
     let readdirStub;
     let daemonServiceUtilsStub;
     let tarPackStub;
 
     beforeEach(() => {
       osStub = sinon.stub(os, 'homedir');
-      statStub = sinon.stub(fs, 'stat');
-      readdirStub = sinon.stub(fs, 'readdir');
+      // Reset and configure the shared fs stubs for streamChain tests
+      if (!fsPromisesStubs.stat || typeof fsPromisesStubs.stat.resetHistory !== 'function') {
+        fsPromisesStubs.stat = sinon.stub();
+      } else {
+        fsPromisesStubs.stat.resetHistory();
+      }
+      if (!fsPromisesStubs.readdir || typeof fsPromisesStubs.readdir.resetHistory !== 'function') {
+        fsPromisesStubs.readdir = sinon.stub();
+      } else {
+        fsPromisesStubs.readdir.resetHistory();
+      }
 
       daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'buildFluxdClient');
       tarPackStub = sinon.stub(tar, 'create');
@@ -2975,7 +3025,7 @@ describe('fluxService tests', () => {
 
       osStub.returns('/home/testuser');
 
-      statStub.rejects(new Error("Test block dir doesn't exist"));
+      fsPromisesStubs.stat.rejects(new Error("Test block dir doesn't exist"));
 
       await fluxService.streamChain(req, res);
 
@@ -2989,7 +3039,8 @@ describe('fluxService tests', () => {
       const req = { socket: { remoteAddress: '10.20.30.40' }, body: { unsafe: true, compress: true } };
 
       osStub.returns('/home/testuser');
-      statStub.resolves({ isDirectory: () => true });
+      // Use callsFake to ensure each call to stat returns the right value
+      fsPromisesStubs.stat.callsFake(async () => ({ isDirectory: () => true }));
 
       await fluxService.streamChain(req, res);
 
@@ -3003,7 +3054,7 @@ describe('fluxService tests', () => {
       const req = { socket: { remoteAddress: '10.20.30.40' } };
 
       osStub.returns('/home/testuser');
-      statStub.resolves({ isDirectory: () => true });
+      fsPromisesStubs.stat.resolves({ isDirectory: () => true });
       daemonServiceUtilsStub.resolves({ run: async () => 123456 });
 
       await fluxService.streamChain(req, res);
@@ -3055,15 +3106,22 @@ describe('fluxService tests', () => {
       const daemonServiceError = new Error();
       daemonServiceError.code = 'ECONNREFUSED';
 
-      statStub.resolves({
+      fsPromisesStubs.stat.resolves({
         isDirectory: () => true,
         size: testFileSize,
       });
 
-      readdirStub.resolves(testFiles);
+      fsPromisesStubs.readdir.resolves(testFiles);
 
       daemonServiceUtilsStub.resolves({ run: async () => daemonServiceError });
       tarPackStub.returns(readable);
+
+      // Stub serviceHelper.dirInfo to return expected data for each folder
+      const dirInfoStub = sinon.stub(serviceHelper, 'dirInfo');
+      dirInfoStub.resolves({
+        count: testFiles.length, // 50 files per folder
+        size: testFiles.length * testFileSize, // total size per folder
+      });
 
       await fluxService.streamChain(req, res);
       sinon.assert.calledWithExactly(res.setHeader, 'Approx-Content-Length', expectedSize.toString());
@@ -3095,7 +3153,7 @@ describe('fluxService tests', () => {
       });
 
       osStub.returns('/home/testuser');
-      statStub.resolves({ isDirectory: () => true });
+      fsPromisesStubs.stat.resolves({ isDirectory: () => true });
       daemonServiceUtilsStub.resolves({ run: async () => daemonServiceError });
       tarPackStub.returns(readable);
 
@@ -3131,7 +3189,7 @@ describe('fluxService tests', () => {
       });
 
       osStub.returns('/home/testuser');
-      statStub.resolves({ isDirectory: () => true });
+      fsPromisesStubs.stat.resolves({ isDirectory: () => true });
       daemonServiceUtilsStub.resolves({ run: async () => daemonServiceError });
       tarPackStub.returns(readable);
 

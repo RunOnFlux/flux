@@ -303,7 +303,7 @@ async function respondWithAppMessage(msgObj, ws) {
   try {
     // check if we have it database of permanent appMessages
     // eslint-disable-next-line global-require
-    const appsService = require('./appsService');
+    const messageVerifier = require('./appMessaging/messageVerifier');
     const appsMessages = [];
     if (!msgObj.data) {
       throw new Error('Invalid Flux App Request message');
@@ -346,7 +346,7 @@ async function respondWithAppMessage(msgObj, ws) {
       }
       let temporaryAppMessage = null;
       // eslint-disable-next-line no-await-in-loop
-      const appMessage = await appsService.checkAppMessageExistence(hash) || await appsService.checkAppTemporaryMessageExistence(hash);
+      const appMessage = await messageVerifier.checkAppMessageExistence(hash) || await messageVerifier.checkAppTemporaryMessageExistence(hash);
       if (appMessage) {
         temporaryAppMessage = { // specification of temp message
           type: appMessage.type,
@@ -412,8 +412,8 @@ async function broadcastMessageToRandomIncoming(dataToBroadcast) {
  */
 async function broadcastMessageToOutgoingFromUser(req, res) {
   try {
-    let { data } = req.params;
-    data = data || req.query.data;
+    let { data } = req?.params || {};
+    data = data || req?.query?.data;
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
@@ -485,8 +485,8 @@ async function broadcastMessageToOutgoingFromUserPost(req, res) {
  */
 async function broadcastMessageToIncomingFromUser(req, res) {
   try {
-    let { data } = req.params;
-    data = data || req.query.data;
+    let { data } = req?.params || {};
+    data = data || req?.query?.data;
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
@@ -557,8 +557,8 @@ async function broadcastMessageToIncomingFromUserPost(req, res) {
  */
 async function broadcastMessageFromUser(req, res) {
   try {
-    let { data } = req.params;
-    data = data || req.query.data;
+    let { data } = req?.params || {};
+    data = data || req?.query?.data;
     if (data === undefined || data === null) {
       throw new Error('No message to broadcast attached.');
     }
