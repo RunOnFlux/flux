@@ -586,8 +586,8 @@ async function processBlock(blockHeight, isInsightExplorer) {
     } else {
       await processStandard(blockDataVerbose, database);
     }
-    // After block 2020000, chain runs 4x faster, so multiply periods by 4
-    const speedMultiplier = blockHeight >= 2020000 ? 4 : 1;
+    // After fork block, chain runs 4x faster, so multiply periods by 4
+    const speedMultiplier = blockHeight >= config.fluxapps.daemonPONFork ? 4 : 1;
     if (blockHeight % (config.fluxapps.expireFluxAppsPeriod * speedMultiplier) === 0) {
       if (!isInsightExplorer) {
         const result = await dbHelper.collectionStats(database, utxoIndexCollection);

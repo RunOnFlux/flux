@@ -1112,17 +1112,17 @@ async function expireGlobalApplications() {
       const expireIn = appSpecs.expire || defaultExpire;
       let actualExpirationHeight = appSpecs.height + expireIn;
 
-      // If app was registered before block 2020000 and we are past block 2020000
+      // If app was registered before fork block and we are past fork block
       // the chain moves 4x faster, so we need to adjust the expiration
-      if (appSpecs.height < config.fluxapps.newMaxBlocksAllowanceBlock && explorerHeight >= config.fluxapps.newMaxBlocksAllowanceBlock) {
+      if (appSpecs.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
         const originalExpirationHeight = appSpecs.height + expireIn;
-        if (originalExpirationHeight > config.fluxapps.newMaxBlocksAllowanceBlock) {
-          // Calculate blocks that were supposed to live after block 2020000
-          const blocksAfter2020000 = originalExpirationHeight - config.fluxapps.newMaxBlocksAllowanceBlock;
+        if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
+          // Calculate blocks that were supposed to live after fork block
+          const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
           // Multiply by 4 to account for 4x faster chain
-          const adjustedBlocksAfter2020000 = blocksAfter2020000 * 4;
-          // New expiration = block 2020000 + adjusted blocks
-          actualExpirationHeight = config.fluxapps.newMaxBlocksAllowanceBlock + adjustedBlocksAfter2020000;
+          const adjustedBlocksAfterFork = blocksAfterFork * 4;
+          // New expiration = fork block + adjusted blocks
+          actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
         }
       }
 
@@ -1165,17 +1165,17 @@ async function expireGlobalApplications() {
         const expireIn = app.expire || defaultExpire;
         let actualExpirationHeight = app.height + expireIn;
 
-        // If app was registered before block 2020000 and we are past block 2020000
+        // If app was registered before fork block and we are past fork block
         // the chain moves 4x faster, so we need to adjust the expiration
-        if (app.height < config.fluxapps.newMaxBlocksAllowanceBlock && explorerHeight >= config.fluxapps.newMaxBlocksAllowanceBlock) {
+        if (app.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
           const originalExpirationHeight = app.height + expireIn;
-          if (originalExpirationHeight > config.fluxapps.newMaxBlocksAllowanceBlock) {
-            // Calculate blocks that were supposed to live after block 2020000
-            const blocksAfter2020000 = originalExpirationHeight - config.fluxapps.newMaxBlocksAllowanceBlock;
+          if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
+            // Calculate blocks that were supposed to live after fork block
+            const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
             // Multiply by 4 to account for 4x faster chain
-            const adjustedBlocksAfter2020000 = blocksAfter2020000 * 4;
-            // New expiration = block 2020000 + adjusted blocks
-            actualExpirationHeight = config.fluxapps.newMaxBlocksAllowanceBlock + adjustedBlocksAfter2020000;
+            const adjustedBlocksAfterFork = blocksAfterFork * 4;
+            // New expiration = fork block + adjusted blocks
+            actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
           }
         }
 

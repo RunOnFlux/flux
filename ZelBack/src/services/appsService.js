@@ -2123,8 +2123,8 @@ async function deploymentInformation(req, res) {
     // search in chainparams db for chainmessages of p version
     const appPrices = await chainUtilities.getChainParamsPriceUpdates();
     const { fluxapps: { portMin, portMax } } = config;
-    // After block 2020000, chain works 4x faster, so we use the new max blocks allowance
-    const maxAllowance = daemonHeight >= config.fluxapps.newMaxBlocksAllowanceBlock
+    // After fork block, chain works 4x faster, so we use the new max blocks allowance
+    const maxAllowance = daemonHeight >= config.fluxapps.daemonPONFork
       ? config.fluxapps.newMaxBlocksAllowance
       : config.fluxapps.maxBlocksAllowance;
     const information = {

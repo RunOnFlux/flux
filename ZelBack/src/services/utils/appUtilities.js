@@ -722,7 +722,7 @@ async function specificationFormatter(appSpecification) {
       const blockchainInfo = await daemonServiceBlockchainRpcs.getBlockchainInfo();
       if (blockchainInfo.status === 'success' && blockchainInfo.data && blockchainInfo.data.blocks) {
         const currentHeight = blockchainInfo.data.blocks;
-        if (currentHeight >= config.fluxapps.newMaxBlocksAllowanceBlock) {
+        if (currentHeight >= config.fluxapps.daemonPONFork) {
           maxAllowance = config.fluxapps.newMaxBlocksAllowance;
         }
       }

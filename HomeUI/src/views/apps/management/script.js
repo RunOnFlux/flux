@@ -103,6 +103,9 @@ const store = require('store');
 const splitargs = require('splitargs');
 const geolocations = require('../../../libs/geolocation');
 
+// PON (proof of nodes) Fork configuration - block height where chain speed increases 4x
+const FORK_BLOCK_HEIGHT = 2020000;
+
 export default {
   components: {
     AppInfo,
@@ -938,7 +941,7 @@ export default {
     appRunningTill() {
       const blockTime = 2 * 60 * 1000;
       // Use dynamic default expire based on block height (1 month)
-      const multiplier = this.daemonBlockCount >= 2020000 ? 4 : 1;
+      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
       const defaultExpire = 22000 * multiplier;
       const expires = this.callBResponse.data.expire || defaultExpire;
       const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
@@ -1185,9 +1188,9 @@ export default {
           return expTime;
         }
         const blocks = expire;
-        // Calculate time considering the fork at block 2020000
-        // Before 2020000: 2 minutes per block, After: 30 seconds per block
-        const forkBlock = 2020000;
+        // Calculate time considering the fork at the configured fork block height
+        // Before fork: 2 minutes per block, After fork: 30 seconds per block
+        const forkBlock = FORK_BLOCK_HEIGHT;
         const currentBlock = this.daemonBlockCount;
         const targetBlock = currentBlock + blocks;
 
@@ -1279,15 +1282,15 @@ export default {
         return 'Not possible to calculate expiration';
       }
       // Use dynamic default expire based on block height (1 month)
-      const multiplier = this.daemonBlockCount >= 2020000 ? 4 : 1;
+      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
       const defaultExpire = 22000 * multiplier;
       const expires = this.callBResponse.data.expire || defaultExpire;
       const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
       if (blocksToExpire < 1) {
         return 'Application Expired';
       }
-      // Block time: 2 minutes before fork (block 2020000), 30 seconds (0.5 minutes) after fork
-      const forkBlock = 2020000;
+      // Block time: 2 minutes before fork, 30 seconds (0.5 minutes) after fork
+      const forkBlock = FORK_BLOCK_HEIGHT;
       const minutesPerBlock = this.daemonBlockCount >= forkBlock ? 0.5 : 2;
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
       this.minutesRemaining = blocksToExpire * minutesPerBlock;
@@ -4675,7 +4678,7 @@ export default {
       const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
 
       // After block 2020000, the chain works 4x faster, so expire periods need to be multiplied by 4
-      const multiplier = this.daemonBlockCount >= 2020000 ? 4 : 1;
+      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
       const baseOneWeek = 5000 * multiplier;
       const baseTwoWeeks = 11000 * multiplier;
       const baseOneMonth = 22000 * multiplier;
@@ -5020,7 +5023,7 @@ export default {
         return this.expireOptions[this.expirePosition].value;
       }
       // Use dynamic default based on block height (1 month)
-      const multiplier = this.daemonBlockCount >= 2020000 ? 4 : 1;
+      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
       return 22000 * multiplier;
     },
     async importRsaPublicKey(base64SpkiDer) {
@@ -6690,8 +6693,8 @@ export default {
       }
     },
     adjustExpireOptionsForBlockHeight() {
-      // After block 2020000, the chain works 4x faster, so expire periods need to be multiplied by 4
-      if (this.daemonBlockCount >= 2020000) {
+      // After fork block, the chain works 4x faster, so expire periods need to be multiplied by 4
+      if (this.daemonBlockCount >= FORK_BLOCK_HEIGHT) {
         this.minExpire = 20000;
         this.maxExpire = 1056000;
         this.expireOptions = [

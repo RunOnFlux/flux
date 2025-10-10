@@ -224,8 +224,8 @@ module.exports = {
     cancel1BlockMinBlocksAllowance: 1, // app can be registered for a minimum of 1 block for cancellation purposes
     cancel1BlockMinBlocksAllowanceBlock: 1964447, // block where we will start allowing 1 block lifetime updates - Expected August 6th 2025
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
-    newMaxBlocksAllowance: 1056000, // after block 2020000, chain works 4x faster, so max blocks is 4x higher ~ 1 year
-    newMaxBlocksAllowanceBlock: 2020000, // block where we will start using 4x multiplier for all block periods
+    newMaxBlocksAllowance: 1056000, // after PON fork, chain works 4x faster, so max blocks is 4x higher ~ 1 year
+    daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
     ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
