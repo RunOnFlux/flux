@@ -3519,11 +3519,11 @@ module.exports = {
       globalState.trySpawningGlobalAppCache.set(appHash, '');
       log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
 
-      const installingAppErrorsList = await registryManager.appInstallingErrorsLocation(appToRun);
+      /* const installingAppErrorsList = await registryManager.appInstallingErrorsLocation(appToRun);
       if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
         globalState.spawnErrorsLongerAppCache.set(appHash, '');
         throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
-      }
+      }*/
 
       runningAppList = await registryManager.appLocation(appToRun);
 
