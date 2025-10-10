@@ -1286,8 +1286,11 @@ export default {
       if (blocksToExpire < 1) {
         return 'Application Expired';
       }
+      // Block time: 2 minutes before fork (block 2020000), 30 seconds (0.5 minutes) after fork
+      const forkBlock = 2020000;
+      const minutesPerBlock = this.daemonBlockCount >= forkBlock ? 0.5 : 2;
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
-      this.minutesRemaining = blocksToExpire * 2;
+      this.minutesRemaining = blocksToExpire * minutesPerBlock;
       const result = this.minutesToString;
       if (result.length > 2) {
         return `${result[0]}, ${result[1]}, ${result[2]}`;

@@ -1450,7 +1450,9 @@ export default {
       if (blocksToExpire < 1) {
         return 'Application Expired';
       }
-      const minutesRemaining = blocksToExpire * 2;
+      // Block time: 2 minutes before fork (block 2020000), 30 seconds (0.5 minutes) after fork
+      const minutesPerBlock = this.daemonBlockCount >= forkBlock ? 0.5 : 2;
+      const minutesRemaining = blocksToExpire * minutesPerBlock;
       const result = this.minutesToString(minutesRemaining);
       if (result.length > 2) {
         return `${result[0]}, ${result[1]}, ${result[2]}`;
