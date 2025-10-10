@@ -586,7 +586,9 @@ async function processBlock(blockHeight, isInsightExplorer) {
     } else {
       await processStandard(blockDataVerbose, database);
     }
-    if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
+    // After block 2020000, chain runs 4x faster, so multiply periods by 4
+    const speedMultiplier = blockHeight >= 2020000 ? 4 : 1;
+    if (blockHeight % (config.fluxapps.expireFluxAppsPeriod * speedMultiplier) === 0) {
       if (!isInsightExplorer) {
         const result = await dbHelper.collectionStats(database, utxoIndexCollection);
         const resultB = await dbHelper.collectionStats(database, addressTransactionIndexCollection);
@@ -611,22 +613,22 @@ async function processBlock(blockHeight, isInsightExplorer) {
       // updateFluxAppsPeriod can be between every 4 to 9 blocks
       const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 
-      if (blockHeight % 2 === 0) {
+      if (blockHeight % (2 * speedMultiplier) === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           await appsService.expireGlobalApplications();
         }
       }
-      if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
+      if (blockHeight % (config.fluxapps.removeFluxAppsPeriod * speedMultiplier) === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           appsService.checkAndRemoveApplicationInstance();
         }
       }
-      if (blockHeight % updateFluxAppsPeriod === 0) {
+      if (blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           appsService.reinstallOldApplications();
         }
       }
-      if (blockDataVerbose.height % config.fluxapps.reconstructAppMessagesHashPeriod === 0) {
+      if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
         try {
           appsService.reconstructAppMessagesHashCollection();
           log.info('Validation of App Messages Hash Collection');
@@ -634,7 +636,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
           log.error(error);
         }
       }
-      if (blockDataVerbose.height % config.fluxapps.benchUpnpPeriod === 0) {
+      if (blockDataVerbose.height % (config.fluxapps.benchUpnpPeriod * speedMultiplier) === 0) {
         try {
           // every node behind the same ip will benchmark at the same time. I.e.
           // we spread the network out (grouped by ip) over 4 hours so we don't
