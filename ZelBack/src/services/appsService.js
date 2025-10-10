@@ -3313,6 +3313,7 @@ module.exports = {
     return advancedWorkflows.masterSlaveApps(getGlobalState(), installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgress, globalState.restoreInProgress, https);
   },
   trySpawningGlobalApplication: async () => {
+    let shortDelayTime = 5 * 60 * 1000; // Default 5 minutes
     try {
       // how do we continue with this function?
       // we have globalapplication specifics list
@@ -3436,7 +3437,7 @@ module.exports = {
 
       // If there are multiple apps to process, use shorter delays
       const delayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 30 * 60 * 1000;
-      const shortDelayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 5 * 60 * 1000;
+      shortDelayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 5 * 60 * 1000;
 
       let appToRun = null;
       let appToRunAux = null;
