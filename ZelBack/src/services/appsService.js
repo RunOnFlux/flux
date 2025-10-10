@@ -1368,7 +1368,7 @@ async function syncthingApps() {
                     cache.restarted = false;
                     cache.numberOfExecutions = 1;
                     receiveOnlySyncthingAppsCache.set(appId, cache);
-                  } else if (!containerRunning) {
+                  } else if (!containerRunning && containerDataFlags.includes('r')) {
                     log.info(`syncthingApps - Container not running, starting app ${appId}`);
                     try {
                       // eslint-disable-next-line no-await-in-loop
@@ -1457,7 +1457,7 @@ async function syncthingApps() {
               } else {
                 try {
                   const containerInspect = await dockerService.dockerContainerInspect(id);
-                  if (!containerInspect.State.Running) {
+                  if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
                     log.info(`syncthingApps - App ${appId} is not running, starting it`);
                     // eslint-disable-next-line no-await-in-loop
                     await dockerService.appDockerStart(id);
@@ -1596,7 +1596,7 @@ async function syncthingApps() {
                       cache.restarted = false;
                       cache.numberOfExecutions = 1;
                       receiveOnlySyncthingAppsCache.set(appId, cache);
-                    } else if (!containerRunning) {
+                    } else if (!containerRunning && containerDataFlags.includes('r')) {
                       log.info(`syncthingApps - Container not running, starting component ${appId}`);
                       try {
                         // eslint-disable-next-line no-await-in-loop
@@ -1686,7 +1686,7 @@ async function syncthingApps() {
                 } else {
                   try {
                     const containerInspect = await dockerService.dockerContainerInspect(id);
-                    if (!containerInspect.State.Running) {
+                    if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
                       log.info(`syncthingApps - Component ${appId} is not running, starting it`);
                       // eslint-disable-next-line no-await-in-loop
                       await dockerService.appDockerStart(id);
@@ -3313,6 +3313,7 @@ module.exports = {
     return advancedWorkflows.masterSlaveApps(getGlobalState(), installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgress, globalState.restoreInProgress, https);
   },
   trySpawningGlobalApplication: async () => {
+    let shortDelayTime = 5 * 60 * 1000; // Default 5 minutes
     try {
       // how do we continue with this function?
       // we have globalapplication specifics list
@@ -3436,7 +3437,7 @@ module.exports = {
 
       // If there are multiple apps to process, use shorter delays
       const delayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 30 * 60 * 1000;
-      const shortDelayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 5 * 60 * 1000;
+      shortDelayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 5 * 60 * 1000;
 
       let appToRun = null;
       let appToRunAux = null;
