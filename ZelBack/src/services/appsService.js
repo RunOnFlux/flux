@@ -3435,8 +3435,8 @@ module.exports = {
       log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} apps that are missing instances on the network.`);
 
       // If there are multiple apps to process, use shorter delays
-      const delayTime = numberOfGlobalApps > 1 ? 5 * 1000 : 30 * 60 * 1000;
-      const shortDelayTime = numberOfGlobalApps > 1 ? 5 * 1000 : 5 * 60 * 1000;
+      const delayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 30 * 60 * 1000;
+      const shortDelayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 5 * 60 * 1000;
 
       let appToRun = null;
       let appToRunAux = null;
