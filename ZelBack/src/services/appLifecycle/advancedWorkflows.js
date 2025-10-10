@@ -285,6 +285,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
 
     let execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted
     if (useThisVolume.mount === '/') {
+      const execMkdir = `sudo mkdir -p ${fluxDirPath}appvolumes`;
+      await cmdAsync(execMkdir);
       execDD = `sudo fallocate -l ${appSpecifications.hdd}G ${fluxDirPath}appvolumes/${appId}FLUXFSVOL`; // if root mount then temp file is /flu/appvolumes
     }
 
@@ -1767,6 +1769,8 @@ async function testAppMount() {
 
     let volumePath = `${useThisVolume.mount}/${appId}FLUXFSVOL`; // eg /mnt/sthMounted/
     if (useThisVolume.mount === '/') {
+      const execMkdir = `sudo mkdir -p ${fluxDirPath}appvolumes`;
+      await cmdAsync(execMkdir);
       volumePath = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;// if root mount then temp file is in flux folder/appvolumes
     }
 
