@@ -2493,7 +2493,7 @@ async function getApplicationOriginalOwner(req, res) {
  */
 async function getAppsInstallingLocations(req, res) {
   try {
-    const results = await appInstallingLocation();
+    const results = await registryManager.appInstallingLocation();
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {
