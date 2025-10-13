@@ -629,7 +629,7 @@ async function validateAppsInformation() {
   const client = databaseConnection();
 
   if (!client) {
-    log.warning('Unable to validate apps information collection, no client');
+    log.warn('Unable to validate apps information collection, no client');
     return response;
   }
 
