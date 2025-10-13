@@ -2125,7 +2125,7 @@ async function deploymentInformation(req, res) {
     const { fluxapps: { portMin, portMax } } = config;
     // After fork block, chain works 4x faster, so we use the new max blocks allowance
     const maxAllowance = daemonHeight >= config.fluxapps.daemonPONFork
-      ? config.fluxapps.newMaxBlocksAllowance
+      ? config.fluxapps.postPonMaxBlocksAllowance
       : config.fluxapps.maxBlocksAllowance;
     const information = {
       price: appPrices,

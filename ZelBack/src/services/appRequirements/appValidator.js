@@ -816,7 +816,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     }
     // After fork block, chain works 4x faster, so we allow 4x more blocks for the same time period
     const maxAllowance = height >= config.fluxapps.daemonPONFork
-      ? config.fluxapps.newMaxBlocksAllowance
+      ? config.fluxapps.postPonMaxBlocksAllowance
       : config.fluxapps.maxBlocksAllowance;
     if (appSpecifications.expire > maxAllowance) {
       throw new Error(`Maximum expiration of application is ${maxAllowance} blocks ~ 1 year`);

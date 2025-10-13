@@ -723,7 +723,7 @@ async function specificationFormatter(appSpecification) {
       if (blockchainInfo.status === 'success' && blockchainInfo.data && blockchainInfo.data.blocks) {
         const currentHeight = blockchainInfo.data.blocks;
         if (currentHeight >= config.fluxapps.daemonPONFork) {
-          maxAllowance = config.fluxapps.newMaxBlocksAllowance;
+          maxAllowance = config.fluxapps.postPonMaxBlocksAllowance;
         }
       }
     } catch (error) {
