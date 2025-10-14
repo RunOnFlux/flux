@@ -115,7 +115,7 @@ let lastUPNPMapFailed = false;
 let nextTestingPort = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 const portsNotWorking = new Set();
 const isArcane = Boolean(process.env.FLUXOS_PATH);
-const fluxDirPath = path.join(__dirname, '../../../');
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux')
 // ToDo: Fix all the string concatenation in this file and use path.join()
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;

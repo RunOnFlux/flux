@@ -12,7 +12,7 @@ const util = require('util');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const nodecmd = require('node-cmd');
 
-const fluxDirPath = path.join(__dirname, '../../../../');
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux')
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 
 let dosState = 0;
