@@ -186,64 +186,53 @@ async function removeCrontabEntry(appId, incorrectVolumePath) {
 }
 
 /**
- * Remove app locally without broadcasting (internal use)
- * @param {string} appName - The app name to remove
- * @returns {Promise<boolean>} - True if removal was successful
+ * Get app specifications for redeployment
+ * @param {string} appName - The app name
+ * @returns {Promise<object|null>} - App specifications or null
  */
-async function removeAppLocallyInternal(appName) {
+async function getAppSpecifications(appName) {
   try {
-    log.info(`Attempting to remove app ${appName} due to incorrect volume mount`);
-
     // Import here to avoid circular dependency
     // eslint-disable-next-line global-require
-    const { removeAppLocally } = require('./appLifecycle/appUninstaller');
+    const appsService = require('./appsService');
 
-    // Call removeAppLocally with force=true, no response object, and sendMessage=true
-    await removeAppLocally(appName, null, true, false, true);
-
-    log.info(`Successfully removed app ${appName}`);
-    return true;
+    const specifications = await appsService.getApplicationSpecifications(appName);
+    return specifications;
   } catch (error) {
-    log.error(`Error removing app ${appName}: ${error.message}`);
-    return false;
+    log.error(`Error getting app specifications for ${appName}: ${error.message}`);
+    return null;
   }
 }
 
 /**
- * Broadcast app removal to the network
- * @param {string} appName - The app name that was removed
- * @returns {Promise<void>}
+ * Hard redeploy app with incorrect volume mount
+ * This removes the app completely and reinstalls it with correct volume paths
+ * @param {string} appName - The app name to redeploy
+ * @returns {Promise<boolean>} - True if redeploy was successful
  */
-async function broadcastAppRemoval(appName) {
+async function hardRedeployApp(appName) {
   try {
-    const ip = await fluxNetworkHelper.getMyFluxIPandPort();
-    if (!ip) {
-      log.warn('Cannot broadcast app removal: unable to get node IP');
-      return;
+    log.info(`Attempting to hard redeploy app ${appName} due to incorrect volume mount`);
+
+    // Get app specifications first
+    const appSpecs = await getAppSpecifications(appName);
+    if (!appSpecs) {
+      log.error(`Cannot redeploy ${appName}: App specifications not found`);
+      return false;
     }
 
-    const broadcastedAt = Date.now();
-    const appRemovedMessage = {
-      type: 'fluxappremoved',
-      version: 1,
-      appName,
-      ip,
-      broadcastedAt,
-      reason: 'incorrect_volume_mount',
-    };
+    // Import here to avoid circular dependency
+    // eslint-disable-next-line global-require
+    const { hardRedeploy } = require('./appLifecycle/advancedWorkflows');
 
-    log.info(`Broadcasting app removal message for ${appName} to the network`);
+    // Perform hard redeploy (removes and reinstalls with correct paths)
+    await hardRedeploy(appSpecs, null);
 
-    // Broadcast to outgoing peers
-    await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
-    await serviceHelper.delay(500);
-
-    // Broadcast to incoming peers
-    await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
-
-    log.info(`Successfully broadcasted removal of ${appName}`);
+    log.info(`Successfully redeployed app ${appName} with correct volume paths`);
+    return true;
   } catch (error) {
-    log.error(`Error broadcasting app removal for ${appName}: ${error.message}`);
+    log.error(`Error redeploying app ${appName}: ${error.message}`);
+    return false;
   }
 }
 
@@ -283,24 +272,10 @@ async function checkAndFixIncorrectVolumeMounts() {
       // eslint-disable-next-line no-await-in-loop
       await removeCrontabEntry(app.appId, app.volumePath);
 
-      // Step 3: Remove the app locally (this will clean up containers, images, etc.)
-      log.info(`Step 3: Removing app ${app.appName} locally...`);
+      // Step 3: Hard redeploy the app (removes and reinstalls with correct volume paths)
+      log.info(`Step 3: Hard redeploying app ${app.appName} with correct volume paths...`);
       // eslint-disable-next-line no-await-in-loop
-      const removed = await removeAppLocallyInternal(app.appName);
-
-      if (removed) {
-        // Step 4: Broadcast the removal to the network
-        log.info(`Step 4: Broadcasting removal of ${app.appName} to network...`);
-        // eslint-disable-next-line no-await-in-loop
-        await broadcastAppRemoval(app.appName);
-        log.info(`✓ App ${app.appName} successfully removed and broadcasted to network`);
-
-        // Add a delay between removals to avoid overwhelming the system
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(2000);
-      } else {
-        log.error(`✗ Failed to remove app ${app.appName}, skipping broadcast`);
-      }
+      const redeployed = await hardRedeployApp(app.appName);
     }
 
     log.info('=== Volume Validation Service: Completed fixing incorrect volume mounts ===');
@@ -315,4 +290,5 @@ module.exports = {
   getAppsWithIncorrectVolumeMounts,
   unmountIncorrectVolume,
   removeCrontabEntry,
+  hardRedeployApp,
 };
