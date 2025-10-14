@@ -38,7 +38,7 @@ const timeTostartNewMasterApp = new Map();
 // Promisified functions
 const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
-const fluxDirPath = path.join(process.env.FLUX_APPS_FOLDER || path.join(__dirname, '../../../../'), 'flux/');
+const fluxDirPath = path.join(__dirname, '../../../../');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
 
