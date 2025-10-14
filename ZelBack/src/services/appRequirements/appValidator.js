@@ -1285,7 +1285,7 @@ async function verifyAppRegistrationParameters(req, res) {
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
           }
         }
       }
@@ -1353,7 +1353,7 @@ async function verifyAppUpdateParameters(req, res) {
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
           }
         }
       }
@@ -1469,7 +1469,7 @@ async function registerAppGlobalyApi(req, res) {
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
             // eslint-disable-next-line no-await-in-loop
-            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, true);
           }
         }
       }

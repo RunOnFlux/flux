@@ -1184,9 +1184,9 @@ async function verifyAppUpdateParameters(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
-            const appSecurity = require('../appSecurity/appSecrets');
+            const appSecurity = require('../appSecurity/imageManager');
             // eslint-disable-next-line no-await-in-loop
-            await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
           }
         }
       }
@@ -2007,9 +2007,9 @@ async function updateAppGlobalyApi(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
-            const appSecurity = require('../appSecurity/appSecrets');
+            const appSecurity = require('../appSecurity/imageManager');
             // eslint-disable-next-line no-await-in-loop
-            await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+            await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
           }
         }
       }
