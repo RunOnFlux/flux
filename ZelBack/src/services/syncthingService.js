@@ -2845,11 +2845,6 @@ function saveMetricsSnapshot(metrics) {
  */
 async function getSyncthingMetrics(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
     const metrics = await collectSyncthingMetrics();
     const response = messageHelper.createDataMessage(metrics);
     return res ? res.json(response) : response;
@@ -2868,11 +2863,6 @@ async function getSyncthingMetrics(req, res) {
  */
 async function getSyncthingHealthSummary(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
     const metrics = await collectSyncthingMetrics();
     const summary = {
       timestamp: metrics.timestamp,
@@ -2920,11 +2910,6 @@ async function getSyncthingHealthSummary(req, res) {
  */
 async function getSyncthingMetricsHistory(req, res) {
   try {
-    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
-    if (!authorized) {
-      const errMessage = messageHelper.errUnauthorizedMessage();
-      return res ? res.json(errMessage) : errMessage;
-    }
     let { limit } = req.params;
     limit = limit || req.query.limit || metricsHistory.maxSnapshots;
     limit = parseInt(limit, 10);
