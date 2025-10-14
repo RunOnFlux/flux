@@ -1331,6 +1331,12 @@ async function syncthingApps() {
               fsWatcherEnabled: true,
               fsWatcherDelayS: 30,
               maxConflicts: -1,
+              versioning: {
+                type: 'trashcan',
+                params: {
+                  cleanoutDays: '7',
+                },
+              },
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
@@ -1564,6 +1570,12 @@ async function syncthingApps() {
                 fsWatcherEnabled: true,
                 fsWatcherDelayS: 30,
                 maxConflicts: -1,
+                versioning: {
+                  type: 'trashcan',
+                  params: {
+                    cleanoutDays: '7',
+                  },
+                },
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
