@@ -619,8 +619,9 @@ describe('dockerService tests', () => {
   describe('appDockerCreate tests', () => {
     let dockerStub;
     const appName = 'fluxwebsite';
-    const fluxDirPath = path.join(__dirname, '../../');
-    const appsFolder = `${fluxDirPath}ZelApps/`;
+    // Use the same path that dockerService will compute at runtime
+    const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
+    const appsFolder = `${fluxDirPath}/ZelApps/`;
     const baseNodeApp = {
       name: 'website',
       commands: [
