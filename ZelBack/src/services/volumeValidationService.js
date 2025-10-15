@@ -237,6 +237,17 @@ async function hardRedeployApp(appName) {
 }
 
 /**
+ * Extract base app name from component name
+ * Component names follow the pattern: componentname_appname
+ * @param {string} appName - The app or component name
+ * @returns {string} - The base app name (second part after underscore, or original if no underscore)
+ */
+function extractBaseAppName(appName) {
+  // Use the same pattern as the rest of the codebase
+  return appName.split('_')[1] || appName;
+}
+
+/**
  * Check and fix apps with incorrect volume mounts
  * This function runs on FluxOS startup
  * @returns {Promise<void>}
@@ -253,6 +264,9 @@ async function checkAndFixIncorrectVolumeMounts() {
     }
 
     log.warn(`=== Volume Validation Service: Found ${appsWithIncorrectMounts.length} apps with incorrect mounts ===`);
+
+    // Track unique app names for redeployment
+    const uniqueAppNames = new Set();
 
     // Process each app with incorrect mount sequentially
     // eslint-disable-next-line no-restricted-syntax
@@ -272,10 +286,18 @@ async function checkAndFixIncorrectVolumeMounts() {
       // eslint-disable-next-line no-await-in-loop
       await removeCrontabEntry(app.appId, app.volumePath);
 
-      // Step 3: Hard redeploy the app (removes and reinstalls with correct volume paths)
-      log.info(`Step 3: Hard redeploying app ${app.appName} with correct volume paths...`);
+      // Extract base app name and add to unique set
+      const baseAppName = extractBaseAppName(app.appName);
+      uniqueAppNames.add(baseAppName);
+    }
+
+    // Step 3: Hard redeploy each unique app (removes and reinstalls with correct volume paths)
+    log.info(`Found ${uniqueAppNames.size} unique apps to redeploy`);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const appName of uniqueAppNames) {
+      log.info(`Hard redeploying app ${appName} with correct volume paths...`);
       // eslint-disable-next-line no-await-in-loop
-      const redeployed = await hardRedeployApp(app.appName);
+      await hardRedeployApp(appName);
     }
 
     log.info('=== Volume Validation Service: Completed fixing incorrect volume mounts ===');
@@ -287,8 +309,10 @@ async function checkAndFixIncorrectVolumeMounts() {
 module.exports = {
   checkAndFixIncorrectVolumeMounts,
   hasIncorrectFluxPath,
+  extractAppNameFromCrontabCommand,
   getAppsWithIncorrectVolumeMounts,
   unmountIncorrectVolume,
   removeCrontabEntry,
   hardRedeployApp,
+  extractBaseAppName,
 };

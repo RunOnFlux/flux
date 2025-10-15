@@ -26,7 +26,8 @@ const volumeValidationService = proxyquire('../../ZelBack/src/services/volumeVal
 
 describe('volumeValidationService tests', () => {
   afterEach(() => {
-    sinon.restore();
+    // Only reset global stubs, don't call sinon.restore() as it will restore
+    // all stubs including those in nested beforeEach blocks
     cmdAsyncStub.reset();
     crontabLoadStub.reset();
   });
@@ -418,6 +419,41 @@ describe('volumeValidationService tests', () => {
   });
 
 
+  describe('extractBaseAppName tests', () => {
+    it('should extract app name from component name with underscore', () => {
+      const componentName = 'mongodb_myapp';
+
+      const result = volumeValidationService.extractBaseAppName(componentName);
+
+      expect(result).to.equal('myapp');
+    });
+
+    it('should return original name if no underscore present', () => {
+      const appName = 'simpleapp';
+
+      const result = volumeValidationService.extractBaseAppName(appName);
+
+      expect(result).to.equal('simpleapp');
+    });
+
+    it('should extract app name from component with multiple underscores', () => {
+      const componentName = 'redis_cache_myapp';
+
+      const result = volumeValidationService.extractBaseAppName(componentName);
+
+      // split('_')[1] returns the second element only
+      expect(result).to.equal('cache');
+    });
+
+    it('should handle single character component names', () => {
+      const componentName = 'a_myapp';
+
+      const result = volumeValidationService.extractBaseAppName(componentName);
+
+      expect(result).to.equal('myapp');
+    });
+  });
+
   describe('checkAndFixIncorrectVolumeMounts tests', () => {
     let getAppsStub;
     let unmountStub;
@@ -430,6 +466,14 @@ describe('volumeValidationService tests', () => {
       unmountStub = sinon.stub(volumeValidationService, 'unmountIncorrectVolume');
       removeCrontabStub = sinon.stub(volumeValidationService, 'removeCrontabEntry');
       hardRedeployStub = sinon.stub(volumeValidationService, 'hardRedeployApp');
+    });
+
+    afterEach(() => {
+      // Restore the stubs after each test in this describe block
+      if (getAppsStub) getAppsStub.restore();
+      if (unmountStub) unmountStub.restore();
+      if (removeCrontabStub) removeCrontabStub.restore();
+      if (hardRedeployStub) hardRedeployStub.restore();
     });
 
     it('should process apps with incorrect mounts successfully', async () => {
@@ -471,6 +515,50 @@ describe('volumeValidationService tests', () => {
       // Verify hardRedeploy was called with correct app names
       sinon.assert.calledWith(hardRedeployStub.firstCall, 'app1');
       sinon.assert.calledWith(hardRedeployStub.secondCall, 'app2');
+    });
+
+    it('should deduplicate component names and redeploy each app only once', async () => {
+      const mockApps = [
+        {
+          appName: 'mongodb_myapp',
+          appId: 'id-1',
+          volumePath: '/home/flux/ZelApps/mongodb_myappTEMP',
+          mountPoint: '/root/flux/ZelApps/mongodb_myapp',
+        },
+        {
+          appName: 'redis_myapp',
+          appId: 'id-2',
+          volumePath: '/home/flux/ZelApps/redis_myappTEMP',
+          mountPoint: '/root/flux/ZelApps/redis_myapp',
+        },
+        {
+          appName: 'postgres_otherapp',
+          appId: 'id-3',
+          volumePath: '/home/flux/ZelApps/postgres_otherappTEMP',
+          mountPoint: '/root/flux/ZelApps/postgres_otherapp',
+        },
+      ];
+
+      getAppsStub.resolves(mockApps);
+      unmountStub.resolves(true);
+      removeCrontabStub.resolves(true);
+      hardRedeployStub.resolves(true);
+
+      await volumeValidationService.checkAndFixIncorrectVolumeMounts();
+
+      sinon.assert.calledOnce(getAppsStub);
+      // Should unmount all 3 components
+      sinon.assert.calledThrice(unmountStub);
+      sinon.assert.calledThrice(removeCrontabStub);
+      // Should only redeploy 2 unique apps (myapp and otherapp)
+      sinon.assert.calledTwice(hardRedeployStub);
+
+      // Verify hardRedeploy was called with unique app names only
+      const redeployedApps = [
+        hardRedeployStub.firstCall.args[0],
+        hardRedeployStub.secondCall.args[0],
+      ];
+      expect(redeployedApps).to.have.members(['myapp', 'otherapp']);
     });
 
     it('should log message when no incorrect mounts found', async () => {
