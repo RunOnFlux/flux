@@ -115,7 +115,7 @@ let lastUPNPMapFailed = false;
 let nextTestingPort = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 const portsNotWorking = new Set();
 const isArcane = Boolean(process.env.FLUXOS_PATH);
-const fluxDirPath = path.join(__dirname, '../../../');
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 // ToDo: Fix all the string concatenation in this file and use path.join()
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
@@ -1332,7 +1332,10 @@ async function syncthingApps() {
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-              if (syncthingAppsFirstRun) {
+              // Check if folder already exists and is in sendreceive mode - if so, keep it
+              const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
+
+              if (syncthingAppsFirstRun && !folderAlreadySyncing) {
                 if (!syncFolder) {
                   log.info(`syncthingApps - First run, no sync folder - stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
@@ -1378,7 +1381,7 @@ async function syncthingApps() {
                     }
                   }
                 }
-              } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+              } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted && !folderAlreadySyncing) {
                 log.info(`syncthingApps - App ${appId} in cache and not restarted, processing receive-only logic`);
                 const cache = receiveOnlySyncthingAppsCache.get(appId);
                 // eslint-disable-next-line no-await-in-loop
@@ -1439,7 +1442,7 @@ async function syncthingApps() {
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                 }
-              } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
+              } else if (!receiveOnlySyncthingAppsCache.has(appId) && !folderAlreadySyncing) {
                 log.info(`syncthingApps - App ${appId} NOT in cache. stopping and cleaning appIdentifier ${appId}`);
                 syncthingFolder.type = 'receiveonly';
                 const cache = {
@@ -1560,7 +1563,10 @@ async function syncthingApps() {
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-                if (syncthingAppsFirstRun) {
+                // Check if folder already exists and is in sendreceive mode - if so, keep it
+                const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
+
+                if (syncthingAppsFirstRun && !folderAlreadySyncing) {
                   if (!syncFolder) {
                     log.info(`syncthingApps - First run, no sync folder - stopping and cleaning component ${appId}`);
                     syncthingFolder.type = 'receiveonly';
@@ -1606,7 +1612,7 @@ async function syncthingApps() {
                       }
                     }
                   }
-                } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+                } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted && !folderAlreadySyncing) {
                   log.info(`syncthingApps - Component ${appId} in cache and not restarted, processing receive-only logic`);
                   const cache = receiveOnlySyncthingAppsCache.get(appId);
                   // eslint-disable-next-line no-await-in-loop
@@ -1668,7 +1674,7 @@ async function syncthingApps() {
                     }
                     receiveOnlySyncthingAppsCache.set(appId, cache);
                   }
-                } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
+                } else if (!receiveOnlySyncthingAppsCache.has(appId) && !folderAlreadySyncing) {
                   log.info(`syncthingApps - Component ${appId} NOT in cache. Stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
                   const cache = {
@@ -2497,7 +2503,7 @@ async function getApplicationOriginalOwner(req, res) {
  */
 async function getAppsInstallingLocations(req, res) {
   try {
-    const results = await appInstallingLocation();
+    const results = await registryManager.appInstallingLocation();
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {

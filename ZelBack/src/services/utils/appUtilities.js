@@ -9,7 +9,7 @@ const geolocationService = require('../geolocationService');
 const { getChainParamsPriceUpdates } = require('./chainUtilities');
 
 const cmdAsync = util.promisify(nodecmd.run);
-const fluxDirPath = path.join(__dirname, '../../../../');
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 
 /**
  * Calculate app price per month

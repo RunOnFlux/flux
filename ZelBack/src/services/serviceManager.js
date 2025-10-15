@@ -21,6 +21,7 @@ const dockerService = require('./dockerService');
 const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
 const fluxNodeService = require('./fluxNodeService');
+const volumeValidationService = require('./volumeValidationService');
 // const throughputLogger = require('./utils/throughputLogger');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
@@ -138,6 +139,14 @@ async function startFluxFunctions() {
     };
 
     if (appsToRemove.length) setImmediate(appRemover);
+
+    // Check for apps with incorrect volume mounts (containing /flux/ path)
+    log.info('Checking for apps with incorrect volume mounts...');
+    setTimeout(() => {
+      volumeValidationService.checkAndFixIncorrectVolumeMounts().catch((error) => {
+        log.error(`Volume validation service error: ${error.message}`);
+      });
+    }, 45 * 1000); // Run after 45 seconds to allow system to stabilize
 
     log.info('Flux Apps installing locations prepared');
     fluxNetworkHelper.adjustFirewall();

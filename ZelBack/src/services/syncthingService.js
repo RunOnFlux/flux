@@ -2416,6 +2416,8 @@ async function stopSyncthingSentinel() {
   await stc.abort();
   // so axios gets a new sigal
   axiosCache.reset();
+  // Stop metrics collection
+  stopMetricsCollection(); // eslint-disable-line no-use-before-define
   log.info('Syncthing sentinel stopped');
 }
 
@@ -2533,6 +2535,9 @@ async function startSyncthingSentinel() {
 
   // idempotent
   stc.startLoop(runSyncthingSentinel);
+
+  // Start metrics collection (every 60 seconds by default)
+  startMetricsCollection(60_000); // eslint-disable-line no-use-before-define
 }
 
 /**
@@ -2552,6 +2557,447 @@ if (require.main === module) {
     if (cmd === 'start') startSyncthingSentinel();
     if (cmd === 'stop') await stopSyncthingSentinel();
   });
+}
+
+// === METRICS AND MONITORING ===
+
+/**
+ * Storage for metrics history
+ */
+const metricsHistory = {
+  snapshots: [],
+  maxSnapshots: 100, // Keep last 100 snapshots
+};
+
+/**
+ * Collects comprehensive metrics from Syncthing
+ * @returns {Promise<object>} Aggregated metrics object
+ */
+async function collectSyncthingMetrics() {
+  try {
+    const timestamp = Date.now();
+    const metrics = {
+      timestamp,
+      health: {
+        status: 'unknown',
+        error: null,
+      },
+      system: {
+        status: 'unknown',
+        uptime: 0,
+        cpuPercent: 0,
+        error: null,
+      },
+      connections: {
+        total: 0,
+        connected: 0,
+        devices: {},
+        error: null,
+      },
+      folders: {
+        total: 0,
+        syncing: 0,
+        idle: 0,
+        error: 0,
+        details: {},
+      },
+      stats: {
+        device: null,
+        folder: null,
+        error: null,
+      },
+      errors: {
+        system: [],
+        folder: {},
+      },
+      overall: {
+        healthy: true,
+        syncProgress: 0,
+        issues: [],
+      },
+    };
+
+    // Collect health status
+    try {
+      const healthResponse = await performRequest('get', '/rest/noauth/health');
+      if (healthResponse.status === 'success') {
+        metrics.health.status = healthResponse.data?.status || 'ok';
+      } else {
+        metrics.health.error = healthResponse.data?.message || 'Unknown error';
+        metrics.overall.healthy = false;
+        metrics.overall.issues.push('Health check failed');
+      }
+    } catch (error) {
+      metrics.health.error = error.message;
+      metrics.overall.healthy = false;
+      metrics.overall.issues.push(`Health check error: ${error.message}`);
+    }
+
+    // Collect system status
+    try {
+      const systemResponse = await performRequest('get', '/rest/system/status');
+      if (systemResponse.status === 'success') {
+        const systemData = systemResponse.data;
+        metrics.system = {
+          status: 'ok',
+          uptime: systemData.uptime || 0,
+          cpuPercent: systemData.cpuPercent || 0,
+          goroutines: systemData.goroutines || 0,
+          myID: systemData.myID || '',
+          pathSeparator: systemData.pathSeparator || '/',
+          startTime: systemData.startTime || '',
+          error: null,
+        };
+      } else {
+        metrics.system.error = systemResponse.data?.message || 'Failed to get system status';
+        metrics.overall.issues.push('System status unavailable');
+      }
+    } catch (error) {
+      metrics.system.error = error.message;
+      metrics.overall.issues.push(`System status error: ${error.message}`);
+    }
+
+    // Collect connections
+    try {
+      const connectionsResponse = await performRequest('get', '/rest/system/connections');
+      if (connectionsResponse.status === 'success') {
+        const connectionsData = connectionsResponse.data;
+        const devices = connectionsData.connections || {};
+        let connected = 0;
+        const deviceDetails = {};
+
+        Object.keys(devices).forEach((deviceId) => {
+          const device = devices[deviceId];
+          if (device.connected) {
+            connected += 1;
+          }
+          deviceDetails[deviceId] = {
+            connected: device.connected || false,
+            address: device.address || '',
+            clientVersion: device.clientVersion || '',
+            type: device.type || '',
+            inBytesTotal: device.inBytesTotal || 0,
+            outBytesTotal: device.outBytesTotal || 0,
+          };
+        });
+
+        metrics.connections = {
+          total: Object.keys(devices).length,
+          connected,
+          devices: deviceDetails,
+          error: null,
+        };
+      } else {
+        metrics.connections.error = connectionsResponse.data?.message || 'Failed to get connections';
+      }
+    } catch (error) {
+      metrics.connections.error = error.message;
+    }
+
+    // Collect folder statistics
+    try {
+      const statsResponse = await performRequest('get', '/rest/stats/folder');
+      if (statsResponse.status === 'success') {
+        metrics.stats.folder = statsResponse.data;
+      }
+    } catch (error) {
+      metrics.stats.error = error.message;
+    }
+
+    // Collect device statistics
+    try {
+      const deviceStatsResponse = await performRequest('get', '/rest/stats/device');
+      if (deviceStatsResponse.status === 'success') {
+        metrics.stats.device = deviceStatsResponse.data;
+      }
+    } catch (error) {
+      if (!metrics.stats.error) metrics.stats.error = error.message;
+    }
+
+    // Collect folder status (get config first to know which folders exist)
+    try {
+      const configResponse = await performRequest('get', '/rest/config/folders');
+      if (configResponse.status === 'success' && Array.isArray(configResponse.data)) {
+        const folders = configResponse.data;
+        metrics.folders.total = folders.length;
+        let totalGlobalBytes = 0;
+        let totalInSyncBytes = 0;
+
+        // eslint-disable-next-line no-restricted-syntax
+        for (const folder of folders) {
+          const folderId = folder.id;
+          try {
+            // Get folder status
+            // eslint-disable-next-line no-await-in-loop
+            const statusResponse = await performRequest('get', `/rest/db/status?folder=${folderId}`);
+            if (statusResponse.status === 'success') {
+              const folderStatus = statusResponse.data;
+              const state = folderStatus.state || 'unknown';
+              const globalBytes = folderStatus.globalBytes || 0;
+              const inSyncBytes = folderStatus.inSyncBytes || 0;
+              const needBytes = folderStatus.needBytes || 0;
+              const pullErrors = folderStatus.pullErrors || 0;
+              const errors = folderStatus.errors || 0;
+
+              metrics.folders.details[folderId] = {
+                label: folder.label || folderId,
+                state,
+                globalBytes,
+                inSyncBytes,
+                needBytes,
+                pullErrors,
+                errors,
+                syncPercentage: globalBytes > 0 ? ((inSyncBytes / globalBytes) * 100).toFixed(2) : 100,
+              };
+
+              totalGlobalBytes += globalBytes;
+              totalInSyncBytes += inSyncBytes;
+
+              // Count states
+              if (state === 'syncing' || state === 'sync-preparing') {
+                metrics.folders.syncing += 1;
+              } else if (state === 'idle') {
+                metrics.folders.idle += 1;
+              } else if (state === 'error') {
+                metrics.folders.error += 1;
+                metrics.overall.issues.push(`Folder ${folder.label || folderId} in error state`);
+              }
+
+              // Track errors
+              if (errors > 0 || pullErrors > 0) {
+                metrics.errors.folder[folderId] = {
+                  pullErrors,
+                  errors,
+                };
+                metrics.overall.issues.push(`Folder ${folder.label || folderId} has ${errors + pullErrors} error(s)`);
+              }
+            }
+          } catch (error) {
+            log.warn(`Failed to get status for folder ${folderId}: ${error.message}`);
+            metrics.folders.details[folderId] = {
+              label: folder.label || folderId,
+              state: 'unknown',
+              error: error.message,
+            };
+          }
+        }
+
+        // Calculate overall sync progress
+        if (totalGlobalBytes > 0) {
+          metrics.overall.syncProgress = parseFloat(((totalInSyncBytes / totalGlobalBytes) * 100).toFixed(2));
+        } else {
+          metrics.overall.syncProgress = 100;
+        }
+
+        // Update overall health based on folder states
+        if (metrics.folders.error > 0) {
+          metrics.overall.healthy = false;
+        }
+      }
+    } catch (error) {
+      metrics.folders.error = error.message;
+      metrics.overall.issues.push(`Failed to collect folder metrics: ${error.message}`);
+    }
+
+    // Collect system errors
+    try {
+      const errorsResponse = await performRequest('get', '/rest/system/error');
+      if (errorsResponse.status === 'success' && errorsResponse.data?.errors) {
+        metrics.errors.system = errorsResponse.data.errors;
+        if (metrics.errors.system.length > 0) {
+          metrics.overall.healthy = false;
+          metrics.overall.issues.push(`${metrics.errors.system.length} system error(s) detected`);
+        }
+      }
+    } catch (error) {
+      log.warn(`Failed to get system errors: ${error.message}`);
+    }
+
+    return metrics;
+  } catch (error) {
+    log.error(`Failed to collect syncthing metrics: ${error.message}`);
+    return {
+      timestamp: Date.now(),
+      error: error.message,
+      overall: { healthy: false, issues: [`Metrics collection failed: ${error.message}`] },
+    };
+  }
+}
+
+/**
+ * Saves a metrics snapshot to history
+ * @param {object} metrics Metrics object to save
+ */
+function saveMetricsSnapshot(metrics) {
+  metricsHistory.snapshots.push(metrics);
+
+  // Keep only the last N snapshots
+  if (metricsHistory.snapshots.length > metricsHistory.maxSnapshots) {
+    metricsHistory.snapshots.shift();
+  }
+}
+
+/**
+ * Gets current syncthing metrics
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Current metrics
+ */
+async function getSyncthingMetrics(req, res) {
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      const metrics = await collectSyncthingMetrics();
+      response = messageHelper.createDataMessage(metrics);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Gets syncthing health summary
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Health summary
+ */
+async function getSyncthingHealthSummary(req, res) {
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      const metrics = await collectSyncthingMetrics();
+      const summary = {
+        timestamp: metrics.timestamp,
+        healthy: metrics.overall.healthy,
+        syncProgress: metrics.overall.syncProgress,
+        issues: metrics.overall.issues,
+        health: {
+          status: metrics.health.status,
+          error: metrics.health.error,
+        },
+        system: {
+          uptime: metrics.system.uptime,
+          status: metrics.system.status,
+        },
+        connections: {
+          connected: metrics.connections.connected,
+          total: metrics.connections.total,
+        },
+        folders: {
+          total: metrics.folders.total,
+          syncing: metrics.folders.syncing,
+          idle: metrics.folders.idle,
+          error: metrics.folders.error,
+        },
+        errors: {
+          systemErrors: metrics.errors.system.length,
+          folderErrors: Object.keys(metrics.errors.folder).length,
+        },
+      };
+      response = messageHelper.createDataMessage(summary);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }  
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Gets syncthing metrics history
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Metrics history
+ */
+async function getSyncthingMetricsHistory(req, res) {
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      let { limit } = req.params;
+      limit = limit || req.query.limit || metricsHistory.maxSnapshots;
+      limit = parseInt(limit, 10);
+
+      const snapshots = metricsHistory.snapshots.slice(-limit);
+      response = messageHelper.createDataMessage({
+        snapshots,
+        count: snapshots.length,
+        maxSnapshots: metricsHistory.maxSnapshots,
+      });
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Periodic metrics collection (called by sentinel or scheduler)
+ * @returns {Promise<object|void>} Collected metrics or void
+ */
+async function collectAndSaveMetrics() {
+  try {
+    if (!syncthingStatusOk) {
+      log.debug('Syncthing not running, skipping metrics collection');
+      return undefined;
+    }
+
+    const metrics = await collectSyncthingMetrics();
+    saveMetricsSnapshot(metrics);
+
+    // Log warnings for any issues
+    if (!metrics.overall.healthy) {
+      log.warn(`Syncthing health issues detected: ${metrics.overall.issues.join(', ')}`);
+    }
+
+    return metrics;
+  } catch (error) {
+    log.error(`Error in periodic metrics collection: ${error.message}`);
+    return undefined;
+  }
+}
+
+/**
+ * Starts periodic metrics collection
+ * @param {number} intervalMs Interval in milliseconds (default: 60000 = 1 minute)
+ */
+let metricsCollectionInterval = null;
+function startMetricsCollection(intervalMs = 60_000) {
+  if (metricsCollectionInterval) {
+    log.info('Metrics collection already running');
+    return;
+  }
+
+  log.info(`Starting syncthing metrics collection with ${intervalMs}ms interval`);
+  metricsCollectionInterval = setInterval(collectAndSaveMetrics, intervalMs);
+
+  // Collect initial metrics immediately
+  collectAndSaveMetrics();
+}
+
+/**
+ * Stops periodic metrics collection
+ */
+function stopMetricsCollection() {
+  if (metricsCollectionInterval) {
+    clearInterval(metricsCollectionInterval);
+    metricsCollectionInterval = null;
+    log.info('Stopped syncthing metrics collection');
+  }
 }
 
 module.exports = {
@@ -2658,4 +3104,11 @@ module.exports = {
   getConfigFile,
   runSyncthingSentinel,
   stopSyncthing,
+  // METRICS AND MONITORING
+  getSyncthingMetrics,
+  getSyncthingHealthSummary,
+  getSyncthingMetricsHistory,
+  collectSyncthingMetrics,
+  startMetricsCollection,
+  stopMetricsCollection,
 };
