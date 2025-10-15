@@ -2,7 +2,7 @@ const config = require('config');
 const path = require('path');
 
 // Directory paths
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux')
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = path.join(appsFolderPath, '/');
 

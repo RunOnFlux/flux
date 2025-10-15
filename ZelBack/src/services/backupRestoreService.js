@@ -7,7 +7,7 @@ const fs = require('fs').promises;
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux')
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 // ToDo: Fix all the string concatenation in this file and use path.join()
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;

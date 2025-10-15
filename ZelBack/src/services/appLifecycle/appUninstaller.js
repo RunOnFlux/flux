@@ -20,7 +20,7 @@ const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
 
-const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux')
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
 const cmdAsync = util.promisify(nodecmd.run);
