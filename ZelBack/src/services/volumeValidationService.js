@@ -168,7 +168,7 @@ async function removeCrontabEntry(appId, incorrectVolumePath) {
 
     if (jobRemoved) {
       try {
-        crontab.save();
+        await crontab.save();
         log.info(`Successfully removed crontab entry for ${appId}`);
         return true;
       } catch (error) {
