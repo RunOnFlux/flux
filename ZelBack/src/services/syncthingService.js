@@ -2845,8 +2845,14 @@ function saveMetricsSnapshot(metrics) {
  */
 async function getSyncthingMetrics(req, res) {
   try {
-    const metrics = await collectSyncthingMetrics();
-    const response = messageHelper.createDataMessage(metrics);
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      const metrics = await collectSyncthingMetrics();
+      response = messageHelper.createDataMessage(metrics);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -2863,37 +2869,42 @@ async function getSyncthingMetrics(req, res) {
  */
 async function getSyncthingHealthSummary(req, res) {
   try {
-    const metrics = await collectSyncthingMetrics();
-    const summary = {
-      timestamp: metrics.timestamp,
-      healthy: metrics.overall.healthy,
-      syncProgress: metrics.overall.syncProgress,
-      issues: metrics.overall.issues,
-      health: {
-        status: metrics.health.status,
-        error: metrics.health.error,
-      },
-      system: {
-        uptime: metrics.system.uptime,
-        status: metrics.system.status,
-      },
-      connections: {
-        connected: metrics.connections.connected,
-        total: metrics.connections.total,
-      },
-      folders: {
-        total: metrics.folders.total,
-        syncing: metrics.folders.syncing,
-        idle: metrics.folders.idle,
-        error: metrics.folders.error,
-      },
-      errors: {
-        systemErrors: metrics.errors.system.length,
-        folderErrors: Object.keys(metrics.errors.folder).length,
-      },
-    };
-
-    const response = messageHelper.createDataMessage(summary);
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      const metrics = await collectSyncthingMetrics();
+      const summary = {
+        timestamp: metrics.timestamp,
+        healthy: metrics.overall.healthy,
+        syncProgress: metrics.overall.syncProgress,
+        issues: metrics.overall.issues,
+        health: {
+          status: metrics.health.status,
+          error: metrics.health.error,
+        },
+        system: {
+          uptime: metrics.system.uptime,
+          status: metrics.system.status,
+        },
+        connections: {
+          connected: metrics.connections.connected,
+          total: metrics.connections.total,
+        },
+        folders: {
+          total: metrics.folders.total,
+          syncing: metrics.folders.syncing,
+          idle: metrics.folders.idle,
+          error: metrics.folders.error,
+        },
+        errors: {
+          systemErrors: metrics.errors.system.length,
+          folderErrors: Object.keys(metrics.errors.folder).length,
+        },
+      };
+      response = messageHelper.createDataMessage(summary);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }  
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
@@ -2910,16 +2921,22 @@ async function getSyncthingHealthSummary(req, res) {
  */
 async function getSyncthingMetricsHistory(req, res) {
   try {
-    let { limit } = req.params;
-    limit = limit || req.query.limit || metricsHistory.maxSnapshots;
-    limit = parseInt(limit, 10);
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      let { limit } = req.params;
+      limit = limit || req.query.limit || metricsHistory.maxSnapshots;
+      limit = parseInt(limit, 10);
 
-    const snapshots = metricsHistory.snapshots.slice(-limit);
-    const response = messageHelper.createDataMessage({
-      snapshots,
-      count: snapshots.length,
-      maxSnapshots: metricsHistory.maxSnapshots,
-    });
+      const snapshots = metricsHistory.snapshots.slice(-limit);
+      response = messageHelper.createDataMessage({
+        snapshots,
+        count: snapshots.length,
+        maxSnapshots: metricsHistory.maxSnapshots,
+      });
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);
