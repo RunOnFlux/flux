@@ -86,7 +86,7 @@ async function getAppsWithIncorrectVolumeMounts() {
           const mountPoint = parts[5]; // The mount point
 
           // Check if volume path has incorrect /flux/ pattern
-          if (hasIncorrectFluxPath(volumePath)) {
+          if (hasIncorrectFluxPath(mountPoint)) {
             const appName = extractAppNameFromCrontabCommand(command);
             if (appName) {
               log.warn(`Found app with incorrect volume mount: ${appName}`);
