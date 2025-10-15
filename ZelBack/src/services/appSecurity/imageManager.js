@@ -145,7 +145,6 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
   };
 
   const appComponentSecrets = normalizePGP(appComponentSpecs.secrets);
-  log.info(`checkAppSecrets - normalized appComponentSecrets: ${appComponentSecrets}`);
 
   // Database connection
   const db = dbHelper.databaseConnection();
@@ -205,8 +204,6 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
       // eslint-disable-next-line no-continue
       if (processedSecrets.has(normalizedComponentSecret)) continue;
       processedSecrets.add(normalizedComponentSecret);
-
-      log.info(`checkAppSecrets - component secret: ${normalizedComponentSecret}`);
 
       if (normalizedComponentSecret === appComponentSecrets) {
         log.info('checkAppSecrets - found same secret');
