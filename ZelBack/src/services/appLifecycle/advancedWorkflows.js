@@ -2776,6 +2776,7 @@ module.exports = {
   createAppVolume,
   softRegisterAppLocally,
   softRemoveAppLocally,
+  hardRedeploy,
   redeployAPI,
   verifyAppUpdateParameters,
   updateAppGlobalyApi,
