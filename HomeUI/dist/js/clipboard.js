@@ -1,4 +1,4 @@
-(globalThis["webpackChunkflux"]=globalThis["webpackChunkflux"]||[]).push([[5997],{42152:function(t){
+(globalThis["webpackChunkflux"]=globalThis["webpackChunkflux"]||[]).push([[1763],{57576:function(t){
 /*!
  * clipboard.js v2.0.11
  * https://clipboardjs.com/
