@@ -1279,7 +1279,7 @@ async function verifyAppRegistrationParameters(req, res) {
         },
       );
 
-      const appSpecFormatted = await specificationFormatter(appSpecDecrypted);
+      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -1347,7 +1347,7 @@ async function verifyAppUpdateParameters(req, res) {
 
       const decryptedSpecs = await checkAndDecryptAppSpecs(appSpecification, { daemonHeight });
 
-      const appSpecFormatted = await specificationFormatter(decryptedSpecs);
+      const appSpecFormatted = specificationFormatter(decryptedSpecs);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -1463,7 +1463,7 @@ async function registerAppGlobalyApi(req, res) {
         },
       );
 
-      const appSpecFormatted = await specificationFormatter(appSpecDecrypted);
+      const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -1486,7 +1486,7 @@ async function registerAppGlobalyApi(req, res) {
       );
 
       const toVerify = isEnterprise
-        ? await specificationFormatter(appSpecification)
+        ? specificationFormatter(appSpecification)
         : appSpecFormatted;
 
       // check if zelid owner is correct ( done in message verification )

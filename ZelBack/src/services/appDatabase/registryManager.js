@@ -369,7 +369,7 @@ async function getApplicationGlobalSpecifications(appName) {
   let appSpec = await checkAndDecryptAppSpecs(dbAppSpec);
   if (appSpec && appSpec.version >= 8 && appSpec.enterprise) {
     const { height, hash } = appSpec;
-    appSpec = await specificationFormatter(appSpec);
+    appSpec = specificationFormatter(appSpec);
     appSpec.height = height;
     appSpec.hash = hash;
   }
@@ -451,7 +451,7 @@ async function getApplicationSpecifications(appName) {
   appInfo = await checkAndDecryptAppSpecs(appInfo);
   if (appInfo && appInfo.version >= 8 && appInfo.enterprise) {
     const { height, hash } = appInfo;
-    appInfo = await specificationFormatter(appInfo);
+    appInfo = specificationFormatter(appInfo);
     appInfo.height = height;
     appInfo.hash = hash;
   }
