@@ -103,6 +103,9 @@ const store = require('store');
 const splitargs = require('splitargs');
 const geolocations = require('../../../libs/geolocation');
 
+// PON (proof of nodes) Fork configuration - block height where chain speed increases 4x
+const FORK_BLOCK_HEIGHT = 2020000;
+
 export default {
   components: {
     AppInfo,
@@ -937,7 +940,10 @@ export default {
     },
     appRunningTill() {
       const blockTime = 2 * 60 * 1000;
-      const expires = this.callBResponse.data.expire || 22000;
+      // Use dynamic default expire based on block height (1 month)
+      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
+      const defaultExpire = 22000 * multiplier;
+      const expires = this.callBResponse.data.expire || defaultExpire;
       const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
       let newExpire = currentExpire;
       if (this.extendSubscription) {
@@ -1182,8 +1188,21 @@ export default {
           return expTime;
         }
         const blocks = expire;
-        const blockTime = 2 * 60 * 1000;
-        const validTime = blocks * blockTime;
+        // Calculate time based on current block height
+        // Before fork (block 2020000): 2 minutes per block
+        // After fork: 30 seconds per block
+        const forkBlock = FORK_BLOCK_HEIGHT;
+        const currentBlock = this.daemonBlockCount;
+
+        let validTime = 0;
+        if (currentBlock < forkBlock) {
+          // Currently before fork: 2 minutes per block
+          validTime = blocks * 2 * 60 * 1000;
+        } else {
+          // Currently after fork: 30 seconds per block
+          validTime = blocks * 30 * 1000;
+        }
+
         const expTime = Math.floor((this.timestamp + validTime) / 1000000) * 1000000;
         return expTime;
       }
@@ -1262,13 +1281,19 @@ export default {
       if (this.daemonBlockCount === -1) {
         return 'Not possible to calculate expiration';
       }
-      const expires = this.callBResponse.data.expire || 22000;
+      // Use dynamic default expire based on block height (1 month)
+      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
+      const defaultExpire = 22000 * multiplier;
+      const expires = this.callBResponse.data.expire || defaultExpire;
       const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
       if (blocksToExpire < 1) {
         return 'Application Expired';
       }
+      // Block time: 2 minutes before fork, 30 seconds (0.5 minutes) after fork
+      const forkBlock = FORK_BLOCK_HEIGHT;
+      const minutesPerBlock = this.daemonBlockCount >= forkBlock ? 0.5 : 2;
       // eslint-disable-next-line vue/no-side-effects-in-computed-properties
-      this.minutesRemaining = blocksToExpire * 2;
+      this.minutesRemaining = blocksToExpire * minutesPerBlock;
       const result = this.minutesToString;
       if (result.length > 2) {
         return `${result[0]}, ${result[1]}, ${result[2]}`;
@@ -4651,46 +4676,56 @@ export default {
       this.expireOptions = [];
       const expires = this.callBResponse.data.expire || 22000;
       const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
-      if (currentExpire + 5000 < 264000) {
+
+      // After block 2020000, the chain works 4x faster, so expire periods need to be multiplied by 4
+      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
+      const baseOneWeek = 5000 * multiplier;
+      const baseTwoWeeks = 11000 * multiplier;
+      const baseOneMonth = 22000 * multiplier;
+      const baseThreeMonths = 66000 * multiplier;
+      const baseSixMonths = 132000 * multiplier;
+      const baseOneYear = 264000 * multiplier;
+
+      if (currentExpire + baseOneWeek < baseOneYear) {
         this.expireOptions.push({
-          value: 5000 + currentExpire,
+          value: baseOneWeek + currentExpire,
           label: '1 week',
           time: 7 * 24 * 60 * 60 * 1000,
         });
       }
       this.expirePosition = 0;
-      if (currentExpire + 11000 < 264000) {
+      if (currentExpire + baseTwoWeeks < baseOneYear) {
         this.expireOptions.push({
-          value: 11000 + currentExpire,
+          value: baseTwoWeeks + currentExpire,
           label: '2 weeks',
           time: 14 * 24 * 60 * 60 * 1000,
         });
         this.expirePosition = 1;
       }
-      if (currentExpire + 22000 < 264000) {
+      if (currentExpire + baseOneMonth < baseOneYear) {
         this.expireOptions.push({
-          value: 22000 + currentExpire,
+          value: baseOneMonth + currentExpire,
           label: '1 month',
           time: 30 * 24 * 60 * 60 * 1000,
         });
         this.expirePosition = 2;
       }
-      if (currentExpire + 66000 < 264000) {
+      if (currentExpire + baseThreeMonths < baseOneYear) {
         this.expireOptions.push({
-          value: 66000 + currentExpire,
+          value: baseThreeMonths + currentExpire,
           label: '3 months',
           time: 90 * 24 * 60 * 60 * 1000,
         });
       }
-      if (currentExpire + 132000 < 264000) {
+      if (currentExpire + baseSixMonths < baseOneYear) {
         this.expireOptions.push({
-          value: 132000 + currentExpire,
+          value: baseSixMonths + currentExpire,
           label: '6 months',
           time: 180 * 24 * 60 * 60 * 1000,
         });
       }
       this.expireOptions.push({
-        value: 264000,
+        value: baseOneYear,
         label: 'Up to one year',
         time: 365 * 24 * 60 * 60 * 1000,
       });
@@ -4977,7 +5012,8 @@ export default {
       if (!this.extendSubscription) {
         const expires = this.callBResponse.data.expire || 22000;
         const blocksToExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
-        if (blocksToExpire < 5000) {
+        // Use dynamic minExpire that adjusts based on block height
+        if (blocksToExpire < this.minExpire) {
           throw new Error('Your application will expire in less than one week, you need to extend subscription to be able to update specifications');
         } else {
           return blocksToExpire;
@@ -4986,7 +5022,9 @@ export default {
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].value;
       }
-      return 22000;
+      // Use dynamic default based on block height (1 month)
+      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
+      return 22000 * multiplier;
     },
     async importRsaPublicKey(base64SpkiDer) {
       const spkiDer = Buffer.from(base64SpkiDer, 'base64');
@@ -6651,6 +6689,82 @@ export default {
       const response = await DaemonService.getBlockCount();
       if (response.data.status === 'success') {
         this.daemonBlockCount = response.data.data;
+        this.adjustExpireOptionsForBlockHeight();
+      }
+    },
+    adjustExpireOptionsForBlockHeight() {
+      // After fork block, the chain works 4x faster, so expire periods need to be multiplied by 4
+      if (this.daemonBlockCount >= FORK_BLOCK_HEIGHT) {
+        this.minExpire = 20000;
+        this.maxExpire = 1056000;
+        this.expireOptions = [
+          {
+            value: 20000,
+            label: '1 week',
+            time: 7 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 44000,
+            label: '2 weeks',
+            time: 14 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 88000,
+            label: '1 month',
+            time: 30 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 264000,
+            label: '3 months',
+            time: 90 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 528000,
+            label: '6 months',
+            time: 180 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 1056000,
+            label: '1 year',
+            time: 365 * 24 * 60 * 60 * 1000,
+          },
+        ];
+      } else {
+        // Reset to original values if block height is below threshold
+        this.minExpire = 5000;
+        this.maxExpire = 264000;
+        this.expireOptions = [
+          {
+            value: 5000,
+            label: '1 week',
+            time: 7 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 11000,
+            label: '2 weeks',
+            time: 14 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 22000,
+            label: '1 month',
+            time: 30 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 66000,
+            label: '3 months',
+            time: 90 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 132000,
+            label: '6 months',
+            time: 180 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 264000,
+            label: '1 year',
+            time: 365 * 24 * 60 * 60 * 1000,
+          },
+        ];
       }
     },
     async fetchEnterpriseKey(nodeip) { // we must have at least +5 nodes or up to 10% of spare keys

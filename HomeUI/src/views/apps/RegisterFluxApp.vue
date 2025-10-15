@@ -2830,8 +2830,21 @@ export default {
           return expTime;
         }
         const blocks = expire;
-        const blockTime = 2 * 60 * 1000;
-        const validTime = blocks * blockTime;
+        // Calculate time based on current block height
+        // Before fork (block 2020000): 2 minutes per block
+        // After fork: 30 seconds per block
+        const forkBlock = 2020000;
+        const currentBlock = this.currentHeight;
+
+        let validTime = 0;
+        if (currentBlock < forkBlock) {
+          // Currently before fork: 2 minutes per block
+          validTime = blocks * 2 * 60 * 1000;
+        } else {
+          // Currently after fork: 30 seconds per block
+          validTime = blocks * 30 * 1000;
+        }
+
         const expTime = this.timestamp + validTime;
         return expTime;
       }
@@ -3362,6 +3375,7 @@ export default {
         this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
       } else {
         this.currentHeight = daemonGetInfo.data.data.blocks;
+        this.adjustExpireOptionsForBlockHeight();
       }
       if (!this.$router.currentRoute.params.appspecs) {
         this.specificationVersion = 8;
@@ -3377,6 +3391,47 @@ export default {
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         this.appRegistrationSpecification.owner = auth.zelid;
+      }
+    },
+
+    adjustExpireOptionsForBlockHeight() {
+      // After block 2020000, the chain works 4 times faster
+      // So all expire periods (in blocks) need to be multiplied by 4x
+      if (this.currentHeight >= 2020000) {
+        this.expireOptions = [
+          {
+            value: 20000,
+            label: '1 week',
+            time: 7 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 44000,
+            label: '2 weeks',
+            time: 14 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 88000,
+            label: '1 month',
+            time: 30 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 264000,
+            label: '3 months',
+            time: 90 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 528000,
+            label: '6 months',
+            time: 180 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 1056000,
+            label: '1 year',
+            time: 365 * 24 * 60 * 60 * 1000,
+          },
+        ];
+        this.minExpire = 20000;
+        this.maxExpire = 1056000;
       }
     },
 

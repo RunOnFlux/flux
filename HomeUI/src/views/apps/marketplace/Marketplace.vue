@@ -312,12 +312,21 @@ export default {
     const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
 
     const adjustPeriod = (app) => {
+      // Handle old values (before block 2020000)
       if (app.expire === 264000) {
         return '1 year';
       } if (app.expire === 66000) {
         return '3 months';
       } if (app.expire === 132000) {
         return '6 months';
+      }
+      // Handle new 4x multiplied values (after block 2020000 when chain works 4x faster)
+      if (app.expire === 1056000) { // 264000 * 4
+        return '1 year';
+      } if (app.expire === 528000) { // 132000 * 4
+        return '6 months';
+      } if (app.expire === 88000) { // 22000 * 4
+        return '1 month';
       }
       return '1 month';
     };

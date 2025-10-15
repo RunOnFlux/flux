@@ -814,8 +814,12 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     } else if (appSpecifications.expire < config.fluxapps.cancel1BlockMinBlocksAllowance) {
       throw new Error(`Minimum expiration of application is ${config.fluxapps.cancel1BlockMinBlocksAllowance} blocks`);
     }
-    if (appSpecifications.expire > config.fluxapps.maxBlocksAllowance) {
-      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
+    // After fork block, chain works 4x faster, so we allow 4x more blocks for the same time period
+    const maxAllowance = height >= config.fluxapps.daemonPONFork
+      ? config.fluxapps.postPonMaxBlocksAllowance
+      : config.fluxapps.maxBlocksAllowance;
+    if (appSpecifications.expire > maxAllowance) {
+      throw new Error(`Maximum expiration of application is ${maxAllowance} blocks ~ 1 year`);
     }
     if (height < config.fluxapps.removeBlocksAllowanceIntervalBlock) {
       if (appSpecifications.expire % config.fluxapps.blocksAllowanceInterval !== 0) {

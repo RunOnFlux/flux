@@ -48,7 +48,12 @@ async function getAppFluxOnChainPrice(appSpecification) {
     const intervals = appPrices.filter((i) => i.height < daemonHeight);
     const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
     const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+
+    // Get dynamic default expire based on whether we're past the PON fork
+    // After fork, blocks are 4x faster, so 1 month = 88000 blocks instead of 22000
+    const blockHeightMultiplier = daemonHeight >= config.fluxapps.daemonPONFork ? 4 : 1;
+    const defaultExpire = config.fluxapps.blocksLasting * blockHeightMultiplier;
+
     let actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
     const expireIn = appSpecFormatted.expire || defaultExpire;
     // app prices are ceiled to highest 0.01
@@ -57,15 +62,31 @@ async function getAppFluxOnChainPrice(appSpecification) {
     actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
     if (appInfo) {
       let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
-      let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+
+      // Calculate previous expire with fork awareness
+      const previousBlockHeightMultiplier = appInfo.height >= config.fluxapps.daemonPONFork ? 4 : 1;
+      const previousDefaultExpire = config.fluxapps.blocksLasting * previousBlockHeightMultiplier;
+
+      let previousExpireIn = previousSpecsPrice.expire || previousDefaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
       if (daemonHeight > 1315000) {
-        previousExpireIn = appInfo.expire || defaultExpire;
+        previousExpireIn = appInfo.expire || previousDefaultExpire;
       }
-      const multiplierPrevious = previousExpireIn / defaultExpire;
+      const multiplierPrevious = previousExpireIn / previousDefaultExpire;
       previousSpecsPrice *= multiplierPrevious;
       previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
-      // what is the height difference
-      const heightDifference = daemonHeight - appInfo.height;
+
+      // Calculate height difference accounting for fork
+      // If app was registered before fork but we're now after fork, need to adjust
+      let heightDifference = daemonHeight - appInfo.height;
+      if (appInfo.height < config.fluxapps.daemonPONFork && daemonHeight >= config.fluxapps.daemonPONFork) {
+        // App registered before fork, now after fork
+        // Blocks before fork count as 1x, blocks after fork count as 4x (in terms of time passed)
+        const blocksBeforeFork = config.fluxapps.daemonPONFork - appInfo.height;
+        const blocksAfterFork = daemonHeight - config.fluxapps.daemonPONFork;
+        // Normalize to pre-fork block equivalents for time calculation
+        heightDifference = blocksBeforeFork + (blocksAfterFork * 4);
+      }
+
       const perc = (previousExpireIn - heightDifference) / previousExpireIn;
       if (perc > 0) {
         actualPriceToPay -= (perc * previousSpecsPrice);
@@ -255,7 +276,12 @@ async function getAppFiatAndFluxPrice(req, res) {
         }
       }
       let actualPriceToPay = 0;
-      const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+
+      // Get dynamic default expire based on whether we're past the PON fork
+      // After fork, blocks are 4x faster, so 1 month = 88000 blocks instead of 22000
+      const blockHeightMultiplier = daemonHeight >= config.fluxapps.daemonPONFork ? 4 : 1;
+      const defaultExpire = config.fluxapps.blocksLasting * blockHeightMultiplier;
+
       actualPriceToPay = await appPricePerMonth(appSpecFormatted, daemonHeight, appPrices);
       const expireIn = appSpecFormatted.expire || defaultExpire;
       // app prices are ceiled to highest 0.01
@@ -265,15 +291,31 @@ async function getAppFiatAndFluxPrice(req, res) {
       const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo) {
         let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
-        let previousExpireIn = previousSpecsPrice.expire || defaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
+
+        // Calculate previous expire with fork awareness
+        const previousBlockHeightMultiplier = appInfo.height >= config.fluxapps.daemonPONFork ? 4 : 1;
+        const previousDefaultExpire = config.fluxapps.blocksLasting * previousBlockHeightMultiplier;
+
+        let previousExpireIn = previousSpecsPrice.expire || previousDefaultExpire; // bad typo bug line. Leave it like it is, this bug is a feature now.
         if (daemonHeight > 1315000) {
-          previousExpireIn = appInfo.expire || defaultExpire;
+          previousExpireIn = appInfo.expire || previousDefaultExpire;
         }
-        const multiplierPrevious = previousExpireIn / defaultExpire;
+        const multiplierPrevious = previousExpireIn / previousDefaultExpire;
         previousSpecsPrice *= multiplierPrevious;
         previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
-        // what is the height difference
-        const heightDifference = daemonHeight - appInfo.height;
+
+        // Calculate height difference accounting for fork
+        // If app was registered before fork but we're now after fork, need to adjust
+        let heightDifference = daemonHeight - appInfo.height;
+        if (appInfo.height < config.fluxapps.daemonPONFork && daemonHeight >= config.fluxapps.daemonPONFork) {
+          // App registered before fork, now after fork
+          // Blocks before fork count as 1x, blocks after fork count as 4x (in terms of time passed)
+          const blocksBeforeFork = config.fluxapps.daemonPONFork - appInfo.height;
+          const blocksAfterFork = daemonHeight - config.fluxapps.daemonPONFork;
+          // Normalize to pre-fork block equivalents for time calculation
+          heightDifference = blocksBeforeFork + (blocksAfterFork * 4);
+        }
+
         const perc = (previousExpireIn - heightDifference) / previousExpireIn;
         if (perc > 0) {
           actualPriceToPay -= (perc * previousSpecsPrice);
