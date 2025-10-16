@@ -4,7 +4,7 @@ const hash = require('object-hash');
 const WebSocket = require('ws');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
-const appsService = require('./appsService');
+const messageStore = require('./appMessaging/messageStore');
 const verificationHelper = require('./verificationHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
@@ -45,7 +45,7 @@ async function handleAppMessages(message, fromIP, port) {
     // check if we have it in database and if not add
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    const rebroadcastToPeers = await appsService.storeAppTemporaryMessage(message.data, true);
+    const rebroadcastToPeers = await messageStore.storeAppTemporaryMessage(message.data, true);
     if (rebroadcastToPeers === true) {
       const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
       const daemonHeight = syncStatus.data.height || 0;
@@ -154,7 +154,7 @@ async function handleAppRunningMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    const rebroadcastToPeers = await appsService.storeAppRunningMessage(message.data);
+    const rebroadcastToPeers = await messageStore.storeAppRunningMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -203,7 +203,7 @@ async function handleAppInstallingMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    const rebroadcastToPeers = await appsService.storeAppInstallingMessage(message.data);
+    const rebroadcastToPeers = await messageStore.storeAppInstallingMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -252,7 +252,7 @@ async function handleAppInstallingErrorMessage(message, fromIP, port) {
     // check if we have it exactly like that in database and if not, update
     // if not in database, rebroadcast to all connections
     // do furtherVerification of message
-    const rebroadcastToPeers = await appsService.storeAppInstallingErrorMessage(message.data);
+    const rebroadcastToPeers = await messageStore.storeAppInstallingErrorMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp);
     if (rebroadcastToPeers === true && timestampOK) {
@@ -300,7 +300,7 @@ async function handleIPChangedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, update information
     // rebroadcast message to the network if it's valid
-    const rebroadcastToPeers = await appsService.storeIPChangedMessage(message.data);
+    const rebroadcastToPeers = await messageStore.storeIPChangedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {
@@ -348,7 +348,7 @@ async function handleAppRemovedMessage(message, fromIP, port) {
   try {
     // check if we have it any app running on that location and if yes, delete that information
     // rebroadcast message to the network if it's valid
-    const rebroadcastToPeers = await appsService.storeAppRemovedMessage(message.data);
+    const rebroadcastToPeers = await messageStore.storeAppRemovedMessage(message.data);
     const currentTimeStamp = Date.now();
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
     if (rebroadcastToPeers && timestampOK) {

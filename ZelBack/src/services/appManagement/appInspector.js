@@ -417,10 +417,10 @@ function startAppMonitoring(appName, appsMonitored) {
     throw new Error('No App specified');
   }
 
-  // Get appsMonitored from appsService if not provided (to avoid circular dependency)
+  // Get appsMonitored from globalState if not provided (to avoid circular dependency)
   if (!appsMonitored) {
-    const appsService = require('../appsService');
-    appsMonitored = appsService.getAppsMonitored();
+    const globalState = require('../utils/globalState');
+    appsMonitored = globalState.appsMonitored;
   }
 
   // Safety check: if appsMonitored is still undefined, throw a more descriptive error
@@ -486,10 +486,10 @@ function startAppMonitoring(appName, appsMonitored) {
  * @returns {void}
  */
 function stopAppMonitoring(appName, deleteData, appsMonitored) {
-  // Get appsMonitored from appsService if not provided (to avoid circular dependency)
+  // Get appsMonitored from globalState if not provided (to avoid circular dependency)
   if (!appsMonitored) {
-    const appsService = require('../appsService');
-    appsMonitored = appsService.getAppsMonitored();
+    const globalState = require('../utils/globalState');
+    appsMonitored = globalState.appsMonitored;
   }
 
   // Safety check: if appsMonitored is still undefined, log warning and return early

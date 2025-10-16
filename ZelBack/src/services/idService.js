@@ -11,7 +11,7 @@ const generalService = require('./generalService');
 const dockerService = require('./dockerService');
 const syncthingService = require('./syncthingService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
-const appsService = require('./appsService');
+const appInspector = require('./appManagement/appInspector');
 const signatureVerifier = require('./signatureVerifier');
 
 const goodchars = /^[1-9a-km-zA-HJ-NP-Z]+$/;
@@ -147,7 +147,7 @@ async function loginPhrase(req, res) {
     }
 
     // check Apps DOS state
-    const dosAppsState = appsService.getAppsDOSState();
+    const dosAppsState = appInspector.getAppsDOSState();
     if (dosAppsState.status === 'success') {
       // nodeHardwareSpecsGood is not part of response yet
       if (dosAppsState.data.dosState >= 100) {

@@ -1146,8 +1146,8 @@ async function expireGlobalApplications() {
 
     // get list of locally installed apps.
     // Use dynamic require to avoid circular dependency
-    const appsService = require('../appsService');
-    const installedAppsRes = await appsService.installedApps();
+    const appQueryService = require('../appQuery/appQueryService');
+    const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
@@ -1187,11 +1187,13 @@ async function expireGlobalApplications() {
     const appsToRemoveNames = appsToRemove.map((app) => app.name);
 
     // remove appsToRemoveNames apps from locally running
+    // Use dynamic require to avoid circular dependency
+    const appUninstaller = require('../appLifecycle/appUninstaller');
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is expired, removing`);
       // eslint-disable-next-line no-await-in-loop
-      await appsService.removeAppLocally(appName, null, false, true, true);
+      await appUninstaller.removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
     }

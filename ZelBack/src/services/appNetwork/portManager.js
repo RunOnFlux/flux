@@ -285,9 +285,9 @@ async function restoreAppsPortsSupport() {
           const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!upnpOk) {
             // Import locally to avoid circular dependency
-            const appsService = require('../appsService');
+            const appUninstaller = require('../appLifecycle/appUninstaller');
             // eslint-disable-next-line no-await-in-loop
-            await appsService.removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
+            await appUninstaller.removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(3 * 60 * 1000); // 3 mins
             break;
@@ -612,8 +612,8 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     }
 
     // Import locally to avoid circular dependency
-    const appsService = require('../appsService');
-    const installedAppsRes = await appsService.installedApps();
+    const appQueryService = require('../appQuery/appQueryService');
+    const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
       return;
     }

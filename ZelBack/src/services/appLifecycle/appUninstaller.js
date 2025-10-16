@@ -841,8 +841,8 @@ async function removeAppLocallyApi(req, res) {
     }
 
     if (global) {
-      const executeAppGlobalCommand = require('../appsService').executeAppGlobalCommand;
-      executeAppGlobalCommand(appname, 'appremove', req.headers.zelidauth); // do not wait
+      const appController = require('../appManagement/appController');
+      appController.executeAppGlobalCommand(appname, 'appremove', req.headers.zelidauth); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global reinstallation`);
       return res.json(appResponse);
     }

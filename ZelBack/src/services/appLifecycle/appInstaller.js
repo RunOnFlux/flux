@@ -185,13 +185,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       return false;
     }
 
-    // Lazy-load appsService to avoid circular dependency issues
-    const appsService = require('../appsService');
-    const installedAppsRes = await appsService.installedApps();
+    // Lazy-load appQueryService to avoid circular dependency issues
+    const appQueryService = require('../appQuery/appQueryService');
+    const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    const runningAppsRes = await appsService.listRunningApps();
+    const runningAppsRes = await appQueryService.listRunningApps();
     if (runningAppsRes.status !== 'success') {
       throw new Error('Unable to check running Apps');
     }

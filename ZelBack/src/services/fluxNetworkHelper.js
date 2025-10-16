@@ -723,14 +723,15 @@ async function ipChangesOverLimit() {
       }
       if (ipChangeData.count >= 2) {
         // eslint-disable-next-line global-require
-        const appsService = require('./appsService');
-        let apps = await appsService.installedApps();
+        const appQueryService = require('./appQuery/appQueryService');
+        const appUninstaller = require('./appLifecycle/appUninstaller');
+        let apps = await appQueryService.installedApps();
         if (apps.status === 'success' && apps.data.length > 0) {
           apps = apps.data;
           // eslint-disable-next-line no-restricted-syntax
           for (const app of apps) {
             // eslint-disable-next-line no-await-in-loop
-            await appsService.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
+            await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(500);
           }
@@ -807,25 +808,28 @@ async function adjustExternalIP(ip) {
         log.error(dosMessage);
       }
       // eslint-disable-next-line global-require
-      const appsService = require('./appsService');
-      let apps = await appsService.installedApps();
+      const appQueryService = require('./appQuery/appQueryService');
+      const registryManager = require('./appDatabase/registryManager');
+      const appUninstaller = require('./appLifecycle/appUninstaller');
+      const appController = require('./appManagement/appController');
+      let apps = await appQueryService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
         let appsRemoved = 0;
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
           // eslint-disable-next-line no-await-in-loop
-          const runningAppList = await appsService.appLocation(app.name);
+          const runningAppList = await registryManager.appLocation(app.name);
           const findMyIP = runningAppList.find((instance) => instance.ip.split(':')[0] === ip);
           if (findMyIP) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
             // eslint-disable-next-line no-await-in-loop
-            await appsService.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+            await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
             appsRemoved += 1;
           } else {
             // once app specs v8 is done we check if app have specs that is using fluxnode service.
             // eslint-disable-next-line no-await-in-loop
-            await appsService.appDockerRestart(app.name);
+            await appController.appDockerRestart(app.name);
           }
         }
         if (apps.length > appsRemoved) {

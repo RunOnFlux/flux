@@ -11,7 +11,10 @@ const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRp
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
-const appsService = require('./appsService');
+const chainUtilities = require('./utils/chainUtilities');
+const messageVerifier = require('./appMessaging/messageVerifier');
+const registryManager = require('./appDatabase/registryManager');
+const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
 const fluxNetworkhelper = require('./fluxNetworkHelper');
 
@@ -333,7 +336,7 @@ async function processInsight(blockDataVerbose, database) {
       });
       if (isFluxAppMessageValue) {
         // eslint-disable-next-line no-await-in-loop
-        const appPrices = await appsService.getChainParamsPriceUpdates();
+        const appPrices = await chainUtilities.getChainParamsPriceUpdates();
         const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
         const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         // MAY contain App transaction. Store it.
@@ -427,19 +430,19 @@ async function insertAndRequestAppHashes(apps, database) {
       // eslint-disable-next-line no-restricted-syntax
       for (const app of apps) {
         // eslint-disable-next-line no-await-in-loop
-        const messageReceived = await appsService.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+        const messageReceived = await messageVerifier.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
         if (messageReceived) {
           appsToRemove.push(app);
         }
       }
       apps.filter((item) => !appsToRemove.includes(item));
       while (apps.length > 500) {
-        appsService.checkAndRequestMultipleApps(apps.splice(0, 500));
+        messageVerifier.checkAndRequestMultipleApps(apps.splice(0, 500));
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(30 * 1000); // delay 30 seconds
       }
       if (apps.length > 0) {
-        appsService.checkAndRequestMultipleApps(apps);
+        messageVerifier.checkAndRequestMultipleApps(apps);
       }
     }, 1);
   }
@@ -501,7 +504,7 @@ async function processStandard(blockDataVerbose, database) {
         await dbHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
       }));
       if (isFluxAppMessageValue) {
-        const appPrices = await appsService.getChainParamsPriceUpdates();
+        const appPrices = await chainUtilities.getChainParamsPriceUpdates();
         const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
         const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         // MAY contain App transaction. Store it.
@@ -615,22 +618,22 @@ async function processBlock(blockHeight, isInsightExplorer) {
 
       if (blockHeight % (2 * speedMultiplier) === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-          await appsService.expireGlobalApplications();
+          await registryManager.expireGlobalApplications();
         }
       }
       if (blockHeight % (config.fluxapps.removeFluxAppsPeriod * speedMultiplier) === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-          appsService.checkAndRemoveApplicationInstance();
+          advancedWorkflows.checkAndRemoveApplicationInstance();
         }
       }
       if (blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-          appsService.reinstallOldApplications();
+          advancedWorkflows.reinstallOldApplications();
         }
       }
       if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
         try {
-          appsService.reconstructAppMessagesHashCollection();
+          registryManager.reconstructAppMessagesHashCollection();
           log.info('Validation of App Messages Hash Collection');
         } catch (error) {
           log.error(error);
@@ -666,7 +669,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     } else if (blockDataVerbose.height % 500 === 0) {
       log.info(`Processing Explorer Number of Transactions: ${appsTransactions.length}.`);
-      await appsService.expireGlobalApplications(); // in case node was shutdown for a while and it is started
+      await registryManager.expireGlobalApplications(); // in case node was shutdown for a while and it is started
       await insertTransactions(appsTransactions, database);
       await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
     }
@@ -775,7 +778,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     }
     // fix for a node if they have corrupted global app list
     if (scannedBlockHeight >= config.fluxapps.epochstart) {
-      const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
+      const globalAppsSpecs = await registryManager.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
 
       if (globalAppsSpecs.length >= 2) {
         const defaultExpire = config.fluxapps.blocksLasting;
@@ -785,7 +788,7 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         const blockDifference = youngestAppHeight - oldestAppHeight;
 
         if (blockDifference < minBlockheightDifference) {
-          await appsService.reindexGlobalAppsInformation();
+          await registryManager.reindexGlobalAppsInformation();
         }
       }
     }
