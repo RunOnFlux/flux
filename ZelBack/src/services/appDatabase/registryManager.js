@@ -1420,6 +1420,302 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
   }
 }
 
+/**
+ * To register an application globally via API. Only accessible by authorized users.
+ * @param {express.Request} req Request.
+ * @param {express.Response} res Response.
+ * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
+ */
+async function registerAppGlobalyApi(req, res) {
+  // Import dependencies needed for this function
+  const generalService = require('../generalService');
+  const serviceHelper = require('../serviceHelper');
+  const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+  const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+  const appUtilities = require('../utils/appUtilities');
+  const appValidator = require('../appRequirements/appValidator');
+  const imageManager = require('../appSecurity/imageManager');
+  const messageVerifier = require('../appMessaging/messageVerifier');
+  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+  const { outgoingPeers, incomingPeers } = require('../utils/establishedConnections');
+  const config = require('config');
+
+  const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+  let body = '';
+  req.on('data', (data) => {
+    body += data;
+  });
+  req.on('end', async () => {
+    try {
+      const authorized = await verificationHelper.verifyPrivilege('user', req);
+      if (!authorized) {
+        const errMessage = messageHelper.errUnauthorizedMessage();
+        res.json(errMessage);
+        return;
+      }
+      // first check if this node is available for application registration
+      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+        throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
+      }
+      if (incomingPeers.length < config.fluxapps.minIncoming) {
+        throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
+      }
+      const processedBody = serviceHelper.ensureObject(body);
+      // Note. Actually signature, timestamp is not needed. But we require it only to verify that user indeed has access to the private key of the owner zelid.
+      // name and port HAVE to be unique for application. Check if they don't exist in global database
+      // first let's check if all fields are present and have proper format except tiered and tiered specifications and those can be omitted
+      let { appSpecification, timestamp, signature } = processedBody;
+      let messageType = processedBody.type; // determines how data is treated in the future
+      let typeVersion = processedBody.version; // further determines how data is treated in the future
+      if (!appSpecification || !timestamp || !signature || !messageType || !typeVersion) {
+        throw new Error('Incomplete message received. Check if appSpecification, type, version, timestamp and signature are provided.');
+      }
+      if (messageType !== 'zelappregister' && messageType !== 'fluxappregister') {
+        throw new Error('Invalid type of message');
+      }
+      if (typeVersion !== 1) {
+        throw new Error('Invalid version of message');
+      }
+      appSpecification = serviceHelper.ensureObject(appSpecification);
+      timestamp = serviceHelper.ensureNumber(timestamp);
+      signature = serviceHelper.ensureString(signature);
+      messageType = serviceHelper.ensureString(messageType);
+      typeVersion = serviceHelper.ensureNumber(typeVersion);
+
+      const timestampNow = Date.now();
+      if (timestamp < timestampNow - 1000 * 3600) {
+        throw new Error('Message timestamp is over 1 hour old, not valid. Check if your computer clock is synced and restart the registration process.');
+      } else if (timestamp > timestampNow + 1000 * 60 * 5) {
+        throw new Error('Message timestamp from future, not valid. Check if your computer clock is synced and restart the registration process.');
+      }
+
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+
+      const appSpecDecrypted = await checkAndDecryptAppSpecs(
+        appSpecification,
+        {
+          daemonHeight,
+          owner: appSpecification.owner,
+        },
+      );
+
+      const appSpecFormatted = await appUtilities.specificationFormatter(appSpecDecrypted);
+
+      // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
+      await appValidator.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
+
+      if (appSpecFormatted.version === 7 && appSpecFormatted.nodes.length > 0) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const appComponent of appSpecFormatted.compose) {
+          if (appComponent.secrets) {
+            // eslint-disable-next-line no-await-in-loop
+            await imageManager.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner);
+          }
+        }
+      }
+
+      // check if name is not yet registered
+      await checkApplicationRegistrationNameConflicts(appSpecFormatted);
+
+      const isEnterprise = Boolean(
+        appSpecification.version >= 8 && appSpecification.enterprise,
+      );
+
+      const toVerify = isEnterprise
+        ? await appUtilities.specificationFormatter(appSpecification)
+        : appSpecFormatted;
+
+      // check if zelid owner is correct ( done in message verification )
+      // if signature is not correct, then specifications are not correct type or bad message received. Respond with 'Received message is invalid';
+      await messageVerifier.verifyAppMessageSignature(messageType, typeVersion, toVerify, timestamp, signature);
+
+      if (isEnterprise) {
+        appSpecFormatted.contacts = [];
+        appSpecFormatted.compose = [];
+      }
+
+      // if all ok, then sha256 hash of entire message = message + timestamp + signature. We are hashing all to have always unique value.
+      // If hashing just specificiations, if application goes back to previous specifications, it may pose some issues if we have indeed correct state
+      // We respond with a hash that is supposed to go to transaction.
+      const message = messageType + typeVersion + JSON.stringify(appSpecFormatted) + timestamp + signature;
+      const messageHASH = await generalService.messageHash(message);
+
+      // now all is great. Store appSpecFormatted, timestamp, signature and hash in appsTemporaryMessages. with 1 hours expiration time. Broadcast this message to all outgoing connections.
+      const temporaryAppMessage = { // specification of temp message
+        type: messageType,
+        version: typeVersion,
+        appSpecifications: appSpecFormatted,
+        hash: messageHASH,
+        timestamp,
+        signature,
+        arcaneSender: isArcane,
+      };
+      await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
+      // above takes 2-3 seconds
+      await serviceHelper.delay(1200); // it takes receiving node at least 1 second to process the message. Add 1200 ms mas for processing
+      // this operations takes 2.5-3.5 seconds and is heavy, message gets verified again.
+      await messageVerifier.requestAppMessage(messageHASH); // this itself verifies that Peers received our message broadcast AND peers send us the message back. By peers sending the message back we finally store it to our temporary message storage and rebroadcast it again
+      // request app message is quite slow and from performance testing message will appear roughly 5 seconds after ask
+      await serviceHelper.delay(1200); // 1200 ms mas for processing - peer sends message back to us
+      // check temporary message storage
+      let tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(messageHASH); // Cumulus measurement: after roughly 8 seconds here
+      for (let i = 0; i < 20; i += 1) { // ask for up to 20 times - 10 seconds. Must have been processed by that time or it failed. Cumulus measurement: Approx 5-6 seconds
+        if (!tempMessage) {
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(500);
+          // eslint-disable-next-line no-await-in-loop
+          tempMessage = await messageVerifier.checkAppTemporaryMessageExistence(messageHASH);
+        }
+      }
+      if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
+        const responseHash = messageHelper.createDataMessage(tempMessage.hash);
+        res.json(responseHash); // all ok
+        return;
+      }
+      throw new Error('Unable to register application on the network. Try again later.');
+    } catch (error) {
+      log.warn(error);
+      const errorResponse = messageHelper.createErrorMessage(
+        error.message || error,
+        error.name,
+        error.code,
+      );
+      res.json(errorResponse);
+    }
+  });
+}
+
+/**
+ * To reindex global apps location via API. Only accessible by admins and Flux team members.
+ * NOTE: This function calls reindexGlobalAppsLocation() which doesn't exist in the codebase.
+ * This appears to be a missing implementation that needs to be created.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function reindexGlobalAppsLocationAPI(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      // TODO: reindexGlobalAppsLocation() function is not defined anywhere in the codebase
+      // This needs to be implemented or this API function will fail
+      throw new Error('reindexGlobalAppsLocation() is not implemented. This function needs to be created.');
+      // await reindexGlobalAppsLocation();
+      // const message = messageHelper.createSuccessMessage('Reindex successfull');
+      // res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To reindex global apps information via API. Only accessible by admins and Flux team members.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function reindexGlobalAppsInformationAPI(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      await reindexGlobalAppsInformation();
+      const message = messageHelper.createSuccessMessage('Reindex successfull');
+      res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
+ * To rescan global apps information via API. Only accessible by admins and Flux team members.
+ * NOTE: This function calls rescanGlobalAppsInformation() which doesn't exist in the codebase.
+ * This appears to be a missing implementation that needs to be created.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function rescanGlobalAppsInformationAPI(req, res) {
+  const serviceHelper = require('../serviceHelper');
+  const config = require('config');
+  const { scannedHeightCollection } = require('../utils/appConstants');
+
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+    if (authorized === true) {
+      let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
+      blockheight = blockheight || req.query.blockheight;
+      if (!blockheight) {
+        const errMessage = messageHelper.createErrorMessage('No blockheight provided');
+        res.json(errMessage);
+        return;
+      }
+      blockheight = serviceHelper.ensureNumber(blockheight);
+      const dbopen = dbHelper.databaseConnection();
+      const database = dbopen.db(config.database.daemon.database);
+      const query = { generalScannedHeight: { $gte: 0 } };
+      const projection = {
+        projection: {
+          _id: 0,
+          generalScannedHeight: 1,
+        },
+      };
+      const currentHeight = await dbHelper.findOneInDatabase(database, scannedHeightCollection, query, projection);
+      if (!currentHeight) {
+        throw new Error('No scanned height found');
+      }
+      if (currentHeight.generalScannedHeight <= blockheight) {
+        throw new Error('Block height shall be lower than currently scanned');
+      }
+      if (blockheight < 0) {
+        throw new Error('BlockHeight lower than 0');
+      }
+      let { removelastinformation } = req.params;
+      removelastinformation = removelastinformation || req.query.removelastinformation || false;
+      removelastinformation = serviceHelper.ensureBoolean(removelastinformation);
+
+      // TODO: rescanGlobalAppsInformation() function is not defined anywhere in the codebase
+      // This needs to be implemented or this API function will fail
+      throw new Error('rescanGlobalAppsInformation() is not implemented. This function needs to be created.');
+      // await rescanGlobalAppsInformation(blockheight, removelastinformation);
+      // const message = messageHelper.createSuccessMessage('Rescan successfull');
+      // res.json(message);
+    } else {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+    }
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 module.exports = {
   getAppHashes,
   appLocation,
@@ -1456,4 +1752,8 @@ module.exports = {
   reindexGlobalAppsInformation,
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
+  registerAppGlobalyApi,
+  reindexGlobalAppsLocationAPI,
+  reindexGlobalAppsInformationAPI,
+  rescanGlobalAppsInformationAPI,
 };
