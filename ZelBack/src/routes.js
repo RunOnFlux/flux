@@ -1189,6 +1189,16 @@ module.exports = (app) => {
     appsService.stopAppMonitoringAPI(req, res);
   });
 
+  app.get('/syncthing/metrics', cache('10 seconds'), (req, res) => {
+    syncthingService.getSyncthingMetrics(req, res);
+  });
+  app.get('/syncthing/metrics/health', cache('10 seconds'), (req, res) => {
+    syncthingService.getSyncthingHealthSummary(req, res);
+  });
+  app.get('/syncthing/metrics/history/:limit?', cache('10 seconds'), (req, res) => {
+    syncthingService.getSyncthingMetricsHistory(req, res);
+  });
+
   // POST PUBLIC methods route
   app.post('/id/verifylogin', (req, res) => {
     idService.verifyLogin(req, res);

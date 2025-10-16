@@ -115,7 +115,7 @@ let lastUPNPMapFailed = false;
 let nextTestingPort = Math.floor(Math.random() * (25000 - 10000 + 1)) + 10000;
 const portsNotWorking = new Set();
 const isArcane = Boolean(process.env.FLUXOS_PATH);
-const fluxDirPath = path.join(__dirname, '../../../');
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 // ToDo: Fix all the string concatenation in this file and use path.join()
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
@@ -1332,7 +1332,10 @@ async function syncthingApps() {
             };
             const syncFolder = allFoldersResp.data.find((x) => x.id === id);
             if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-              if (syncthingAppsFirstRun) {
+              // Check if folder already exists and is in sendreceive mode - if so, keep it
+              const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
+
+              if (syncthingAppsFirstRun && !folderAlreadySyncing) {
                 if (!syncFolder) {
                   log.info(`syncthingApps - First run, no sync folder - stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
@@ -1378,7 +1381,7 @@ async function syncthingApps() {
                     }
                   }
                 }
-              } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+              } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted && !folderAlreadySyncing) {
                 log.info(`syncthingApps - App ${appId} in cache and not restarted, processing receive-only logic`);
                 const cache = receiveOnlySyncthingAppsCache.get(appId);
                 // eslint-disable-next-line no-await-in-loop
@@ -1439,7 +1442,7 @@ async function syncthingApps() {
                   }
                   receiveOnlySyncthingAppsCache.set(appId, cache);
                 }
-              } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
+              } else if (!receiveOnlySyncthingAppsCache.has(appId) && !folderAlreadySyncing) {
                 log.info(`syncthingApps - App ${appId} NOT in cache. stopping and cleaning appIdentifier ${appId}`);
                 syncthingFolder.type = 'receiveonly';
                 const cache = {
@@ -1560,7 +1563,10 @@ async function syncthingApps() {
               };
               const syncFolder = allFoldersResp.data.find((x) => x.id === id);
               if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-                if (syncthingAppsFirstRun) {
+                // Check if folder already exists and is in sendreceive mode - if so, keep it
+                const folderAlreadySyncing = syncFolder && syncFolder.type === 'sendreceive';
+
+                if (syncthingAppsFirstRun && !folderAlreadySyncing) {
                   if (!syncFolder) {
                     log.info(`syncthingApps - First run, no sync folder - stopping and cleaning component ${appId}`);
                     syncthingFolder.type = 'receiveonly';
@@ -1606,7 +1612,7 @@ async function syncthingApps() {
                       }
                     }
                   }
-                } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted) {
+                } else if (receiveOnlySyncthingAppsCache.has(appId) && !receiveOnlySyncthingAppsCache.get(appId).restarted && !folderAlreadySyncing) {
                   log.info(`syncthingApps - Component ${appId} in cache and not restarted, processing receive-only logic`);
                   const cache = receiveOnlySyncthingAppsCache.get(appId);
                   // eslint-disable-next-line no-await-in-loop
@@ -1668,7 +1674,7 @@ async function syncthingApps() {
                     }
                     receiveOnlySyncthingAppsCache.set(appId, cache);
                   }
-                } else if (!receiveOnlySyncthingAppsCache.has(appId)) {
+                } else if (!receiveOnlySyncthingAppsCache.has(appId) && !folderAlreadySyncing) {
                   log.info(`syncthingApps - Component ${appId} NOT in cache. Stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
                   const cache = {
@@ -2123,6 +2129,10 @@ async function deploymentInformation(req, res) {
     // search in chainparams db for chainmessages of p version
     const appPrices = await chainUtilities.getChainParamsPriceUpdates();
     const { fluxapps: { portMin, portMax } } = config;
+    // After fork block, chain works 4x faster, so we use the new max blocks allowance
+    const maxAllowance = daemonHeight >= config.fluxapps.daemonPONFork
+      ? config.fluxapps.postPonMaxBlocksAllowance
+      : config.fluxapps.maxBlocksAllowance;
     const information = {
       price: appPrices,
       appSpecsEnforcementHeights: config.fluxapps.appSpecsEnforcementHeights,
@@ -2136,7 +2146,7 @@ async function deploymentInformation(req, res) {
       maximumInstances: config.fluxapps.maximumInstances,
       blocksLasting: config.fluxapps.blocksLasting,
       minBlocksAllowance: config.fluxapps.minBlocksAllowance,
-      maxBlocksAllowance: config.fluxapps.maxBlocksAllowance,
+      maxBlocksAllowance: maxAllowance,
       blocksAllowanceInterval: config.fluxapps.blocksAllowanceInterval,
     };
     const respondPrice = messageHelper.createDataMessage(information);
@@ -2251,7 +2261,7 @@ async function registerAppGlobalyApi(req, res) {
         },
       );
 
-      const appSpecFormatted = appUtilities.specificationFormatter(appSpecDecrypted);
+      const appSpecFormatted = await appUtilities.specificationFormatter(appSpecDecrypted);
 
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await appValidator.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -2274,7 +2284,7 @@ async function registerAppGlobalyApi(req, res) {
       );
 
       const toVerify = isEnterprise
-        ? appUtilities.specificationFormatter(appSpecification)
+        ? await appUtilities.specificationFormatter(appSpecification)
         : appSpecFormatted;
 
       // check if zelid owner is correct ( done in message verification )
@@ -2493,7 +2503,7 @@ async function getApplicationOriginalOwner(req, res) {
  */
 async function getAppsInstallingLocations(req, res) {
   try {
-    const results = await appInstallingLocation();
+    const results = await registryManager.appInstallingLocation();
     const resultsResponse = messageHelper.createDataMessage(results);
     res.json(resultsResponse);
   } catch (error) {

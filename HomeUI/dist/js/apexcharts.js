@@ -1,4 +1,4 @@
-(globalThis["webpackChunkflux"]=globalThis["webpackChunkflux"]||[]).push([[5434],{47514:function(t,e,i){var a;
+(globalThis["webpackChunkflux"]=globalThis["webpackChunkflux"]||[]).push([[4244],{47686:function(t,e,i){var a;
 /*!
  * ApexCharts v3.45.2
  * (c) 2018-2024 ApexCharts

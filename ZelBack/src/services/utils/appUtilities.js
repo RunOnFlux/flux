@@ -9,7 +9,7 @@ const geolocationService = require('../geolocationService');
 const { getChainParamsPriceUpdates } = require('./chainUtilities');
 
 const cmdAsync = util.promisify(nodecmd.run);
-const fluxDirPath = path.join(__dirname, '../../../../');
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 
 /**
  * Calculate app price per month
@@ -713,8 +713,23 @@ function specificationFormatter(appSpecification) {
     if (Number.isInteger(expire) !== true) {
       throw new Error('Invalid instances specified');
     }
-    if (expire > config.fluxapps.maxBlocksAllowance) {
-      throw new Error(`Maximum expiration of application is ${config.fluxapps.maxBlocksAllowance} blocks ~ 1 year`);
+
+    // Determine the correct maxBlocksAllowance based on current blockchain height
+    let maxAllowance = config.fluxapps.maxBlocksAllowance;
+    try {
+      // eslint-disable-next-line global-require
+      const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
+      const currentHeight = daemonServiceMiscRpcs.getCurrentDaemonHeight();
+      if (currentHeight >= config.fluxapps.daemonPONFork) {
+        maxAllowance = config.fluxapps.postPonMaxBlocksAllowance;
+      }
+    } catch (error) {
+      log.warn(`Unable to fetch blockchain height for maxBlocksAllowance validation: ${error.message}. Using default value.`);
+      // If we can't get the height, default to the original maxBlocksAllowance for safety
+    }
+
+    if (expire > maxAllowance) {
+      throw new Error(`Maximum expiration of application is ${maxAllowance} blocks ~ 1 year`);
     }
     appSpecFormatted.expire = expire;
   }

@@ -33,10 +33,43 @@ const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Je
 
 // Helper functions and constants for installApplicationHard
 const util = require('util');
+const { exec } = require('child_process');
+
+const cmdAsync = util.promisify(exec);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
+/**
+ * Verify that the app volume is mounted
+ * @param {string} appName - Application name
+ * @param {boolean} isComponent - Whether this is a component
+ * @param {string} componentName - Component name (if isComponent is true)
+ * @returns {Promise<boolean>} True if mount exists, throws error otherwise
+ */
+async function verifyAppVolumeMount(appName, isComponent, componentName) {
+  const identifier = isComponent ? `${componentName}_${appName}` : appName;
+  const appId = dockerService.getAppIdentifier(identifier);
+  const mountPath = `${appsFolder}${appId}`;
+
+  try {
+    // Check if mount exists using mount command
+    // grep will throw if no match is found
+    const { stdout } = await cmdAsync(`mount | grep "${mountPath}"`);
+    if (stdout && stdout.includes(mountPath)) {
+      log.info(`Volume mount verified for ${identifier} at ${mountPath}`);
+      return true;
+    }
+  } catch (error) {
+    // grep returns non-zero exit code when no matches found, or other command errors
+    const errorMessage = `Volume mount verification failed for ${mountPath}. Mount does not exist or is not accessible.`;
+    log.error(`${errorMessage} Details: ${error.message}`);
+    throw new Error(errorMessage);
+  }
+
+  // This shouldn't be reached, but just in case
+  throw new Error(`Volume mount verification failed for ${mountPath}. Mount does not exist or is not accessible.`);
+}
 
 /**
  * To register an app locally. Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs hard install. If registration fails, the app is removed locally.
@@ -507,6 +540,27 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   }
 
   await advancedWorkflows.createAppVolume(appSpecifications, appName, isComponent, res);
+
+  // Verify that the volume was mounted successfully
+  const verifyingMount = {
+    status: isComponent ? `Verifying volume mount for component ${appSpecifications.name}...` : `Verifying volume mount for ${appName}...`,
+  };
+  log.info(verifyingMount);
+  if (res) {
+    res.write(serviceHelper.ensureString(verifyingMount));
+    if (res.flush) res.flush();
+  }
+
+  await verifyAppVolumeMount(appName, isComponent, appSpecifications.name);
+
+  const mountVerified = {
+    status: isComponent ? `Volume mount verified for component ${appSpecifications.name}` : `Volume mount verified for ${appName}`,
+  };
+  log.info(mountVerified);
+  if (res) {
+    res.write(serviceHelper.ensureString(mountVerified));
+    if (res.flush) res.flush();
+  }
 
   const createApp = {
     status: isComponent ? `Creating component ${appSpecifications.name} of Flux App ${appName}` : `Creating Flux App ${appName}`,

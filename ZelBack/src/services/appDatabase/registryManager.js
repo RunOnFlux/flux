@@ -1110,7 +1110,23 @@ async function expireGlobalApplications() {
     const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
     results.forEach((appSpecs) => {
       const expireIn = appSpecs.expire || defaultExpire;
-      if (appSpecs.height + expireIn < explorerHeight) { // registered/updated on height, expires in expireIn is lower than current height
+      let actualExpirationHeight = appSpecs.height + expireIn;
+
+      // If app was registered before fork block and we are past fork block
+      // the chain moves 4x faster, so we need to adjust the expiration
+      if (appSpecs.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
+        const originalExpirationHeight = appSpecs.height + expireIn;
+        if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
+          // Calculate blocks that were supposed to live after fork block
+          const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
+          // Multiply by 4 to account for 4x faster chain
+          const adjustedBlocksAfterFork = blocksAfterFork * 4;
+          // New expiration = fork block + adjusted blocks
+          actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
+        }
+      }
+
+      if (actualExpirationHeight < explorerHeight) { // registered/updated on height, expires in expireIn is lower than current height
         appsToExpire.push(appSpecs);
       }
     });
@@ -1147,7 +1163,23 @@ async function expireGlobalApplications() {
         // do nothing, forever lasting local app
       } else {
         const expireIn = app.expire || defaultExpire;
-        if (app.height + expireIn < explorerHeight) {
+        let actualExpirationHeight = app.height + expireIn;
+
+        // If app was registered before fork block and we are past fork block
+        // the chain moves 4x faster, so we need to adjust the expiration
+        if (app.height < config.fluxapps.daemonPONFork && explorerHeight >= config.fluxapps.daemonPONFork) {
+          const originalExpirationHeight = app.height + expireIn;
+          if (originalExpirationHeight > config.fluxapps.daemonPONFork) {
+            // Calculate blocks that were supposed to live after fork block
+            const blocksAfterFork = originalExpirationHeight - config.fluxapps.daemonPONFork;
+            // Multiply by 4 to account for 4x faster chain
+            const adjustedBlocksAfterFork = blocksAfterFork * 4;
+            // New expiration = fork block + adjusted blocks
+            actualExpirationHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
+          }
+        }
+
+        if (actualExpirationHeight < explorerHeight) {
           appsToRemove.push(app);
         }
       }

@@ -2917,8 +2917,9 @@ describe('appsService tests', () => {
 
     it('should return 0 if error occurs', async () => {
       const appName = 'testapp';
-      const dirpath = path.join(__dirname, '../../');
-      const directoryPath = `${dirpath}ZelApps/${appName}`;
+      // Use the same path that appsService will compute at runtime
+      const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
+      const directoryPath = path.join(fluxDirPath, 'ZelApps', appName);
       const exec = `sudo du -s --block-size=1 ${directoryPath}`;
 
       await appsService.getAppFolderSize(appName);
