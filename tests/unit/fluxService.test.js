@@ -22,7 +22,6 @@ const explorerService = require('../../ZelBack/src/services/explorerService');
 const generalService = require('../../ZelBack/src/services/generalService');
 const fluxCommunication = require('../../ZelBack/src/services/fluxCommunication');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
-const appsService = require('../../ZelBack/src/services/appsService');
 const appInspector = require('../../ZelBack/src/services/appManagement/appInspector');
 const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
 const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');

@@ -54,9 +54,9 @@ async function getNodeSpecs() {
  * @param {number} ssdStorage - SSD storage in GB
  */
 function setNodeSpecs(cores, ram, ssdStorage) {
-  nodeSpecs.cpuCores = cores || nodeSpecs.cpuCores;
-  nodeSpecs.ram = ram || nodeSpecs.ram;
-  nodeSpecs.ssdStorage = ssdStorage || nodeSpecs.ssdStorage;
+  if (cores !== undefined && cores !== null) nodeSpecs.cpuCores = cores;
+  if (ram !== undefined && ram !== null) nodeSpecs.ram = ram;
+  if (ssdStorage !== undefined && ssdStorage !== null) nodeSpecs.ssdStorage = ssdStorage;
   log.info(`Node specs updated: CPU: ${nodeSpecs.cpuCores}, RAM: ${nodeSpecs.ram}MB, SSD: ${nodeSpecs.ssdStorage}GB`);
 }
 

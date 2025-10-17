@@ -1,7 +1,6 @@
 const sinon = require('sinon');
 const explorerService = require('../../ZelBack/src/services/explorerService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-const appsService = require('../../ZelBack/src/services/appsService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
 const portManager = require('../../ZelBack/src/services/appNetwork/portManager');
