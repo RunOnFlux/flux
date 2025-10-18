@@ -326,9 +326,9 @@ async function startFluxFunctions() {
       }
     }, 2 * 60 * 1000);
     setTimeout(() => {
-      appInspector.checkApplicationsCpuUSage();
+      appInspector.checkApplicationsCpuUSage(globalState.appsMonitored, appQueryService.installedApps);
       setInterval(() => {
-        appInspector.checkApplicationsCpuUSage();
+        appInspector.checkApplicationsCpuUSage(globalState.appsMonitored, appQueryService.installedApps);
       }, 15 * 60 * 1000);
     }, 15 * 60 * 1000);
     setTimeout(() => {
