@@ -1887,4 +1887,5 @@ module.exports = {
   allowOnlyDockerNetworksToFluxNodeService,
   addFluxNodeServiceIpToLoopback,
   keepUPNPPortsOpen,
+  isArcane,
 };

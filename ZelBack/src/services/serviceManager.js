@@ -13,6 +13,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const appController = require('./appManagement/appController');
+const dockerOperations = require('./appManagement/dockerOperations');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
 const portManager = require('./appNetwork/portManager');
 const messageVerifier = require('./appMessaging/messageVerifier');
@@ -25,6 +26,8 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const appHashSyncService = require('./appMessaging/appHashSyncService');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
+const globalState = require('./utils/globalState');
+const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const fluxService = require('./fluxService');
@@ -42,6 +45,21 @@ const volumeValidationService = require('./volumeValidationService');
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
+
+// State objects for monitoring services
+const dosState = {
+  dosMessage: null,
+  dosMountMessage: null,
+  dosDuplicateAppMessage: null,
+  get dosStateValue() { return fluxNetworkHelper.getDosStateValue(); },
+  set dosStateValue(value) { fluxNetworkHelper.setDosStateValue(value); },
+  testingPort: null,
+  nextTestingPort: null,
+  originalPortFailed: null,
+  lastUPNPMapFailed: false,
+};
+const portsNotWorking = new Set();
+const appsStorageViolations = [];
 
 /**
  * To start FluxOS. A series of checks are performed on port and UPnP (Universal Plug and Play) support and mapping. Database connections are established. The other relevant functions required to start FluxOS services are called.
@@ -219,7 +237,7 @@ async function startFluxFunctions() {
     }, 30 * 1000);
     setTimeout(() => {
       appController.stopAllNonFluxRunningApps();
-      monitoringOrchestrator.startMonitoringOfApps();
+      monitoringOrchestrator.startMonitoringOfApps(null, globalState.appsMonitored, appQueryService.installedApps);
       portManager.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
     setInterval(() => {
@@ -314,24 +332,56 @@ async function startFluxFunctions() {
     }, 15 * 60 * 1000);
     setTimeout(() => {
       // appsService.checkForNonAllowedAppsOnLocalNetwork();
-      availabilityChecker.checkMyAppsAvailability();
+      availabilityChecker.checkMyAppsAvailability(
+        appQueryService.installedApps,
+        dosState,
+        portsNotWorking,
+        portManager.failedNodesTestPortsCache,
+        fluxNetworkHelper.isArcane,
+      );
     }, 3 * 60 * 1000);
     setTimeout(() => {
-      nodeStatusMonitor.monitorNodeStatus();
+      nodeStatusMonitor.monitorNodeStatus(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, 1.5 * 60 * 1000);
     setTimeout(() => {
-      peerNotification.checkAndNotifyPeersOfRunningApps(); // first broadcast after 4m of starting fluxos
+      peerNotification.checkAndNotifyPeersOfRunningApps(
+        appQueryService.installedApps,
+        appQueryService.listRunningApps,
+        globalState.appsMonitored,
+        globalState.removalInProgress,
+        globalState.installationInProgress,
+        globalState.reinstallationOfOldAppsInProgress,
+        () => globalState,
+        cacheManager,
+      ); // first broadcast after 4m of starting fluxos
       setInterval(() => { // every 60 mins messages stay on db for 65m
-        peerNotification.checkAndNotifyPeersOfRunningApps();
+        peerNotification.checkAndNotifyPeersOfRunningApps(
+          appQueryService.installedApps,
+          appQueryService.listRunningApps,
+          globalState.appsMonitored,
+          globalState.removalInProgress,
+          globalState.installationInProgress,
+          globalState.reinstallationOfOldAppsInProgress,
+          () => globalState,
+          cacheManager,
+        );
       }, 60 * 60 * 1000);
     }, 2 * 60 * 1000);
     setTimeout(() => {
-      syncthingMonitor.syncthingApps(); // rechecks and possibly adjust syncthing configuration every 2 minutes
+      syncthingMonitor.syncthingApps(
+        globalState,
+        appQueryService.installedApps,
+        () => globalState,
+        dockerService.appDockerStop,
+        dockerService.appDockerRestart,
+        dockerOperations.appDeleteDataInMountPoint,
+        appUninstaller.removeAppLocally,
+      ); // rechecks and possibly adjust syncthing configuration every 2 minutes
       setTimeout(() => {
         advancedWorkflows.masterSlaveApps(); // stop and starts apps using syncthing g: when a new master is required or was changed.
       }, 30 * 1000);
       setTimeout(() => {
-        appInspector.monitorSharedDBApps(); // Monitor SharedDB Apps.
+        appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
       }, 60 * 1000);
     }, 3 * 60 * 1000);
     setTimeout(() => {
@@ -347,7 +397,7 @@ async function startFluxFunctions() {
       appSpawner.trySpawningGlobalApplication();
     }, (Math.floor(Math.random() * (135 - 125 + 1)) + 125) * 60 * 1000); // start between 125 and 135m after fluxos starts;
     setInterval(() => {
-      imageManager.checkApplicationsCompliance();
+      imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, 60 * 60 * 1000); //  every hour
     setTimeout(() => {
       advancedWorkflows.forceAppRemovals(); // force cleanup of apps every day
@@ -356,7 +406,12 @@ async function startFluxFunctions() {
       }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
     setTimeout(() => {
-      appInspector.checkStorageSpaceForApps();
+      appInspector.checkStorageSpaceForApps(
+        appQueryService.installedApps,
+        appUninstaller.removeAppLocally,
+        advancedWorkflows.softRedeploy,
+        appsStorageViolations,
+      );
     }, 20 * 60 * 1000);
     setInterval(() => {
       backupRestoreService.cleanLocalBackup();

@@ -6,6 +6,8 @@ let installationInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
 let checkAndSyncAppHashesWasEverExecuted = false;
+let updateSyncthingRunning = false;
+let syncthingAppsFirstRun = true;
 const backupInProgress = [];
 const restoreInProgress = [];
 
@@ -50,6 +52,12 @@ module.exports = {
 
   get checkAndSyncAppHashesWasEverExecuted() { return checkAndSyncAppHashesWasEverExecuted; },
   set checkAndSyncAppHashesWasEverExecuted(value) { checkAndSyncAppHashesWasEverExecuted = value; },
+
+  get updateSyncthingRunning() { return updateSyncthingRunning; },
+  set updateSyncthingRunning(value) { updateSyncthingRunning = value; },
+
+  get syncthingAppsFirstRun() { return syncthingAppsFirstRun; },
+  set syncthingAppsFirstRun(value) { syncthingAppsFirstRun = value; },
 
   get backupInProgress() { return backupInProgress; },
   get restoreInProgress() { return restoreInProgress; },

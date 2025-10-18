@@ -693,4 +693,5 @@ module.exports = {
   signCheckAppData,
   checkInstallingAppPortAvailable,
   callOtherNodeToKeepUpnpPortsOpen,
+  failedNodesTestPortsCache,
 };
