@@ -10,6 +10,7 @@ const fluxCommunication = require('./fluxCommunication');
 const networkStateService = require('./networkStateService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 // App modular services - replacing appsService
+const appInstaller = require('./appLifecycle/appInstaller');
 const appUninstaller = require('./appLifecycle/appUninstaller');
 const appController = require('./appManagement/appController');
 const monitoringOrchestrator = require('./appMonitoring/monitoringOrchestrator');
@@ -23,7 +24,7 @@ const syncthingMonitor = require('./appMonitoring/syncthingMonitor');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const appHashSyncService = require('./appMessaging/appHashSyncService');
 const imageManager = require('./appSecurity/imageManager');
-const appOrchestrator = require('./appOrchestrator');
+const appSpawner = require('./appLifecycle/appSpawner');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const fluxService = require('./fluxService');
@@ -163,6 +164,11 @@ async function startFluxFunctions() {
     }, 45 * 1000); // Run after 45 seconds to allow system to stabilize
 
     log.info('Flux Apps installing locations prepared');
+
+    // Initialize appSpawner with dependencies to avoid circular dependency
+    appSpawner.initialize({ appInstaller, appUninstaller });
+    log.info('App Spawner initialized');
+
     fluxNetworkHelper.adjustFirewall();
     log.info('Firewalls checked');
     fluxNetworkHelper.allowNodeToBindPrivilegedPorts();
@@ -338,7 +344,7 @@ async function startFluxFunctions() {
       // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       // 125 minutes should give enough time for node receive currently two times the apprunning messages
       log.info('Starting to spawn applications');
-      appOrchestrator.trySpawningGlobalApplication();
+      appSpawner.trySpawningGlobalApplication();
     }, (Math.floor(Math.random() * (135 - 125 + 1)) + 125) * 60 * 1000); // start between 125 and 135m after fluxos starts;
     setInterval(() => {
       imageManager.checkApplicationsCompliance();
