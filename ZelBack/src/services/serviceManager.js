@@ -1,4 +1,5 @@
 const config = require('config');
+const https = require('https');
 
 // we import this first so the caches are instantiated before any other modules
 // are imported
@@ -378,7 +379,15 @@ async function startFluxFunctions() {
         appUninstaller.removeAppLocally,
       ); // rechecks and possibly adjust syncthing configuration every 2 minutes
       setTimeout(() => {
-        advancedWorkflows.masterSlaveApps(); // stop and starts apps using syncthing g: when a new master is required or was changed.
+        advancedWorkflows.masterSlaveApps(
+          globalState,
+          appQueryService.installedApps,
+          appQueryService.listRunningApps,
+          globalState.receiveOnlySyncthingAppsCache,
+          globalState.backupInProgress,
+          globalState.restoreInProgress,
+          https,
+        ); // stop and starts apps using syncthing g: when a new master is required or was changed.
       }, 30 * 1000);
       setTimeout(() => {
         appInspector.monitorSharedDBApps(appQueryService.installedApps, appUninstaller.removeAppLocally, globalState); // Monitor SharedDB Apps.
