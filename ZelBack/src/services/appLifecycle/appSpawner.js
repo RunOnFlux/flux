@@ -16,7 +16,7 @@ const portManager = require('../appNetwork/portManager');
 const appUtilities = require('../utils/appUtilities');
 const systemIntegration = require('../appSystem/systemIntegration');
 const globalState = require('../utils/globalState');
-const advancedWorkflows = require('./advancedWorkflows');
+// const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 
 let appInstaller; // Will be initialized to avoid circular dependency
 let appUninstaller; // Will be initialized to avoid circular dependency
@@ -71,6 +71,8 @@ async function trySpawningGlobalApplication() {
       log.info('Explorer Synced, checking for expired apps');
       await registryManager.expireGlobalApplications();
       globalState.firstExecutionAfterItsSynced = false;
+      // Dynamic require to avoid circular dependency
+      const advancedWorkflows = require('./advancedWorkflows');
       await advancedWorkflows.getPeerAppsInstallingErrorMessages();
     }
 

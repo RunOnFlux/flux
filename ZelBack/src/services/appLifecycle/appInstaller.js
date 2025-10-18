@@ -10,7 +10,7 @@ const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const appUninstaller = require('./appUninstaller');
-const advancedWorkflows = require('./advancedWorkflows');
+// const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const { storeAppRunningMessage, storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
 const { systemArchitecture } = require('../appSystem/systemIntegration');
@@ -539,6 +539,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     if (res.flush) res.flush();
   }
 
+  // Dynamic require to avoid circular dependency
+  const advancedWorkflows = require('./advancedWorkflows');
   await advancedWorkflows.createAppVolume(appSpecifications, appName, isComponent, res);
 
   // Verify that the volume was mounted successfully
