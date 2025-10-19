@@ -44,6 +44,9 @@ const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
 // const throughputLogger = require('./utils/throughputLogger');
 
+// Initialize globalState caches with cacheManager
+globalState.initializeCaches(cacheManager);
+
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const development = userconfig.initial.development || false;
 const fluxTransactionCollection = config.database.daemon.collections.fluxTransactions;
