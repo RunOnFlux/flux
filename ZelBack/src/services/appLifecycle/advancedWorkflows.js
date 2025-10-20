@@ -2527,13 +2527,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       if (installedApp.version <= 3) {
         identifier = installedApp.name;
         appId = dockerService.getAppIdentifier(identifier);
-        needsToBeChecked = installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+        // Check all g: mode apps, not just those in cache with restarted flag
+        // The cache tracks sync state, but shouldn't gate primary selection
+        needsToBeChecked = installedApp.containerData.includes('g:');
       } else {
         const componentUsingMasterSlave = installedApp.compose.find((comp) => comp.containerData.includes('g:'));
         if (componentUsingMasterSlave) {
           identifier = `${componentUsingMasterSlave.name}_${installedApp.name}`;
           appId = dockerService.getAppIdentifier(identifier);
-          needsToBeChecked = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+          // Check all g: mode apps, not just those in cache with restarted flag
+          needsToBeChecked = true;
         }
       }
       if (needsToBeChecked) {
@@ -2646,6 +2649,37 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
             if ((!ip)) {
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
               if (!runningAppsNames.includes(identifier)) {
+                // Check if app is ready (syncthing data is synced) before allowing it to become primary
+                let isReady = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+
+                // Fallback: If not in cache or not ready, check if syncthing folder is already in sendreceive mode
+                // This handles the case where folder is synced but cache was cleared/lost
+                if (!isReady) {
+                  try {
+                    const syncthingService = require('../syncthingService');
+                    // eslint-disable-next-line no-await-in-loop
+                    const allSyncthingFolders = await syncthingService.getConfigFolders();
+                    if (allSyncthingFolders.status === 'success') {
+                      const folder = `${appsFolder}${appId}`;
+                      // eslint-disable-next-line no-restricted-syntax
+                      for (const syncthingFolder of allSyncthingFolders.data) {
+                        if (syncthingFolder.path === folder && syncthingFolder.type === 'sendreceive') {
+                          log.info(`masterSlaveApps: app:${installedApp.name} folder is already in sendreceive mode, treating as ready`);
+                          isReady = true;
+                          break;
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    log.error(`masterSlaveApps: Failed to check syncthing folder status for ${installedApp.name}: ${error.message}`);
+                  }
+                }
+
+                if (!isReady) {
+                  log.info(`masterSlaveApps: app:${installedApp.name} is not ready yet (syncthing not synced), skipping primary selection for this cycle`);
+                  // eslint-disable-next-line no-continue
+                  continue;
+                }
                 // eslint-disable-next-line no-await-in-loop
                 const registryManager = require('../appDatabase/registryManager');
                 const runningAppList = await registryManager.appLocation(installedApp.name);
@@ -2747,8 +2781,37 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 appDockerStop(installedApp.name);
                 log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and myIP is: ${myIP}`);
               } else if (myIP.split(':')[0] === ip.split(':')[0] && !runningAppsNames.includes(identifier)) {
-                appDockerRestart(installedApp.name);
-                log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
+                // Check if app is ready (syncthing data is synced) before starting
+                let isReady = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+
+                // Fallback: If not in cache or not ready, check if syncthing folder is already in sendreceive mode
+                if (!isReady) {
+                  try {
+                    const syncthingService = require('../syncthingService');
+                    // eslint-disable-next-line no-await-in-loop
+                    const allSyncthingFolders = await syncthingService.getConfigFolders();
+                    if (allSyncthingFolders.status === 'success') {
+                      const folder = `${appsFolder}${appId}`;
+                      // eslint-disable-next-line no-restricted-syntax
+                      for (const syncthingFolder of allSyncthingFolders.data) {
+                        if (syncthingFolder.path === folder && syncthingFolder.type === 'sendreceive') {
+                          log.info(`masterSlaveApps: app:${installedApp.name} folder is already in sendreceive mode, treating as ready`);
+                          isReady = true;
+                          break;
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    log.error(`masterSlaveApps: Failed to check syncthing folder status for ${installedApp.name}: ${error.message}`);
+                  }
+                }
+
+                if (isReady) {
+                  appDockerRestart(installedApp.name);
+                  log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
+                } else {
+                  log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
+                }
               }
             }
           }
