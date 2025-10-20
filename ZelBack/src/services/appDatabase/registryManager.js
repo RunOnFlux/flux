@@ -1593,9 +1593,32 @@ async function registerAppGlobalyApi(req, res) {
 }
 
 /**
+ * Drops and recreates global apps locations collection with indexes
+ * @returns {Promise<boolean>} True if successful
+ */
+async function reindexGlobalAppsLocation() {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    await dbHelper.dropCollection(database, globalAppsLocations).catch((error) => {
+      if (error.message !== 'ns not found') {
+        throw error;
+      }
+    });
+    await database.collection(globalAppsLocations).createIndex({ name: 1 }, { name: 'query for getting app location based on app specs name' });
+    await database.collection(globalAppsLocations).createIndex({ hash: 1 }, { name: 'query for getting app location based on app hash' });
+    await database.collection(globalAppsLocations).createIndex({ ip: 1 }, { name: 'query for getting app location based on ip' });
+    await database.collection(globalAppsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
+    await database.collection(globalAppsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+/**
  * To reindex global apps location via API. Only accessible by admins and Flux team members.
- * NOTE: This function calls reindexGlobalAppsLocation() which doesn't exist in the codebase.
- * This appears to be a missing implementation that needs to be created.
  * @param {object} req Request.
  * @param {object} res Response.
  */
@@ -1603,12 +1626,9 @@ async function reindexGlobalAppsLocationAPI(req, res) {
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
-      // TODO: reindexGlobalAppsLocation() function is not defined anywhere in the codebase
-      // This needs to be implemented or this API function will fail
-      throw new Error('reindexGlobalAppsLocation() is not implemented. This function needs to be created.');
-      // await reindexGlobalAppsLocation();
-      // const message = messageHelper.createSuccessMessage('Reindex successfull');
-      // res.json(message);
+      await reindexGlobalAppsLocation();
+      const message = messageHelper.createSuccessMessage('Reindex successfull');
+      res.json(message);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1652,17 +1672,51 @@ async function reindexGlobalAppsInformationAPI(req, res) {
 }
 
 /**
+ * Rescans global apps information from messages collection starting from a specific height
+ * @param {number} height - Starting block height for rescan (default 0)
+ * @param {boolean} removeLastInformation - Whether to remove existing information before rescanning (default false)
+ * @returns {Promise<boolean>} True if successful
+ */
+async function rescanGlobalAppsInformation(height = 0, removeLastInformation = false) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+
+    await dbHelper.dropCollection(database, globalAppsInformation).catch((error) => {
+      if (error.message !== 'ns not found') {
+        throw error;
+      }
+    });
+
+    const query = { height: { $gte: height } };
+    const projection = { projection: { _id: 0 } };
+    const results = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+
+    if (removeLastInformation === true) {
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsInformation, query);
+    }
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const message of results) {
+      const updateForSpecifications = message.appSpecifications || message.zelAppSpecifications;
+      updateForSpecifications.hash = message.hash;
+      updateForSpecifications.height = message.height;
+      // eslint-disable-next-line no-await-in-loop
+      await updateAppSpecsForRescanReindex(updateForSpecifications);
+    }
+    return true;
+  } catch (error) {
+    log.error(error);
+    throw error;
+  }
+}
+
+/**
  * To rescan global apps information via API. Only accessible by admins and Flux team members.
- * NOTE: This function calls rescanGlobalAppsInformation() which doesn't exist in the codebase.
- * This appears to be a missing implementation that needs to be created.
  * @param {object} req Request.
  * @param {object} res Response.
  */
 async function rescanGlobalAppsInformationAPI(req, res) {
-  const serviceHelper = require('../serviceHelper');
-  const config = require('config');
-  const { scannedHeightCollection } = require('../utils/appConstants');
-
   try {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
@@ -1697,12 +1751,9 @@ async function rescanGlobalAppsInformationAPI(req, res) {
       removelastinformation = removelastinformation || req.query.removelastinformation || false;
       removelastinformation = serviceHelper.ensureBoolean(removelastinformation);
 
-      // TODO: rescanGlobalAppsInformation() function is not defined anywhere in the codebase
-      // This needs to be implemented or this API function will fail
-      throw new Error('rescanGlobalAppsInformation() is not implemented. This function needs to be created.');
-      // await rescanGlobalAppsInformation(blockheight, removelastinformation);
-      // const message = messageHelper.createSuccessMessage('Rescan successfull');
-      // res.json(message);
+      await rescanGlobalAppsInformation(blockheight, removelastinformation);
+      const message = messageHelper.createSuccessMessage('Rescan successfull');
+      res.json(message);
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
@@ -1752,6 +1803,8 @@ module.exports = {
   getAllGlobalApplications,
   expireGlobalApplications,
   reindexGlobalAppsInformation,
+  reindexGlobalAppsLocation,
+  rescanGlobalAppsInformation,
   reconstructAppMessagesHashCollection,
   reconstructAppMessagesHashCollectionAPI,
   registerAppGlobalyApi,
