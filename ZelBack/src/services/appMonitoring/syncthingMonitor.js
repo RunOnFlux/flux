@@ -10,6 +10,7 @@ const log = require('../../lib/log');
 const {
   MONITOR_INTERVAL_MS,
   ERROR_RETRY_DELAY_MS,
+  SYNC_STATE_LOG_INTERVAL_MS,
 } = require('./syncthingMonitorConstants');
 const {
   sortAndFilterLocations,
@@ -163,6 +164,72 @@ async function processContainerData(params) {
       newFoldersConfiguration.push(syncthingFolder);
     }
   }
+}
+
+/**
+ * Log sync state for all folders
+ * @param {Array} foldersConfiguration - Array of folder configurations
+ * @returns {Promise<void>}
+ */
+async function logSyncState(foldersConfiguration) {
+  if (!foldersConfiguration || foldersConfiguration.length === 0) {
+    log.info('syncthingAppsCore - No folders to log sync state for');
+    return;
+  }
+
+  log.info(`syncthingAppsCore - Logging sync state for ${foldersConfiguration.length} folders`);
+
+  // Get sync status for all folders in parallel
+  const syncStatusPromises = foldersConfiguration.map(async (folder) => {
+    try {
+      const statusResponse = await syncthingService.getDbStatus(null, {
+        query: { folder: folder.id },
+      });
+
+      if (statusResponse && statusResponse.status === 'success') {
+        const { globalBytes = 0, inSyncBytes = 0, state: syncState } = statusResponse.data;
+        const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
+
+        return {
+          id: folder.id,
+          type: folder.type,
+          syncPercentage,
+          globalBytes,
+          inSyncBytes,
+          state: syncState,
+        };
+      }
+
+      return {
+        id: folder.id,
+        type: folder.type,
+        error: 'Failed to get status',
+      };
+    } catch (error) {
+      return {
+        id: folder.id,
+        type: folder.type,
+        error: error.message,
+      };
+    }
+  });
+
+  const syncStatuses = await Promise.all(syncStatusPromises);
+
+  // Log each folder's sync state
+  syncStatuses.forEach((status) => {
+    if (status.error) {
+      log.warn(`syncthingAppsCore - Folder ${status.id} (${status.type}): Error - ${status.error}`);
+    } else {
+      const bytesInfo = status.globalBytes > 0
+        ? ` (${status.inSyncBytes}/${status.globalBytes} bytes)`
+        : '';
+      log.info(
+        `syncthingAppsCore - Folder ${status.id} (${status.type}): ` +
+        `${status.syncPercentage.toFixed(2)}% synced, state: ${status.state}${bytesInfo}`
+      );
+    }
+  });
 }
 
 /**
@@ -341,6 +408,13 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
       await removeAppLocallyFn(appName, null, true, false, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(ERROR_RETRY_DELAY_MS);
+    }
+
+    // Log sync state every 5 minutes
+    const now = Date.now();
+    if (!state.lastSyncStateLogTime || (now - state.lastSyncStateLogTime >= SYNC_STATE_LOG_INTERVAL_MS)) {
+      await logSyncState(foldersConfiguration);
+      state.lastSyncStateLogTime = now;
     }
 
     // Check if Syncthing restart is needed
