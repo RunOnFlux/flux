@@ -165,6 +165,51 @@ describe('appQueryService tests', () => {
       expect(messageHelperStub.createErrorMessage.calledOnce).to.be.true;
       expect(logStub.error.calledWith(error)).to.be.true;
     });
+
+    it('should return apps data with response passed', async () => {
+      const mockApps = [
+        { name: 'app1', version: 4 },
+        { name: 'app2', version: 3 },
+      ];
+      const mockDb = {
+        db: sinon.stub().returns('appsDatabase'),
+      };
+      const res = {
+        json: sinon.stub(),
+      };
+      const req = {
+        params: { appname: 'appName' },
+        query: {},
+      };
+
+      dbHelperStub.databaseConnection.returns(mockDb);
+      dbHelperStub.findInDatabase.resolves(mockApps);
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: mockApps });
+
+      await appQueryService.installedApps(req, res);
+
+      expect(res.json.calledOnceWith({ status: 'success', data: mockApps })).to.be.true;
+    });
+
+    it('should return error with response passed on database failure', async () => {
+      const mockDb = {
+        db: sinon.stub().returns('appsDatabase'),
+      };
+      const error = new Error('Database error');
+      const res = {
+        json: sinon.stub(),
+      };
+      const req = 'appName';
+
+      dbHelperStub.databaseConnection.returns(mockDb);
+      dbHelperStub.findInDatabase.rejects(error);
+      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Database error' } });
+
+      await appQueryService.installedApps(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(logStub.error.calledWith(error)).to.be.true;
+    });
   });
 
   describe('listRunningApps', () => {
@@ -208,6 +253,27 @@ describe('appQueryService tests', () => {
       expect(result.status).to.equal('error');
       expect(logStub.error.calledWith(error)).to.be.true;
     });
+
+    it('should return running apps with response passed', async () => {
+      const mockContainers = [
+        { Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [] },
+        { Names: ['/zel_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [] },
+      ];
+      const expectedApps = [
+        { Names: ['/flux_app1'] },
+        { Names: ['/zel_app2'] },
+      ];
+      const res = {
+        json: sinon.stub(),
+      };
+
+      dockerServiceStub.dockerListContainers.resolves(mockContainers);
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: expectedApps });
+
+      await appQueryService.listRunningApps(undefined, res);
+
+      expect(res.json.calledOnceWith({ status: 'success', data: expectedApps })).to.be.true;
+    });
   });
 
   describe('listAllApps', () => {
@@ -228,6 +294,54 @@ describe('appQueryService tests', () => {
 
       expect(result).to.deep.equal({ status: 'success', data: expectedApps });
       expect(dockerServiceStub.dockerListContainers.calledWith(true)).to.be.true;
+    });
+
+    it('should return error if dockerService throws, no response passed', async () => {
+      const error = new Error('Docker error');
+
+      dockerServiceStub.dockerListContainers.rejects(error);
+      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Docker error' } });
+
+      const result = await appQueryService.listAllApps();
+
+      expect(result.status).to.equal('error');
+      expect(logStub.error.calledWith(error)).to.be.true;
+    });
+
+    it('should return error if dockerService throws, response passed', async () => {
+      const res = {
+        json: sinon.stub(),
+      };
+      const error = new Error('Docker error');
+
+      dockerServiceStub.dockerListContainers.rejects(error);
+      messageHelperStub.createErrorMessage.returns({ status: 'error', data: { message: 'Docker error' } });
+
+      await appQueryService.listAllApps(undefined, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(logStub.error.calledWith(error)).to.be.true;
+    });
+
+    it('should return all apps with response passed', async () => {
+      const mockContainers = [
+        { Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'running' },
+        { Names: ['/flux_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'exited' },
+      ];
+      const expectedApps = [
+        { Names: ['/flux_app1'], State: 'running' },
+        { Names: ['/flux_app2'], State: 'exited' },
+      ];
+      const res = {
+        json: sinon.stub(),
+      };
+
+      dockerServiceStub.dockerListContainers.resolves(mockContainers);
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: expectedApps });
+
+      await appQueryService.listAllApps(undefined, res);
+
+      expect(res.json.calledOnceWith({ status: 'success', data: expectedApps })).to.be.true;
     });
   });
 
