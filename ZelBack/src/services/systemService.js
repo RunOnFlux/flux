@@ -383,12 +383,43 @@ async function monitorSyncthingPackage() {
           return { data: { data: {} } };
         });
 
-      // we don't need to check that status here, if there is an error 'syncthing' won't
-      // have a value
-      const syncthingVersion = data.syncthing || config.minimumSyncthingAllowedVersion;
+      const minSyncthingVersion =
+        data.syncthing || config.minimumSyncthingAllowedVersion;
       // const dockerVersion = data.docker || config.minimumDockerAllowedVersion;
 
-      await ensurePackageVersion('syncthing', syncthingVersion);
+      // Handle Syncthing v1 -> v2 upgrade by switching apt source when needed
+      if (serviceHelper.minVersionSatisfy(minSyncthingVersion, '2.0.0')) {
+        const currentSyncthingVersion = await getPackageVersion('syncthing');
+
+        if (
+          currentSyncthingVersion &&
+          !serviceHelper.minVersionSatisfy(currentSyncthingVersion, '2.0.0')
+        ) {
+          const sourcePath = '/etc/apt/sources.list.d/syncthing.list';
+          const sourceContent = await fs
+            .readFile(sourcePath, 'utf8')
+            .catch(() => null);
+
+          // Source still on 'stable' component?
+          if (sourceContent && !sourceContent.includes('stable-v2')) {
+            log.info(
+              'Switching syncthing apt source from stable to stable-v2...',
+            );
+
+            // Update source from stable to stable-v2
+            const newContent = sourceContent.replace(
+              /\sstable\s*$/,
+              ' stable-v2\n',
+            );
+            await fs.writeFile(sourcePath, newContent, 'utf8');
+
+            await updateAptCache({ force: true });
+            log.info('Apt source updated to stable-v2');
+          }
+        }
+      }
+
+      await ensurePackageVersion('syncthing', minSyncthingVersion);
       // await ensurePackageVersion('docker', dockerVersion); commented as it needs extra love to work
     };
 
