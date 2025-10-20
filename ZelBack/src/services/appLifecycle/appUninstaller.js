@@ -11,7 +11,7 @@ const globalState = require('../utils/globalState');
 const log = require('../../lib/log');
 const { localAppsInformation, globalAppsInformation, globalAppsMessages } = require('../utils/appConstants');
 const config = require('config');
-const advancedWorkflows = require('./advancedWorkflows');
+// const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const upnpService = require('../upnpService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
@@ -74,6 +74,8 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   }
 
   try {
+    // Dynamic require to avoid circular dependency
+    const advancedWorkflows = require('./advancedWorkflows');
     await advancedWorkflows.stopSyncthingApp(monitoredName, res, false);
   } catch (error) {
     log.error(`Error stopping Syncthing app: ${error.message}`);
@@ -841,8 +843,8 @@ async function removeAppLocallyApi(req, res) {
     }
 
     if (global) {
-      const executeAppGlobalCommand = require('../appsService').executeAppGlobalCommand;
-      executeAppGlobalCommand(appname, 'appremove', req.headers.zelidauth); // do not wait
+      const appController = require('../appManagement/appController');
+      appController.executeAppGlobalCommand(appname, 'appremove', req.headers.zelidauth); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global reinstallation`);
       return res.json(appResponse);
     }

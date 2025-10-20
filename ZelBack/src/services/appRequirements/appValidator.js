@@ -9,7 +9,7 @@ const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSen
 const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const imageManager = require('../appSecurity/imageManager');
-const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
+// const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { supportedArchitectures } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -1364,6 +1364,8 @@ async function verifyAppUpdateParameters(req, res) {
 
       // check if name is not yet registered
       const timestamp = Date.now();
+      // Dynamic require to avoid circular dependency
+      const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
       await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
 
       if (isEnterprise) {

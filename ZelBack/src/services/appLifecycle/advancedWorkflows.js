@@ -218,11 +218,12 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   });
 
   // Dynamic require to avoid circular dependency
-  const appsService = require('../appsService');
-  const nodeSpecs = await appsService.getNodeSpecs();
+  const hwRequirements = require('../appRequirements/hwRequirements');
+  const resourceQueryService = require('../appQuery/resourceQueryService');
+  const nodeSpecs = await hwRequirements.getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
   const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
-  const resourcesLocked = await appsService.appsResources();
+  const resourcesLocked = await resourceQueryService.appsResources();
   if (resourcesLocked.status !== 'success') {
     throw new Error('Unable to obtain locked system resources by Flux App. Aborting.');
   }
@@ -1031,8 +1032,8 @@ async function softRedeploy(appSpecs, res) {
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
-    const appsService = require('../appsService');
-    await appsService.checkAppRequirements(appSpecs);
+    const appInstaller = require('./appInstaller');
+    await appInstaller.checkAppRequirements(appSpecs);
     // register
     await softRegisterAppLocally(appSpecs, undefined, res);
     log.info('Application softly redeployed');
@@ -1061,10 +1062,9 @@ async function hardRedeploy(appSpecs, res) {
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
-    const appsService = require('../appsService');
-    await appsService.checkAppRequirements(appSpecs);
-    // register
     const appInstaller = require('./appInstaller');
+    await appInstaller.checkAppRequirements(appSpecs);
+    // register
     await appInstaller.registerAppLocally(appSpecs, undefined, res); // can throw
     log.info('Application redeployed');
   } catch (error) {
@@ -1112,8 +1112,8 @@ async function redeployAPI(req, res) {
     }
     if (global) {
       // Dynamic require to avoid circular dependency
-      const appsService = require('../appsService');
-      appsService.executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, force); // do not wait
+      const appController = require('../appManagement/appController');
+      appController.executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, force); // do not wait
       const hardOrSoft = force ? 'hard' : 'soft';
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global ${hardOrSoft} redeploy`);
       res.json(appResponse);
@@ -1121,8 +1121,8 @@ async function redeployAPI(req, res) {
     }
 
     // Dynamic require to avoid circular dependency
-    const appsService = require('../appsService');
-    const specifications = await appsService.getApplicationSpecifications(appname);
+    const registryManager = require('../appDatabase/registryManager');
+    const specifications = await registryManager.getApplicationSpecifications(appname);
     if (!specifications) {
       throw new Error('Application not found');
     }
@@ -2125,13 +2125,12 @@ async function checkAndRemoveApplicationInstance() {
     }
     const appsInstalled = installedAppsRes.data;
     // lazy load to avoid circular dependency
-    const appsService = require('../appsService');
     const appUninstaller = require('./appUninstaller');
     const registryManager = require('../appDatabase/registryManager');
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // eslint-disable-next-line no-await-in-loop
-      const runningAppList = await appsService.appLocation(installedApp.name);
+      const runningAppList = await registryManager.appLocation(installedApp.name);
       const minInstances = installedApp.instances || config.fluxapps.minimumInstances; // introduced in v3 of apps specs
       if (runningAppList.length > minInstances) {
         // eslint-disable-next-line no-await-in-loop
@@ -2593,8 +2592,8 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
               if (!runningAppsNames.includes(identifier)) {
                 // eslint-disable-next-line no-await-in-loop
-                const appsService = require('../appsService');
-                const runningAppList = await appsService.appLocation(installedApp.name);
+                const registryManager = require('../appDatabase/registryManager');
+                const runningAppList = await registryManager.appLocation(installedApp.name);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
                     return -1;

@@ -6,7 +6,7 @@ const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const messageVerifier = require('./messageVerifier');
 const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
-const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
+// const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const {
   globalAppsMessages,
@@ -83,6 +83,8 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // data shall already be verified by the broadcasting node. But verify all again.
   // this takes roughly at least 1 second
   if (furtherVerification) {
+    // Dynamic require to avoid circular dependency
+    const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
     const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
       if (!message.arcaneSender) {
