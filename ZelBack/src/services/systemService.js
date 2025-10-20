@@ -14,7 +14,6 @@ const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const fifoQueue = require('./utils/fifoQueue');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
-const syncthingService = require('./syncthingService');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
