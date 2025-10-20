@@ -53,6 +53,126 @@ async function appLocation(appName) {
 }
 
 /**
+ * Helper function to check Syncthing folder sync completion status
+ * Queries the Syncthing API to get real-time sync progress for a specific folder
+ *
+ * @param {string} folderId - The Syncthing folder ID (typically the app identifier)
+ * @returns {Promise<Object|null>} Sync status object or null if unavailable
+ * @returns {number} return.syncPercentage - Percentage of data synced (0-100)
+ * @returns {number} return.globalBytes - Total bytes in the folder
+ * @returns {number} return.inSyncBytes - Bytes currently synced
+ * @returns {string} return.state - Syncthing folder state (e.g., 'idle', 'syncing', 'sync-preparing')
+ * @returns {boolean} return.isSynced - True if sync percentage is 100%
+ */
+async function getFolderSyncCompletion(folderId) {
+  try {
+    const statusResponse = await syncthingService.getDbStatus(null, {
+      query: { folder: folderId },
+    });
+
+    if (statusResponse && statusResponse.status === 'success') {
+      const { globalBytes = 0, inSyncBytes = 0, state } = statusResponse.data;
+
+      // Calculate sync percentage
+      const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
+
+      return {
+        syncPercentage,
+        globalBytes,
+        inSyncBytes,
+        state,
+        isSynced: syncPercentage === 100, // Consider synced only at 100%
+      };
+    }
+
+    log.warn(`Failed to get sync status for folder ${folderId}`);
+    return null;
+  } catch (error) {
+    log.error(`Error checking sync completion for ${folderId}: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Determines if this node should be the designated leader for starting an app first.
+ * Uses deterministic leader election to prevent race conditions when multiple nodes
+ * install an app simultaneously.
+ *
+ * Algorithm:
+ * 1. If any OTHER peer is already running, this node is NOT the leader
+ * 2. If only one peer exists and it's this node, this node IS the leader
+ * 3. If multiple peers exist, elect leader deterministically:
+ *    - Primary: Earliest broadcastedAt timestamp (with >5s threshold for clock skew tolerance)
+ *    - Tie-breaker: Lowest IP address (lexicographically sorted)
+ *
+ * This ensures all nodes independently arrive at the same leader decision, preventing
+ * multiple nodes from starting in sendreceive mode simultaneously and causing sync conflicts.
+ *
+ * @param {Array<Object>} allPeersList - List of ALL peers including the current node
+ * @param {string} allPeersList[].ip - Peer IP address (e.g., '10.0.0.1:16127')
+ * @param {number|null} allPeersList[].runningSince - Timestamp when peer started running, or null if not running
+ * @param {number} allPeersList[].broadcastedAt - Timestamp when peer broadcasted its installation
+ * @param {string} myIP - The current node's IP address
+ * @returns {boolean} True if this node is the designated leader and should start the app immediately
+ *
+ * @example
+ * // Three nodes install simultaneously
+ * const peers = [
+ *   { ip: '10.0.0.1:16127', broadcastedAt: 1000, runningSince: null },
+ *   { ip: '10.0.0.2:16127', broadcastedAt: 1000, runningSince: null },
+ *   { ip: '10.0.0.3:16127', broadcastedAt: 1000, runningSince: null }
+ * ];
+ * // All nodes run the same algorithm and elect 10.0.0.1 as leader
+ * isDesignatedLeader(peers, '10.0.0.1:16127'); // returns true (I am leader)
+ * isDesignatedLeader(peers, '10.0.0.2:16127'); // returns false (I am NOT leader)
+ * isDesignatedLeader(peers, '10.0.0.3:16127'); // returns false (I am NOT leader)
+ */
+function isDesignatedLeader(allPeersList, myIP) {
+  // If no peers at all, we can't make a safe decision yet
+  // Wait for network propagation to avoid race conditions
+  if (!allPeersList || allPeersList.length === 0) {
+    return false; // Be conservative - wait for peers to broadcast
+  }
+
+  // Check if any OTHER peer is already running - if so, we're definitely not the leader
+  const runningPeers = allPeersList.filter((peer) => peer.runningSince && peer.ip !== myIP);
+  if (runningPeers.length > 0) {
+    return false; // Someone else is already running
+  }
+
+  // Special case: if only one peer exists and it's us, we're the leader
+  // This handles the single-node deployment scenario
+  if (allPeersList.length === 1 && allPeersList[0].ip === myIP) {
+    return true;
+  }
+
+  // Multiple peers exist. Use deterministic leader election:
+  // Sort by broadcastedAt first (earliest gets priority)
+  // Then by IP as a tie-breaker (smallest IP wins)
+  const sortedPeers = [...allPeersList].sort((a, b) => {
+    // Earlier broadcastedAt wins
+    if (a.broadcastedAt && b.broadcastedAt) {
+      const timeDiff = a.broadcastedAt - b.broadcastedAt;
+      // Only consider significant time differences (>5 seconds)
+      // to avoid race conditions with clock skew
+      if (Math.abs(timeDiff) > 5000) {
+        return timeDiff;
+      }
+    }
+    // Use IP as deterministic tie-breaker
+    if (a.ip < b.ip) return -1;
+    if (a.ip > b.ip) return 1;
+    return 0;
+  });
+
+  const leader = sortedPeers[0];
+  const isLeader = leader?.ip === myIP;
+
+  // Safety check: ensure we're comparing the right node
+  return isLeader && allPeersList.some((peer) => peer.ip === myIP);
+}
+
+/**
  * Syncthing Apps monitoring and configuration
  * @param {object} state - State object containing necessary variables
  * @param {Function} installedAppsFn - Function to get installed apps
@@ -247,60 +367,86 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
                 const cache = state.receiveOnlySyncthingAppsCache.get(appId);
                 // eslint-disable-next-line no-await-in-loop
                 const runningAppList = await appLocation(installedApp.name);
-                runningAppList.sort((a, b) => {
-                  if (!a.runningSince && b.runningSince) {
-                    return -1;
+
+                // Check if this node is the designated leader (includes all peers for deterministic selection)
+                const isLeader = isDesignatedLeader(runningAppList, myIP);
+
+                if (isLeader) {
+                  log.info(`syncthingApps - App ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
+                  syncthingFolder.type = 'sendreceive';
+                  if (containerDataFlags.includes('r')) {
+                    log.info(`syncthingApps - starting appIdentifier ${appId}`);
+                    // eslint-disable-next-line no-await-in-loop
+                    await appDockerRestartFn(id);
                   }
-                  if (a.runningSince && !b.runningSince) {
-                    return 1;
-                  }
-                  if (a.runningSince < b.runningSince) {
-                    return -1;
-                  }
-                  if (a.runningSince > b.runningSince) {
-                    return 1;
-                  }
-                  if (a.broadcastedAt < b.broadcastedAt) {
-                    return -1;
-                  }
-                  if (a.broadcastedAt > b.broadcastedAt) {
-                    return 1;
-                  }
-                  if (a.ip < b.ip) {
-                    return -1;
-                  }
-                  if (a.ip > b.ip) {
-                    return 1;
-                  }
-                  return 0;
-                });
-                if (myIP) {
-                  const index = runningAppList.findIndex((x) => x.ip === myIP);
-                  let numberOfExecutionsRequired = 2;
-                  if (index > 0) {
-                    numberOfExecutionsRequired = 2 + 10 * index;
-                  }
-                  if (numberOfExecutionsRequired > 60) {
-                    numberOfExecutionsRequired = 60;
-                  }
-                  cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+                  cache.restarted = true;
+                  state.receiveOnlySyncthingAppsCache.set(appId, cache);
+                } else {
+                  // Check sync status instead of using time-based delays
+                  // eslint-disable-next-line no-await-in-loop
+                  const syncStatus = await getFolderSyncCompletion(appId);
 
                   syncthingFolder.type = 'receiveonly';
-                  cache.numberOfExecutions += 1;
-                  log.info(`syncthingApps - App ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
-                  if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
-                    log.info(`syncthingApps - App ${appId} reached exact required executions, setting to sendreceive`);
-                    syncthingFolder.type = 'sendreceive';
-                  } else if (cache.numberOfExecutions >= cache.numberOfExecutionsRequired + 1) {
-                    log.info(`syncthingApps - changing syncthing type to sendreceive for appIdentifier ${appId}`);
-                    syncthingFolder.type = 'sendreceive';
-                    if (containerDataFlags.includes('r')) {
-                      log.info(`syncthingApps - starting appIdentifier ${appId}`);
-                      // eslint-disable-next-line no-await-in-loop
-                      await appDockerRestartFn(id);
+                  cache.numberOfExecutions = (cache.numberOfExecutions || 0) + 1;
+
+                  // Fallback: max wait time (60 executions = ~30 minutes at 30s intervals)
+                  const maxExecutions = 60;
+
+                  if (syncStatus) {
+                    log.info(`syncthingApps - App ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% (${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`);
+
+                    if (syncStatus.isSynced || cache.numberOfExecutions >= maxExecutions) {
+                      if (syncStatus.isSynced) {
+                        log.info(`syncthingApps - App ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
+                      } else {
+                        log.warn(`syncthingApps - App ${appId} reached max wait time (${maxExecutions} executions), forcing start`);
+                      }
+                      syncthingFolder.type = 'sendreceive';
+                      if (containerDataFlags.includes('r')) {
+                        log.info(`syncthingApps - starting appIdentifier ${appId}`);
+                        // eslint-disable-next-line no-await-in-loop
+                        await appDockerRestartFn(id);
+                      }
+                      cache.restarted = true;
                     }
-                    cache.restarted = true;
+                  } else {
+                    // If we can't get sync status, fall back to time-based approach
+                    log.warn(`syncthingApps - Could not get sync status for ${appId}, using fallback time-based logic`);
+                    runningAppList.sort((a, b) => {
+                      if (!a.runningSince && b.runningSince) return -1;
+                      if (a.runningSince && !b.runningSince) return 1;
+                      if (a.runningSince < b.runningSince) return -1;
+                      if (a.runningSince > b.runningSince) return 1;
+                      if (a.broadcastedAt < b.broadcastedAt) return -1;
+                      if (a.broadcastedAt > b.broadcastedAt) return 1;
+                      if (a.ip < b.ip) return -1;
+                      if (a.ip > b.ip) return 1;
+                      return 0;
+                    });
+
+                    const index = runningAppList.findIndex((x) => x.ip === myIP);
+                    let numberOfExecutionsRequired = 2;
+                    if (index > 0) {
+                      numberOfExecutionsRequired = 2 + 10 * index;
+                    }
+                    if (numberOfExecutionsRequired > maxExecutions) {
+                      numberOfExecutionsRequired = maxExecutions;
+                    }
+                    cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+
+                    log.info(`syncthingApps - App ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
+                    if (cache.numberOfExecutions >= numberOfExecutionsRequired) {
+                      log.info(`syncthingApps - App ${appId} reached required executions, switching to sendreceive`);
+                      syncthingFolder.type = 'sendreceive';
+                      if (containerDataFlags.includes('r')) {
+                        log.info(`syncthingApps - starting appIdentifier ${appId}`);
+                        // eslint-disable-next-line no-await-in-loop
+                        await appDockerRestartFn(id);
+                      }
+                      cache.restarted = true;
+                    }
                   }
+
                   state.receiveOnlySyncthingAppsCache.set(appId, cache);
                 }
               } else if (!state.receiveOnlySyncthingAppsCache.has(appId) && !folderAlreadySyncing) {
@@ -478,61 +624,86 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
                   const cache = state.receiveOnlySyncthingAppsCache.get(appId);
                   // eslint-disable-next-line no-await-in-loop
                   const runningAppList = await appLocation(installedApp.name);
-                  runningAppList.sort((a, b) => {
-                    if (!a.runningSince && b.runningSince) {
-                      return -1;
+
+                  // Check if this node is the designated leader (includes all peers for deterministic selection)
+                  const isLeader = isDesignatedLeader(runningAppList, myIP);
+
+                  if (isLeader) {
+                    log.info(`syncthingApps - Component ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
+                    syncthingFolder.type = 'sendreceive';
+                    if (containerDataFlags.includes('r')) {
+                      log.info(`syncthingApps - starting component ${appId}`);
+                      // eslint-disable-next-line no-await-in-loop
+                      await appDockerRestartFn(id);
                     }
-                    if (a.runningSince && !b.runningSince) {
-                      return 1;
-                    }
-                    if (a.runningSince < b.runningSince) {
-                      return -1;
-                    }
-                    if (a.runningSince > b.runningSince) {
-                      return 1;
-                    }
-                    if (a.broadcastedAt < b.broadcastedAt) {
-                      return -1;
-                    }
-                    if (a.broadcastedAt > b.broadcastedAt) {
-                      return 1;
-                    }
-                    if (a.ip < b.ip) {
-                      return -1;
-                    }
-                    if (a.ip > b.ip) {
-                      return 1;
-                    }
-                    return 0;
-                  });
-                  if (myIP) {
-                    const index = runningAppList.findIndex((x) => x.ip === myIP);
-                    log.info(`syncthingApps - appIdentifier ${appId} is node index ${index}`);
-                    let numberOfExecutionsRequired = 2;
-                    if (index > 0) {
-                      numberOfExecutionsRequired = 2 + 10 * index;
-                    }
-                    if (numberOfExecutionsRequired > 60) {
-                      numberOfExecutionsRequired = 60;
-                    }
-                    cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+                    cache.restarted = true;
+                    state.receiveOnlySyncthingAppsCache.set(appId, cache);
+                  } else {
+                    // Check sync status instead of using time-based delays
+                    // eslint-disable-next-line no-await-in-loop
+                    const syncStatus = await getFolderSyncCompletion(appId);
 
                     syncthingFolder.type = 'receiveonly';
-                    cache.numberOfExecutions += 1;
-                    log.info(`syncthingApps - Component ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
-                    if (cache.numberOfExecutions === cache.numberOfExecutionsRequired) {
-                      log.info(`syncthingApps - Component ${appId} reached exact required executions, setting to sendreceive`);
-                      syncthingFolder.type = 'sendreceive';
-                    } else if (cache.numberOfExecutions >= cache.numberOfExecutionsRequired + 1) {
-                      log.info(`syncthingApps - changing syncthing type to sendreceive for component ${appId}`);
-                      syncthingFolder.type = 'sendreceive';
-                      if (containerDataFlags.includes('r')) {
-                        log.info(`syncthingApps - starting component ${appId}`);
-                        // eslint-disable-next-line no-await-in-loop
-                        await appDockerRestartFn(id);
+                    cache.numberOfExecutions = (cache.numberOfExecutions || 0) + 1;
+
+                    // Fallback: max wait time (60 executions = ~30 minutes at 30s intervals)
+                    const maxExecutions = 60;
+
+                    if (syncStatus) {
+                      log.info(`syncthingApps - Component ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% (${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`);
+
+                      if (syncStatus.isSynced || cache.numberOfExecutions >= maxExecutions) {
+                        if (syncStatus.isSynced) {
+                          log.info(`syncthingApps - Component ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
+                        } else {
+                          log.warn(`syncthingApps - Component ${appId} reached max wait time (${maxExecutions} executions), forcing start`);
+                        }
+                        syncthingFolder.type = 'sendreceive';
+                        if (containerDataFlags.includes('r')) {
+                          log.info(`syncthingApps - starting component ${appId}`);
+                          // eslint-disable-next-line no-await-in-loop
+                          await appDockerRestartFn(id);
+                        }
+                        cache.restarted = true;
                       }
-                      cache.restarted = true;
+                    } else {
+                      // If we can't get sync status, fall back to time-based approach
+                      log.warn(`syncthingApps - Could not get sync status for ${appId}, using fallback time-based logic`);
+                      runningAppList.sort((a, b) => {
+                        if (!a.runningSince && b.runningSince) return -1;
+                        if (a.runningSince && !b.runningSince) return 1;
+                        if (a.runningSince < b.runningSince) return -1;
+                        if (a.runningSince > b.runningSince) return 1;
+                        if (a.broadcastedAt < b.broadcastedAt) return -1;
+                        if (a.broadcastedAt > b.broadcastedAt) return 1;
+                        if (a.ip < b.ip) return -1;
+                        if (a.ip > b.ip) return 1;
+                        return 0;
+                      });
+
+                      const index = runningAppList.findIndex((x) => x.ip === myIP);
+                      let numberOfExecutionsRequired = 2;
+                      if (index > 0) {
+                        numberOfExecutionsRequired = 2 + 10 * index;
+                      }
+                      if (numberOfExecutionsRequired > maxExecutions) {
+                        numberOfExecutionsRequired = maxExecutions;
+                      }
+                      cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
+
+                      log.info(`syncthingApps - Component ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
+                      if (cache.numberOfExecutions >= numberOfExecutionsRequired) {
+                        log.info(`syncthingApps - Component ${appId} reached required executions, switching to sendreceive`);
+                        syncthingFolder.type = 'sendreceive';
+                        if (containerDataFlags.includes('r')) {
+                          log.info(`syncthingApps - starting component ${appId}`);
+                          // eslint-disable-next-line no-await-in-loop
+                          await appDockerRestartFn(id);
+                        }
+                        cache.restarted = true;
+                      }
                     }
+
                     state.receiveOnlySyncthingAppsCache.set(appId, cache);
                   }
                 } else if (!state.receiveOnlySyncthingAppsCache.has(appId) && !folderAlreadySyncing) {
