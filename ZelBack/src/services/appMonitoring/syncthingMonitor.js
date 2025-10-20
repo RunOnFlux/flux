@@ -191,20 +191,20 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     // Get list of all installed apps
     const appsInstalled = await installedAppsFn();
     if (appsInstalled.status === 'error') {
-      log.error('syncthingApps - Failed to get installed apps');
+      log.error('syncthingAppsCore - Failed to get installed apps');
       return;
     }
 
     // Get required IDs and configurations
     const myDeviceId = await syncthingService.getDeviceId();
     if (!myDeviceId) {
-      log.error('syncthingApps - Failed to get myDeviceId');
+      log.error('syncthingAppsCore - Failed to get myDeviceId');
       return;
     }
 
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (!myIP) {
-      log.error('syncthingApps - Failed to get myIP');
+      log.error('syncthingAppsCore - Failed to get myIP');
       return;
     }
 
@@ -244,7 +244,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
       const restoreSkip = state.restoreInProgress.some((item) => installedApp.name === item);
 
       if (backupSkip || restoreSkip) {
-        log.info(`syncthingApps - Backup/restore in progress for ${installedApp.name}, syncthing disabled`);
+        log.info(`syncthingAppsCore - Backup/restore in progress for ${installedApp.name}, syncthing disabled`);
         // eslint-disable-next-line no-continue
         continue;
       }
@@ -286,13 +286,13 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     // Parallelize cleanup operations
     const cleanupPromises = [
       ...nonUsedFolders.map((folder) => {
-        log.info(`syncthingApps - Removing unused Syncthing folder ${folder.id}`);
+        log.info(`syncthingAppsCore - Removing unused Syncthing folder ${folder.id}`);
         return syncthingService.adjustConfigFolders('delete', undefined, folder.id).catch((err) => {
           log.error(`Failed to remove folder ${folder.id}: ${err.message}`);
         });
       }),
       ...nonUsedDevices.map((device) => {
-        log.info(`syncthingApps - Removing unused Syncthing device ${device.deviceID}`);
+        log.info(`syncthingAppsCore - Removing unused Syncthing device ${device.deviceID}`);
         return syncthingService.adjustConfigDevices('delete', undefined, device.deviceID).catch((err) => {
           log.error(`Failed to remove device ${device.deviceID}: ${err.message}`);
         });
@@ -329,7 +329,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
       if (!errorInfo) continue;
 
       const { folder, error } = errorInfo;
-      log.error(`syncthingApps - Errors detected on syncthing folderId:${folder.id} - app is going to be uninstalled`);
+      log.error(`syncthingAppsCore - Errors detected on syncthing folderId:${folder.id} - app is going to be uninstalled`);
       log.error(error);
 
       let appName = folder.id;
@@ -346,11 +346,11 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     // Check if Syncthing restart is needed
     const restartRequired = await syncthingService.getConfigRestartRequired();
     if (restartRequired?.status === 'success' && restartRequired.data.requiresRestart === true) {
-      log.info('syncthingApps - New configuration applied. Syncthing restart required, restarting...');
+      log.info('syncthingAppsCore - New configuration applied. Syncthing restart required, restarting...');
       await syncthingService.systemRestart();
     }
   } catch (error) {
-    log.error(`syncthingApps - Error in sync monitoring: ${error.message}`);
+    log.error(`syncthingAppsCore - Error in sync monitoring: ${error.message}`);
     log.error(error.stack);
   } finally {
     state.updateSyncthingRunning = false;

@@ -126,7 +126,7 @@ async function handleFirstRun(params) {
 
   if (!syncFolder) {
     // No sync folder exists - clean install
-    log.info(`syncthingApps - First run, no sync folder - stopping and cleaning ${appId}`);
+    log.info(`handleFirstRun - First run, no sync folder - stopping and cleaning ${appId}`);
     syncthingFolder.type = 'receiveonly';
     const cache = { numberOfExecutions: 1 };
 
@@ -139,29 +139,29 @@ async function handleFirstRun(params) {
   }
 
   // Sync folder exists - check container status
-  log.info(`syncthingApps - First run, sync folder exists - checking container status`);
+  log.info(`handleFirstRun - First run, sync folder exists - checking container status`);
   let containerRunning = false;
 
   try {
     const containerInspect = await dockerService.dockerContainerInspect(appId);
     containerRunning = containerInspect.State.Running;
-    log.info(`syncthingApps - ${appId} running status: ${containerRunning}`);
+    log.info(`handleFirstRun - ${appId} running status: ${containerRunning}`);
   } catch (error) {
-    log.warn(`syncthingApps - Could not inspect ${appId}: ${error.message}`);
+    log.warn(`handleFirstRun - Could not inspect ${appId}: ${error.message}`);
   }
 
   const cache = { restarted: true };
 
   if (syncFolder.type === 'receiveonly') {
-    log.info(`syncthingApps - Sync folder is receiveonly, updating cache`);
+    log.info(`handleFirstRun - Sync folder is receiveonly, updating cache`);
     cache.restarted = false;
     cache.numberOfExecutions = 1;
   } else if (!containerRunning && containerDataFlags.includes('r')) {
-    log.info(`syncthingApps - Container not running, starting ${appId}`);
+    log.info(`handleFirstRun - Container not running, starting ${appId}`);
     try {
       await dockerService.appDockerStart(appId);
     } catch (error) {
-      log.error(`syncthingApps - Error starting ${appId}: ${error.message}`);
+      log.error(`handleFirstRun - Error starting ${appId}: ${error.message}`);
     }
   }
 
@@ -181,7 +181,7 @@ async function handleSkippedAppSecondEncounter(params) {
     syncthingFolder,
   } = params;
 
-  log.info(`syncthingApps - ${appId} was skipped on first encounter, now processing as new app`);
+  log.info(`handleSkippedAppSecondEncounter - ${appId} was skipped on first encounter, now processing as new app`);
   syncthingFolder.type = 'receiveonly';
   const cache = { numberOfExecutions: 1 };
 
@@ -209,17 +209,17 @@ async function handleReceiveOnlyTransition(params) {
     syncthingFolder,
   } = params;
 
-  log.info(`syncthingApps - ${appId} in cache and not restarted, processing receive-only logic`);
+  log.info(`handleReceiveOnlyTransition - ${appId} in cache and not restarted, processing receive-only logic`);
 
   // Check if this node is the designated leader
   const isLeader = isDesignatedLeader(runningAppList, myIP);
 
   if (isLeader) {
-    log.info(`syncthingApps - ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
+    log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
     syncthingFolder.type = 'sendreceive';
 
     if (containerDataFlags.includes('r')) {
-      log.info(`syncthingApps - starting ${appId}`);
+      log.info(`handleReceiveOnlyTransition - starting ${appId}`);
       await appDockerRestartFn(appId);
     }
 
@@ -234,40 +234,40 @@ async function handleReceiveOnlyTransition(params) {
 
   if (syncStatus) {
     log.info(
-      `syncthingApps - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% ` +
+      `handleReceiveOnlyTransition - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% ` +
       `(${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), ` +
       `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`
     );
 
     if (syncStatus.isSynced || cache.numberOfExecutions >= MAX_SYNC_WAIT_EXECUTIONS) {
       if (syncStatus.isSynced) {
-        log.info(`syncthingApps - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
+        log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
       } else {
-        log.warn(`syncthingApps - ${appId} reached max wait time (${MAX_SYNC_WAIT_EXECUTIONS} executions), forcing start`);
+        log.warn(`handleReceiveOnlyTransition - ${appId} reached max wait time (${MAX_SYNC_WAIT_EXECUTIONS} executions), forcing start`);
       }
 
       syncthingFolder.type = 'sendreceive';
       if (containerDataFlags.includes('r')) {
-        log.info(`syncthingApps - starting ${appId}`);
+        log.info(`handleReceiveOnlyTransition - starting ${appId}`);
         await appDockerRestartFn(appId);
       }
       cache.restarted = true;
     }
   } else {
     // Fallback to time-based approach
-    log.warn(`syncthingApps - Could not get sync status for ${appId}, using fallback time-based logic`);
+    log.warn(`handleReceiveOnlyTransition - Could not get sync status for ${appId}, using fallback time-based logic`);
 
     const numberOfExecutionsRequired = calculateRequiredExecutions(runningAppList, myIP);
     cache.numberOfExecutionsRequired = numberOfExecutionsRequired;
 
-    log.info(`syncthingApps - ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
+    log.info(`handleReceiveOnlyTransition - ${appId} executions: ${cache.numberOfExecutions}/${cache.numberOfExecutionsRequired}`);
 
     if (cache.numberOfExecutions >= numberOfExecutionsRequired) {
-      log.info(`syncthingApps - ${appId} reached required executions, switching to sendreceive`);
+      log.info(`handleReceiveOnlyTransition - ${appId} reached required executions, switching to sendreceive`);
       syncthingFolder.type = 'sendreceive';
 
       if (containerDataFlags.includes('r')) {
-        log.info(`syncthingApps - starting ${appId}`);
+        log.info(`handleReceiveOnlyTransition - starting ${appId}`);
         await appDockerRestartFn(appId);
       }
       cache.restarted = true;
@@ -291,7 +291,7 @@ async function handleNewApp(params) {
     syncthingFolder,
   } = params;
 
-  log.info(`syncthingApps - ${appId} NOT in cache. stopping and cleaning ${appId}`);
+  log.info(`handleNewApp - ${appId} NOT in cache. stopping and cleaning ${appId}`);
   syncthingFolder.type = 'receiveonly';
   const cache = { numberOfExecutions: 1 };
 
@@ -313,11 +313,11 @@ async function ensureContainerRunning(appId, containerDataFlags) {
   try {
     const containerInspect = await dockerService.dockerContainerInspect(appId);
     if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
-      log.info(`syncthingApps - ${appId} is not running, starting it`);
+      log.info(`ensureContainerRunning - ${appId} is not running, starting it`);
       await dockerService.appDockerStart(appId);
     }
   } catch (error) {
-    log.error(`syncthingApps - Error checking/starting ${appId}: ${error.message}`);
+    log.error(`ensureContainerRunning - Error checking/starting ${appId}: ${error.message}`);
   }
 }
 
@@ -398,7 +398,7 @@ async function manageFolderSyncState(params) {
   if (!cache) {
     // If not first run, skip it on first encounter
     if (!syncthingAppsFirstRun) {
-      log.info(`syncthingApps - ${appId} NOT in cache and not first run, marking for skip on first encounter`);
+      log.info(`manageFolderSyncState - ${appId} NOT in cache and not first run, marking for skip on first encounter`);
       const skipCache = { firstEncounterSkipped: true };
       return { syncthingFolder, cache: skipCache, skipProcessing: true };
     }
