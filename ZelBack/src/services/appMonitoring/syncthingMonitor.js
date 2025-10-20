@@ -362,6 +362,22 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
                     }
                   }
                 }
+              } else if (state.receiveOnlySyncthingAppsCache.has(appId) && state.receiveOnlySyncthingAppsCache.get(appId).firstEncounterSkipped && !folderAlreadySyncing) {
+                // Second encounter of an app that was skipped - now process it as a new app
+                log.info(`syncthingApps - App ${appId} was skipped on first encounter, now processing as new app`);
+                syncthingFolder.type = 'receiveonly';
+                const cache = {
+                  numberOfExecutions: 1,
+                };
+                state.receiveOnlySyncthingAppsCache.set(appId, cache);
+                // eslint-disable-next-line no-await-in-loop
+                await appDockerStopFn(id);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
+                // eslint-disable-next-line no-await-in-loop
+                await appDeleteDataInMountPointFn(id);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
               } else if (state.receiveOnlySyncthingAppsCache.has(appId) && !state.receiveOnlySyncthingAppsCache.get(appId).restarted && !folderAlreadySyncing) {
                 log.info(`syncthingApps - App ${appId} in cache and not restarted, processing receive-only logic`);
                 const cache = state.receiveOnlySyncthingAppsCache.get(appId);
@@ -450,6 +466,18 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
                   state.receiveOnlySyncthingAppsCache.set(appId, cache);
                 }
               } else if (!state.receiveOnlySyncthingAppsCache.has(appId) && !folderAlreadySyncing) {
+                // If not first run and app was never processed, skip it on first encounter
+                if (!state.syncthingAppsFirstRun) {
+                  log.info(`syncthingApps - App ${appId} NOT in cache and not first run, marking for skip on first encounter`);
+                  // Mark that we've seen it once, don't process yet
+                  const cache = {
+                    firstEncounterSkipped: true,
+                  };
+                  state.receiveOnlySyncthingAppsCache.set(appId, cache);
+                  // Skip processing this app entirely - will be handled on next iteration
+                  // eslint-disable-next-line no-continue
+                  continue;
+                }
                 log.info(`syncthingApps - App ${appId} NOT in cache. stopping and cleaning appIdentifier ${appId}`);
                 syncthingFolder.type = 'receiveonly';
                 const cache = {
@@ -619,6 +647,22 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
                       }
                     }
                   }
+                } else if (state.receiveOnlySyncthingAppsCache.has(appId) && state.receiveOnlySyncthingAppsCache.get(appId).firstEncounterSkipped && !folderAlreadySyncing) {
+                  // Second encounter of a component that was skipped - now process it as a new app
+                  log.info(`syncthingApps - Component ${appId} was skipped on first encounter, now processing as new app`);
+                  syncthingFolder.type = 'receiveonly';
+                  const cache = {
+                    numberOfExecutions: 1,
+                  };
+                  state.receiveOnlySyncthingAppsCache.set(appId, cache);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDockerStopFn(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appDeleteDataInMountPointFn(id);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
                 } else if (state.receiveOnlySyncthingAppsCache.has(appId) && !state.receiveOnlySyncthingAppsCache.get(appId).restarted && !folderAlreadySyncing) {
                   log.info(`syncthingApps - Component ${appId} in cache and not restarted, processing receive-only logic`);
                   const cache = state.receiveOnlySyncthingAppsCache.get(appId);
@@ -707,6 +751,18 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
                     state.receiveOnlySyncthingAppsCache.set(appId, cache);
                   }
                 } else if (!state.receiveOnlySyncthingAppsCache.has(appId) && !folderAlreadySyncing) {
+                  // If not first run and app was never processed, skip it on first encounter
+                  if (!state.syncthingAppsFirstRun) {
+                    log.info(`syncthingApps - Component ${appId} NOT in cache and not first run, marking for skip on first encounter`);
+                    // Mark that we've seen it once, don't process yet
+                    const cache = {
+                      firstEncounterSkipped: true,
+                    };
+                    state.receiveOnlySyncthingAppsCache.set(appId, cache);
+                    // Skip processing this app entirely - will be handled on next iteration
+                    // eslint-disable-next-line no-continue
+                    continue;
+                  }
                   log.info(`syncthingApps - Component ${appId} NOT in cache. Stopping and cleaning appIdentifier ${appId}`);
                   syncthingFolder.type = 'receiveonly';
                   const cache = {
