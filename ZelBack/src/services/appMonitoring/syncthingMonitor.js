@@ -75,6 +75,7 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
     // get list of all installed apps
     const appsInstalled = await installedAppsFn();
     if (appsInstalled.status === 'error') {
+      state.updateSyncthingRunning = false;
       return;
     }
     // go through every containerData of all components of every app
@@ -87,6 +88,7 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
 
     if (!myDeviceId) {
       log.error('syncthingApps - Failed to get myDeviceId');
+      state.updateSyncthingRunning = false;
       return;
     }
 
@@ -94,6 +96,7 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (!myIP) {
       log.error('syncthingApps - Failed to get myIP');
+      state.updateSyncthingRunning = false;
       return;
     }
 
@@ -596,10 +599,10 @@ async function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDocker
     // now we have new accurate devicesConfiguration and foldersConfiguration
     // add more of current devices
     // excludes our current deviceID adjustment
-    if (devicesConfiguration.length >= 0) {
+    if (devicesConfiguration.length > 0) {
       await syncthingService.adjustConfigDevices('put', devicesConfiguration);
     }
-    if (newFoldersConfiguration.length >= 0) {
+    if (newFoldersConfiguration.length > 0) {
       await syncthingService.adjustConfigFolders('put', newFoldersConfiguration);
     }
     // all configuration changes applied
