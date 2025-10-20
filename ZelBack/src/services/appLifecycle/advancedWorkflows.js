@@ -1233,21 +1233,15 @@ async function sendChunk(res, chunk) {
 }
 
 /**
- * Stop Syncthing app during backup/restore
+ * Stop Syncthing app - removes folder from syncthing config
  * @param {string} appComponentName - App component name
  * @param {object} res - Response object
- * @param {boolean} isBackRestore - Whether this is for backup/restore
  * @returns {Promise<void>}
  */
-async function stopSyncthingApp(appComponentName, res, isBackRestore) {
+async function stopSyncthingApp(appComponentName, res) {
   try {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
-    const globalState = require('../utils/globalState');
-    const receiveOnlySyncthingAppsCache = globalState.receiveOnlySyncthingAppsCache;
-    if (receiveOnlySyncthingAppsCache && !isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
-      receiveOnlySyncthingAppsCache.delete(appId);
-    }
     const folder = `${appsFolder + appId}`;
     const syncthingService = require('../syncthingService');
     const allSyncthingFolders = await syncthingService.getConfigFolders();
@@ -1450,7 +1444,7 @@ async function appendBackupTask(req, res) {
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Stopping syncthing for ${appname}\n`);
         // eslint-disable-next-line no-await-in-loop
-        await stopSyncthingApp(appname, res, true);
+        await stopSyncthingApp(appname, res);
       }
 
       await sendChunk(res, 'Stopping application...\n');
@@ -1569,7 +1563,7 @@ async function appendRestoreTask(req, res) {
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Stopping syncthing for ${appname}\n`);
         // eslint-disable-next-line no-await-in-loop
-        await stopSyncthingApp(appname, res, true);
+        await stopSyncthingApp(appname, res);
       }
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
