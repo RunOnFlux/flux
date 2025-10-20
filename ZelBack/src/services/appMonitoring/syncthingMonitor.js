@@ -182,9 +182,9 @@ async function logSyncState(foldersConfiguration) {
   // Get sync status for all folders in parallel
   const syncStatusPromises = foldersConfiguration.map(async (folder) => {
     try {
-      const statusResponse = await syncthingService.getDbStatus(null, {
+      const statusResponse = await syncthingService.getDbStatus({
         query: { folder: folder.id },
-      });
+      }, null);
 
       if (statusResponse && statusResponse.status === 'success') {
         const { globalBytes = 0, inSyncBytes = 0, state: syncState } = statusResponse.data;
