@@ -60,10 +60,7 @@ async function aptRunner(options = {}) {
 
   // any apt after 1.9.11 has this option.
   const params = ['-o', `DPkg::Lock::Timeout=${timeout}`, ...userParams];
-  const { error } = await serviceHelper.runCommand('apt-get', {
-    runAsRoot: true,
-    params,
-  });
+  const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params });
 
   // this is so this command can be retried by the worker runner
   if (error) throw error;
@@ -115,9 +112,7 @@ async function queueAptGetCommand(command, options = {}) {
   const params = options.params || [];
 
   if (!Array.isArray(params) || !params.every((p) => typeof p === 'string')) {
-    log.error(
-      'Malformed apt params. Must be an Array of strings... not running.',
-    );
+    log.error('Malformed apt params. Must be an Array of strings... not running.');
     return Promise.resolve();
   }
 
@@ -154,11 +149,7 @@ async function updateAptCache(options = {}) {
     // We can still get a race condition if another entity on the system
     // updates the cache before us. In that instance, the command throws,
     // since this is just a cache update, we assume it was fine and don't retry.
-    const { error } = await queueAptGetCommand('update', {
-      wait: true,
-      retries: 0,
-      retainErrors: false,
-    });
+    const { error } = await queueAptGetCommand('update', { wait: true, retries: 0, retainErrors: false });
     if (!error) log.info('Apt Cache updated');
     return Boolean(error);
   }
@@ -214,10 +205,7 @@ async function upgradePackage(systemPackage) {
   // we don't care about any errors here.
   await updateAptCache();
 
-  const { error } = await queueAptGetCommand('install', {
-    wait: true,
-    params: [systemPackage],
-  });
+  const { error } = await queueAptGetCommand('install', { wait: true, params: [systemPackage] });
   return Boolean(error);
 }
 
@@ -234,13 +222,11 @@ async function addGpgKey(url, keyringName) {
   while (!keyring && remainingAttempts) {
     remainingAttempts -= 1;
     // eslint-disable-next-line no-await-in-loop
-    const { data } = await axios
-      .get(url, { responseType: 'arraybuffer', timeout: 10000 })
-      .catch(async () => {
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(30 * 1000);
-        return { data: null };
-      });
+    const { data } = await axios.get(url, { responseType: 'arraybuffer', timeout: 10000 }).catch(async () => {
+      // eslint-disable-next-line no-await-in-loop
+      await serviceHelper.delay(30 * 1000);
+      return { data: null };
+    });
     if (data) keyring = Buffer.from(data, 'binary');
   }
 
@@ -254,18 +240,13 @@ async function addGpgKey(url, keyringName) {
   // this is a hack until we fork a small nodejs process with IPC as root for apt management / fs management (idea)
   // check /usr/share/keyrings is writeable
   // eslint-disable-next-line no-bitwise
-  const keyringAccessError = await fs
-    .access(path.dirname(filePath), fsConstants.R_OK | fsConstants.W_OK)
-    .catch(async () => {
-      const user = os.userInfo().username;
-      const { error } = await serviceHelper.runCommand('chown', {
-        runAsRoot: true,
-        params: [`${user}:${user}`, path.dirname(filePath)],
-      });
-      if (error) return true;
+  const keyringAccessError = await fs.access(path.dirname(filePath), fsConstants.R_OK | fsConstants.W_OK).catch(async () => {
+    const user = os.userInfo().username;
+    const { error } = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${user}:${user}`, path.dirname(filePath)] });
+    if (error) return true;
 
-      return false;
-    });
+    return false;
+  });
 
   if (keyringAccessError) return false;
 
@@ -296,18 +277,13 @@ async function addAptSource(packageName, url, dist, components, options = {}) {
   // this is a hack until we fork a smaller nodejs process as root for apt management (idea)
   // check /etc/apt/sources.list.d is writeable
   // eslint-disable-next-line no-bitwise
-  const sourcesAccessError = await fs
-    .access(path.dirname(filePath), fsConstants.R_OK | fsConstants.W_OK)
-    .catch(async () => {
-      const user = os.userInfo().username;
-      const { error } = await serviceHelper.runCommand('chown', {
-        runAsRoot: true,
-        params: [`${user}:${user}`, path.dirname(filePath)],
-      });
-      if (error) return true;
+  const sourcesAccessError = await fs.access(path.dirname(filePath), fsConstants.R_OK | fsConstants.W_OK).catch(async () => {
+    const user = os.userInfo().username;
+    const { error } = await serviceHelper.runCommand('chown', { runAsRoot: true, params: [`${user}:${user}`, path.dirname(filePath)] });
+    if (error) return true;
 
-      return false;
-    });
+    return false;
+  });
 
   if (sourcesAccessError) return false;
 
@@ -326,9 +302,7 @@ async function addAptSource(packageName, url, dist, components, options = {}) {
  * @returns {Promise<void>}
  */
 async function addSyncthingRepository() {
-  const sourceExists = await fs
-    .stat('/etc/apt/sources.list.d/syncthing.list')
-    .catch(() => false);
+  const sourceExists = await fs.stat('/etc/apt/sources.list.d/syncthing.list').catch(() => false);
   if (sourceExists) return;
 
   // source vars
@@ -336,10 +310,8 @@ async function addSyncthingRepository() {
   // syncthing does this weird
   const dist = 'syncthing';
   const sourceUrl = 'https://apt.syncthing.net/';
-  const components = ['stable-v2']; // Updated to stable-v2 for Syncthing 2.x
-  const sourceOptions = [
-    'signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg',
-  ];
+  const components = ['stable'];
+  const sourceOptions = ['signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg'];
 
   // keyring vars
   const keyUrl = 'https://syncthing.net/release-key.gpg';
@@ -367,9 +339,7 @@ async function addSyncthingRepository() {
  */
 async function ensurePackageVersion(systemPackage, version) {
   try {
-    log.info(
-      `Checking package ${systemPackage} is updated to version ${version}`,
-    );
+    log.info(`Checking package ${systemPackage} is updated to version ${version}`);
     const currentVersion = await getPackageVersion(systemPackage);
     if (!currentVersion) {
       log.info(`Package ${systemPackage} not found on system`);
@@ -414,8 +384,8 @@ async function monitorSyncthingPackage() {
           return { data: { data: {} } };
         });
 
-      const minSyncthingVersion = '2.0.0'; // testing
-      // data.syncthing || config.minimumSyncthingAllowedVersion;
+      const minSyncthingVersion =
+        data.syncthing || config.minimumSyncthingAllowedVersion;
       // const dockerVersion = data.docker || config.minimumDockerAllowedVersion;
 
       // Handle Syncthing v1 -> v2 upgrade by switching apt source when needed
@@ -516,10 +486,7 @@ async function monitorAptCache(event) {
     // However that means another dependency and I don't have the hardware (yet) to test on ARM etc.
 
     // eslint-disable-next-line no-await-in-loop
-    const { error: lockCheckError } = await serviceHelper.runCommand(
-      'apt-get',
-      { runAsRoot: true, params: ['check'] },
-    );
+    const { error: lockCheckError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
     if (!lockCheckError) {
       aptQueue.resume();
       return;
@@ -541,38 +508,23 @@ async function monitorAptCache(event) {
       // tests do weird stuff if you mutate the call properties
       const killParams = termParams.slice();
       killParams[1] = '-KILL';
-      await serviceHelper.runCommand('fuser', {
-        runAsRoot: true,
-        timeout: 10000,
-        params: killParams,
-      });
+      await serviceHelper.runCommand('fuser', { runAsRoot: true, timeout: 10000, params: killParams });
     }
   }
 
   // try recover any partial installs
-  await serviceHelper.runCommand('dpkg', {
-    runAsRoot: true,
-    params: ['--configure', '-a'],
-  });
+  await serviceHelper.runCommand('dpkg', { runAsRoot: true, params: ['--configure', '-a'] });
 
   // at this point, either dns is unable to resolve the sources (or sources are corrupt), or apt-get is broken. Lets try and fix broken
-  await serviceHelper.runCommand('apt-get', {
-    runAsRoot: true,
-    params: ['install', '--fix-broken'],
-  });
+  await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['install', '--fix-broken'] });
 
-  const { error: checkError } = await serviceHelper.runCommand('apt-get', {
-    runAsRoot: true,
-    params: ['check'],
-  });
+  const { error: checkError } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params: ['check'] });
   if (!checkError) {
     aptQueue.resume();
     return;
   }
 
-  log.error(
-    'Unable to run apt-get command(s), clearing the queue and resetting state.',
-  );
+  log.error('Unable to run apt-get command(s), clearing the queue and resetting state.');
   aptQueue.clear();
 }
 
@@ -649,14 +601,8 @@ async function mongoDBConfig() {
     };
     const yamlData = yaml.dump(data);
     await fs.writeFile('mongod.conf', yamlData, 'utf-8');
-    await serviceHelper.runCommand('mv', {
-      runAsRoot: true,
-      params: ['./mongod.conf', '/etc/mongod.conf'],
-    });
-    await serviceHelper.runCommand('systemctl', {
-      runAsRoot: true,
-      params: ['restart', 'mongod'],
-    });
+    await serviceHelper.runCommand('mv', { runAsRoot: true, params: ['./mongod.conf', '/etc/mongod.conf'] });
+    await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['restart', 'mongod'] });
     log.info('MongoDB config file created successfully.');
   } catch (error) {
     log.error('Error:', error);
@@ -669,15 +615,7 @@ async function mongodGpgKeyVeryfity() {
 
   log.info('MongoDB GPG verification...');
   try {
-    const { stdout, stderr, error } = await serviceHelper.runCommand('gpg', {
-      runAsRoot: false,
-      params: [
-        '--no-default-keyring',
-        '--keyring',
-        '/usr/share/keyrings/mongodb-archive-keyring.gpg',
-        '--list-keys',
-      ],
-    });
+    const { stdout, stderr, error } = await serviceHelper.runCommand('gpg', { runAsRoot: false, params: ['--no-default-keyring', '--keyring', '/usr/share/keyrings/mongodb-archive-keyring.gpg', '--list-keys'] });
     if (error) {
       throw new Error(`Executing gpg: ${error}`);
     }
@@ -691,9 +629,7 @@ async function mongodGpgKeyVeryfity() {
         const keyUrl = `https://pgp.mongodb.com/server-${versionMatch[1]}.asc`;
         const filePath = '/usr/share/keyrings/mongodb-archive-keyring.gpg';
         log.info(`MongoDB version: ${versionMatch[1]}`);
-        log.info(
-          `GPG URL: https://pgp.mongodb.com/server-${versionMatch[1]}.asc`,
-        );
+        log.info(`GPG URL: https://pgp.mongodb.com/server-${versionMatch[1]}.asc`);
         log.info(`The key has expired on ${expiredMatch[1]}`);
         const command = `curl -fsSL ${keyUrl} | sudo gpg --batch --yes -o ${filePath} --dearmor`;
         // eslint-disable-next-line no-shadow
@@ -759,22 +695,16 @@ async function enableFluxdZmq(zmqEndpoint) {
   }
 
   if (parseError) {
-    log.error(
-      `Error parsing zmqEndpoint: ${zmqEndpoint}. Unable to start zmq publisher`,
-    );
+    log.error(`Error parsing zmqEndpoint: ${zmqEndpoint}. Unable to start zmq publisher`);
     return false;
   }
 
   // to keep things simple, we only config zmq if fluxd is running and working, that way it is
   // easier to revert config changes on error
-  const { error: daemonError } = await serviceHelper.runCommand('flux-cli', {
-    params: ['getblockcount'],
-  });
+  const { error: daemonError } = await serviceHelper.runCommand('flux-cli', { params: ['getblockcount'] });
 
   if (daemonError) {
-    log.error(
-      'Error getting blockcount via flux-cli to validate new zmq config, skipping',
-    );
+    log.error('Error getting blockcount via flux-cli to validate new zmq config, skipping');
     return false;
   }
 
@@ -802,10 +732,7 @@ async function enableFluxdZmq(zmqEndpoint) {
   const newFluxdConfig = 'flux.conf.new';
   const fluxdConfigBackup = 'flux.conf.bak';
   const newFluxdAbsolutePath = path.join(fluxConfigDir, newFluxdConfig);
-  const fluxdConfigBackupAbsolutePath = path.join(
-    fluxConfigDir,
-    fluxdConfigBackup,
-  );
+  const fluxdConfigBackupAbsolutePath = path.join(fluxConfigDir, fluxdConfigBackup);
 
   topics.forEach((topic) => {
     daemonServiceUtils.setConfigValue(topic, zmqEndpoint, {
@@ -816,9 +743,7 @@ async function enableFluxdZmq(zmqEndpoint) {
   await daemonServiceUtils.writeFluxdConfig(newFluxdConfig);
 
   // we check to make sure the config file is parseable by fluxd. If not, the below will fail.
-  const { error: syntaxError } = await serviceHelper.runCommand('flux-cli', {
-    params: [`-conf=${newFluxdAbsolutePath}`, 'getblockcount'],
-  });
+  const { error: syntaxError } = await serviceHelper.runCommand('flux-cli', { params: [`-conf=${newFluxdAbsolutePath}`, 'getblockcount'] });
 
   await fs.rm(newFluxdAbsolutePath, { force: true }).catch(() => { });
 
