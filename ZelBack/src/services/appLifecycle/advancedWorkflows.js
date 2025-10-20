@@ -2474,6 +2474,43 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       timeout: 10000,
       httpsAgent: agent,
     };
+
+    // Cleanup stale entries from maps to prevent memory leaks
+    const validIdentifiers = new Set();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled.data) {
+      if (app.version <= 3) {
+        if (app.containerData && app.containerData.includes('g:')) {
+          validIdentifiers.add(app.name);
+        }
+      } else if (app.compose) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const comp of app.compose) {
+          if (comp.containerData && comp.containerData.includes('g:')) {
+            validIdentifiers.add(`${comp.name}_${app.name}`);
+          }
+        }
+      }
+    }
+
+    // Remove stale entries from mastersRunningGSyncthingApps
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of mastersRunningGSyncthingApps.keys()) {
+      if (!validIdentifiers.has(identifier)) {
+        mastersRunningGSyncthingApps.delete(identifier);
+        log.info(`masterSlaveApps: Cleaned up stale entry from mastersRunningGSyncthingApps: ${identifier}`);
+      }
+    }
+
+    // Remove stale entries from timeTostartNewMasterApp
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of timeTostartNewMasterApp.keys()) {
+      if (!validIdentifiers.has(identifier)) {
+        timeTostartNewMasterApp.delete(identifier);
+        log.info(`masterSlaveApps: Cleaned up stale entry from timeTostartNewMasterApp: ${identifier}`);
+      }
+    }
+
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       let fdmOk = true;
@@ -2579,14 +2616,32 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
             }
           }
         }
+        if (!fdmOk) {
+          log.warn(`masterSlaveApps: All FDM services failed for app:${installedApp.name}, skipping primary selection for this cycle`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         if (fdmOk) {
           // no ip means there was no row with ip on fdm
           // down means there was a row ip with status down
           // eslint-disable-next-line no-await-in-loop
-          let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          let myIP;
+          try {
+            myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          } catch (error) {
+            log.error(`masterSlaveApps: Failed to get my IP for app:${installedApp.name}, error: ${error.message}`);
+            // eslint-disable-next-line no-continue
+            continue;
+          }
           if (myIP) {
             if (myIP.indexOf(':') < 0) {
               myIP += ':16127';
+            }
+            // Validate ip is a string if it exists
+            if (ip && typeof ip !== 'string') {
+              log.error(`masterSlaveApps: Invalid IP type from FDM for app:${installedApp.name}, got: ${typeof ip}`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if ((!ip)) {
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
@@ -2632,12 +2687,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   const url = mastersRunningGSyncthingApps.get(identifier);
                   const ipToCheckAppRunning = url.split(':')[0];
                   const portToCheckAppRunning = url.split(':')[1] || '16127';
-                  // eslint-disable-next-line no-await-in-loop
-                  const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
-                  isResolved = true;
-                  const appsRunning = response.data.data;
-                  if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
-                    log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                  let previousMasterStillRunning = false;
+                  try {
+                    // eslint-disable-next-line no-await-in-loop
+                    const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
+                    isResolved = true;
+                    const appsRunning = response.data.data;
+                    if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
+                      log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                      previousMasterStillRunning = true;
+                    }
+                  } catch (error) {
+                    log.info(`masterSlaveApps: Failed to reach previous master at ${url} for app:${installedApp.name}, will proceed with primary selection. Error: ${error.message}`);
+                    isResolved = true;
+                  }
+                  if (previousMasterStillRunning) {
                     return;
                   }
                   // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
@@ -2679,10 +2743,10 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
                 timeTostartNewMasterApp.delete(identifier);
               }
-              if (myIP !== ip && runningAppsNames.includes(identifier)) {
+              if (myIP.split(':')[0] !== ip.split(':')[0] && runningAppsNames.includes(identifier)) {
                 appDockerStop(installedApp.name);
                 log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and myIP is: ${myIP}`);
-              } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
+              } else if (myIP.split(':')[0] === ip.split(':')[0] && !runningAppsNames.includes(identifier)) {
                 appDockerRestart(installedApp.name);
                 log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
               }
