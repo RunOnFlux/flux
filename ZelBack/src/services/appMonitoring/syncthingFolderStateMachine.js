@@ -20,9 +20,9 @@ const { sortRunningAppList } = require('./syncthingMonitorHelpers');
  */
 async function getFolderSyncCompletion(folderId) {
   try {
-    const statusResponse = await syncthingService.getDbStatus(null, {
+    const statusResponse = await syncthingService.getDbStatus({
       query: { folder: folderId },
-    });
+    }, null);
 
     if (statusResponse && statusResponse.status === 'success') {
       const { globalBytes = 0, inSyncBytes = 0, state } = statusResponse.data;
