@@ -720,8 +720,38 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         // eslint-disable-next-line no-await-in-loop
         await appInstaller.installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications);
       }
+
+      // Restore syncthing cache for apps with syncthing data to prevent data deletion
+      // This is necessary because cache might be lost (service restart) or corrupted (firstEncounterSkipped flag)
+      // During soft redeploy, data is preserved, so we mark apps as already synced
+      for (const appComponentSpecs of specificationsToInstall.compose) {
+        const hasSyncthingData = appComponentSpecs.containerData && (appComponentSpecs.containerData.includes('g:') || appComponentSpecs.containerData.includes('r:'));
+        if (hasSyncthingData) {
+          const identifier = `${appComponentSpecs.name}_${appName}`;
+          const appId = dockerService.getAppIdentifier(identifier);
+          globalState.receiveOnlySyncthingAppsCache.set(appId, {
+            restarted: true,
+            numberOfExecutionsRequired: 4,
+            numberOfExecutions: 10,
+          });
+          log.info(`Restored syncthing cache for ${appId} during soft redeploy`);
+        }
+      }
     } else {
       await appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
+
+      // Restore syncthing cache for non-compose apps with syncthing data
+      const hasSyncthingData = specificationsToInstall.containerData && (specificationsToInstall.containerData.includes('g:') || specificationsToInstall.containerData.includes('r:'));
+      if (hasSyncthingData) {
+        const identifier = isComponent ? `${specificationsToInstall.name}_${appName}` : appName;
+        const appId = dockerService.getAppIdentifier(identifier);
+        globalState.receiveOnlySyncthingAppsCache.set(appId, {
+          restarted: true,
+          numberOfExecutionsRequired: 4,
+          numberOfExecutions: 10,
+        });
+        log.info(`Restored syncthing cache for ${appId} during soft redeploy`);
+      }
     }
     // all done message
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
