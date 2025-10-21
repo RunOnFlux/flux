@@ -2312,7 +2312,24 @@ async function reinstallOldApplications() {
           delete auxInstalledApp.instances;
           delete auxInstalledApp.owner;
 
-          if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
+          // Helper function to recursively sort object keys for consistent comparison
+          const sortKeys = (obj) => {
+            if (Array.isArray(obj)) {
+              return obj.map(sortKeys);
+            }
+            if (obj !== null && typeof obj === 'object') {
+              return Object.keys(obj).sort().reduce((sorted, key) => {
+                sorted[key] = sortKeys(obj[key]);
+                return sorted;
+              }, {});
+            }
+            return obj;
+          };
+
+          const sortedGlobal = JSON.stringify(sortKeys(auxAppSpecifications));
+          const sortedLocal = JSON.stringify(sortKeys(auxInstalledApp));
+
+          if (sortedGlobal === sortedLocal) {
             log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
             // connect to mongodb
             const dbopen = dbHelper.databaseConnection();
@@ -2327,6 +2344,8 @@ async function reinstallOldApplications() {
             // eslint-disable-next-line no-continue
             continue;
           }
+          // Specs differ - log for debugging purposes
+          log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
 
           // check if node is capable to run it according to specifications
           // run the verification
@@ -2335,20 +2354,24 @@ async function reinstallOldApplications() {
           const tier = await generalService.nodeTier();
           if (appSpecifications.version >= 4 && installedApp.version <= 3) {
             if (globalState.removalInProgress) {
-              log.warn('Another application is undergoing removal');
-              return;
+              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.installationInProgress) {
-              log.warn('Another application is undergoing installation');
-              return;
+              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.softRedeployInProgress) {
-              log.warn('Another application is undergoing soft redeploy');
-              return;
+              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.hardRedeployInProgress) {
-              log.warn('Another application is undergoing hard redeploy');
-              return;
+              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             log.warn('Updating from old application version, doing hard redeploy...');
             const appUninstaller = require('./appUninstaller');
@@ -2410,20 +2433,24 @@ async function reinstallOldApplications() {
             }
 
             if (globalState.removalInProgress) {
-              log.warn('Another application is undergoing removal');
-              return;
+              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.installationInProgress) {
-              log.warn('Another application is undergoing installation');
-              return;
+              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.softRedeployInProgress) {
-              log.warn('Another application is undergoing soft redeploy');
-              return;
+              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.hardRedeployInProgress) {
-              log.warn('Another application is undergoing hard redeploy');
-              return;
+              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
 
             // Dynamic require to avoid circular dependency
@@ -2449,20 +2476,24 @@ async function reinstallOldApplications() {
             // composed application
             log.warn(`Beginning Redeployment of ${appSpecifications.name}...`);
             if (globalState.removalInProgress) {
-              log.warn('Another application is undergoing removal');
-              return;
+              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.installationInProgress) {
-              log.warn('Another application is undergoing installation');
-              return;
+              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.softRedeployInProgress) {
-              log.warn('Another application is undergoing soft redeploy');
-              return;
+              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.hardRedeployInProgress) {
-              log.warn('Another application is undergoing hard redeploy');
-              return;
+              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             // Dynamic require to avoid circular dependency
             const appUninstaller = require('./appUninstaller');
