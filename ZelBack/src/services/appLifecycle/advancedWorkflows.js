@@ -2112,7 +2112,7 @@ async function updateAppGlobalyApi(req, res) {
       if (!appInfo) {
         throw new Error('Flux App update received but application to update does not exist!');
       }
-      if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
+      if (appInfo.version <= 3 && appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
         throw new Error('Flux App update of repotag is not allowed');
       }
       const appOwner = appInfo.owner; // ensure previous app owner is signing this message
