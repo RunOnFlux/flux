@@ -1046,12 +1046,31 @@ async function softRedeploy(appSpecs, res) {
       }
       return;
     }
+    if (globalState.softRedeployInProgress) {
+      log.warn('Another application is undergoing soft redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.hardRedeployInProgress) {
+      log.warn('Another application is undergoing hard redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    globalState.softRedeployInProgress = true;
     log.info('Starting softRedeploy');
     try {
       await softRemoveAppLocally(appSpecs.name, res);
     } catch (error) {
       log.error(error);
-      globalState.removalInProgress = false;
+      globalState.softRedeployInProgress = false;
       throw error;
     }
     const appRedeployResponse = messageHelper.createSuccessMessage('Application softly removed. Awaiting installation...');
@@ -1067,9 +1086,11 @@ async function softRedeploy(appSpecs, res) {
     // register
     await softRegisterAppLocally(appSpecs, undefined, res);
     log.info('Application softly redeployed');
+    globalState.softRedeployInProgress = false;
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
+    globalState.softRedeployInProgress = false;
     const appUninstaller = require('./appUninstaller');
     appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
   }
@@ -1083,6 +1104,43 @@ async function softRedeploy(appSpecs, res) {
 async function hardRedeploy(appSpecs, res) {
   const appUninstaller = require('./appUninstaller');
   try {
+    if (globalState.removalInProgress) {
+      log.warn('Another application is undergoing removal');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.installationInProgress) {
+      log.warn('Another application is undergoing installation');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.softRedeployInProgress) {
+      log.warn('Another application is undergoing soft redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.hardRedeployInProgress) {
+      log.warn('Another application is undergoing hard redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    globalState.hardRedeployInProgress = true;
     await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
     const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
@@ -1097,8 +1155,10 @@ async function hardRedeploy(appSpecs, res) {
     // register
     await appInstaller.registerAppLocally(appSpecs, undefined, res); // can throw
     log.info('Application redeployed');
+    globalState.hardRedeployInProgress = false;
   } catch (error) {
     log.error(error);
+    globalState.hardRedeployInProgress = false;
     appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
   }
 }
@@ -2282,6 +2342,14 @@ async function reinstallOldApplications() {
               log.warn('Another application is undergoing installation');
               return;
             }
+            if (globalState.softRedeployInProgress) {
+              log.warn('Another application is undergoing soft redeploy');
+              return;
+            }
+            if (globalState.hardRedeployInProgress) {
+              log.warn('Another application is undergoing hard redeploy');
+              return;
+            }
             log.warn('Updating from old application version, doing hard redeploy...');
             const appUninstaller = require('./appUninstaller');
             // eslint-disable-next-line no-await-in-loop
@@ -2349,6 +2417,14 @@ async function reinstallOldApplications() {
               log.warn('Another application is undergoing installation');
               return;
             }
+            if (globalState.softRedeployInProgress) {
+              log.warn('Another application is undergoing soft redeploy');
+              return;
+            }
+            if (globalState.hardRedeployInProgress) {
+              log.warn('Another application is undergoing hard redeploy');
+              return;
+            }
 
             // Dynamic require to avoid circular dependency
             const appUninstaller = require('./appUninstaller');
@@ -2378,6 +2454,14 @@ async function reinstallOldApplications() {
             }
             if (globalState.installationInProgress) {
               log.warn('Another application is undergoing installation');
+              return;
+            }
+            if (globalState.softRedeployInProgress) {
+              log.warn('Another application is undergoing soft redeploy');
+              return;
+            }
+            if (globalState.hardRedeployInProgress) {
+              log.warn('Another application is undergoing hard redeploy');
               return;
             }
             // Dynamic require to avoid circular dependency
@@ -2470,8 +2554,8 @@ async function forceAppRemovals(installedApps, listAllApps, getApplicationGlobal
 async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https) {
   try {
     globalStateParam.masterSlaveAppsRunning = true;
-    // do not run if installationInProgress or removalInProgress
-    if (globalStateParam.installationInProgress || globalStateParam.removalInProgress) {
+    // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
+    if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress) {
       return;
     }
     // get list of all installed apps

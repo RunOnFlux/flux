@@ -3,6 +3,8 @@
 
 let removalInProgress = false;
 let installationInProgress = false;
+let softRedeployInProgress = false;
+let hardRedeployInProgress = false;
 let reinstallationOfOldAppsInProgress = false;
 let masterSlaveAppsRunning = false;
 let checkAndSyncAppHashesWasEverExecuted = false;
@@ -44,6 +46,12 @@ module.exports = {
 
   get installationInProgress() { return installationInProgress; },
   set installationInProgress(value) { installationInProgress = value; },
+
+  get softRedeployInProgress() { return softRedeployInProgress; },
+  set softRedeployInProgress(value) { softRedeployInProgress = value; },
+
+  get hardRedeployInProgress() { return hardRedeployInProgress; },
+  set hardRedeployInProgress(value) { hardRedeployInProgress = value; },
 
   get reinstallationOfOldAppsInProgress() { return reinstallationOfOldAppsInProgress; },
   set reinstallationOfOldAppsInProgress(value) { reinstallationOfOldAppsInProgress = value; },
@@ -92,6 +100,10 @@ module.exports = {
   setRemovalInProgressToTrue() { removalInProgress = true; },
   installationInProgressReset() { installationInProgress = false; },
   setInstallationInProgressTrue() { installationInProgress = true; },
+  softRedeployInProgressReset() { softRedeployInProgress = false; },
+  setSoftRedeployInProgressTrue() { softRedeployInProgress = true; },
+  hardRedeployInProgressReset() { hardRedeployInProgress = false; },
+  setHardRedeployInProgressTrue() { hardRedeployInProgress = true; },
 
   // Clear functions
   clearAppsMonitored() { appsMonitored = {}; },

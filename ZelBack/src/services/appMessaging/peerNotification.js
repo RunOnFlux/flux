@@ -28,6 +28,8 @@ let checkAndNotifyPeersOfRunningAppsFirstRun = true;
  * @param {object} appsMonitored - Object tracking monitored apps
  * @param {boolean} removalInProgress - Whether app removal is in progress
  * @param {boolean} installationInProgress - Whether app installation is in progress
+ * @param {boolean} softRedeployInProgress - Whether soft redeploy is in progress
+ * @param {boolean} hardRedeployInProgress - Whether hard redeploy is in progress
  * @param {boolean} reinstallationOfOldAppsInProgress - Whether reinstallation is in progress
  * @param {function} getGlobalState - Function to get global state
  * @param {object} cacheManager - Cache manager instance with stoppedAppsCache
@@ -38,6 +40,8 @@ async function checkAndNotifyPeersOfRunningApps(
   appsMonitored,
   removalInProgress,
   installationInProgress,
+  softRedeployInProgress,
+  hardRedeployInProgress,
   reinstallationOfOldAppsInProgress,
   getGlobalState,
   cacheManager,
@@ -106,7 +110,7 @@ async function checkAndNotifyPeersOfRunningApps(
     const appsStopedCache = cacheManager.stoppedAppsCache;
 
     // check if stoppedApp is a global application present in specifics. If so, try to start it.
-    if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
+    if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress) {
       // eslint-disable-next-line no-restricted-syntax
       for (const stoppedApp of stoppedApps) { // will uninstall app if some component is missing
         try {
@@ -143,7 +147,7 @@ async function checkAndNotifyPeersOfRunningApps(
             if (backupSkip || restoreSkip) {
               log.warn(`Application ${stoppedApp} backup/restore is in progress...`);
             }
-            if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
+            if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
               log.warn(`${stoppedApp} is stopped, starting`);
               if (!appsStopedCache.has(stoppedApp)) {
                 appsStopedCache.set(stoppedApp, '');
@@ -158,7 +162,7 @@ async function checkAndNotifyPeersOfRunningApps(
           }
         } catch (err) {
           log.error(err);
-          if (!removalInProgress && !installationInProgress && !reinstallationOfOldAppsInProgress) {
+          if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress) {
             const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
             // already checked for mongo ok, daemon ok, docker ok.
             // eslint-disable-next-line no-await-in-loop

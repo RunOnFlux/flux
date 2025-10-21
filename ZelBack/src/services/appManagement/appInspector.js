@@ -795,8 +795,8 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
  */
 async function monitorSharedDBApps(installedApps, removeAppLocally, globalState) {
   try {
-    // do not run if installationInProgress or removalInProgress
-    if (globalState.installationInProgress || globalState.removalInProgress) {
+    // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
+    if (globalState.installationInProgress || globalState.removalInProgress || globalState.softRedeployInProgress || globalState.hardRedeployInProgress) {
       return;
     }
     // get list of all installed apps
