@@ -332,14 +332,27 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.cache.restarted).to.be.true;
     });
 
-    it('should skip processing on first encounter when not first run', async () => {
+    it('should skip processing on first encounter when not first run and syncFolder exists', async () => {
       mockParams.syncthingAppsFirstRun = false;
-      mockParams.syncFolder = null;
+      // syncFolder exists (app existed before) but not in cache
+      mockParams.syncFolder = { id: 'test-app', type: 'receiveonly' };
 
       const result = await stateMachine.manageFolderSyncState(mockParams);
 
       expect(result.skipProcessing).to.be.true;
       expect(result.cache.firstEncounterSkipped).to.be.true;
+    });
+
+    it('should treat as new app when syncFolder does not exist even if not first run', async () => {
+      mockParams.syncthingAppsFirstRun = false;
+      mockParams.syncFolder = null; // NEW app installation - no syncFolder
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+      expect(result.cache.numberOfExecutions).to.equal(1);
+      sinon.assert.calledOnce(mockParams.appDockerStopFn);
+      sinon.assert.calledOnce(mockParams.appDeleteDataInMountPointFn);
     });
 
     it('should process skipped app on second encounter', async () => {

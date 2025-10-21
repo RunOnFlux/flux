@@ -396,7 +396,22 @@ async function manageFolderSyncState(params) {
 
   // App not in cache at all
   if (!cache) {
-    // If not first run, skip it on first encounter
+    // If syncFolder doesn't exist, this is a NEW app installation - process it immediately
+    // regardless of syncthingAppsFirstRun flag to prevent data loss
+    if (!syncFolder) {
+      log.info(`manageFolderSyncState - ${appId} NOT in cache but syncFolder doesn't exist, treating as new app installation`);
+      const result = await handleNewApp({
+        appId,
+        syncthingAppsFirstRun,
+        appDockerStopFn,
+        appDeleteDataInMountPointFn,
+        syncthingFolder,
+      });
+      return result;
+    }
+
+    // syncFolder exists but not in cache and not first run - skip on first encounter
+    // This handles apps that existed before monitoring but weren't tracked in cache
     if (!syncthingAppsFirstRun) {
       log.info(`manageFolderSyncState - ${appId} NOT in cache and not first run, marking for skip on first encounter`);
       const skipCache = { firstEncounterSkipped: true };
