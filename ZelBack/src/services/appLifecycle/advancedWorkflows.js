@@ -2281,7 +2281,6 @@ async function reinstallOldApplications() {
       throw new Error('Failed to get installed Apps');
     }
     const appsInstalled = installedAppsRes.data;
-    globalState.reinstallationOfOldAppsInProgress = true;
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // get current app specifications for the app name
@@ -2295,6 +2294,7 @@ async function reinstallOldApplications() {
         // eslint-disable-next-line no-await-in-loop
         log.warn(`Application ${installedApp.name} version is obsolete.`);
         if (randomNumber === 0) {
+          globalState.reinstallationOfOldAppsInProgress = true;
           // check if the app spec was changed
           const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
           const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
@@ -2322,7 +2322,7 @@ async function reinstallOldApplications() {
               upsert: true,
             };
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appSpecifications, options);
+            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
             log.info(`Application ${installedApp.name} Database updated`);
             // eslint-disable-next-line no-continue
             continue;
