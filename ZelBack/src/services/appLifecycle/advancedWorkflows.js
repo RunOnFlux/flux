@@ -2312,24 +2312,7 @@ async function reinstallOldApplications() {
           delete auxInstalledApp.instances;
           delete auxInstalledApp.owner;
 
-          // Helper function to recursively sort object keys for consistent comparison
-          const sortKeys = (obj) => {
-            if (Array.isArray(obj)) {
-              return obj.map(sortKeys);
-            }
-            if (obj !== null && typeof obj === 'object') {
-              return Object.keys(obj).sort().reduce((sorted, key) => {
-                sorted[key] = sortKeys(obj[key]);
-                return sorted;
-              }, {});
-            }
-            return obj;
-          };
-
-          const sortedGlobal = JSON.stringify(sortKeys(auxAppSpecifications));
-          const sortedLocal = JSON.stringify(sortKeys(auxInstalledApp));
-
-          if (sortedGlobal === sortedLocal) {
+          if (JSON.stringify(auxAppSpecifications) === JSON.stringify(auxInstalledApp)) {
             log.info(`Application ${installedApp.name} was updated without any change on the specifications, updating localAppsInformation db information.`);
             // connect to mongodb
             const dbopen = dbHelper.databaseConnection();
