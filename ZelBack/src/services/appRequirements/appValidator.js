@@ -557,7 +557,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   }
   // Version 8+ allows hyphens in app names (but not as first or last character)
   if (appSpecifications.version >= 8) {
-    if (!appSpecifications.name.match(/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/)) {
+    if (!appSpecifications.name.match(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/)) {
       throw new Error('Flux App name contains special characters. Only a-z, A-Z, 0-9 and hyphens are allowed (hyphens cannot be first or last character)');
     }
   } else {
