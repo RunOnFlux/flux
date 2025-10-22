@@ -18,10 +18,9 @@ const { checkApplicationImagesCompliance } = require('../appSecurity/imageManage
 const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 const pgpService = require('../pgpService');
+const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { specificationFormatter } = require('../utils/appSpecHelpers');
 const log = require('../../lib/log');
 const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
@@ -32,6 +31,7 @@ const config = require('config');
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
+
 // Helper functions and constants for installApplicationHard
 const util = require('util');
 const { exec } = require('child_process');
@@ -40,39 +40,6 @@ const cmdAsync = util.promisify(exec);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
-
-
-/**
- *
- * @param {string} repoauth The docker repository authentication
- * @param {number} specVersion The app spec version (to determine decryption type)
- * @returns {Promise<null|string>}
- */
-async function handleRepoauthDecryption(repoauth, specVersion) {
-  if (!repoauth) return null;
-
-  if (specVersion < 7) {
-    throw new Error('Specifications less than v7 do not have repoauth')
-  }
-
-  let authToken = null;
-
-  if (specVersion === 7) {
-    authToken = await pgpService.decryptMessage(repoauth);
-
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
-  } else {
-    authToken = repoauth;
-  }
-
-  if (!authToken.includes(':')) {
-    throw new Error('Provided credentials not in the correct username:token format');
-  }
-
-  return authToken;
-}
 
 /**
  * Verify that the app volume is mounted
@@ -312,9 +279,27 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
 
   const pullConfig = { repoTag: repotag };
 
-  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
+  let authToken = null;
 
-  if (authToken) {
+  if (repoauth) {
+    // Use credential helper to handle version-aware decryption and cloud providers
+    const credentials = await registryCredentialHelper.getCredentials(
+      repotag,
+      repoauth,
+      specVersion, // Pass parent spec version for v7/v8 handling
+    );
+
+    if (!credentials) {
+      throw new Error('Unable to get credentials');
+    }
+
+    // Convert to username:password format for ImageVerifier
+    authToken = `${credentials.username}:${credentials.password}`;
+
+    if (!authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
+    }
+
     imgVerifier.addCredentials(authToken);
     pullConfig.authToken = authToken;
   }
@@ -558,21 +543,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         dbSpecs.contacts = [];
       }
 
-      // Ensure no stale database entry exists before inserting
-      // This prevents duplicate key errors and ensures fresh data
-      const cleanupQuery = { name: appSpecifications.name };
-      const existingEntry = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, cleanupQuery, {});
-      if (existingEntry) {
-        log.warn(`Found existing database entry for ${appSpecifications.name} during registration. Cleaning up stale entry.`);
-        await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, cleanupQuery, {});
-        log.info(`Stale database entry for ${appSpecifications.name} removed. Proceeding with fresh insert.`);
-      }
-
-      const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
-      if (!insertResult) {
-        throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name}. Database insert returned undefined - likely duplicate key error or database failure. Aborting installation to prevent orphaned Docker containers.`);
-      }
-      log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
+      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -590,18 +561,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
     try {
-      // Validate database entry exists before creating Docker containers (atomic transaction check)
-      // This prevents orphaned Docker containers if DB entry was deleted/corrupted between insert and Docker creation
-      if (!isComponent) {
-        const dbValidationQuery = { name: appSpecifications.name };
-        const dbValidationProjection = { projection: { _id: 0, name: 1 } };
-        const dbEntryExists = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, dbValidationQuery, dbValidationProjection);
-        if (!dbEntryExists) {
-          throw new Error(`Database entry validation failed for ${appSpecifications.name}. Entry was inserted but disappeared before Docker container creation. Possible race condition or database corruption detected.`);
-        }
-        log.info(`Database entry validated for ${appSpecifications.name} before Docker container creation`);
-      }
-
       if (specificationsToInstall.version >= 4) { // version is undefined for component
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponentSpecs of specificationsToInstall.compose) {
@@ -646,9 +605,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       }
       throw error;
     }
-
-    log.info(`Flux App: ${appName} is test install: ${test}`);
-
     if (!test) {
       const broadcastedAt = Date.now();
       const newAppRunningMessage = {
@@ -700,8 +656,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         res.write(serviceHelper.ensureString(removeStatus));
         if (res.flush) res.flush();
       }
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, false);
-      log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
+      appUninstaller.removeAppLocally(appSpecs.name, res, true, true, false);
     }
     return false;
   }
@@ -894,18 +849,6 @@ async function installAppLocally(req, res) {
       if (!appSpecifications) {
         throw new Error(`Application Specifications of ${appname} not found`);
       }
-
-      // we have to do this as not all paths above decrypt the app specs
-      // this is a bit of a hack until we tidy up the app spec mess (use classes)
-      if (
-        appSpecifications.version >= 8
-        && appSpecifications.enterprise
-        && !appSpecifications.compose.length
-      ) {
-        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-        appSpecifications = specificationFormatter(appSpecifications);
-      }
-
       // get current height
       const dbopen = dbHelper.databaseConnection();
       if (!appSpecifications.height && appSpecifications.height !== 0) {
@@ -1051,6 +994,7 @@ async function testAppInstall(req, res) {
 
       // Run test installation (registerAppLocally with test=true)
       await registerAppLocally(appSpecifications, undefined, res, true);
+
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
