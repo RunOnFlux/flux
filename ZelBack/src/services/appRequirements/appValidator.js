@@ -555,8 +555,15 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   if (!appSpecifications.name) {
     throw new Error('Please provide a valid Flux App name');
   }
-  if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
-    throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+  // Version 8+ allows hyphens in app names (but not as first or last character)
+  if (appSpecifications.version >= 8) {
+    if (!appSpecifications.name.match(/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/)) {
+      throw new Error('Flux App name contains special characters. Only a-z, A-Z, 0-9 and hyphens are allowed (hyphens cannot be first or last character)');
+    }
+  } else {
+    if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
+      throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+    }
   }
   if (appSpecifications.name.startsWith('zel')) {
     throw new Error('Flux App name can not start with zel');
