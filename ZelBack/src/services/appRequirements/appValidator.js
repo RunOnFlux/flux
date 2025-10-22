@@ -548,15 +548,24 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7 && appSpecifications.version !== 8) {
     throw new Error('Flux App message version specification is invalid');
   }
-  if (appSpecifications.name.length > 32) {
-    throw new Error('Flux App name is too long');
+  // Version 8+ allows up to 63 characters to align with FQDN label standards (RFC 1035)
+  const maxNameLength = appSpecifications.version >= 8 ? 63 : 32;
+  if (appSpecifications.name.length > maxNameLength) {
+    throw new Error(`Flux App name is too long. Maximum ${maxNameLength} characters allowed`);
   }
   // furthermore name cannot contain any special character
   if (!appSpecifications.name) {
     throw new Error('Please provide a valid Flux App name');
   }
-  if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
-    throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+  // Version 8+ allows hyphens in app names (but not as first or last character)
+  if (appSpecifications.version >= 8) {
+    if (!appSpecifications.name.match(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/)) {
+      throw new Error('Flux App name contains special characters. Only a-z, A-Z, 0-9 and hyphens are allowed (hyphens cannot be first or last character)');
+    }
+  } else {
+    if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
+      throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+    }
   }
   if (appSpecifications.name.startsWith('zel')) {
     throw new Error('Flux App name can not start with zel');
@@ -668,8 +677,10 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       if (!appComponent.name) {
         throw new Error('Please provide a valid Flux App Component name');
       }
-      if (appComponent.name.length > 32) {
-        throw new Error('Flux App name is too long');
+      // Version 8+ allows up to 63 characters to align with FQDN label standards (RFC 1035)
+      const maxComponentNameLength = appSpecifications.version >= 8 ? 63 : 32;
+      if (appComponent.name.length > maxComponentNameLength) {
+        throw new Error(`Flux App component name is too long. Maximum ${maxComponentNameLength} characters allowed`);
       }
       if (appComponent.name.startsWith('zel')) {
         throw new Error('Flux App Component name can not start with zel');
@@ -1362,11 +1373,11 @@ async function verifyAppUpdateParameters(req, res) {
         }
       }
 
-      // check if name is not yet registered
+      // Validate update compatibility with previous version
       const timestamp = Date.now();
       // Dynamic require to avoid circular dependency
       const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-      await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+      await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, timestamp);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];

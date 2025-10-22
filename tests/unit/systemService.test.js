@@ -330,7 +330,10 @@ describe('system Services tests', () => {
       });
 
       await systemService.monitorSyncthingPackage();
-      sinon.assert.calledOnceWithMatch(runCmdStub, 'dpkg-query');
+      // monitorSyncthingPackage calls getPackageVersion twice:
+      // 1. To check if we need to upgrade from v1 to v2 (line 392)
+      // 2. Inside ensurePackageVersion to verify current version (line 342)
+      sinon.assert.calledTwice(runCmdStub.withArgs('dpkg-query'));
     });
   });
 

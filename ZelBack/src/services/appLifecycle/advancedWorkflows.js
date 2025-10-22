@@ -1281,9 +1281,9 @@ async function verifyAppUpdateParameters(req, res) {
         }
       }
 
-      // check if name is not yet registered
+      // Validate update compatibility with previous version
       const timestamp = Date.now();
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+      await validateApplicationUpdateCompatibility(appSpecFormatted, timestamp);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
@@ -1892,38 +1892,72 @@ async function testAppMount() {
 }
 
 /**
- * Check application update name repository conflicts
- * @param {object} specifications - App specifications
- * @param {number} verificationTimestamp - Verification timestamp
- * @returns {Promise<boolean>} True if no conflicts
+ * Validates that an application update is compatible with the previous version.
+ * Enforces structural consistency rules based on app specification version:
+ * - v1-3: Repository tags (repotag) cannot be changed
+ * - v4+: Component names and count must remain constant (repotag changes allowed)
+ * - Version downgrades from v4+ to v1-3 are forbidden
+ *
+ * @param {object} specifications - The new/updated application specifications to validate
+ * @param {string} specifications.name - Application name
+ * @param {number} specifications.version - Specification version (1-4+)
+ * @param {string} [specifications.repotag] - Docker image repository:tag (v1-3)
+ * @param {Array} [specifications.compose] - Component definitions (v4+)
+ * @param {number} verificationTimestamp - Timestamp for retrieving the correct previous app version
+ * @returns {Promise<boolean>} Returns true if update is compatible
+ * @throws {Error} When update violates version-specific compatibility rules:
+ *   - Component count mismatch (v4+)
+ *   - Component name changes (v4+)
+ *   - Repository tag changes (v1-3)
+ *   - Version downgrade from v4+ to v1-3
  */
-async function checkApplicationUpdateNameRepositoryConflicts(specifications, verificationTimestamp) {
+async function validateApplicationUpdateCompatibility(specifications, verificationTimestamp) {
   // eslint-disable-next-line no-use-before-define
   const appSpecs = await getPreviousAppSpecifications(specifications, verificationTimestamp);
   if (specifications.version >= 4) {
     if (appSpecs.version >= 4) {
-      // update and current are both v4 compositions
-      // must be same amount of copmositions
-      // must be same names
+      // Both current and update are v4+ compositions
+      // Component count must remain constant
       if (specifications.compose.length !== appSpecs.compose.length) {
-        throw new Error(`Flux App ${specifications.name} change of components is not allowed`);
+        throw new Error(
+          `Application update rejected: Cannot change the number of components for "${specifications.name}". ` +
+          `Previous version has ${appSpecs.compose.length} component(s), new version has ${specifications.compose.length}. ` +
+          `Component count must remain constant for v4+ applications.`
+        );
       }
+
+      // Component names must remain constant (but repotag can change)
       appSpecs.compose.forEach((appComponent) => {
         const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
         if (!newSpecComponentFound) {
-          throw new Error(`Flux App ${specifications.name} change of component name is not allowed`);
+          const oldNames = appSpecs.compose.map((c) => c.name).join(', ');
+          const newNames = specifications.compose.map((c) => c.name).join(', ');
+          throw new Error(
+            `Application update rejected: Component "${appComponent.name}" not found in new specification for "${specifications.name}". ` +
+            `Component names must remain constant. Previous components: [${oldNames}], New components: [${newNames}]. ` +
+            `Note: Docker image tags (repotag) can be changed, but component names cannot.`
+          );
         }
-        // v4 allows for changes of repotag
+        // v4+ allows for changes of repotag (Docker image tags)
       });
-    } else { // update is v4+ and current app have v1,2,3
-      throw new Error(`Flux App ${specifications.name} on update to different specifications is not possible`);
+    } else { // Update is v4+ and current app is v1-3
+      // Node will perform hard redeploy of the app to migrate from v1-3 to v4+
     }
   } else if (appSpecs.version >= 4) {
-    throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
-  } else { // bot update and current app have v1,2,3
+    throw new Error(
+      `Application update rejected: Cannot downgrade "${specifications.name}" from v4+ to v${specifications.version}. ` +
+      `Version rollbacks from v4+ specifications to older versions (v1-3) are not permitted. ` +
+      `Current version: v${appSpecs.version}, Attempted version: v${specifications.version}.`
+    );
+  } else { // Both update and current app are v1-3
+    // v1-3 specifications do not allow repotag changes
     // eslint-disable-next-line no-lonely-if
-    if (appSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
-      throw new Error(`Flux App ${specifications.name} update of repotag is not allowed`);
+    if (appSpecs.repotag !== specifications.repotag) {
+      throw new Error(
+        `Application update rejected: Cannot change Docker image repository/tag for v1-3 application "${specifications.name}". ` +
+        `Previous repotag: "${appSpecs.repotag}", New repotag: "${specifications.repotag}". ` +
+        `Repository tag changes are only allowed for v4+ applications. Consider upgrading to v4+ specification format.`
+      );
     }
   }
   return true;
@@ -2129,8 +2163,8 @@ async function updateAppGlobalyApi(req, res) {
       // here signature is checked against PREVIOUS app owner
       await appMessaging.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
 
-      // verify that app exists, does not change repotag (for v1-v3), does not change name and does not change component names
-      await checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+      // Validate update compatibility: ensure structural consistency (component names/count for v4+, repotag for v1-3)
+      await validateApplicationUpdateCompatibility(appSpecFormatted, timestamp);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];
@@ -2360,19 +2394,6 @@ async function reinstallOldApplications() {
             const appUninstaller = require('./appUninstaller');
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(appSpecifications.name, null, true, false);
-            // connect to mongodb
-            const dbopen = dbHelper.databaseConnection();
-            const appsDatabase = dbopen.db(config.database.appslocal.database);
-            const appsQuery = { name: appSpecifications.name };
-            const appsProjection = {};
-            log.warn('Cleaning up database...');
-            // eslint-disable-next-line no-await-in-loop
-            await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-            const databaseStatus2 = {
-              status: 'Database cleaned',
-            };
-            log.warn('Database cleaned');
-            log.warn(databaseStatus2);
             log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
             // composition removal done. Remove from installed apps and being installation
             // eslint-disable-next-line no-await-in-loop
@@ -3033,7 +3054,7 @@ module.exports = {
   appendRestoreTask,
   removeTestAppMount,
   testAppMount,
-  checkApplicationUpdateNameRepositoryConflicts,
+  validateApplicationUpdateCompatibility,
   getPreviousAppSpecifications,
   setInstallationInProgress,
   setRemovalInProgress,
