@@ -1369,11 +1369,11 @@ async function verifyAppUpdateParameters(req, res) {
         }
       }
 
-      // check if name is not yet registered
+      // Validate update compatibility with previous version
       const timestamp = Date.now();
       // Dynamic require to avoid circular dependency
       const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-      await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, timestamp);
+      await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, timestamp);
 
       if (isEnterprise) {
         appSpecFormatted.contacts = [];

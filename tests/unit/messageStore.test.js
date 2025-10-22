@@ -70,7 +70,7 @@ describe('messageStore tests', () => {
         checkApplicationRegistrationNameConflicts: sinon.stub().resolves(),
       },
       '../appLifecycle/advancedWorkflows': {
-        checkApplicationUpdateNameRepositoryConflicts: sinon.stub().resolves(),
+        validateApplicationUpdateCompatibility: sinon.stub().resolves(),
         getPreviousAppSpecifications: sinon.stub().resolves({ owner: 'owner1' }),
       },
       '../utils/enterpriseHelper': {

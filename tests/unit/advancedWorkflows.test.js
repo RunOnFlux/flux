@@ -111,7 +111,7 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
-  // Note: verifyAppUpdateParameters, checkApplicationUpdateNameRepositoryConflicts,
+  // Note: verifyAppUpdateParameters, validateApplicationUpdateCompatibility,
   // createAppVolume, getPeerAppsInstallingErrorMessages, and stopSyncthingApp are
   // complex integration functions or HTTP request handlers that require extensive
   // mocking of database connections, HTTP requests, and external services.

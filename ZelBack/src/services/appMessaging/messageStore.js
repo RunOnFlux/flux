@@ -104,7 +104,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         if (appRegistration) {
           await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
         } else {
-          await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormattedDecrypted, messageTimestamp);
+          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, messageTimestamp);
         }
       }
     } else {
@@ -112,7 +112,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (appRegistration) {
         await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
-        await advancedWorkflows.checkApplicationUpdateNameRepositoryConflicts(appSpecFormatted, messageTimestamp);
+        await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, messageTimestamp);
       }
     }
 
