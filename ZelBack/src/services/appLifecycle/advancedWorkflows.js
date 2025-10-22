@@ -720,8 +720,38 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
         // eslint-disable-next-line no-await-in-loop
         await appInstaller.installApplicationSoft(appComponentSpecs, appName, isComponent, res, appSpecifications);
       }
+
+      // Restore syncthing cache for apps with syncthing data to prevent data deletion
+      // This is necessary because cache might be lost (service restart) or corrupted (firstEncounterSkipped flag)
+      // During soft redeploy, data is preserved, so we mark apps as already synced
+      for (const appComponentSpecs of specificationsToInstall.compose) {
+        const hasSyncthingData = appComponentSpecs.containerData && (appComponentSpecs.containerData.includes('g:') || appComponentSpecs.containerData.includes('r:'));
+        if (hasSyncthingData) {
+          const identifier = `${appComponentSpecs.name}_${appName}`;
+          const appId = dockerService.getAppIdentifier(identifier);
+          globalState.receiveOnlySyncthingAppsCache.set(appId, {
+            restarted: true,
+            numberOfExecutionsRequired: 4,
+            numberOfExecutions: 10,
+          });
+          log.info(`Restored syncthing cache for ${appId} during soft redeploy`);
+        }
+      }
     } else {
       await appInstaller.installApplicationSoft(specificationsToInstall, appName, isComponent, res, appSpecifications);
+
+      // Restore syncthing cache for non-compose apps with syncthing data
+      const hasSyncthingData = specificationsToInstall.containerData && (specificationsToInstall.containerData.includes('g:') || specificationsToInstall.containerData.includes('r:'));
+      if (hasSyncthingData) {
+        const identifier = isComponent ? `${specificationsToInstall.name}_${appName}` : appName;
+        const appId = dockerService.getAppIdentifier(identifier);
+        globalState.receiveOnlySyncthingAppsCache.set(appId, {
+          restarted: true,
+          numberOfExecutionsRequired: 4,
+          numberOfExecutions: 10,
+        });
+        log.info(`Restored syncthing cache for ${appId} during soft redeploy`);
+      }
     }
     // all done message
     const successStatus = messageHelper.createSuccessMessage(`Flux App ${appName} successfully installed and launched`);
@@ -1016,12 +1046,31 @@ async function softRedeploy(appSpecs, res) {
       }
       return;
     }
+    if (globalState.softRedeployInProgress) {
+      log.warn('Another application is undergoing soft redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.hardRedeployInProgress) {
+      log.warn('Another application is undergoing hard redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    globalState.softRedeployInProgress = true;
     log.info('Starting softRedeploy');
     try {
       await softRemoveAppLocally(appSpecs.name, res);
     } catch (error) {
       log.error(error);
-      globalState.removalInProgress = false;
+      globalState.softRedeployInProgress = false;
       throw error;
     }
     const appRedeployResponse = messageHelper.createSuccessMessage('Application softly removed. Awaiting installation...');
@@ -1037,9 +1086,11 @@ async function softRedeploy(appSpecs, res) {
     // register
     await softRegisterAppLocally(appSpecs, undefined, res);
     log.info('Application softly redeployed');
+    globalState.softRedeployInProgress = false;
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
+    globalState.softRedeployInProgress = false;
     const appUninstaller = require('./appUninstaller');
     appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
   }
@@ -1053,6 +1104,43 @@ async function softRedeploy(appSpecs, res) {
 async function hardRedeploy(appSpecs, res) {
   const appUninstaller = require('./appUninstaller');
   try {
+    if (globalState.removalInProgress) {
+      log.warn('Another application is undergoing removal');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.installationInProgress) {
+      log.warn('Another application is undergoing installation');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.softRedeployInProgress) {
+      log.warn('Another application is undergoing soft redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.hardRedeployInProgress) {
+      log.warn('Another application is undergoing hard redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    globalState.hardRedeployInProgress = true;
     await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
     const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
@@ -1067,8 +1155,10 @@ async function hardRedeploy(appSpecs, res) {
     // register
     await appInstaller.registerAppLocally(appSpecs, undefined, res); // can throw
     log.info('Application redeployed');
+    globalState.hardRedeployInProgress = false;
   } catch (error) {
     log.error(error);
+    globalState.hardRedeployInProgress = false;
     appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
   }
 }
@@ -1233,21 +1323,15 @@ async function sendChunk(res, chunk) {
 }
 
 /**
- * Stop Syncthing app during backup/restore
+ * Stop Syncthing app - removes folder from syncthing config
  * @param {string} appComponentName - App component name
  * @param {object} res - Response object
- * @param {boolean} isBackRestore - Whether this is for backup/restore
  * @returns {Promise<void>}
  */
-async function stopSyncthingApp(appComponentName, res, isBackRestore) {
+async function stopSyncthingApp(appComponentName, res) {
   try {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
-    const globalState = require('../utils/globalState');
-    const receiveOnlySyncthingAppsCache = globalState.receiveOnlySyncthingAppsCache;
-    if (receiveOnlySyncthingAppsCache && !isBackRestore && receiveOnlySyncthingAppsCache.has(appId)) {
-      receiveOnlySyncthingAppsCache.delete(appId);
-    }
     const folder = `${appsFolder + appId}`;
     const syncthingService = require('../syncthingService');
     const allSyncthingFolders = await syncthingService.getConfigFolders();
@@ -1450,7 +1534,7 @@ async function appendBackupTask(req, res) {
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Stopping syncthing for ${appname}\n`);
         // eslint-disable-next-line no-await-in-loop
-        await stopSyncthingApp(appname, res, true);
+        await stopSyncthingApp(appname, res);
       }
 
       await sendChunk(res, 'Stopping application...\n');
@@ -1569,7 +1653,7 @@ async function appendRestoreTask(req, res) {
         // eslint-disable-next-line no-await-in-loop
         await sendChunk(res, `Stopping syncthing for ${appname}\n`);
         // eslint-disable-next-line no-await-in-loop
-        await stopSyncthingApp(appname, res, true);
+        await stopSyncthingApp(appname, res);
       }
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
@@ -2028,7 +2112,7 @@ async function updateAppGlobalyApi(req, res) {
       if (!appInfo) {
         throw new Error('Flux App update received but application to update does not exist!');
       }
-      if (appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
+      if (appInfo.version <= 3 && appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
         throw new Error('Flux App update of repotag is not allowed');
       }
       const appOwner = appInfo.owner; // ensure previous app owner is signing this message
@@ -2197,7 +2281,6 @@ async function reinstallOldApplications() {
       throw new Error('Failed to get installed Apps');
     }
     const appsInstalled = installedAppsRes.data;
-    globalState.reinstallationOfOldAppsInProgress = true;
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
       // get current app specifications for the app name
@@ -2211,6 +2294,7 @@ async function reinstallOldApplications() {
         // eslint-disable-next-line no-await-in-loop
         log.warn(`Application ${installedApp.name} version is obsolete.`);
         if (randomNumber === 0) {
+          globalState.reinstallationOfOldAppsInProgress = true;
           // check if the app spec was changed
           const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
           const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
@@ -2238,11 +2322,13 @@ async function reinstallOldApplications() {
               upsert: true,
             };
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appSpecifications, options);
+            await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: appSpecifications }, options);
             log.info(`Application ${installedApp.name} Database updated`);
             // eslint-disable-next-line no-continue
             continue;
           }
+          // Specs differ - log for debugging purposes
+          log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
 
           // check if node is capable to run it according to specifications
           // run the verification
@@ -2251,12 +2337,24 @@ async function reinstallOldApplications() {
           const tier = await generalService.nodeTier();
           if (appSpecifications.version >= 4 && installedApp.version <= 3) {
             if (globalState.removalInProgress) {
-              log.warn('Another application is undergoing removal');
-              return;
+              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.installationInProgress) {
-              log.warn('Another application is undergoing installation');
-              return;
+              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+            if (globalState.softRedeployInProgress) {
+              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+            if (globalState.hardRedeployInProgress) {
+              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             log.warn('Updating from old application version, doing hard redeploy...');
             const appUninstaller = require('./appUninstaller');
@@ -2318,12 +2416,24 @@ async function reinstallOldApplications() {
             }
 
             if (globalState.removalInProgress) {
-              log.warn('Another application is undergoing removal');
-              return;
+              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.installationInProgress) {
-              log.warn('Another application is undergoing installation');
-              return;
+              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+            if (globalState.softRedeployInProgress) {
+              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+            if (globalState.hardRedeployInProgress) {
+              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
 
             // Dynamic require to avoid circular dependency
@@ -2349,12 +2459,24 @@ async function reinstallOldApplications() {
             // composed application
             log.warn(`Beginning Redeployment of ${appSpecifications.name}...`);
             if (globalState.removalInProgress) {
-              log.warn('Another application is undergoing removal');
-              return;
+              log.warn(`Another application is undergoing removal. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             if (globalState.installationInProgress) {
-              log.warn('Another application is undergoing installation');
-              return;
+              log.warn(`Another application is undergoing installation. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+            if (globalState.softRedeployInProgress) {
+              log.warn(`Another application is undergoing soft redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+            if (globalState.hardRedeployInProgress) {
+              log.warn(`Another application is undergoing hard redeploy. Skipping ${installedApp.name} for this cycle.`);
+              // eslint-disable-next-line no-continue
+              continue;
             }
             // Dynamic require to avoid circular dependency
             const appUninstaller = require('./appUninstaller');
@@ -2446,8 +2568,8 @@ async function forceAppRemovals(installedApps, listAllApps, getApplicationGlobal
 async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https) {
   try {
     globalStateParam.masterSlaveAppsRunning = true;
-    // do not run if installationInProgress or removalInProgress
-    if (globalStateParam.installationInProgress || globalStateParam.removalInProgress) {
+    // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
+    if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress) {
       return;
     }
     // get list of all installed apps
@@ -2474,6 +2596,43 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       timeout: 10000,
       httpsAgent: agent,
     };
+
+    // Cleanup stale entries from maps to prevent memory leaks
+    const validIdentifiers = new Set();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled.data) {
+      if (app.version <= 3) {
+        if (app.containerData && app.containerData.includes('g:')) {
+          validIdentifiers.add(app.name);
+        }
+      } else if (app.compose) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const comp of app.compose) {
+          if (comp.containerData && comp.containerData.includes('g:')) {
+            validIdentifiers.add(`${comp.name}_${app.name}`);
+          }
+        }
+      }
+    }
+
+    // Remove stale entries from mastersRunningGSyncthingApps
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of mastersRunningGSyncthingApps.keys()) {
+      if (!validIdentifiers.has(identifier)) {
+        mastersRunningGSyncthingApps.delete(identifier);
+        log.info(`masterSlaveApps: Cleaned up stale entry from mastersRunningGSyncthingApps: ${identifier}`);
+      }
+    }
+
+    // Remove stale entries from timeTostartNewMasterApp
+    // eslint-disable-next-line no-restricted-syntax
+    for (const identifier of timeTostartNewMasterApp.keys()) {
+      if (!validIdentifiers.has(identifier)) {
+        timeTostartNewMasterApp.delete(identifier);
+        log.info(`masterSlaveApps: Cleaned up stale entry from timeTostartNewMasterApp: ${identifier}`);
+      }
+    }
+
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled.data) {
       let fdmOk = true;
@@ -2490,13 +2649,16 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
       if (installedApp.version <= 3) {
         identifier = installedApp.name;
         appId = dockerService.getAppIdentifier(identifier);
-        needsToBeChecked = installedApp.containerData.includes('g:') && receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+        // Check all g: mode apps, not just those in cache with restarted flag
+        // The cache tracks sync state, but shouldn't gate primary selection
+        needsToBeChecked = installedApp.containerData.includes('g:');
       } else {
         const componentUsingMasterSlave = installedApp.compose.find((comp) => comp.containerData.includes('g:'));
         if (componentUsingMasterSlave) {
           identifier = `${componentUsingMasterSlave.name}_${installedApp.name}`;
           appId = dockerService.getAppIdentifier(identifier);
-          needsToBeChecked = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+          // Check all g: mode apps, not just those in cache with restarted flag
+          needsToBeChecked = true;
         }
       }
       if (needsToBeChecked) {
@@ -2579,18 +2741,67 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
             }
           }
         }
+        if (!fdmOk) {
+          log.warn(`masterSlaveApps: All FDM services failed for app:${installedApp.name}, skipping primary selection for this cycle`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
         if (fdmOk) {
           // no ip means there was no row with ip on fdm
           // down means there was a row ip with status down
           // eslint-disable-next-line no-await-in-loop
-          let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          let myIP;
+          try {
+            myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+          } catch (error) {
+            log.error(`masterSlaveApps: Failed to get my IP for app:${installedApp.name}, error: ${error.message}`);
+            // eslint-disable-next-line no-continue
+            continue;
+          }
           if (myIP) {
             if (myIP.indexOf(':') < 0) {
               myIP += ':16127';
             }
+            // Validate ip is a string if it exists
+            if (ip && typeof ip !== 'string') {
+              log.error(`masterSlaveApps: Invalid IP type from FDM for app:${installedApp.name}, got: ${typeof ip}`);
+              // eslint-disable-next-line no-continue
+              continue;
+            }
             if ((!ip)) {
               log.info(`masterSlaveApps: app:${installedApp.name} has currently no primary set`);
               if (!runningAppsNames.includes(identifier)) {
+                // Check if app is ready (syncthing data is synced) before allowing it to become primary
+                let isReady = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+
+                // Fallback: If not in cache or not ready, check if syncthing folder is already in sendreceive mode
+                // This handles the case where folder is synced but cache was cleared/lost
+                if (!isReady) {
+                  try {
+                    const syncthingService = require('../syncthingService');
+                    // eslint-disable-next-line no-await-in-loop
+                    const allSyncthingFolders = await syncthingService.getConfigFolders();
+                    if (allSyncthingFolders.status === 'success') {
+                      const folder = `${appsFolder}${appId}`;
+                      // eslint-disable-next-line no-restricted-syntax
+                      for (const syncthingFolder of allSyncthingFolders.data) {
+                        if (syncthingFolder.path === folder && syncthingFolder.type === 'sendreceive') {
+                          log.info(`masterSlaveApps: app:${installedApp.name} folder is already in sendreceive mode, treating as ready`);
+                          isReady = true;
+                          break;
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    log.error(`masterSlaveApps: Failed to check syncthing folder status for ${installedApp.name}: ${error.message}`);
+                  }
+                }
+
+                if (!isReady) {
+                  log.info(`masterSlaveApps: app:${installedApp.name} is not ready yet (syncthing not synced), skipping primary selection for this cycle`);
+                  // eslint-disable-next-line no-continue
+                  continue;
+                }
                 // eslint-disable-next-line no-await-in-loop
                 const registryManager = require('../appDatabase/registryManager');
                 const runningAppList = await registryManager.appLocation(installedApp.name);
@@ -2632,12 +2843,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   const url = mastersRunningGSyncthingApps.get(identifier);
                   const ipToCheckAppRunning = url.split(':')[0];
                   const portToCheckAppRunning = url.split(':')[1] || '16127';
-                  // eslint-disable-next-line no-await-in-loop
-                  const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
-                  isResolved = true;
-                  const appsRunning = response.data.data;
-                  if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
-                    log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                  let previousMasterStillRunning = false;
+                  try {
+                    // eslint-disable-next-line no-await-in-loop
+                    const response = await axios.get(`http://${ipToCheckAppRunning}:${portToCheckAppRunning}/apps/listrunningapps`, { timeout, cancelToken: source.token });
+                    isResolved = true;
+                    const appsRunning = response.data.data;
+                    if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
+                      log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                      previousMasterStillRunning = true;
+                    }
+                  } catch (error) {
+                    log.info(`masterSlaveApps: Failed to reach previous master at ${url} for app:${installedApp.name}, will proceed with primary selection. Error: ${error.message}`);
+                    isResolved = true;
+                  }
+                  if (previousMasterStillRunning) {
                     return;
                   }
                   // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
@@ -2679,12 +2899,41 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 log.info(`masterSlaveApps: app:${installedApp.name} removed from timeTostartNewMasterApp cache, already started on another standby node`);
                 timeTostartNewMasterApp.delete(identifier);
               }
-              if (myIP !== ip && runningAppsNames.includes(identifier)) {
+              if (myIP.split(':')[0] !== ip.split(':')[0] && runningAppsNames.includes(identifier)) {
                 appDockerStop(installedApp.name);
                 log.info(`masterSlaveApps: stopping docker app:${installedApp.name} it's running on ip:${ip} and myIP is: ${myIP}`);
-              } else if (myIP === ip && !runningAppsNames.includes(identifier)) {
-                appDockerRestart(installedApp.name);
-                log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
+              } else if (myIP.split(':')[0] === ip.split(':')[0] && !runningAppsNames.includes(identifier)) {
+                // Check if app is ready (syncthing data is synced) before starting
+                let isReady = receiveOnlySyncthingAppsCache.has(appId) && receiveOnlySyncthingAppsCache.get(appId).restarted;
+
+                // Fallback: If not in cache or not ready, check if syncthing folder is already in sendreceive mode
+                if (!isReady) {
+                  try {
+                    const syncthingService = require('../syncthingService');
+                    // eslint-disable-next-line no-await-in-loop
+                    const allSyncthingFolders = await syncthingService.getConfigFolders();
+                    if (allSyncthingFolders.status === 'success') {
+                      const folder = `${appsFolder}${appId}`;
+                      // eslint-disable-next-line no-restricted-syntax
+                      for (const syncthingFolder of allSyncthingFolders.data) {
+                        if (syncthingFolder.path === folder && syncthingFolder.type === 'sendreceive') {
+                          log.info(`masterSlaveApps: app:${installedApp.name} folder is already in sendreceive mode, treating as ready`);
+                          isReady = true;
+                          break;
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    log.error(`masterSlaveApps: Failed to check syncthing folder status for ${installedApp.name}: ${error.message}`);
+                  }
+                }
+
+                if (isReady) {
+                  appDockerRestart(installedApp.name);
+                  log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
+                } else {
+                  log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
+                }
               }
             }
           }

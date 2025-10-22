@@ -323,24 +323,59 @@ describe('dockerService tests', () => {
 
   describe('appDockerStop tests', () => {
     const appName = 'website';
-    let dockerStub;
+    let dockerStopStub;
+    let dockerInspectStub;
     let getContainerSpy;
 
     beforeEach(() => {
-      dockerStub = sinon.stub(Dockerode.Container.prototype, 'stop').returns(Promise.resolve('stopped'));
+      dockerStopStub = sinon.stub(Dockerode.Container.prototype, 'stop').returns(Promise.resolve('stopped'));
+      dockerInspectStub = sinon.stub(Dockerode.Container.prototype, 'inspect').returns(Promise.resolve({ State: { Running: true } }));
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
     });
 
     afterEach(() => {
-      dockerStub.restore();
+      dockerStopStub.restore();
+      dockerInspectStub.restore();
       getContainerSpy.restore();
     });
 
-    it('should call a docker stop command', async () => {
+    it('should call a docker stop command when container is running', async () => {
       const stopResult = await dockerService.appDockerStop(appName);
 
-      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.calledOnce(dockerStopStub);
       sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(stopResult).to.equal('Flux App website successfully stopped.');
+    });
+
+    it('should not call docker stop when container is already stopped', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: false } }));
+
+      const stopResult = await dockerService.appDockerStop(appName);
+
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.notCalled(dockerStopStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(stopResult).to.equal('Flux App website is already stopped.');
+    });
+
+    it('should not call docker stop when container is in created state', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: false, Status: 'created' } }));
+
+      const stopResult = await dockerService.appDockerStop(appName);
+
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.notCalled(dockerStopStub);
+      expect(stopResult).to.equal('Flux App website is already stopped.');
+    });
+
+    it('should stop container when in paused state (Running: true)', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: true, Paused: true } }));
+
+      const stopResult = await dockerService.appDockerStop(appName);
+
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.calledOnce(dockerStopStub);
       expect(stopResult).to.equal('Flux App website successfully stopped.');
     });
 
@@ -351,24 +386,77 @@ describe('dockerService tests', () => {
 
   describe('appDockerRestart tests', () => {
     const appName = 'website';
-    let dockerStub;
+    let dockerRestartStub;
+    let dockerStartStub;
+    let dockerInspectStub;
     let getContainerSpy;
 
     beforeEach(() => {
-      dockerStub = sinon.stub(Dockerode.Container.prototype, 'restart').returns(Promise.resolve('restarted'));
+      dockerRestartStub = sinon.stub(Dockerode.Container.prototype, 'restart').returns(Promise.resolve('restarted'));
+      dockerStartStub = sinon.stub(Dockerode.Container.prototype, 'start').returns(Promise.resolve('started'));
+      dockerInspectStub = sinon.stub(Dockerode.Container.prototype, 'inspect').returns(Promise.resolve({ State: { Running: true } }));
       getContainerSpy = sinon.spy(Dockerode.prototype, 'getContainer');
     });
 
     afterEach(() => {
-      dockerStub.restore();
+      dockerRestartStub.restore();
+      dockerStartStub.restore();
+      dockerInspectStub.restore();
       getContainerSpy.restore();
     });
 
-    it('should call a docker restart command', async () => {
+    it('should call a docker restart command when container is running', async () => {
       const restartResult = await dockerService.appDockerRestart(appName);
 
-      sinon.assert.calledOnce(dockerStub);
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.calledOnce(dockerRestartStub);
+      sinon.assert.notCalled(dockerStartStub);
       sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(restartResult).to.equal('Flux App website successfully restarted.');
+    });
+
+    it('should call docker start instead of restart when container is stopped', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: false } }));
+
+      const restartResult = await dockerService.appDockerRestart(appName);
+
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.notCalled(dockerRestartStub);
+      sinon.assert.calledOnce(dockerStartStub);
+      sinon.assert.calledOnceWithExactly(getContainerSpy, sinon.match.string);
+      expect(restartResult).to.equal('Flux App website was stopped, successfully started.');
+    });
+
+    it('should call start when container is in created state (never started)', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: false, Status: 'created' } }));
+
+      const restartResult = await dockerService.appDockerRestart(appName);
+
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.notCalled(dockerRestartStub);
+      sinon.assert.calledOnce(dockerStartStub);
+      expect(restartResult).to.equal('Flux App website was stopped, successfully started.');
+    });
+
+    it('should call start when container is in exited state', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: false, Status: 'exited', ExitCode: 0 } }));
+
+      const restartResult = await dockerService.appDockerRestart(appName);
+
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.notCalled(dockerRestartStub);
+      sinon.assert.calledOnce(dockerStartStub);
+      expect(restartResult).to.equal('Flux App website was stopped, successfully started.');
+    });
+
+    it('should restart container when in paused state (Running: true)', async () => {
+      dockerInspectStub.returns(Promise.resolve({ State: { Running: true, Paused: true } }));
+
+      const restartResult = await dockerService.appDockerRestart(appName);
+
+      sinon.assert.calledOnce(dockerInspectStub);
+      sinon.assert.calledOnce(dockerRestartStub);
+      sinon.assert.notCalled(dockerStartStub);
       expect(restartResult).to.equal('Flux App website successfully restarted.');
     });
 

@@ -1039,12 +1039,19 @@ async function appDockerStop(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
+  // Check if container is running before attempting to stop
+  const containerInfo = await dockerContainer.inspect();
+  if (!containerInfo.State.Running) {
+    return `Flux App ${idOrName} is already stopped.`;
+  }
+
   await dockerContainer.stop();
   return `Flux App ${idOrName} successfully stopped.`;
 }
 
 /**
  * Restarts app's docker.
+ * If the container is stopped, it will be started instead of restarted.
  *
  * @param {string} idOrName
  * @returns {string} message
@@ -1052,6 +1059,14 @@ async function appDockerStop(idOrName) {
 async function appDockerRestart(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+  // Check if container is running
+  const containerInfo = await dockerContainer.inspect();
+  if (!containerInfo.State.Running) {
+    // If stopped, start it instead of restarting
+    await dockerContainer.start();
+    return `Flux App ${idOrName} was stopped, successfully started.`;
+  }
 
   await dockerContainer.restart();
   return `Flux App ${idOrName} successfully restarted.`;

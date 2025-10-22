@@ -158,6 +158,9 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
+    log.info('Clearing app installing errors from previous sessions...');
+    await dbHelper.removeDocumentsFromCollection(databaseTemp, config.database.appsglobal.collections.appsInstallingErrorsLocations, {});
+    log.info('App installing errors cleared');
 
     // This fixes an issue where the appsMessage db has NaN for valueSat. Once db is repaired on all nodes,
     // we can remove this.
@@ -355,6 +358,8 @@ async function startFluxFunctions() {
         globalState.appsMonitored,
         globalState.removalInProgress,
         globalState.installationInProgress,
+        globalState.softRedeployInProgress,
+        globalState.hardRedeployInProgress,
         globalState.reinstallationOfOldAppsInProgress,
         () => globalState,
         cacheManager,
@@ -366,6 +371,8 @@ async function startFluxFunctions() {
           globalState.appsMonitored,
           globalState.removalInProgress,
           globalState.installationInProgress,
+          globalState.softRedeployInProgress,
+          globalState.hardRedeployInProgress,
           globalState.reinstallationOfOldAppsInProgress,
           () => globalState,
           cacheManager,

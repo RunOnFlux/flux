@@ -76,7 +76,15 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   try {
     // Dynamic require to avoid circular dependency
     const advancedWorkflows = require('./advancedWorkflows');
-    await advancedWorkflows.stopSyncthingApp(monitoredName, res, false);
+    await advancedWorkflows.stopSyncthingApp(monitoredName, res);
+
+    // Hard removal - delete syncthing cache since data will be deleted
+    const globalState = require('../utils/globalState');
+    const receiveOnlySyncthingAppsCache = globalState.receiveOnlySyncthingAppsCache;
+    if (receiveOnlySyncthingAppsCache && receiveOnlySyncthingAppsCache.has(appId)) {
+      receiveOnlySyncthingAppsCache.delete(appId);
+      log.info(`Deleted syncthing cache for ${appId} during hard removal`);
+    }
   } catch (error) {
     log.error(`Error stopping Syncthing app: ${error.message}`);
   }

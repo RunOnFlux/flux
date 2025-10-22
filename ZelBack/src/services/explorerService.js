@@ -35,6 +35,9 @@ let appsTransactions = [];
 let isSynced = false;
 let cachedDaemonVersion = null; // Cache for daemon version
 
+// updateFluxAppsPeriod can be between every 4 to 9 blocks
+let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+
 const blockEmitter = new EventEmitter();
 
 function getBlockEmitter() {
@@ -613,8 +616,6 @@ async function processBlock(blockHeight, isInsightExplorer) {
     isSynced = !(blockDataVerbose.confirmations >= 2);
     if (isSynced) {
       blockEmitter.emit('blockReceived', scannedHeight);
-      // updateFluxAppsPeriod can be between every 4 to 9 blocks
-      const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
 
       if (blockHeight % (2 * speedMultiplier) === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
@@ -629,6 +630,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
       if (blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0) {
         if (blockDataVerbose.height >= config.fluxapps.epochstart) {
           advancedWorkflows.reinstallOldApplications();
+          updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
         }
       }
       if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
