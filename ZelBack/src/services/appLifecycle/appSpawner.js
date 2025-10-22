@@ -480,31 +480,22 @@ async function trySpawningGlobalApplication() {
 
     // TODO evaluate later to move to more broad check as image can be shared among multiple apps
     const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
-
-    const usePgpDecrypt = appSpecifications.version === 7;
-
     // eslint-disable-next-line no-restricted-syntax
     for (const componentToInstall of compositedSpecification) {
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
-      await imageManager
-        .verifyRepository(componentToInstall.repotag, {
-          repoauth: componentToInstall.repoauth,
-          usePgpDecrypt,
-          architecture,
-        })
-        .catch((error) => {
-          // imageManager already handles error classification and caching with intelligent TTLs (1h-7d)
-          // Add to spawn cache with 1-hour TTL to allow retry sooner than default 12h
-          // This lets temporary Docker Hub issues (network, rate limit) be retried faster
-          log.warn(
-            `trySpawningGlobalApplication - Docker Hub verification failed for ${appToRun}: ${error.message}`
-          );
-          globalState.trySpawningGlobalAppCache.set(appHash, '', {
-            ttl: FluxCacheManager.oneHour,
-          });
-          throw error;
-        });
+      await imageManager.verifyRepository(componentToInstall.repotag, {
+        repoauth: componentToInstall.repoauth,
+        architecture,
+        appVersion: appSpecifications.version // Pass version for credential handling
+      }).catch((error) => {
+        // imageManager already handles error classification and caching with intelligent TTLs (1h-7d)
+        // Add to spawn cache with 1-hour TTL to allow retry sooner than default 12h
+        // This lets temporary Docker Hub issues (network, rate limit) be retried faster
+        log.warn(`trySpawningGlobalApplication - Docker Hub verification failed for ${appToRun}: ${error.message}`);
+        globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour });
+        throw error;
+      });
     }
 
     // triple check if app is installed on the number of instances requested
@@ -536,7 +527,7 @@ async function trySpawningGlobalApplication() {
     await serviceHelper.delay(500);
     await fluxCommMessagesSender.broadcastMessageToIncoming(newAppInstallingMessage);
 
-    await serviceHelper.delay(90 * 1000); // give it 1.5m so messages are propagated on the network
+    await serviceHelper.delay(30 * 1000); // give it time so messages are propagated on the network
 
     // double check if app is installed in more of the instances requested
     runningAppList = await registryManager.appLocation(appToRun);
@@ -599,7 +590,6 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
       if (index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is going to be removed as already passed the instances required.`);
-        log.warn(`REMOVAL REASON: Exceeded required instances - ${appSpecifications.name} already has sufficient instances, removing local installation (appSpawner)`);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         // Call appUninstaller.removeAppLocally directly (initialized via initialize())
         // This needs getGlobalState and stopAppMonitoring callbacks which we don't have here
