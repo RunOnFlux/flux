@@ -548,8 +548,10 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   if (appSpecifications.version !== 1 && appSpecifications.version !== 2 && appSpecifications.version !== 3 && appSpecifications.version !== 4 && appSpecifications.version !== 5 && appSpecifications.version !== 6 && appSpecifications.version !== 7 && appSpecifications.version !== 8) {
     throw new Error('Flux App message version specification is invalid');
   }
-  if (appSpecifications.name.length > 32) {
-    throw new Error('Flux App name is too long');
+  // Version 8+ allows up to 63 characters to align with FQDN label standards (RFC 1035)
+  const maxNameLength = appSpecifications.version >= 8 ? 63 : 32;
+  if (appSpecifications.name.length > maxNameLength) {
+    throw new Error(`Flux App name is too long. Maximum ${maxNameLength} characters allowed`);
   }
   // furthermore name cannot contain any special character
   if (!appSpecifications.name) {
@@ -675,8 +677,10 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       if (!appComponent.name) {
         throw new Error('Please provide a valid Flux App Component name');
       }
-      if (appComponent.name.length > 32) {
-        throw new Error('Flux App name is too long');
+      // Version 8+ allows up to 63 characters to align with FQDN label standards (RFC 1035)
+      const maxComponentNameLength = appSpecifications.version >= 8 ? 63 : 32;
+      if (appComponent.name.length > maxComponentNameLength) {
+        throw new Error(`Flux App component name is too long. Maximum ${maxComponentNameLength} characters allowed`);
       }
       if (appComponent.name.startsWith('zel')) {
         throw new Error('Flux App Component name can not start with zel');
