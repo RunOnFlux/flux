@@ -1916,10 +1916,10 @@ async function checkApplicationUpdateNameRepositoryConflicts(specifications, ver
         // v4 allows for changes of repotag
       });
     } else { // update is v4+ and current app have v1,2,3
-      throw new Error(`Flux App ${specifications.name} on update to different specifications is not possible`);
+      // node will perform hard redeploy of the app;
     }
   } else if (appSpecs.version >= 4) {
-    throw new Error(`Flux App ${specifications.name} update to different specifications is not possible`);
+    throw new Error(`Flux App ${specifications.name} cannot be rolled back to older version`);
   } else { // bot update and current app have v1,2,3
     // eslint-disable-next-line no-lonely-if
     if (appSpecs.repotag !== specifications.repotag) { // v1,2,3 does not allow repotag change
