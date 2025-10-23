@@ -293,14 +293,11 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
       throw new Error('Unable to get credentials');
     }
 
-    // Convert to username:password format for ImageVerifier
+    // Pass credentials object directly to ImageVerifier (no string conversion needed)
+    imgVerifier.addCredentials(credentials);
+
+    // dockerService still expects string format - convert only for that
     authToken = `${credentials.username}:${credentials.password}`;
-
-    if (!authToken.includes(':')) {
-      throw new Error('Provided credentials not in the correct username:token format');
-    }
-
-    imgVerifier.addCredentials(authToken);
     pullConfig.authToken = authToken;
   }
 

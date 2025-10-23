@@ -7,7 +7,6 @@
 // Services
 const { registryAuthService } = require('./services/registryAuthService');
 const { AuthProviderFactory } = require('./services/authProviderFactory');
-const { EnhancedImageVerifier } = require('./services/enhancedImageVerifier');
 
 // Providers
 const { RegistryAuthProvider } = require('./providers/base/registryAuthProvider');
@@ -25,9 +24,6 @@ module.exports = {
 
   // Factory for creating providers
   AuthProviderFactory,
-
-  // Enhanced image verifier wrapper
-  EnhancedImageVerifier,
 
   // Base provider class (for extending)
   RegistryAuthProvider,

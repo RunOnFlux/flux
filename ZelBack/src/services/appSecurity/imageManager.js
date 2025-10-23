@@ -127,8 +127,8 @@ async function verifyRepository(repotag, options = {}) {
     );
 
     if (credentials) {
-      const authToken = `${credentials.username}:${credentials.password}`;
-      imgVerifier.addCredentials(authToken);
+      // Pass credentials object directly - no need to convert to string
+      imgVerifier.addCredentials(credentials);
     }
   }
 
