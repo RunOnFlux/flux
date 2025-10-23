@@ -13,7 +13,6 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
   constructor(config) {
     super(config);
     this.jwtClient = null;
-    this.projectId = config.projectId;
 
     // Initialize JWT client
     this.initializeClient();
@@ -34,14 +33,6 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
         key: this.config.privateKey,
         scopes: ['https://www.googleapis.com/auth/cloud-platform'],
       });
-
-      // Extract project ID from client email if not provided
-      if (!this.projectId && this.config.clientEmail) {
-        const emailMatch = this.config.clientEmail.match(/@(.+)\.iam\.gserviceaccount\.com$/);
-        if (emailMatch) {
-          this.projectId = emailMatch[1];
-        }
-      }
 
     } catch (error) {
       const wrappedError = new Error(`Failed to initialize Google GAR client: ${error.message}`);
@@ -112,7 +103,6 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
         tokens.token,
         'bearer',
         {
-          projectId: this.projectId,
           clientEmail: this.config.clientEmail,
           expiresAt: expiryTime
         }
@@ -202,35 +192,8 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
   }
 
   /**
-   * Extract project ID from GAR registry URL or client email
-   *
-   * @param {string} registryUrl - GAR registry URL (format: region-docker.pkg.dev/project-id/...)
-   * @param {string} clientEmail - Service account email
-   * @returns {string|null} Extracted project ID or null
-   */
-  static extractProjectId(registryUrl, clientEmail) {
-    // Try to extract from registry URL first
-    if (registryUrl && typeof registryUrl === 'string') {
-      const match = registryUrl.match(/^(?:https?:\/\/)?[\w-]+-docker\.pkg\.dev\/([^\/]+)/);
-      if (match) {
-        return match[1];
-      }
-    }
-
-    // Fallback to extracting from client email
-    if (clientEmail && typeof clientEmail === 'string') {
-      const match = clientEmail.match(/@(.+)\.iam\.gserviceaccount\.com$/);
-      if (match) {
-        return match[1];
-      }
-    }
-
-    return null;
-  }
-
-  /**
    * Create a Google GAR provider from a registry URL and optional config
-   * Automatically extracts region and project ID from URL if not provided
+   * Automatically extracts region from URL if not provided
    *
    * @param {string} registryUrl - GAR registry URL
    * @param {object} config - Configuration including service account credentials
@@ -238,12 +201,10 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
    */
   static fromRegistryUrl(registryUrl, config = {}) {
     const region = config.region || this.extractRegionFromUrl(registryUrl);
-    const projectId = config.projectId || this.extractProjectId(registryUrl, config.clientEmail);
 
     return new GoogleGarAuthProvider({
       ...config,
-      region,
-      projectId
+      region
     });
   }
 
@@ -255,7 +216,6 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
   getSafeConfig() {
     return {
       provider: this.getProviderName(),
-      projectId: this.projectId,
       clientEmail: this.config.clientEmail,
       hasPrivateKey: Boolean(this.config.privateKey),
       authType: this.getAuthType(),
@@ -270,7 +230,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
    * @returns {string} String representation
    */
   toString() {
-    return `GoogleGarAuthProvider(projectId=${this.projectId}, hasCredentials=${this.validateConfiguration()})`;
+    return `GoogleGarAuthProvider(clientEmail=${this.config.clientEmail}, hasCredentials=${this.validateConfiguration()})`;
   }
 
   /**
@@ -286,14 +246,12 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
 
     return {
       ...baseError,
-      projectId: this.projectId,
       clientEmail: this.config.clientEmail,
       jwtClientInitialized: Boolean(this.jwtClient),
       configurationValid: this.validateConfiguration(),
       credentialSources: {
         hasPrivateKey: Boolean(this.config.privateKey),
-        hasClientEmail: Boolean(this.config.clientEmail),
-        hasProjectId: Boolean(this.projectId)
+        hasClientEmail: Boolean(this.config.clientEmail)
       }
     };
   }
