@@ -279,19 +279,19 @@ module.exports = (app) => {
   app.get('/flux/pgp', cache('30 seconds'), (req, res) => {
     fluxService.getFluxPGPidentity(req, res);
   });
-  app.get('/flux/kadena', cache('30 seconds'), (req, res) => {
+  app.get('/flux/kadena', (req, res) => {
     fluxService.getFluxKadena(req, res);
   });
-  app.get('/flux/routerip', cache('1 day'), (req, res) => {
+  app.get('/flux/routerip', (req, res) => {
     fluxService.getRouterIP(req, res);
   });
-  app.get('/flux/blockedports', cache('1 day'), (req, res) => {
+  app.get('/flux/blockedports', (req, res) => {
     fluxService.getBlockedPorts(req, res);
   });
-  app.get('/flux/apiport', cache('1 day'), (req, res) => {
+  app.get('/flux/apiport', (req, res) => {
     fluxService.getAPIPort(req, res);
   });
-  app.get('/flux/blockedrepositories', cache('1 day'), (req, res) => {
+  app.get('/flux/blockedrepositories', (req, res) => {
     fluxService.getBlockedRepositories(req, res);
   });
   app.get('/flux/marketplaceurl', cache('1 day'), (req, res) => {
