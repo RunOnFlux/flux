@@ -10,6 +10,7 @@ const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const imageManager = require('../appSecurity/imageManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
+const { supportedArchitectures } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const portManager = require('../appNetwork/portManager');
@@ -561,8 +562,10 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (!appSpecifications.name.match(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/)) {
       throw new Error('Flux App name contains special characters. Only a-z, A-Z, 0-9 and hyphens are allowed (hyphens cannot be first or last character)');
     }
-  } else if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
-    throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+  } else {
+    if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
+      throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
+    }
   }
   if (appSpecifications.name.startsWith('zel')) {
     throw new Error('Flux App name can not start with zel');
@@ -1237,22 +1240,30 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     // check blacklist
     await imageManager.checkApplicationImagesCompliance(appSpecifications);
 
+    // For v7 enterprise apps, skip verification because repoauth is PGP-encrypted
+    // and only selected nodes have the private keys to decrypt it.
+    // For v8+, repoauth is plain text (already decrypted from enterprise blob),
+    // so we can and should verify the repository.
+    const shouldSkipVerification = appSpecifications.version === 7
+      && appSpecifications.nodes
+      && appSpecifications.nodes.length > 0;
+
     if (appSpecifications.version <= 3) {
       // check repository whitelisted and repotag is available for download
-      await imageManager.verifyRepository(appSpecifications.repotag);
+      await imageManager.verifyRepository(appSpecifications.repotag, {
+        repoauth: appSpecifications.repoauth,
+        skipVerification: shouldSkipVerification,
+        appVersion: appSpecifications.version,
+      });
     } else {
-      // we have to skip this on v7 as we don't have the key
-      const skipVerification = appSpecifications.version === 7;
-
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
         // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
-
-        // eslint-disable-next-line no-await-in-loop
         await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
-          skipVerification,
+          skipVerification: shouldSkipVerification,
+          appVersion: appSpecifications.version,
         });
       }
     }
@@ -1555,6 +1566,7 @@ async function registerAppGlobalyApi(req, res) {
         return;
       }
       throw new Error('Unable to register application on the network. Try again later.');
+
     } catch (error) {
       log.warn(error);
       const errorResponse = messageHelper.createErrorMessage(
