@@ -23,8 +23,13 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
    */
   initializeClient() {
     try {
+      // Parse service account JSON if keyFile is provided
+      if (this.config.keyFile) {
+        this.parseServiceAccountJson(this.config.keyFile);
+      }
+
       if (!this.config.privateKey || !this.config.clientEmail) {
-        throw new Error('Service account credentials (privateKey and clientEmail) are required');
+        throw new Error('Service account credentials are required. Provide keyFile (base64-encoded JSON)');
       }
 
       // Create JWT client with service account credentials
@@ -41,6 +46,48 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
         this.recordError(wrappedError);
       }
       throw wrappedError;
+    }
+  }
+
+  /**
+   * Parse and validate base64-encoded service account JSON
+   *
+   * @param {string} base64KeyFile - Base64-encoded service account JSON
+   */
+  parseServiceAccountJson(base64KeyFile) {
+    try {
+      // Decode base64 to string
+      const jsonString = Buffer.from(base64KeyFile, 'base64').toString('utf-8');
+
+      // Parse JSON
+      const serviceAccount = JSON.parse(jsonString);
+
+      // Validate credential type
+      if (serviceAccount.type !== 'service_account') {
+        throw new Error(
+          `Invalid credential type: "${serviceAccount.type}". Only service_account credentials are supported.`
+        );
+      }
+
+      // Validate required fields
+      if (!serviceAccount.private_key) {
+        throw new Error('Service account JSON must contain private_key field');
+      }
+
+      if (!serviceAccount.client_email) {
+        throw new Error('Service account JSON must contain client_email field');
+      }
+
+      // Store extracted credentials in config
+      this.config.privateKey = serviceAccount.private_key;
+      this.config.clientEmail = serviceAccount.client_email;
+
+    } catch (error) {
+      if (error.message.includes('Invalid credential type') ||
+        error.message.includes('must contain')) {
+        throw error;
+      }
+      throw new Error(`Failed to parse service account JSON: ${error.message}`);
     }
   }
 
@@ -143,12 +190,12 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
 
   /**
    * Validate Google GAR configuration
-   * Requires privateKey and clientEmail for service account authentication
+   * Requires keyFile (base64 JSON)
    *
    * @returns {boolean} True if configuration is valid
    */
   validateConfiguration() {
-    // Must have service account credentials
+    // If keyFile hasn't been parsed yet, credentials won't be set
     if (!this.config.privateKey || !this.config.clientEmail) {
       return false;
     }
