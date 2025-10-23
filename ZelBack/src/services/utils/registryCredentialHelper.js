@@ -67,10 +67,14 @@ async function getCredentials(repotag, repoauth, appVersion) {
   const registryUrl = imgVerifier.provider;
 
   // Create appropriate provider based on auth config and registry URL
+  // This will throw detailed validation errors if configuration is invalid
   const provider = AuthProviderFactory.createProvider(registryUrl, authConfig);
 
   if (!provider) {
-    throw new Error(`No authentication provider found for type: ${authConfig.type}`);
+    throw new Error(
+      `Failed to create authentication provider for type: ${authConfig.type}. ` +
+      `Registry: ${registryUrl}. Ensure the provider is registered and configuration is valid.`
+    );
   }
 
   // Get credentials from provider (with automatic caching)
