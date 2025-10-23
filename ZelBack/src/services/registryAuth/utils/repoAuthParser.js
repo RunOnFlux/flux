@@ -87,16 +87,29 @@ class RepoAuthParser {
     }
 
     try {
-      // Use URLSearchParams for robust parsing
-      const searchParams = new URLSearchParams(params);
       const config = {};
 
-      for (const [key, value] of searchParams) {
+      // Manually parse key=value pairs to avoid URLSearchParams treating + as space
+      // URLSearchParams follows application/x-www-form-urlencoded (HTML forms)
+      // We need RFC 3986 URI parsing where + is literal
+      const pairs = params.split('&');
+
+      for (const pair of pairs) {
+        const equalIndex = pair.indexOf('=');
+
+        if (equalIndex === -1) {
+          continue; // Skip malformed pairs without =
+        }
+
+        const key = pair.substring(0, equalIndex);
+        const value = pair.substring(equalIndex + 1);
+
         if (key.trim() === '') {
           continue; // Skip empty keys
         }
 
-        // Decode URL-encoded values
+        // decodeURIComponent handles standard percent-encoding (%XX)
+        // and treats + as literal character (not space)
         config[key] = decodeURIComponent(value);
       }
 
