@@ -245,8 +245,12 @@ class ImageVerifier {
       }
     } else {
       // we have certainty that the image parts that we have are correct
+      // Docker Hub uses 'library' namespace for official images, but other registries don't use default namespaces
       // this would be better to lookup against dockerhub library (only 150 odd images to pull via api)
-      this.namespace = namespace || 'library';
+      const isDockerHub = this.provider === ImageVerifier.defaultDockerRegistry
+      const defaultNamespace = isDockerHub ? 'library' : '';
+
+      this.namespace = namespace || defaultNamespace;
       this.repository = repository;
       this.tag = tag;
       this.ambiguous = false;
@@ -467,7 +471,9 @@ class ImageVerifier {
   }
 
   async #fetchManifest(digest) {
-    const manifestEndpoint = `${this.namespace}/${this.repository}/manifests/${digest}`;
+    const manifestEndpoint = this.namespace
+      ? `${this.namespace}/${this.repository}/manifests/${digest}`
+      : `${this.repository}/manifests/${digest}`;
 
     const { data: imageManifest } = await this.#axiosInstance
       .get(manifestEndpoint)
@@ -477,7 +483,9 @@ class ImageVerifier {
   }
 
   async #fetchConfig(digest) {
-    const blobsEndpoint = `${this.namespace}/${this.repository}/blobs/${digest}`;
+    const blobsEndpoint = this.namespace
+      ? `${this.namespace}/${this.repository}/blobs/${digest}`
+      : `${this.repository}/blobs/${digest}`;
 
     const { data: imageConfig } = await this.#axiosInstance
       .get(blobsEndpoint)
