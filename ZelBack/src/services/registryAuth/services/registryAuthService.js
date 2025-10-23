@@ -3,78 +3,19 @@
  *
  * This service provides a simple interface for existing FluxOS code to use
  * the new authentication system without major changes to existing flows.
+ *
+ * Note: This service is currently unused. Production code uses registryCredentialHelper directly.
+ * This remains for potential future use or external integrations.
  */
 
-const { EnhancedImageVerifier } = require('./enhancedImageVerifier');
 const { AuthProviderFactory } = require('./authProviderFactory');
 const { RepoAuthParser } = require('../utils/repoAuthParser');
 
 class RegistryAuthService {
   constructor() {
-    this.enhancedVerifier = null;
-    this.initialized = false;
+    // Utility service - no initialization required
   }
 
-  /**
-   * Initialize the service with the FluxOS ImageVerifier class
-   *
-   * @param {class} imageVerifierClass - The FluxOS ImageVerifier class
-   */
-  initialize(imageVerifierClass) {
-    if (!imageVerifierClass) {
-      throw new Error('ImageVerifier class is required for initialization');
-    }
-
-    this.enhancedVerifier = new EnhancedImageVerifier(imageVerifierClass);
-    this.initialized = true;
-  }
-
-  /**
-   * Create an ImageVerifier with enhanced authentication - replacement for existing FluxOS usage
-   *
-   * @param {string} imageTag - Docker image tag
-   * @param {object} appSpec - FluxOS app specification
-   * @param {string} componentName - Component name (for composed apps)
-   * @param {object} options - ImageVerifier options
-   * @returns {Promise<object>} Enhanced ImageVerifier instance
-   */
-  async createVerifierFromAppSpec(imageTag, appSpec, componentName = null, options = {}) {
-    this.ensureInitialized();
-
-    return await this.enhancedVerifier.createVerifierFromAppSpec(
-      imageTag,
-      appSpec,
-      componentName,
-      options
-    );
-  }
-
-  /**
-   * Create an ImageVerifier with explicit authentication config
-   *
-   * @param {string} imageTag - Docker image tag
-   * @param {object} authConfig - Authentication configuration
-   * @param {object} options - ImageVerifier options
-   * @returns {Promise<object>} Enhanced ImageVerifier instance
-   */
-  async createVerifierWithAuth(imageTag, authConfig, options = {}) {
-    this.ensureInitialized();
-
-    return await this.enhancedVerifier.createVerifier(imageTag, options, authConfig);
-  }
-
-  /**
-   * Create an ImageVerifier without authentication (for public registries)
-   *
-   * @param {string} imageTag - Docker image tag
-   * @param {object} options - ImageVerifier options
-   * @returns {Promise<object>} Standard ImageVerifier instance
-   */
-  async createVerifier(imageTag, options = {}) {
-    this.ensureInitialized();
-
-    return await this.enhancedVerifier.createVerifier(imageTag, options);
-  }
 
   /**
    * Extract and prepare credentials from FluxOS app specification
@@ -115,9 +56,50 @@ class RegistryAuthService {
    * @returns {Promise<object>} Test results
    */
   async testAuthentication(authConfig, registryUrl) {
-    this.ensureInitialized();
+    try {
+      const provider = AuthProviderFactory.createProvider(registryUrl, authConfig);
 
-    return await this.enhancedVerifier.testAuthProvider(authConfig, registryUrl);
+      if (!provider) {
+        return {
+          success: false,
+          error: 'No suitable provider found for configuration',
+          provider: null
+        };
+      }
+
+      if (!provider.isValidFor(registryUrl)) {
+        return {
+          success: false,
+          error: `Provider ${provider.getProviderName()} not valid for registry ${registryUrl}`,
+          provider: provider.getProviderName()
+        };
+      }
+
+      // Test connection if provider supports it
+      let connectionTest = true;
+      if (provider.testConnection) {
+        connectionTest = await provider.testConnection();
+      }
+
+      // Test credential retrieval
+      const credentials = await provider.getCredentials();
+
+      return {
+        success: Boolean(connectionTest && credentials),
+        provider: provider.getProviderName(),
+        authType: provider.getAuthType(),
+        config: provider.getSafeConfig ? provider.getSafeConfig() : {},
+        connectionTest,
+        hasCredentials: Boolean(credentials)
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        provider: null
+      };
+    }
   }
 
   /**
@@ -191,54 +173,6 @@ class RegistryAuthService {
     AuthProviderFactory.clearProviderCache(providerName);
   }
 
-  /**
-   * Enhanced wrapper for backward compatibility with existing FluxOS code patterns
-   * This method mirrors the existing appsService pattern while adding provider support
-   *
-   * @param {string} imageTag - Docker image tag
-   * @param {object} appSpec - App specification
-   * @param {string} componentName - Component name
-   * @param {object} verifierOptions - ImageVerifier options
-   * @returns {Promise<object>} Result with verifier and auth info
-   */
-  async prepareImageVerificationWithAuth(imageTag, appSpec, componentName = null, verifierOptions = {}) {
-    this.ensureInitialized();
-
-    try {
-      // Create enhanced verifier
-      const verifier = await this.createVerifierFromAppSpec(
-        imageTag,
-        appSpec,
-        componentName,
-        verifierOptions
-      );
-
-      // Extract auth information for logging/debugging
-      const authConfig = verifier.getAuthConfig();
-      const registryUrl = verifier.getRegistryUrl();
-      const hasEnhancedAuth = verifier.hasEnhancedAuth();
-
-      return {
-        verifier,
-        authInfo: {
-          registryUrl,
-          provider: authConfig.provider,
-          authType: authConfig.type,
-          hasEnhancedAuth,
-          safeConfig: authConfig
-        },
-        success: true
-      };
-
-    } catch (error) {
-      return {
-        verifier: null,
-        authInfo: null,
-        success: false,
-        error: error.message
-      };
-    }
-  }
 
   /**
    * Utility method to determine if an image tag requires authentication
@@ -248,9 +182,7 @@ class RegistryAuthService {
    * @returns {object} Analysis result
    */
   analyzeImageAuthRequirement(imageTag) {
-    const registryUrl = this.enhancedVerifier ?
-      this.enhancedVerifier.extractRegistryFromImageTag(imageTag) :
-      this.extractRegistryFromImageTag(imageTag);
+    const registryUrl = this.extractRegistryFromImageTag(imageTag);
 
     const publicRegistries = [
       'registry-1.docker.io',
@@ -280,7 +212,7 @@ class RegistryAuthService {
   }
 
   /**
-   * Fallback method for registry extraction if enhancedVerifier not available
+   * Extract registry URL from image tag
    */
   extractRegistryFromImageTag(imageTag) {
     if (!imageTag || typeof imageTag !== 'string') {
@@ -302,14 +234,6 @@ class RegistryAuthService {
     return 'registry-1.docker.io';
   }
 
-  /**
-   * Ensure service is initialized before use
-   */
-  ensureInitialized() {
-    if (!this.initialized) {
-      throw new Error('RegistryAuthService must be initialized with ImageVerifier class before use');
-    }
-  }
 
   /**
    * Get service status and configuration
@@ -318,9 +242,8 @@ class RegistryAuthService {
    */
   getStatus() {
     return {
-      initialized: this.initialized,
-      availableProviders: this.initialized ? this.getAvailableProviders() : [],
-      providerStats: this.initialized ? this.getProviderStats() : null,
+      availableProviders: this.getAvailableProviders(),
+      providerStats: this.getProviderStats(),
       version: '1.0.0'
     };
   }
