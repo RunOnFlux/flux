@@ -6,6 +6,7 @@
  * It maintains backward compatibility while enabling new provider-based authentication.
  */
 
+const log = require('../../../lib/log');
 const { RegistryAuthProvider } = require('../providers/base/registryAuthProvider');
 const { BasicAuthProvider } = require('../providers/basicAuthProvider');
 
@@ -68,6 +69,7 @@ class AuthProviderFactory {
    * @param {string} registryUrl - Registry URL to authenticate with
    * @param {string|object} authConfig - Authentication configuration
    * @returns {RegistryAuthProvider|null} Appropriate provider or null
+   * @throws {Error} If provider configuration is invalid
    */
   static createProvider(registryUrl, authConfig) {
     if (!authConfig) {
@@ -87,8 +89,15 @@ class AuthProviderFactory {
 
       return null;
     } catch (error) {
-      console.warn('Failed to create auth provider:', error.message);
-      return null;
+      // Re-throw configuration/validation errors with full context
+      // Only swallow errors for truly unknown/unavailable providers
+      if (error.message.includes('Unknown provider type')) {
+        log.warn(`Failed to create auth provider: ${error.message}`);
+        return null;
+      }
+
+      // Propagate validation errors (invalid config, parsing errors, etc.)
+      throw error;
     }
   }
 
@@ -168,7 +177,7 @@ class AuthProviderFactory {
         }
       } catch (error) {
         // If provider construction fails, try the next one
-        console.debug(`Provider ${name} failed for ${registryUrl}: ${error.message}`);
+        log.debug(`Provider ${name} failed for ${registryUrl}: ${error.message}`);
         continue;
       }
     }
@@ -355,7 +364,7 @@ try {
   AuthProviderFactory.registerProvider('aws-ecr', AwsEcrAuthProvider);
 } catch (error) {
   // AWS SDK not available, skip registration
-  console.debug('AWS ECR provider not available: AWS SDK not installed');
+  log.debug('AWS ECR provider not available: AWS SDK not installed');
 }
 
 // Register Google GAR provider if Google Auth Library is available
@@ -364,7 +373,7 @@ try {
   AuthProviderFactory.registerProvider('google-gar', GoogleGarAuthProvider);
 } catch (error) {
   // Google Auth Library not available, skip registration
-  console.debug('Google GAR provider not available: google-auth-library not installed');
+  log.debug('Google GAR provider not available: google-auth-library not installed');
 }
 
 // Register Azure ACR provider if Azure Identity library is available
@@ -373,7 +382,7 @@ try {
   AuthProviderFactory.registerProvider('azure-acr', AzureAcrAuthProvider);
 } catch (error) {
   // Azure Identity library not available, skip registration
-  console.debug('Azure ACR provider not available: @azure/identity not installed');
+  log.debug('Azure ACR provider not available: @azure/identity not installed');
 }
 
 module.exports = { AuthProviderFactory };
