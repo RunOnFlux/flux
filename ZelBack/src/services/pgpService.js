@@ -2,7 +2,9 @@ const config = require('config');
 const path = require('path');
 const fs = require('fs').promises;
 const openpgp = require('openpgp');
+const userconfig = require('../../../config/userconfig');
 const generalService = require('./generalService');
+const serviceHelper = require('./serviceHelper');
 const log = require('../lib/log');
 
 /**
@@ -35,6 +37,9 @@ async function adjustPGPidentity(privateKey, publicKey) {
 }`;
 
     await fs.writeFile(fluxDirPath, dataToWrite);
+
+    // Hot reload userconfig to apply changes immediately
+    serviceHelper.reloadUserConfig();
   } catch (error) {
     log.error(error);
   }

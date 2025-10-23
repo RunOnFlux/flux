@@ -687,6 +687,23 @@ async function dirInfo(dir, options = {}) {
   return response;
 }
 
+/**
+ * Reloads userconfig.js from disk by clearing it from the require cache
+ * This allows hot-reloading of configuration changes without restarting FluxOS
+ * @returns {object} The freshly loaded userconfig object
+ */
+function reloadUserConfig() {
+  const userConfigPath = path.join(__dirname, '../../../config/userconfig.js');
+  const resolvedPath = require.resolve(userConfigPath);
+
+  // Clear from require cache
+  delete require.cache[resolvedPath];
+
+  // Re-require and return fresh config
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  return require(userConfigPath);
+}
+
 module.exports = {
   axiosGet,
   axiosPost,
@@ -708,6 +725,7 @@ module.exports = {
   parseVersion,
   parseInterval,
   randomDelayMs,
+  reloadUserConfig,
   runCommand,
   validIpv4Address,
   normalizeNodeIpApiPort,
