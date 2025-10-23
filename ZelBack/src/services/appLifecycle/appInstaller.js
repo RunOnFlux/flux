@@ -14,7 +14,7 @@ const appUninstaller = require('./appUninstaller');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const { storeAppRunningMessage, storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
 const { systemArchitecture } = require('../appSystem/systemIntegration');
-const { checkApplicationImagesComplience } = require('../appSecurity/imageManager');
+const { checkApplicationImagesCompliance } = require('../appSecurity/imageManager');
 const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 const pgpService = require('../pgpService');
@@ -491,7 +491,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   }
 
   // check blacklist
-  await checkApplicationImagesComplience(fullAppSpecs);
+  await checkApplicationImagesCompliance(fullAppSpecs);
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     appSpecifications.repotag,
@@ -707,7 +707,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   }
 
   // check blacklist
-  await checkApplicationImagesComplience(fullAppSpecs);
+  await checkApplicationImagesCompliance(fullAppSpecs);
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     appSpecifications.repotag,

@@ -74,7 +74,7 @@ describe('appSpawner tests', () => {
         getRunningAppIpList: sinon.stub().resolves([]),
       },
       '../appSecurity/imageManager': {
-        checkApplicationImagesComplience: sinon.stub().resolves(),
+        checkApplicationImagesCompliance: sinon.stub().resolves(),
         verifyRepository: sinon.stub().resolves(),
       },
       '../appRequirements/hwRequirements': {

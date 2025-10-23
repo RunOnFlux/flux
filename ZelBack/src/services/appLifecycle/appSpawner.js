@@ -303,7 +303,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // verify app compliance
-    await imageManager.checkApplicationImagesComplience(appSpecifications).catch((error) => {
+    await imageManager.checkApplicationImagesCompliance(appSpecifications).catch((error) => {
       if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
         globalState.spawnErrorsLongerAppCache.set(appHash, '');
       }

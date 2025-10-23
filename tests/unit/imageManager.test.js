@@ -371,7 +371,7 @@ describe('imageManager tests', () => {
     });
   });
 
-  describe('checkApplicationImagesComplience tests', () => {
+  describe('checkApplicationImagesCompliance tests', () => {
     beforeEach(() => {
       sinon.stub(serviceHelper, 'axiosGet').resolves({
         data: ['blocked/repo', 'blocked-org', 'blockedowner'],
@@ -395,7 +395,7 @@ describe('imageManager tests', () => {
         hash: 'validhash',
       };
 
-      const result = await imageManager.checkApplicationImagesComplience(appSpecs);
+      const result = await imageManager.checkApplicationImagesCompliance(appSpecs);
 
       expect(result).to.be.true;
     });
@@ -410,7 +410,7 @@ describe('imageManager tests', () => {
       };
 
       try {
-        await imageManager.checkApplicationImagesComplience(appSpecs);
+        await imageManager.checkApplicationImagesCompliance(appSpecs);
         expect.fail('Should have thrown an error');
       } catch (error) {
         expect(error.message).to.include('is not allowed to be spawned');
@@ -427,7 +427,7 @@ describe('imageManager tests', () => {
       };
 
       try {
-        await imageManager.checkApplicationImagesComplience(appSpecs);
+        await imageManager.checkApplicationImagesCompliance(appSpecs);
         expect.fail('Should have thrown an error');
       } catch (error) {
         expect(error.message).to.include('is not allowed to run applications');
@@ -444,7 +444,7 @@ describe('imageManager tests', () => {
       };
 
       try {
-        await imageManager.checkApplicationImagesComplience(appSpecs);
+        await imageManager.checkApplicationImagesCompliance(appSpecs);
         expect.fail('Should have thrown an error');
       } catch (error) {
         expect(error.message).to.include('Image blocked/repo is blocked');
@@ -461,7 +461,7 @@ describe('imageManager tests', () => {
       };
 
       try {
-        await imageManager.checkApplicationImagesComplience(appSpecs);
+        await imageManager.checkApplicationImagesCompliance(appSpecs);
         expect.fail('Should have thrown an error');
       } catch (error) {
         expect(error.message).to.include('Organisation blocked-org is blocked');
@@ -481,7 +481,7 @@ describe('imageManager tests', () => {
       };
 
       try {
-        await imageManager.checkApplicationImagesComplience(appSpecs);
+        await imageManager.checkApplicationImagesCompliance(appSpecs);
         expect.fail('Should have thrown an error');
       } catch (error) {
         expect(error.message).to.include('Image blocked/repo is blocked');
@@ -501,7 +501,7 @@ describe('imageManager tests', () => {
       };
 
       try {
-        await imageManager.checkApplicationImagesComplience(appSpecs);
+        await imageManager.checkApplicationImagesCompliance(appSpecs);
         expect.fail('Should have thrown an error');
       } catch (error) {
         expect(error.message).to.include('Unable to communicate with Flux Services');

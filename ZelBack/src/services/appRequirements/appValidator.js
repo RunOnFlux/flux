@@ -1238,7 +1238,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
   // Whitelist, repository checks
   if (checkDockerAndWhitelist) {
     // check blacklist
-    await imageManager.checkApplicationImagesComplience(appSpecifications);
+    await imageManager.checkApplicationImagesCompliance(appSpecifications);
 
     if (appSpecifications.version <= 3) {
       // check repository whitelisted and repotag is available for download

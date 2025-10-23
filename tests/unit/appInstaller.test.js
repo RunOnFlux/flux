@@ -150,7 +150,7 @@ describe('appInstaller tests', () => {
         systemArchitecture: sinon.stub().resolves('amd64'),
       },
       '../appSecurity/imageManager': {
-        checkApplicationImagesComplience: sinon.stub().resolves(),
+        checkApplicationImagesCompliance: sinon.stub().resolves(),
       },
       '../appManagement/appInspector': {
         startAppMonitoring: sinon.stub(),
@@ -491,7 +491,7 @@ describe('appInstaller tests', () => {
           systemArchitecture: sinon.stub().resolves('amd64'),
         },
         '../appSecurity/imageManager': {
-          checkApplicationImagesComplience: sinon.stub().resolves(),
+          checkApplicationImagesCompliance: sinon.stub().resolves(),
         },
         '../appManagement/appInspector': {
           startAppMonitoring: sinon.stub(),
@@ -615,7 +615,7 @@ describe('appInstaller tests', () => {
           systemArchitecture: sinon.stub().resolves('amd64'),
         },
         '../appSecurity/imageManager': {
-          checkApplicationImagesComplience: sinon.stub().resolves(),
+          checkApplicationImagesCompliance: sinon.stub().resolves(),
         },
         '../appManagement/appInspector': {
           startAppMonitoring: sinon.stub(),

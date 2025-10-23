@@ -227,7 +227,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
  * @param {object} appSpecs - Application specifications
  * @returns {Promise<boolean>} True if images are compliant
  */
-async function checkApplicationImagesComplience(appSpecs) {
+async function checkApplicationImagesCompliance(appSpecs) {
   const repos = await getBlockedRepositores();
   const userBlockedRepos = await getUserBlockedRepositores();
 
@@ -271,24 +271,24 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   images.forEach((image) => {
     if (pureImagesOrOrganisationsRepos.includes(image)) {
-      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} cannot be spawned.`);
     }
   });
   organisations.forEach((org) => {
     if (pureImagesOrOrganisationsRepos.includes(org)) {
-      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
+      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`);
     }
   });
   if (userBlockedRepos) {
     log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
     organisations.forEach((org) => {
       if (userBlockedRepos.includes(org.toLowerCase())) {
-        throw new Error(`Organisation ${org} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+        throw new Error(`Organisation ${org} is user blocked. Application ${appSpecs.name} cannot be spawned.`);
       }
     });
     images.forEach((image) => {
       if (userBlockedRepos.includes(image.toLowerCase())) {
-        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} cannot be spawned.`);
       }
     });
   }
@@ -339,12 +339,12 @@ async function checkApplicationImagesBlocked(appSpecs) {
 
     images.forEach((image) => {
       if (pureImagesOrOrganisationsRepos.includes(image)) {
-        isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`;
+        isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} cannot be spawned.`;
       }
     });
     organisations.forEach((org) => {
       if (pureImagesOrOrganisationsRepos.includes(org)) {
-        isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`;
+        isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`;
       }
     });
   }
@@ -353,13 +353,13 @@ async function checkApplicationImagesBlocked(appSpecs) {
     log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
     organisations.forEach((org) => {
       if (userBlockedRepos.includes(org.toLowerCase())) {
-        isBlocked = `Organisation ${org} is user blocked. Application ${appSpecs.name} connot be spawned.`;
+        isBlocked = `Organisation ${org} is user blocked. Application ${appSpecs.name} cannot be spawned.`;
       }
     });
     if (!isBlocked) {
       images.forEach((image) => {
         if (userBlockedRepos.includes(image.toLowerCase())) {
-          isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`;
+          isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} cannot be spawned.`;
         }
       });
     }
@@ -454,7 +454,7 @@ module.exports = {
   getBlockedRepositores,
   getUserBlockedRepositores,
   checkAppSecrets,
-  checkApplicationImagesComplience,
+  checkApplicationImagesCompliance,
   checkApplicationImagesBlocked,
   checkDockerAccessibility,
   checkApplicationsCompliance,
