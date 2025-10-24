@@ -115,7 +115,7 @@ describe('system Services tests', () => {
       const cacheUpdateError = await systemService.updateAptCache();
 
       expect(cacheUpdateError).to.equal(false);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'update'] });
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
     });
   });
 
@@ -150,7 +150,7 @@ describe('system Services tests', () => {
       const error = await systemService.upgradePackage('syncthing');
 
       expect(error).to.equal(false);
-      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
   });
 
@@ -257,7 +257,7 @@ describe('system Services tests', () => {
 
       const cmdRunner = sinon.fake((cmd) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '1.27.3:install ok installed' };
-        if (cmd === 'apt-get') return { error: null };
+        if (cmd === 'env') return { error: null };
         return null;
       });
 
@@ -272,7 +272,7 @@ describe('system Services tests', () => {
 
       await systemService.monitorSyncthingPackage();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
 
     it('should upgrade syncthing immediately if correct version present but uninstalled', async () => {
@@ -286,7 +286,7 @@ describe('system Services tests', () => {
 
       const cmdRunner = sinon.fake((cmd) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '2.2.2:deinstall ok config-files' };
-        if (cmd === 'apt-get') return { error: null };
+        if (cmd === 'env') return { error: null };
         return null;
       });
 
@@ -301,7 +301,7 @@ describe('system Services tests', () => {
 
       await systemService.monitorSyncthingPackage();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
 
     it('should not call upgradeSyncthing if on correct version', async () => {
@@ -330,10 +330,9 @@ describe('system Services tests', () => {
       });
 
       await systemService.monitorSyncthingPackage();
-      // monitorSyncthingPackage calls getPackageVersion twice:
-      // 1. To check if we need to upgrade from v1 to v2 (line 392)
-      // 2. Inside ensurePackageVersion to verify current version (line 342)
-      sinon.assert.calledTwice(runCmdStub.withArgs('dpkg-query'));
+      // monitorSyncthingPackage calls getPackageVersion once (optimized):
+      // The current version is fetched once and passed to ensurePackageVersion
+      sinon.assert.calledOnce(runCmdStub.withArgs('dpkg-query'));
     });
   });
 
@@ -736,7 +735,7 @@ describe('system Services tests', () => {
 
       await systemService.addSyncthingRepository();
 
-      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n');
+      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n');
     });
 
     it('should force update cache if source added, even if cache was just updated', async () => {
@@ -769,8 +768,8 @@ describe('system Services tests', () => {
 
       await systemService.addSyncthingRepository();
 
-      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n');
-      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'update'] });
+      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n');
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
     });
   });
   describe('enableFluxdZmq tests', () => {
