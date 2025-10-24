@@ -350,8 +350,7 @@ async function addSyncthingRepository() {
 async function updateSyncthingRepository() {
   const sourcePath = '/etc/apt/sources.list.d/syncthing.list';
   const { stdout: sourceContent } = await serviceHelper
-    .runCommand('cat', { runAsRoot: true, params: [sourcePath], logError: false })
-    .catch(() => ({ stdout: null }));
+    .runCommand('cat', { runAsRoot: true, params: [sourcePath], logError: false });
 
   if (!sourceContent) {
     log.warn('Unable to read syncthing sources, unable to update syncthing');
