@@ -58,9 +58,19 @@ async function aptRunner(options = {}) {
   // https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1053726
   // This might affect arm, but I don't have an arm to test with.
 
-  // any apt after 1.9.11 has this option.
-  const params = ['-o', `DPkg::Lock::Timeout=${timeout}`, ...userParams];
-  const { error } = await serviceHelper.runCommand('apt-get', { runAsRoot: true, params });
+  // any apt after 1.9.11 has the DPkg::Lock::Timeout option.
+  const params = [
+    '-y', // Auto-answer yes to prompts
+    '-o', `DPkg::Lock::Timeout=${timeout}`, // How long to wait for a lock
+    '-o', 'Dpkg::Options::=--force-confdef', // Use default for new config files
+    '-o', 'Dpkg::Options::=--force-confold', // Keep old config files on conflict
+    ...userParams,
+  ];
+  const { error } = await serviceHelper.runCommand('apt-get', {
+    runAsRoot: true,
+    params,
+    env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
+  });
 
   // this is so this command can be retried by the worker runner
   if (error) throw error;
