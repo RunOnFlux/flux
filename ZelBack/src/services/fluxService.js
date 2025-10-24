@@ -1427,9 +1427,6 @@ async function adjustKadenaAccount(req, res) {
 
       await fs.writeFile(fluxDirPath, dataToWrite);
 
-      // Hot reload userconfig to apply changes immediately
-      serviceHelper.reloadUserConfig();
-
       const successMessage = messageHelper.createSuccessMessage('Kadena account adjusted');
       res.json(successMessage);
     } else {
@@ -1472,9 +1469,6 @@ async function adjustRouterIP(req, res) {
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       await fs.writeFile(fluxDirPath, dataToWrite);
-
-      // Hot reload userconfig to apply changes immediately
-      serviceHelper.reloadUserConfig();
 
       const successMessage = messageHelper.createSuccessMessage('Router IP adjusted');
       res.json(successMessage);
@@ -1530,10 +1524,6 @@ async function adjustBlockedPorts(req, res) {
           }`;
     const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
     await fs.writeFile(fluxDirPath, dataToWrite);
-
-    // Hot reload userconfig to apply changes immediately
-    serviceHelper.reloadUserConfig();
-
     const successMessage = messageHelper.createSuccessMessage('User Blocked Ports adjusted');
     res.json(successMessage);
   } catch (error) {
@@ -1583,9 +1573,6 @@ async function adjustAPIPort(req, res) {
       }`;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       await fs.writeFile(fluxDirPath, dataToWrite);
-
-      // Hot reload userconfig to apply changes immediately
-      serviceHelper.reloadUserConfig();
 
       const successMessage = messageHelper.createSuccessMessage('API Port adjusted. A restart of FluxOS is necessary');
       res.json(successMessage);
@@ -1649,10 +1636,6 @@ async function adjustBlockedRepositories(req, res) {
           }`;
     const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
     await fs.writeFile(fluxDirPath, dataToWrite);
-
-    // Hot reload userconfig to apply changes immediately
-    serviceHelper.reloadUserConfig();
-
     const successMessage = messageHelper.createSuccessMessage('User Blocked Repositories adjusted');
     res.json(successMessage);
   } catch (error) {

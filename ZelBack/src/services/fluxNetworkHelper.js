@@ -1,6 +1,5 @@
 /* eslint-disable no-underscore-dangle */
 const config = require('config');
-const userconfig = require('../../../config/userconfig');
 const zeltrezjs = require('zeltrezjs');
 const nodecmd = require('node-cmd');
 const fs = require('fs').promises;
@@ -795,9 +794,6 @@ async function adjustExternalIP(ip) {
 }`;
 
     await fs.writeFile(fluxDirPath, dataToWrite);
-
-    // Hot reload userconfig to apply changes immediately
-    serviceHelper.reloadUserConfig();
 
     if (oldUserConfigIp && v4exact.test(oldUserConfigIp) && !myCache.has(ip)) {
       myCache.set(ip, '');
