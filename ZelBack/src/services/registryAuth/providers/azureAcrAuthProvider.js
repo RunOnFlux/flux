@@ -1,9 +1,13 @@
 /**
  * AzureAcrAuthProvider - Authentication provider for Azure Container Registry (ACR)
  *
- * This provider handles Azure ACR authentication using the Azure Identity library to obtain
- * OAuth access tokens that are valid for 3 hours. It uses service principal credentials
- * to generate short-lived tokens for enhanced security.
+ * This provider handles Azure ACR authentication using a two-step OAuth2 token exchange flow:
+ * 1. Obtain Azure AD access token with containerregistry.azure.net scope using service principal
+ * 2. Exchange Azure AD token for ACR refresh token via /oauth2/exchange endpoint
+ * 3. Exchange ACR refresh token for short-lived access token via /oauth2/token endpoint
+ *
+ * Access tokens are valid for 1-3 hours and are automatically refreshed when needed.
+ * This matches the authentication pattern used by AWS ECR and Google GAR providers.
  */
 
 const { ClientSecretCredential } = require('@azure/identity');
@@ -74,7 +78,110 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
   }
 
   /**
+   * Exchange Azure AD token for ACR refresh token
+   * ACR refresh tokens are long-lived and can be used to obtain multiple access tokens
+   *
+   * @param {string} aadAccessToken - Azure AD access token
+   * @returns {Promise<string>} ACR refresh token
+   */
+  async exchangeAadTokenForRefreshToken(aadAccessToken) {
+    const registryUrl = `https://${this.registryName}.azurecr.io`;
+    const exchangeUrl = `${registryUrl}/oauth2/exchange`;
+
+    const params = new URLSearchParams({
+      grant_type: 'access_token',
+      service: `${this.registryName}.azurecr.io`,
+      access_token: aadAccessToken
+    });
+
+    try {
+      const response = await fetch(exchangeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: params.toString()
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`ACR refresh token exchange failed (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.refresh_token) {
+        throw new Error('No refresh_token in ACR exchange response');
+      }
+
+      return data.refresh_token;
+
+    } catch (error) {
+      throw new Error(`Failed to exchange AAD token for ACR refresh token: ${error.message}`);
+    }
+  }
+
+  /**
+   * Exchange ACR refresh token for short-lived access token
+   * Access tokens are scoped to specific repository operations and expire after ~1-3 hours
+   *
+   * @param {string} refreshToken - ACR refresh token
+   * @param {string} scope - Repository scope (e.g., 'repository:myrepo:pull')
+   * @returns {Promise<object>} Object with access_token and expiry info
+   */
+  async exchangeRefreshTokenForAccessToken(refreshToken, scope = 'registry:catalog:*') {
+    const registryUrl = `https://${this.registryName}.azurecr.io`;
+    const tokenUrl = `${registryUrl}/oauth2/token`;
+
+    const params = new URLSearchParams({
+      grant_type: 'refresh_token',
+      service: `${this.registryName}.azurecr.io`,
+      scope: scope,
+      refresh_token: refreshToken
+    });
+
+    try {
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: params.toString()
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`ACR access token exchange failed (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.access_token) {
+        throw new Error('No access_token in ACR token response');
+      }
+
+      // ACR access tokens are typically valid for 1-3 hours
+      // If expires_in is provided, use it; otherwise default to 3 hours
+      const expiresInSeconds = data.expires_in || (3 * 60 * 60);
+      const expiryTime = Date.now() + (expiresInSeconds * 1000);
+
+      return {
+        access_token: data.access_token,
+        expiresAt: expiryTime,
+        expiresInSeconds: expiresInSeconds
+      };
+
+    } catch (error) {
+      throw new Error(`Failed to exchange refresh token for ACR access token: ${error.message}`);
+    }
+  }
+
+  /**
    * Refresh ACR OAuth access token from Azure
+   * Implements two-step OAuth2 flow:
+   * 1. Get Azure AD token with containerregistry.azure.net scope
+   * 2. Exchange AAD token for ACR refresh token
+   * 3. Exchange refresh token for short-lived access token
    *
    * @returns {Promise<object>} Fresh ACR credentials
    */
@@ -86,39 +193,39 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
     }
 
     try {
-      // Get access token from Azure Identity
-      // ACR requires management scope for container registry operations
+      // Step 1: Get Azure AD access token with correct scope for container registry
+      // This is the CORRECT scope - not management.azure.com!
       const tokenResponse = await this.azureCredential.getToken([
-        'https://management.azure.com/.default'
+        'https://containerregistry.azure.net/.default'
       ]);
 
       if (!tokenResponse || !tokenResponse.token) {
         throw new Error('No access token received from Azure Identity');
       }
 
-      // Validate that expiry time is provided by Azure Identity API
-      if (!tokenResponse.expiresOnTimestamp) {
-        throw new Error('Azure Identity API did not provide token expiry time');
-      }
+      // Step 2: Exchange Azure AD token for ACR refresh token
+      const acrRefreshToken = await this.exchangeAadTokenForRefreshToken(tokenResponse.token);
 
-      // Use only the actual expiry time from Azure Identity API
-      const expiryTime = tokenResponse.expiresOnTimestamp;
+      // Step 3: Exchange refresh token for short-lived access token
+      const accessTokenData = await this.exchangeRefreshTokenForAccessToken(acrRefreshToken);
 
       // Create standardized credentials for Docker authentication
       // Azure ACR expects: username = "00000000-0000-0000-0000-000000000000", password = access_token
       const credentials = this.createCredentials(
         '00000000-0000-0000-0000-000000000000',
-        tokenResponse.token,
+        accessTokenData.access_token,
         'bearer',
         {
           tenantId: this.config.tenantId,
           clientId: this.config.clientId,
           registryName: this.registryName,
-          expiresAt: expiryTime
+          expiresAt: accessTokenData.expiresAt,
+          tokenType: 'short-lived-access',
+          expiresInSeconds: accessTokenData.expiresInSeconds
         }
       );
 
-      this.cacheCredentials(credentials, expiryTime);
+      this.cacheCredentials(credentials, accessTokenData.expiresAt);
 
       return credentials;
 
@@ -298,9 +405,9 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
     }
 
     try {
-      // Test by attempting to get an access token
+      // Test by attempting to get an access token with correct scope
       const tokenResponse = await this.azureCredential.getToken([
-        'https://management.azure.com/.default'
+        'https://containerregistry.azure.net/.default'
       ]);
       return Boolean(tokenResponse && tokenResponse.token);
 
@@ -334,19 +441,19 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
   static getCloudEndpoints(cloud = 'public') {
     const endpoints = {
       public: {
-        managementScope: 'https://management.azure.com/.default',
+        containerRegistryScope: 'https://containerregistry.azure.net/.default',
         authority: 'https://login.microsoftonline.com'
       },
       government: {
-        managementScope: 'https://management.usgovcloudapi.net/.default',
+        containerRegistryScope: 'https://containerregistry.azure.us/.default',
         authority: 'https://login.microsoftonline.us'
       },
       china: {
-        managementScope: 'https://management.chinacloudapi.cn/.default',
+        containerRegistryScope: 'https://containerregistry.azure.cn/.default',
         authority: 'https://login.chinacloudapi.cn'
       },
       germany: {
-        managementScope: 'https://management.microsoftazure.de/.default',
+        containerRegistryScope: 'https://containerregistry.cloudapi.de/.default',
         authority: 'https://login.microsoftonline.de'
       }
     };
