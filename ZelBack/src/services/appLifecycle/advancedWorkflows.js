@@ -1897,6 +1897,7 @@ async function testAppMount() {
  * - v1-3: Repository tags (repotag) cannot be changed
  * - v4+: Component names and count must remain constant (repotag changes allowed)
  * - Version downgrades from v4+ to v1-3 are forbidden
+ * - Version updates only allowed to version 8 (current latest supported version)
  *
  * @param {object} specifications - The new/updated application specifications to validate
  * @param {string} specifications.name - Application name
@@ -1910,10 +1911,20 @@ async function testAppMount() {
  *   - Component name changes (v4+)
  *   - Repository tag changes (v1-3)
  *   - Version downgrade from v4+ to v1-3
+ *   - Version change to anything other than version 8
  */
 async function validateApplicationUpdateCompatibility(specifications, verificationTimestamp) {
   // eslint-disable-next-line no-use-before-define
   const appSpecs = await getPreviousAppSpecifications(specifications, verificationTimestamp);
+
+  // Only allow version changes to version 8 (current latest supported version)
+  if (appSpecs.version !== specifications.version && specifications.version !== 8) {
+    throw new Error(
+      `Application update rejected: Version changes are only allowed when updating to version 8 (current latest supported version). ` +
+      `Current version: ${appSpecs.version}, Attempted version: ${specifications.version}. ` +
+      `To update this application, please use version 8 specifications.`
+    );
+  }
   if (specifications.version >= 4) {
     if (appSpecs.version >= 4) {
       // Both current and update are v4+ compositions
