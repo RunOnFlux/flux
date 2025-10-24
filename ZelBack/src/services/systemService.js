@@ -66,10 +66,12 @@ async function aptRunner(options = {}) {
     '-o', 'Dpkg::Options::=--force-confold', // Keep old config files on conflict
     ...userParams,
   ];
-  const { error } = await serviceHelper.runCommand('apt-get', {
+
+  // Use env command to pass DEBIAN_FRONTEND through sudo (sudo strips env vars by default)
+  const envParams = ['DEBIAN_FRONTEND=noninteractive', 'apt-get', ...params];
+  const { error } = await serviceHelper.runCommand('env', {
     runAsRoot: true,
-    params,
-    env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
+    params: envParams,
   });
 
   // this is so this command can be retried by the worker runner
