@@ -13,7 +13,11 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
   constructor(config) {
     super(config);
     this.azureCredential = null;
-    this.registryName = null;
+
+    // Extract registry name from config if provided
+    // Config can have: registryName (explicit) or registry (URL to parse)
+    this.registryName = config.registryName ||
+                        (config.registry ? this.constructor.extractRegistryNameFromUrl(config.registry) : null);
 
     // Initialize Azure credential client
     this.initializeClient();

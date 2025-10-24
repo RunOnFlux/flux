@@ -111,7 +111,7 @@ class AuthProviderFactory {
   static createProviderFromObject(registryUrl, authConfig) {
     // Explicit provider type specified
     if (authConfig.type) {
-      return this.createExplicitProvider(authConfig.type, authConfig);
+      return this.createExplicitProvider(authConfig.type, authConfig, registryUrl);
     }
 
     // Auto-detect provider based on registry URL
@@ -133,9 +133,10 @@ class AuthProviderFactory {
    *
    * @param {string} providerType - Explicit provider type
    * @param {object} config - Provider configuration
+   * @param {string} [registryUrl] - Optional registry URL for extracting metadata
    * @returns {RegistryAuthProvider|null} Created provider
    */
-  static createExplicitProvider(providerType, config) {
+  static createExplicitProvider(providerType, config, registryUrl = null) {
     const ProviderClass = this.providers.get(providerType.toLowerCase());
     if (!ProviderClass) {
       throw new Error(`Unknown provider type: ${providerType}`);
@@ -148,7 +149,12 @@ class AuthProviderFactory {
       return provider;
     }
 
-    const provider = new ProviderClass(config);
+    // Add registry URL to config if provided and not already present
+    const configWithRegistry = registryUrl && !config.registry
+      ? { ...config, registry: registryUrl }
+      : config;
+
+    const provider = new ProviderClass(configWithRegistry);
     provider.registeredName = providerType.toLowerCase();
     return provider;
   }
