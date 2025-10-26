@@ -1778,7 +1778,7 @@ async function streamChainPreparation(req, res) {
     }
 
     // check if it is outside maintenance window
-    if (fluxNodeInfo.status === 'CONFIRMED' && fluxNodeInfo.last_confirmed_height > 0 && (120 - (blockCount - fluxNodeInfo.last_confirmed_height)) < 8) {
+    if (fluxNodeInfo.status === 'CONFIRMED' && fluxNodeInfo.last_confirmed_height > 0 && (480 - (blockCount - fluxNodeInfo.last_confirmed_height)) < 8) {
       // fluxnodes needs to confirm between 120 and 150 blocks, if it is 7 blocks remaining to enter confirmation window we already consider outside maintenance window, as this can take around 12 minutes.
       safeSetResponseStatus(res, 503, 'Error Fluxnode is not in maintenance window.');
       return;
