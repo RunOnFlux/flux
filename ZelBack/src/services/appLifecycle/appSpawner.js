@@ -74,43 +74,6 @@ function classifyDockerHubError(error) {
 }
 
 /**
- * Check if app uses any user-blocked ports or repotags
- * This is a fast check that happens before expensive operations like image compliance
- * @param {object} appSpecifications - Application specifications
- * @param {string} appHash - Application hash for caching
- * @returns {{blocked: boolean, reason: string}} Whether app is blocked and why
- */
-function checkUserBlockedResources(appSpecifications, appHash) {
-  // Check user-blocked ports
-  const appPorts = appUtilities.getAppPorts(appSpecifications);
-  // eslint-disable-next-line no-restricted-syntax
-  for (let i = 0; i < appPorts.length; i += 1) {
-    const port = appPorts[i];
-    const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
-    if (isUserBlocked) {
-      log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} uses user-blocked port ${port}. Adding to error cache.`);
-      globalState.spawnErrorsLongerAppCache.set(appHash, '');
-      return { blocked: true, reason: `Port ${port} is blocked by user configuration` };
-    }
-  }
-
-  // Check user-blocked repotags
-  const appRepotags = appUtilities.getAppRepotags(appSpecifications);
-  // eslint-disable-next-line no-restricted-syntax
-  for (let i = 0; i < appRepotags.length; i += 1) {
-    const repotag = appRepotags[i];
-    const isRepoBlocked = fluxNetworkHelper.isRepositoryUserBlocked(repotag);
-    if (isRepoBlocked) {
-      log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} uses user-blocked repository ${repotag}. Adding to error cache.`);
-      globalState.spawnErrorsLongerAppCache.set(appHash, '');
-      return { blocked: true, reason: `Repository ${repotag} is blocked by user configuration` };
-    }
-  }
-
-  return { blocked: false, reason: '' };
-}
-
-/**
  * Try spawning a global application that needs more instances
  * This is the main function that continuously checks for applications that need more instances
  * and attempts to spawn them on this node if it meets the requirements
@@ -382,16 +345,6 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
-    // EARLY CHECK: Verify app doesn't use user-blocked ports or repositories
-    // This fast check happens before expensive operations (image compliance, hw requirements, etc.)
-    const userBlockedCheck = checkUserBlockedResources(appSpecifications, appHash);
-    if (userBlockedCheck.blocked) {
-      log.info(`trySpawningGlobalApplication - Application ${appSpecifications.name} blocked: ${userBlockedCheck.reason}`);
-      await serviceHelper.delay(shortDelayTime);
-      trySpawningGlobalApplication();
-      return;
-    }
-
     // verify app compliance
     await imageManager.checkApplicationImagesCompliance(appSpecifications).catch((error) => {
       if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
@@ -412,15 +365,19 @@ async function trySpawningGlobalApplication() {
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
     const appPorts = appUtilities.getAppPorts(appSpecifications);
-    // Note: User-blocked port check now happens earlier in checkUserBlockedResources()
+    // check port is not user blocked
+    appPorts.forEach((port) => {
+      const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
+      if (isUserBlocked) {
+        globalState.spawnErrorsLongerAppCache.set(appHash, '');
+        throw new Error(`trySpawningGlobalApplication - Port ${port} is blocked by user. Installation aborted.`);
+      }
+    });
 
     // Check if ports are publicly available - critical for proper Flux network operation
     const portsPubliclyAvailable = await portManager.checkInstallingAppPortAvailable(appPorts);
     if (portsPubliclyAvailable === false) {
       log.error(`trySpawningGlobalApplication - Some of application ports of ${appSpecifications.name} are not available publicly. Installation aborted.`);
-      // Cache this app for 1 hour - port availability may change (e.g., if another app is removed)
-      const oneHourMs = 60 * 60 * 1000;
-      globalState.spawnErrorsLongerAppCache.set(appHash, '', { ttl: oneHourMs });
       await serviceHelper.delay(shortDelayTime);
       trySpawningGlobalApplication();
       return;
