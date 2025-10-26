@@ -84,6 +84,49 @@ function isPortUserBlocked(port) {
 }
 
 /**
+ * Check if a repository (repotag) is blocked by user configuration
+ * @param {string} repotag - Repository tag to check (e.g., 'nginx:latest', 'myrepo/myimage:v1.0')
+ * @returns {boolean} Returns true if repository is user-blocked
+ */
+function isRepositoryUserBlocked(repotag) {
+  try {
+    const blockedRepositories = userconfig.initial.blockedRepositories || [];
+    if (!Array.isArray(blockedRepositories) || blockedRepositories.length === 0) {
+      return false;
+    }
+
+    const repotagLower = repotag.toLowerCase();
+
+    // Check if repotag matches any blocked repository pattern
+    for (const blockedRepo of blockedRepositories) {
+      const blockedRepoLower = blockedRepo.toLowerCase();
+
+      // Exact match
+      if (repotagLower === blockedRepoLower) {
+        return true;
+      }
+
+      // Check if blocked repo is a prefix (e.g., blocking 'malicioususer/' blocks 'malicioususer/anything')
+      if (blockedRepoLower.endsWith('/') && repotagLower.startsWith(blockedRepoLower)) {
+        return true;
+      }
+
+      // Check repository name without tag (e.g., blocking 'nginx' blocks 'nginx:latest', 'nginx:1.0', etc.)
+      const repoNameWithoutTag = repotagLower.split(':')[0];
+      const blockedRepoWithoutTag = blockedRepoLower.split(':')[0];
+      if (repoNameWithoutTag === blockedRepoWithoutTag) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
  * To get if port belongs to banned range
  * @returns {boolean} Returns true if port is banned
  */
@@ -1881,6 +1924,7 @@ module.exports = {
   isPortBanned,
   isPortUPNPBanned,
   isPortUserBlocked,
+  isRepositoryUserBlocked,
   allowNodeToBindPrivilegedPorts,
   removeDockerContainerAccessToNonRoutable,
   getMaxNumberOfIpChanges,

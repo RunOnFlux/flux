@@ -276,6 +276,26 @@ function getAppPorts(appSpecs) {
 }
 
 /**
+ * Extract all repotags from app specifications
+ * @param {object} appSpecs - App specifications
+ * @returns {Array<string>} Array of repotags
+ */
+function getAppRepotags(appSpecs) {
+  const appRepotags = [];
+  if (appSpecs.version <= 3) {
+    appRepotags.push(appSpecs.repotag);
+  } else {
+    // version >= 4 has compose array with multiple components
+    appSpecs.compose.forEach((component) => {
+      if (component.repotag) {
+        appRepotags.push(component.repotag);
+      }
+    });
+  }
+  return appRepotags;
+}
+
+/**
  * Format app specifications to standard format
  * @param {object} appSpecification - Raw app specifications
  * @returns {object} Formatted app specifications
@@ -1033,6 +1053,7 @@ module.exports = {
   getAppFolderSize,
   getContainerStorage,
   getAppPorts,
+  getAppRepotags,
   specificationFormatter,
   updateToLatestAppSpecifications,
 };
