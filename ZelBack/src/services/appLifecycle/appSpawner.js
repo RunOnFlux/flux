@@ -345,6 +345,22 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    // EARLY CHECK: Verify app doesn't use user-blocked ports before expensive Docker Hub operations
+    const appPorts = appUtilities.getAppPorts(appSpecifications);
+    // eslint-disable-next-line no-restricted-syntax
+    for (let i = 0; i < appPorts.length; i += 1) {
+      const port = appPorts[i];
+      const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
+      if (isUserBlocked) {
+        log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} uses user-blocked port ${port}. Adding to error cache.`);
+        globalState.spawnErrorsLongerAppCache.set(appHash, '');
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(shortDelayTime);
+        trySpawningGlobalApplication();
+        return;
+      }
+    }
+
     // verify app compliance
     await imageManager.checkApplicationImagesCompliance(appSpecifications).catch((error) => {
       if (error.message !== 'Unable to communicate with Flux Services! Try again later.') {
@@ -364,16 +380,7 @@ async function trySpawningGlobalApplication() {
 
     await portManager.ensureApplicationPortsNotUsed(appSpecifications, runningAppsNames);
 
-    const appPorts = appUtilities.getAppPorts(appSpecifications);
-    // check port is not user blocked
-    appPorts.forEach((port) => {
-      const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
-      if (isUserBlocked) {
-        globalState.spawnErrorsLongerAppCache.set(appHash, '');
-        throw new Error(`trySpawningGlobalApplication - Port ${port} is blocked by user. Installation aborted.`);
-      }
-    });
-
+    // Note: User-blocked port check happens earlier (line ~353) before Docker Hub calls
     // Check if ports are publicly available - critical for proper Flux network operation
     const portsPubliclyAvailable = await portManager.checkInstallingAppPortAvailable(appPorts);
     if (portsPubliclyAvailable === false) {
