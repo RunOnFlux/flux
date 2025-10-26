@@ -20,6 +20,11 @@ let myLongCache = {
 // Cache for blocked repositories
 let cacheUserBlockedRepos = null;
 
+// Docker Hub verification cache - reduces rate-limited API calls
+// Caches successful verifications for 1 hour
+const dockerHubVerificationCache = new Map();
+const DOCKER_HUB_CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
+
 /**
  * Verify repository and image compliance
  * @param {string} repotag - Repository tag to verify
@@ -30,6 +35,20 @@ async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
   const skipVerification = options.skipVerification || false;
   const architecture = options.architecture || null;
+
+  // Check cache first to avoid redundant Docker Hub API calls
+  // Cache key includes architecture since same image may have different arch support
+  const cacheKey = `${repotag}:${architecture || 'any'}:${repoauth ? 'auth' : 'noauth'}`;
+  const cached = dockerHubVerificationCache.get(cacheKey);
+
+  if (cached && Date.now() - cached.timestamp < DOCKER_HUB_CACHE_TTL) {
+    log.info(`Docker Hub verification cache HIT for ${repotag} (${architecture || 'any'})`);
+    // If cached verification failed, throw the cached error
+    if (cached.error) {
+      throw new Error(cached.error);
+    }
+    return cached.result;
+  }
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     repotag,
@@ -55,11 +74,56 @@ async function verifyRepository(repotag, options = {}) {
     imgVerifier.addCredentials(authToken);
   }
 
-  await imgVerifier.verifyImage();
-  imgVerifier.throwIfError();
+  try {
+    await imgVerifier.verifyImage();
+    imgVerifier.throwIfError();
 
-  if (architecture && !imgVerifier.supported) {
-    throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
+    if (architecture && !imgVerifier.supported) {
+      throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
+    }
+
+    // Cache successful verification
+    dockerHubVerificationCache.set(cacheKey, {
+      result: true,
+      timestamp: Date.now(),
+      error: null,
+    });
+    log.info(`Docker Hub verification cache MISS - cached for ${repotag} (${architecture || 'any'})`);
+
+    return true;
+  } catch (error) {
+    // Intelligently cache failures based on error type
+    // Temporary errors (network, rate limit): shorter cache (1-3 hours)
+    // Permanent errors (not found, invalid format): longer cache (24 hours)
+    const errorMessage = error.message.toLowerCase();
+    let cacheTTL;
+
+    // Classify error types for appropriate retry timing
+    if (errorMessage.includes('connection error') || errorMessage.includes('etimedout')
+        || errorMessage.includes('econnrefused') || errorMessage.includes('enotfound')
+        || errorMessage.includes('enetunreach')) {
+      cacheTTL = 1 * 60 * 60 * 1000; // 1 hour for network issues
+      log.info(`Docker Hub verification failed (Network issue) - will retry in 1 hour: ${repotag}`);
+    } else if (errorMessage.includes('rate limit') || errorMessage.includes('too many requests')
+        || errorMessage.includes('429')) {
+      cacheTTL = 3 * 60 * 60 * 1000; // 3 hours for rate limiting
+      log.info(`Docker Hub verification failed (Rate limit) - will retry in 3 hours: ${repotag}`);
+    } else if (errorMessage.includes('unable to fetch') || errorMessage.includes('try again later')
+        || errorMessage.includes('bad http status 5')) {
+      cacheTTL = 2 * 60 * 60 * 1000; // 2 hours for server errors
+      log.info(`Docker Hub verification failed (Server error) - will retry in 2 hours: ${repotag}`);
+    } else {
+      // Permanent errors: invalid format, not found, not whitelisted, etc.
+      cacheTTL = 24 * 60 * 60 * 1000; // 24 hours for permanent errors
+      log.info(`Docker Hub verification failed (Permanent) - will retry in 24 hours: ${repotag}`);
+    }
+
+    dockerHubVerificationCache.set(cacheKey, {
+      result: null,
+      timestamp: Date.now() - DOCKER_HUB_CACHE_TTL + cacheTTL,
+      error: error.message,
+    });
+    throw error;
   }
 }
 

@@ -31,6 +31,42 @@ function initialize(deps) {
 }
 
 /**
+ * Classify Docker Hub errors as temporary or permanent
+ * @param {Error} error - The error thrown by Docker Hub verification
+ * @returns {{isTemporary: boolean, ttlHours: number, reason: string}}
+ */
+function classifyDockerHubError(error) {
+  const errorMessage = error.message.toLowerCase();
+
+  // Temporary errors - retry sooner (1-3 hours)
+  const temporaryPatterns = [
+    { pattern: /connection error|econnrefused|etimedout|enotfound|enetunreach/i, ttl: 1, reason: 'Network/Connection issue' },
+    { pattern: /unable to fetch|try again later|timeout/i, ttl: 2, reason: 'Temporary service issue' },
+    { pattern: /rate.?limit|too many requests|429/i, ttl: 3, reason: 'Rate limiting' },
+    { pattern: /bad http status 5\d\d/i, ttl: 2, reason: 'Server error (5xx)' },
+    { pattern: /malformed auth header/i, ttl: 2, reason: 'Temporary auth issue' },
+  ];
+
+  // Check for temporary errors
+  for (const { pattern, ttl, reason } of temporaryPatterns) {
+    if (pattern.test(errorMessage)) {
+      return { isTemporary: true, ttlHours: ttl, reason };
+    }
+  }
+
+  // Permanent errors - keep long cache (168 hours = 7 days)
+  // These include:
+  // - Image format errors (invalid tag format, spaces, etc.)
+  // - Authentication rejected (invalid credentials)
+  // - Image doesn't exist / not found
+  // - Not whitelisted
+  // - Size over limit
+  // - Unsupported architecture
+  // - Unsupported media/schema type
+  return { isTemporary: false, ttlHours: 168, reason: 'Permanent error' };
+}
+
+/**
  * Try spawning a global application that needs more instances
  * This is the main function that continuously checks for applications that need more instances
  * and attempts to spawn them on this node if it meets the requirements
@@ -473,7 +509,15 @@ async function trySpawningGlobalApplication() {
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await imageManager.verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
-        globalState.spawnErrorsLongerAppCache.set(appHash, '');
+        // Intelligently classify Docker Hub errors: temporary (1-3 hours) vs permanent (7 days)
+        const errorClassification = classifyDockerHubError(error);
+        const ttlMs = errorClassification.ttlHours * 60 * 60 * 1000;
+
+        log.warn(`trySpawningGlobalApplication - Docker Hub error for ${appToRun}: ${error.message}`);
+        log.warn(`trySpawningGlobalApplication - Error classified as: ${errorClassification.reason} (retry in ${errorClassification.ttlHours} hours)`);
+
+        // Set cache with custom TTL based on error type
+        globalState.spawnErrorsLongerAppCache.set(appHash, '', { ttl: ttlMs });
         throw error;
       });
     }
