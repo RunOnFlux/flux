@@ -32,6 +32,7 @@ function initialize(deps) {
 
 /**
  * Classify Docker Hub errors as temporary or permanent
+ * Based on actual error messages from imageVerifier.js
  * @param {Error} error - The error thrown by Docker Hub verification
  * @returns {{isTemporary: boolean, ttlHours: number, reason: string}}
  */
@@ -39,12 +40,18 @@ function classifyDockerHubError(error) {
   const errorMessage = error.message.toLowerCase();
 
   // Temporary errors - retry sooner (1-3 hours)
+  // These patterns match actual errors from imageVerifier.js
   const temporaryPatterns = [
-    { pattern: /connection error|econnrefused|etimedout|enotfound|enetunreach/i, ttl: 1, reason: 'Network/Connection issue' },
-    { pattern: /unable to fetch|try again later|timeout/i, ttl: 2, reason: 'Temporary service issue' },
-    { pattern: /rate.?limit|too many requests|429/i, ttl: 3, reason: 'Rate limiting' },
-    { pattern: /bad http status 5\d\d/i, ttl: 2, reason: 'Server error (5xx)' },
-    { pattern: /malformed auth header/i, ttl: 2, reason: 'Temporary auth issue' },
+    // Connection errors: ECONNREFUSED, ETIMEDOUT, ENOTFOUND, ENETUNREACH, ECONNRESET, ECONNABORTED
+    { pattern: /connection error|econnrefused|etimedout|enotfound|enetunreach|econnreset|econnaborted/i, ttl: 1, reason: 'Network/Connection issue' },
+    // Whitelist fetch failure or generic timeout
+    { pattern: /unable to fetch whitelisted repositories|try again later|err_canceled/i, ttl: 2, reason: 'Temporary service issue' },
+    // Docker Hub rate limiting (HTTP 429) - appears as "Bad HTTP Status 429"
+    { pattern: /bad http status 429|rate.?limit|too many requests/i, ttl: 3, reason: 'Docker Hub rate limiting' },
+    // Server errors (5xx status codes) - temporary issues on registry side
+    { pattern: /bad http status 5\d\d/i, ttl: 2, reason: 'Registry server error (5xx)' },
+    // Temporary auth issues (malformed header, token unavailable)
+    { pattern: /malformed auth header|authentication token.*not available/i, ttl: 2, reason: 'Temporary auth issue' },
   ];
 
   // Check for temporary errors
@@ -54,16 +61,16 @@ function classifyDockerHubError(error) {
     }
   }
 
-  // Permanent errors - keep long cache (168 hours = 7 days)
+  // Permanent errors - cache for 1 day (24 hours)
   // These include:
-  // - Image format errors (invalid tag format, spaces, etc.)
-  // - Authentication rejected (invalid credentials)
-  // - Image doesn't exist / not found
-  // - Not whitelisted
-  // - Size over limit
-  // - Unsupported architecture
+  // - Image format errors (invalid tag format, spaces, backslash)
+  // - Authentication rejected (401, invalid credentials)
+  // - Image doesn't exist / not found (404)
+  // - Not whitelisted (repository compliance)
+  // - Size over Flux limit
+  // - Unsupported architecture (amd64/arm64 mismatch)
   // - Unsupported media/schema type
-  return { isTemporary: false, ttlHours: 168, reason: 'Permanent error' };
+  return { isTemporary: false, ttlHours: 24, reason: 'Permanent error' };
 }
 
 /**
