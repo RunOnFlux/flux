@@ -1173,6 +1173,210 @@ describe('fluxNetworkHelper tests', () => {
       expect(fluxNetworkHelper.getDosMessage()).to.equal('Flux collision detection. Another ip:port is confirmed on flux network with the same collateral transaction information.');
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
     });
+
+    it('should trigger collision detection when same collateral exists on different IP and other node is reachable', async () => {
+      const myIp = '192.168.1.100:16127';
+      const otherIp = '192.168.1.200:16127';
+      const sharedCollateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      const nodeListWithDifferentIp = [
+        {
+          collateral: sharedCollateral,
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: myIp,
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+        {
+          collateral: sharedCollateral,
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: otherIp,
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+      ];
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: myIp },
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(nodeListWithDifferentIp);
+      getFluxNodeStatusStub.returns({
+        status: 'success',
+        data: {
+          status: 'CONFIRMED',
+          collateral: sharedCollateral,
+        },
+      });
+
+      // Mock successful axios call - other node is reachable
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').resolves({ data: { version: '6.0.0' } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(axiosGetStub.calledOnce).to.be.true;
+      expect(axiosGetStub.firstCall.args[0]).to.include('192.168.1.200:16127');
+      expect(fluxNetworkHelper.getDosMessage()).to.include('Node at 192.168.1.200:16127 is confirmed and reachable');
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(100);
+    });
+
+    it('should take over collateral when same collateral exists on different IP and other node is unreachable after grace period', async () => {
+      const myIp = '192.168.1.100:16127';
+      const otherIp = '192.168.1.200:16127';
+      const sharedCollateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      const nodeListWithDifferentIp = [
+        {
+          collateral: sharedCollateral,
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: myIp,
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+        {
+          collateral: sharedCollateral,
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: otherIp,
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+      ];
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: myIp },
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(nodeListWithDifferentIp);
+      getFluxNodeStatusStub.returns({
+        status: 'success',
+        data: {
+          status: 'CONFIRMED',
+          collateral: sharedCollateral,
+        },
+      });
+
+      // Mock axios to fail (other node unreachable) on both calls
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(axiosGetStub.calledTwice).to.be.true;
+      // DOS state should remain clear since we successfully took over
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+    });
+
+    it('should handle case when other node comes back online during grace period', async () => {
+      const myIp = '192.168.1.100:16127';
+      const otherIp = '192.168.1.200:16127';
+      const sharedCollateral = 'COutPoint(38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174, 0)';
+      const nodeListWithDifferentIp = [
+        {
+          collateral: sharedCollateral,
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: myIp,
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+        {
+          collateral: sharedCollateral,
+          txhash: '38c04da72786b08adb309259cdd6d2128ea9059d0334afca127a5dc4e75bf174',
+          outidx: '0',
+          ip: otherIp,
+          network: '',
+          added_height: 1076533,
+          confirmed_height: 1076535,
+          last_confirmed_height: 1079888,
+          last_paid_height: 1077653,
+          tier: 'CUMULUS',
+          payment_address: 't1Z6mWoCrFC2g3iTCFdFkYdTfwtG84E3y2o',
+          pubkey: '04378c8585d45861c8783f9c8cd0c85478164c12ce3fd13af1b44ebc8fe1ad6c786e92b211cb9566c596b6e2454d394a06bc44f748afb3c9ee48caa096d704abac',
+          activesince: '1647197272',
+          lastpaid: '1647333786',
+          amount: '1000.00',
+          rank: 0,
+        },
+      ];
+      const getBenchmarkResponseData = {
+        status: 'success',
+        data: { ipaddress: myIp },
+      };
+      getBenchmarksStub.resolves(getBenchmarkResponseData);
+      isDaemonSyncedStub.returns({ data: { synced: true } });
+      deterministicFluxListStub.returns(nodeListWithDifferentIp);
+      getFluxNodeStatusStub.returns({
+        status: 'success',
+        data: {
+          status: 'CONFIRMED',
+          collateral: sharedCollateral,
+        },
+      });
+
+      // Mock axios to fail first call but succeed on second (node comes back online)
+      const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet');
+      axiosGetStub.onFirstCall().rejects(new Error('Connection refused'));
+      axiosGetStub.onSecondCall().resolves({ data: { version: '6.0.0' } });
+
+      await fluxNetworkHelper.checkDeterministicNodesCollisions();
+
+      expect(axiosGetStub.calledTwice).to.be.true;
+      // DOS state should remain at 0 since this is not an error condition
+      expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
+    });
   });
 
   describe('getDOSState tests', () => {
