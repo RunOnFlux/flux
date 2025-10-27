@@ -627,8 +627,10 @@ export default {
       if (this.currentBlockHeight === -1) {
         return 'Not possible to calculate expiration';
       }
-      const expires = expire || 22000;
       const forkBlock = 2020000;
+      // After PON fork, default expire is 88000 blocks (4x22000)
+      const defaultExpire = height >= forkBlock ? 88000 : 22000;
+      const expires = expire || defaultExpire;
       let effectiveExpiry = height + expires;
 
       // If app was registered before the fork (block 2020000) and we're currently past the fork,

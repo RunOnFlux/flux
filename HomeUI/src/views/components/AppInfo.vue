@@ -129,7 +129,8 @@ export default {
         return null;
       }
 
-      const defaultExpire = 22000;
+      // After PON fork (block 2020000), default expire is 88000 blocks (4x22000)
+      const defaultExpire = this.data.height >= FORK_BLOCK_HEIGHT ? 88000 : 22000;
       const expireIn = this.data.expire || defaultExpire;
       const originalExpirationHeight = this.data.height + expireIn;
 
