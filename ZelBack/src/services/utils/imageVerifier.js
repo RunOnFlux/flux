@@ -55,6 +55,8 @@ class ImageVerifier {
 
   #parseErrorDetail = '';
 
+  #lookupErrorMeta = null; // Stores { httpStatus, errorCode, errorType }
+
   #architectureSupported = false;
 
   authed = false;
@@ -116,6 +118,10 @@ class ImageVerifier {
     return this.#lookupErrorDetail || this.#parseErrorDetail || this.#evaluationErrorDetail || '';
   }
 
+  get errorMeta() {
+    return this.#lookupErrorMeta;
+  }
+
   get parts() {
     const parts = [this.provider, this.namespace, this.repository, this.tag];
     return parts.filter((x) => x);
@@ -172,8 +178,13 @@ class ImageVerifier {
           'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json',
           { timeout: 20_000 },
         )
-        .catch(() => {
+        .catch((err) => {
           this.#lookupErrorDetail = 'Unable to fetch whitelisted repositories. Try again later.';
+          this.#lookupErrorMeta = {
+            httpStatus: err?.response?.status || null,
+            errorCode: err?.code || null,
+            errorType: 'whitelist_fetch_error',
+          };
           return { data: [] };
         });
 
@@ -259,12 +270,22 @@ class ImageVerifier {
     } = await serviceHelper
       .axiosGet(`${realm}?service=${service}&scope=${scope}`, { auth: this.credentials })
       .catch((err) => {
-        const status = err?.response.status;
+        const status = err?.response?.status;
 
         if (status === 401) {
           this.#lookupErrorDetail = `Authentication rejected for: ${this.rawImageTag}`;
+          this.#lookupErrorMeta = {
+            httpStatus: 401,
+            errorCode: null,
+            errorType: 'auth_rejected',
+          };
         } else {
           this.#lookupErrorDetail = `Authentication token from ${realm} for ${scope} not available`;
+          this.#lookupErrorMeta = {
+            httpStatus: status || null,
+            errorCode: null,
+            errorType: 'auth_unavailable',
+          };
         }
         return { data: { token: null } };
       });
@@ -289,6 +310,11 @@ class ImageVerifier {
 
     if (connectionErrors.includes(error.code)) {
       this.#lookupErrorDetail = `Connection Error ${error.code}: ${this.rawImageTag} not available`;
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: error.code,
+        errorType: 'network',
+      };
       return { data: null };
     }
 
@@ -296,11 +322,21 @@ class ImageVerifier {
 
     if (httpStatus !== 401) {
       this.#lookupErrorDetail = `Bad HTTP Status ${httpStatus}: ${this.rawImageTag} not available`;
+      this.#lookupErrorMeta = {
+        httpStatus,
+        errorCode: null,
+        errorType: httpStatus === 429 ? 'rate_limit' : (httpStatus >= 500 ? 'server_error' : 'http_error'),
+      };
       return { data: null };
     }
 
     if (this.authed) {
       this.#lookupErrorDetail = `Authentication failed: ${this.rawImageTag} not available or doesn't exist`;
+      this.#lookupErrorMeta = {
+        httpStatus: 401,
+        errorCode: null,
+        errorType: 'auth_failed',
+      };
       return { data: null };
     }
 
@@ -310,6 +346,11 @@ class ImageVerifier {
 
     if (!authDetails) {
       this.#lookupErrorDetail = `Malformed Auth Header: ${this.rawImageTag} not available`;
+      this.#lookupErrorMeta = {
+        httpStatus: 401,
+        errorCode: null,
+        errorType: 'auth_error',
+      };
       return { data: null };
     }
 
@@ -344,6 +385,11 @@ class ImageVerifier {
 
       if (size > this.maxImageSize) {
         this.#evaluationErrorDetail = `Docker image: ${this.rawImageTag} size is over Flux limit`;
+        this.#lookupErrorMeta = {
+          httpStatus: null,
+          errorCode: null,
+          errorType: 'size_limit',
+        };
       }
 
       if (this.architecture === arch) this.#architectureSupported = true;
@@ -354,6 +400,11 @@ class ImageVerifier {
 
       if (!images.length) {
         this.#evaluationErrorDetail = `Docker image: ${this.rawImageTag} does not have a valid architecture`;
+        this.#lookupErrorMeta = {
+          httpStatus: null,
+          errorCode: null,
+          errorType: 'unsupported_architecture',
+        };
         return;
       }
 
@@ -390,6 +441,11 @@ class ImageVerifier {
         break;
       default:
         this.#evaluationErrorDetail = `Unsupported Media type: ${mediaType} for: ${this.rawImage}`;
+        this.#lookupErrorMeta = {
+          httpStatus: null,
+          errorCode: null,
+          errorType: 'unsupported_media_type',
+        };
     }
   }
 
@@ -429,6 +485,7 @@ class ImageVerifier {
     this.#parseErrorDetail = null;
     this.#lookupErrorDetail = null;
     this.#evaluationErrorDetail = null;
+    this.#lookupErrorMeta = null;
   }
 
   /**
@@ -463,6 +520,11 @@ class ImageVerifier {
 
     if (!this.useable) {
       this.#evaluationErrorDetail = `Image Tag: ${this.rawImageTag} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY:TAG`;
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: null,
+        errorType: 'invalid_format',
+      };
       return false;
     }
 
@@ -484,6 +546,11 @@ class ImageVerifier {
 
     if (!whitelisted) {
       this.#evaluationErrorDetail = 'Repository is not whitelisted. Please contact Flux Team.';
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: null,
+        errorType: 'not_whitelisted',
+      };
     }
 
     return Boolean(whitelisted);
@@ -503,6 +570,11 @@ class ImageVerifier {
 
     if (imageManifest.schemaVersion !== 2) {
       this.#lookupErrorDetail = `Unsupported schemaVersion: ${imageManifest.schemaVersion} for: ${this.rawImageTag}`;
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: null,
+        errorType: 'unsupported_schema',
+      };
       return false;
     }
 
