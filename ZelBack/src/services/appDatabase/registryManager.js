@@ -799,7 +799,22 @@ async function checkApplicationRegistrationNameConflicts(appSpecFormatted, hash)
       if (appResult.height <= result.height) {
         log.debug(appResult);
         log.debug(result);
-        const currentExpiration = appResult.height + (appResult.expire || 22000);
+        // Determine default expire based on whether app was registered after PON fork
+        const defaultExpire = appResult.height >= config.fluxapps.daemonPONFork ? 88000 : 22000;
+        const expireIn = appResult.expire || defaultExpire;
+        let currentExpiration = appResult.height + expireIn;
+
+        // If app was registered before fork block and expiration extends past fork block
+        // the chain moves 4x faster, so we need to adjust the expiration
+        if (appResult.height < config.fluxapps.daemonPONFork && currentExpiration > config.fluxapps.daemonPONFork) {
+          // Calculate blocks that were supposed to live after fork block
+          const blocksAfterFork = currentExpiration - config.fluxapps.daemonPONFork;
+          // Multiply by 4 to account for 4x faster chain
+          const adjustedBlocksAfterFork = blocksAfterFork * 4;
+          // New expiration = fork block + adjusted blocks
+          currentExpiration = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
+        }
+
         if (currentExpiration >= result.height) {
           throw new Error(`Flux App ${appSpecFormatted.name} already registered. Flux App has to be registered under different name. Hash is not older than our current app.`);
         } else {

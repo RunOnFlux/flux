@@ -3097,7 +3097,8 @@ export default {
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].value;
       }
-      return 22000;
+      // After PON fork (block 2020000), default expire is 88000 blocks (4x22000)
+      return this.currentHeight >= 2020000 ? 88000 : 22000;
     },
     async importRsaPublicKey(base64SpkiDer) {
       const spkiDer = Buffer.from(base64SpkiDer, 'base64');

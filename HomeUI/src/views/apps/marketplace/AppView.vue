@@ -1812,6 +1812,7 @@ export default {
     const expirePosition = ref(Number(0));
     const tosAgreed = ref(false);
     const deploymentAddress = ref(null);
+    const currentBlockHeight = ref(0); // Store current block height for default expire calculation
     expireOptions.value = [
       {
         value: 22000,
@@ -1841,6 +1842,7 @@ export default {
         const response = await DaemonService.getBlockchainInfo();
         if (response.data.status === 'success' && response.data.data) {
           const currentHeight = response.data.data.blocks;
+          currentBlockHeight.value = currentHeight; // Store for later use
           // After block 2020000, chain works 4x faster, so multiply block periods by 4
           if (currentHeight >= 2020000) {
             expireOptions.value = expireOptions.value.map((option) => ({
@@ -2537,7 +2539,9 @@ export default {
         }
         if (props.appData.version >= 6) {
           const auxArray = expireOptions.value;
-          appSpecification.expire = auxArray[expirePosition.value].value || 22000;
+          // After PON fork (block 2020000), default expire is 88000 blocks (4x22000)
+          const defaultExpire = currentBlockHeight.value >= 2020000 ? 88000 : 22000;
+          appSpecification.expire = auxArray[expirePosition.value].value || defaultExpire;
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
