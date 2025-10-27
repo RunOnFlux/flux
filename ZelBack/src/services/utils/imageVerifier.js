@@ -59,7 +59,9 @@ class ImageVerifier {
 
   #architectureSupported = false;
 
-  authed = false;
+  authConfigured = false;
+
+  authVerified = false;
 
   evaluated = false;
 
@@ -276,12 +278,17 @@ class ImageVerifier {
         return;
       }
 
-      // Set up Basic auth for all subsequent requests
-      const authString = `${this.credentials.username}:${this.credentials.password}`;
-      const base64Auth = Buffer.from(authString).toString('base64');
+      // Set up Basic auth interceptor for all subsequent requests
+      this.#axiosInstance.interceptors.request.use((config) => {
+        const authString = `${this.credentials.username}:${this.credentials.password}`;
+        const base64Auth = Buffer.from(authString).toString('base64');
+        // eslint-disable-next-line no-param-reassign
+        config.headers.Authorization = `Basic ${base64Auth}`;
+        return config;
+      });
 
-      this.#axiosInstance.defaults.headers.common.Authorization = `Basic ${base64Auth}`;
-      this.authed = true;
+      this.authConfigured = true;
+      this.authVerified = false; // Not verified yet - will be tested on retry
       return;
     }
 
@@ -313,7 +320,8 @@ class ImageVerifier {
 
     if (!token) return;
 
-    this.authed = true;
+    this.authConfigured = true;
+    this.authVerified = true; // Verified at realm endpoint
     this.#axiosInstance.interceptors.request.use((config) => {
       // eslint-disable-next-line no-param-reassign
       config.headers.Authorization = `Bearer ${token}`;
@@ -351,13 +359,25 @@ class ImageVerifier {
       return { data: null };
     }
 
-    if (this.authed) {
-      this.#lookupErrorDetail = `Authentication failed: ${this.rawImageTag} not available or doesn't exist`;
-      this.#lookupErrorMeta = {
-        httpStatus: 401,
-        errorCode: null,
-        errorType: 'auth_failed',
-      };
+    if (this.authConfigured) {
+      // This is the second 401 - we already set up auth and retried
+      if (this.authVerified) {
+        // Bearer: Credentials were verified at realm endpoint, so image doesn't exist
+        this.#lookupErrorDetail = `Authentication failed: ${this.rawImageTag} not available or doesn't exist`;
+        this.#lookupErrorMeta = {
+          httpStatus: 401,
+          errorCode: null,
+          errorType: 'auth_failed',
+        };
+      } else {
+        // Basic: Credentials weren't verified yet, so they must be invalid
+        this.#lookupErrorDetail = `Authentication rejected for: ${this.rawImageTag}`;
+        this.#lookupErrorMeta = {
+          httpStatus: 401,
+          errorCode: null,
+          errorType: 'auth_rejected',
+        };
+      }
       return { data: null };
     }
 
@@ -377,7 +397,7 @@ class ImageVerifier {
 
     await this.#handleAuth(authDetails);
 
-    if (!this.authed) return { data: null };
+    if (!this.authConfigured) return { data: null };
 
     return this.#axiosInstance
       .get(endpointUrl)
