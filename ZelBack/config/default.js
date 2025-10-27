@@ -81,7 +81,7 @@ module.exports = {
   },
   minimumFluxBenchAllowedVersion: '5.0.0',
   minimumFluxOSAllowedVersion: '5.43.0',
-  minimumSyncthingAllowedVersion: '1.27.6',
+  minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
   fluxSupportTeamFluxID: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
