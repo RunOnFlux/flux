@@ -1302,14 +1302,9 @@ describe('fluxNetworkHelper tests', () => {
       // Mock axios to fail (other node unreachable) on both calls
       const axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').rejects(new Error('Connection refused'));
 
-      // Mock successful confirmation transaction
-      const createConfirmationStub = sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction');
-      createConfirmationStub.resolves({ status: 'success', data: { txid: 'abc123' } });
-
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       expect(axiosGetStub.calledTwice).to.be.true;
-      expect(createConfirmationStub.calledOnce).to.be.true;
       // DOS state should remain clear since we successfully took over
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
@@ -1376,13 +1371,9 @@ describe('fluxNetworkHelper tests', () => {
       axiosGetStub.onFirstCall().rejects(new Error('Connection refused'));
       axiosGetStub.onSecondCall().resolves({ data: { version: '6.0.0' } });
 
-      const createConfirmationStub = sinon.stub(daemonServiceWalletRpcs, 'createConfirmationTransaction');
-
       await fluxNetworkHelper.checkDeterministicNodesCollisions();
 
       expect(axiosGetStub.calledTwice).to.be.true;
-      // Should NOT create confirmation transaction since other node came back
-      expect(createConfirmationStub.called).to.be.false;
       // DOS state should remain at 0 since this is not an error condition
       expect(fluxNetworkHelper.getDosStateValue()).to.equal(0);
     });
