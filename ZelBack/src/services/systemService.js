@@ -680,13 +680,13 @@ async function monitorSystem() {
     // don't await these, let the queue deal with it
 
     // ubuntu 18.04 -> 24.04 all share this package
-    setImmediate(ensurePackageVersion('ca-certificates', '20230311'));
+    setImmediate(() => ensurePackageVersion('ca-certificates', '20230311'));
     // 18.04 == 1.187
     // 20.04 == 1.206
     // 22.04 == 1.218
     // Debian 12 = 1.219
-    setImmediate(ensurePackageVersion('netcat-openbsd', '1.187'));
-    setImmediate(monitorSyncthingPackage());
+    setImmediate(() => ensurePackageVersion('netcat-openbsd', '1.187'));
+    setImmediate(() => monitorSyncthingPackage());
   } catch (error) {
     log.error(error);
   }
