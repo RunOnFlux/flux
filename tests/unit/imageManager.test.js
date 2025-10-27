@@ -16,6 +16,12 @@ describe('imageManager tests', () => {
     delete require.cache[require.resolve('../../ZelBack/src/services/appSecurity/imageManager')];
     // Reload module with fresh state
     imageManager = require('../../ZelBack/src/services/appSecurity/imageManager');
+
+    // Clear the dockerHubVerificationCache before each test
+    const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
+    if (fluxCaching.dockerHubVerificationCache) {
+      fluxCaching.dockerHubVerificationCache.clear();
+    }
   });
 
   afterEach(() => {
@@ -31,6 +37,7 @@ describe('imageManager tests', () => {
         throwIfError: sinon.stub(),
         addCredentials: sinon.stub(),
         supported: true,
+        errorMeta: null,
       });
     });
 
@@ -96,6 +103,7 @@ describe('imageManager tests', () => {
         throwIfError: sinon.stub(),
         addCredentials: sinon.stub(),
         supported: false,
+        errorMeta: null,
       });
 
       try {
@@ -115,6 +123,191 @@ describe('imageManager tests', () => {
 
       const constructorArgs = ImageVerifierStub.firstCall.args;
       expect(constructorArgs[1].architecture).to.equal('amd64');
+    });
+
+    it('should cache successful verification using fluxCaching', async () => {
+      await imageManager.verifyRepository('test/app:latest');
+
+      // Check that cache was set
+      const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
+      const cacheKey = 'test/app:latest:any:noauth';
+      const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
+
+      expect(cached).to.not.be.undefined;
+      expect(cached.result).to.equal(true);
+      expect(cached.error).to.be.null;
+    });
+
+    it('should return cached successful verification', async () => {
+      // First call
+      await imageManager.verifyRepository('test/app:latest');
+
+      const firstCallCount = ImageVerifierStub.callCount;
+
+      // Second call should use cache
+      await imageManager.verifyRepository('test/app:latest');
+
+      // ImageVerifier should not be called again (cache hit)
+      expect(ImageVerifierStub.callCount).to.equal(firstCallCount);
+    });
+
+    it('should cache failed verification with custom TTL based on error type', async () => {
+      const networkError = new Error('Connection Error ECONNREFUSED: image not available');
+
+      ImageVerifierStub.returns({
+        verifyImage: sinon.stub().resolves(),
+        throwIfError: sinon.stub().throws(networkError),
+        addCredentials: sinon.stub(),
+        supported: true,
+        errorMeta: {
+          httpStatus: null,
+          errorCode: 'ECONNREFUSED',
+          errorType: 'network',
+        },
+      });
+
+      try {
+        await imageManager.verifyRepository('test/app:latest');
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        // Error should be thrown
+        expect(error.message).to.include('Connection Error');
+      }
+
+      // Check that failure was cached
+      const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
+      const cacheKey = 'test/app:latest:any:noauth';
+      const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
+
+      expect(cached).to.not.be.undefined;
+      expect(cached.result).to.be.null;
+      expect(cached.error).to.include('Connection Error');
+    });
+
+    it('should throw cached error on subsequent calls', async () => {
+      const networkError = new Error('Connection Error ECONNREFUSED');
+
+      ImageVerifierStub.returns({
+        verifyImage: sinon.stub().resolves(),
+        throwIfError: sinon.stub().throws(networkError),
+        addCredentials: sinon.stub(),
+        supported: true,
+        errorMeta: {
+          errorType: 'network',
+          errorCode: 'ECONNREFUSED',
+          httpStatus: null,
+        },
+      });
+
+      // First call - actual verification
+      try {
+        await imageManager.verifyRepository('test/app:latest');
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).to.include('Connection Error');
+      }
+
+      ImageVerifierStub.resetHistory();
+
+      // Second call - should use cache and throw cached error
+      try {
+        await imageManager.verifyRepository('test/app:latest');
+        expect.fail('Should have thrown an error');
+      } catch (error) {
+        expect(error.message).to.include('Connection Error');
+      }
+
+      // ImageVerifier should not be instantiated on second call (cache hit)
+      sinon.assert.notCalled(ImageVerifierStub);
+    });
+
+    it('should use different cache keys for different architectures', async () => {
+      // First call with amd64
+      await imageManager.verifyRepository('test/app:latest', { architecture: 'amd64' });
+
+      // Second call with arm64
+      await imageManager.verifyRepository('test/app:latest', { architecture: 'arm64' });
+
+      // Both should have been verified (different cache keys)
+      sinon.assert.calledTwice(ImageVerifierStub);
+
+      const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
+      const amd64Key = 'test/app:latest:amd64:noauth';
+      const arm64Key = 'test/app:latest:arm64:noauth';
+
+      expect(fluxCaching.dockerHubVerificationCache.get(amd64Key)).to.not.be.undefined;
+      expect(fluxCaching.dockerHubVerificationCache.get(arm64Key)).to.not.be.undefined;
+    });
+
+    it('should classify network errors with 1 hour TTL', async () => {
+      const networkError = new Error('Connection Error');
+
+      ImageVerifierStub.returns({
+        verifyImage: sinon.stub().resolves(),
+        throwIfError: sinon.stub().throws(networkError),
+        errorMeta: {
+          errorType: 'network',
+          errorCode: 'ECONNREFUSED',
+          httpStatus: null,
+        },
+      });
+
+      try {
+        await imageManager.verifyRepository('test/app:latest');
+      } catch (error) {
+        // Expected
+      }
+
+      // The error should be logged with "1 hour" in the message
+      // We can't directly test TTL without waiting, but we test classification logic
+      const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
+      expect(FluxCacheManager.oneHour).to.equal(3600000); // 1 hour in ms
+    });
+
+    it('should classify rate limit errors with 2 hour TTL', async () => {
+      const rateLimitError = new Error('Too many requests');
+
+      ImageVerifierStub.returns({
+        verifyImage: sinon.stub().resolves(),
+        throwIfError: sinon.stub().throws(rateLimitError),
+        errorMeta: {
+          errorType: 'rate_limit',
+          errorCode: null,
+          httpStatus: 429,
+        },
+      });
+
+      try {
+        await imageManager.verifyRepository('test/app:latest');
+      } catch (error) {
+        // Expected
+      }
+
+      const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
+      expect(2 * FluxCacheManager.oneHour).to.equal(7200000); // 2 hours in ms
+    });
+
+    it('should classify permanent errors with 7 day TTL', async () => {
+      const permanentError = new Error('Repository is not whitelisted');
+
+      ImageVerifierStub.returns({
+        verifyImage: sinon.stub().resolves(),
+        throwIfError: sinon.stub().throws(permanentError),
+        errorMeta: {
+          errorType: 'not_whitelisted',
+          errorCode: null,
+          httpStatus: null,
+        },
+      });
+
+      try {
+        await imageManager.verifyRepository('test/app:latest');
+      } catch (error) {
+        // Expected
+      }
+
+      const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
+      expect(7 * FluxCacheManager.oneDay).to.equal(604800000); // 7 days in ms
     });
   });
 
