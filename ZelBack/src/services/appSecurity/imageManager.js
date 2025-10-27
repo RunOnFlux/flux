@@ -106,16 +106,16 @@ async function verifyRepository(repotag, options = {}) {
       log.info(`Docker Hub verification failed (Network issue) - will retry in 1 hour: ${repotag}`);
     } else if (errorMessage.includes('rate limit') || errorMessage.includes('too many requests')
         || errorMessage.includes('429')) {
-      cacheTTL = 3 * 60 * 60 * 1000; // 3 hours for rate limiting
-      log.info(`Docker Hub verification failed (Rate limit) - will retry in 3 hours: ${repotag}`);
+      cacheTTL = 2 * 60 * 60 * 1000; // 2 hours for rate limiting
+      log.info(`Docker Hub verification failed (Rate limit) - will retry in 2 hours: ${repotag}`);
     } else if (errorMessage.includes('unable to fetch') || errorMessage.includes('try again later')
         || errorMessage.includes('bad http status 5')) {
-      cacheTTL = 2 * 60 * 60 * 1000; // 2 hours for server errors
-      log.info(`Docker Hub verification failed (Server error) - will retry in 2 hours: ${repotag}`);
+      cacheTTL = 3 * 60 * 60 * 1000; // 3 hours for server errors
+      log.info(`Docker Hub verification failed (Server error) - will retry in 3 hours: ${repotag}`);
     } else {
       // Permanent errors: invalid format, not found, not whitelisted, etc.
-      cacheTTL = 24 * 60 * 60 * 1000; // 24 hours for permanent errors
-      log.info(`Docker Hub verification failed (Permanent) - will retry in 24 hours: ${repotag}`);
+      cacheTTL = 4 * 60 * 60 * 1000; // 4 hours for permanent errors
+      log.info(`Docker Hub verification failed (Permanent) - will retry in 4 hours: ${repotag}`);
     }
 
     dockerHubVerificationCache.set(cacheKey, {
