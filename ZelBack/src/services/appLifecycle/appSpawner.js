@@ -16,6 +16,7 @@ const portManager = require('../appNetwork/portManager');
 const appUtilities = require('../utils/appUtilities');
 const systemIntegration = require('../appSystem/systemIntegration');
 const globalState = require('../utils/globalState');
+const { FluxCacheManager } = require('../utils/cacheManager');
 // const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 
 let appInstaller; // Will be initialized to avoid circular dependency
@@ -30,48 +31,9 @@ function initialize(deps) {
   appUninstaller = deps.appUninstaller;
 }
 
-/**
- * Classify Docker Hub errors as temporary or permanent
- * Based on actual error messages from imageVerifier.js
- * @param {Error} error - The error thrown by Docker Hub verification
- * @returns {{isTemporary: boolean, ttlHours: number, reason: string}}
- */
-function classifyDockerHubError(error) {
-  const errorMessage = error.message.toLowerCase();
-
-  // Temporary errors - retry sooner (1-3 hours)
-  // These patterns match actual errors from imageVerifier.js
-  const temporaryPatterns = [
-    // Connection errors: ECONNREFUSED, ETIMEDOUT, ENOTFOUND, ENETUNREACH, ECONNRESET, ECONNABORTED
-    { pattern: /connection error|econnrefused|etimedout|enotfound|enetunreach|econnreset|econnaborted/i, ttl: 1, reason: 'Network/Connection issue' },
-    // Whitelist fetch failure or generic timeout
-    { pattern: /unable to fetch whitelisted repositories|try again later|err_canceled/i, ttl: 2, reason: 'Temporary service issue' },
-    // Docker Hub rate limiting (HTTP 429) - appears as "Bad HTTP Status 429"
-    { pattern: /bad http status 429|rate.?limit|too many requests/i, ttl: 3, reason: 'Docker Hub rate limiting' },
-    // Server errors (5xx status codes) - temporary issues on registry side
-    { pattern: /bad http status 5\d\d/i, ttl: 2, reason: 'Registry server error (5xx)' },
-    // Temporary auth issues (malformed header, token unavailable)
-    { pattern: /malformed auth header|authentication token.*not available/i, ttl: 2, reason: 'Temporary auth issue' },
-  ];
-
-  // Check for temporary errors
-  for (const { pattern, ttl, reason } of temporaryPatterns) {
-    if (pattern.test(errorMessage)) {
-      return { isTemporary: true, ttlHours: ttl, reason };
-    }
-  }
-
-  // Permanent errors - cache for 1 day (24 hours)
-  // These include:
-  // - Image format errors (invalid tag format, spaces, backslash)
-  // - Authentication rejected (401, invalid credentials)
-  // - Image doesn't exist / not found (404)
-  // - Not whitelisted (repository compliance)
-  // - Size over Flux limit
-  // - Unsupported architecture (amd64/arm64 mismatch)
-  // - Unsupported media/schema type
-  return { isTemporary: false, ttlHours: 24, reason: 'Permanent error' };
-}
+// Note: Docker Hub error classification and caching is now handled by imageManager.js
+// which uses structured error metadata from imageVerifier.js for accurate classification
+// This spawner cache serves as an additional layer to prevent repeated spawn attempts
 
 /**
  * Try spawning a global application that needs more instances
@@ -523,15 +485,11 @@ async function trySpawningGlobalApplication() {
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
       await imageManager.verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
-        // Intelligently classify Docker Hub errors: temporary (1-3 hours) vs permanent (7 days)
-        const errorClassification = classifyDockerHubError(error);
-        const ttlMs = errorClassification.ttlHours * 60 * 60 * 1000;
-
-        log.warn(`trySpawningGlobalApplication - Docker Hub error for ${appToRun}: ${error.message}`);
-        log.warn(`trySpawningGlobalApplication - Error classified as: ${errorClassification.reason} (retry in ${errorClassification.ttlHours} hours)`);
-
-        // Set cache with custom TTL based on error type
-        globalState.spawnErrorsLongerAppCache.set(appHash, '', { ttl: ttlMs });
+        // imageManager already handles error classification and caching with intelligent TTLs (1h-7d)
+        // Add to spawn cache with 1-hour TTL to allow retry sooner than default 12h
+        // This lets temporary Docker Hub issues (network, rate limit) be retried faster
+        log.warn(`trySpawningGlobalApplication - Docker Hub verification failed for ${appToRun}: ${error.message}`);
+        globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour });
         throw error;
       });
     }

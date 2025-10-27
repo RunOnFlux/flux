@@ -9,6 +9,7 @@ const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
 const userconfig = require('../../../../config/userconfig');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
+const fluxCaching = require('../utils/cacheManager').default;
 
 // Global cache for original compatibility
 let myLongCache = {
@@ -20,10 +21,59 @@ let myLongCache = {
 // Cache for blocked repositories
 let cacheUserBlockedRepos = null;
 
-// Docker Hub verification cache - reduces rate-limited API calls
-// Caches successful verifications for 1 hour
-const dockerHubVerificationCache = new Map();
-const DOCKER_HUB_CACHE_TTL = 60 * 60 * 1000; // 1 hour in milliseconds
+/**
+ * Classify error type and determine appropriate cache TTL
+ * Uses structured error metadata from imageVerifier when available
+ * @param {Error} error - The error from image verification
+ * @param {object} errorMeta - Error metadata from imageVerifier (httpStatus, errorCode, errorType)
+ * @returns {{ttlMs: number, reason: string}}
+ */
+function classifyVerificationError(error, errorMeta) {
+  const { FluxCacheManager } = require('../utils/cacheManager');
+
+  // Use structured errorMeta if available (from imageVerifier)
+  if (errorMeta && errorMeta.errorType) {
+    switch (errorMeta.errorType) {
+      case 'network':
+        return { ttlMs: FluxCacheManager.oneHour, reason: 'Network/Connection error' };
+      case 'rate_limit':
+        return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Rate limiting (429)' };
+      case 'server_error':
+        return { ttlMs: 3 * FluxCacheManager.oneHour, reason: 'Server error (5xx)' };
+      case 'whitelist_fetch_error':
+      case 'auth_unavailable':
+        return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Temporary service issue' };
+      // Permanent errors - longer cache
+      case 'not_whitelisted':
+      case 'invalid_format':
+      case 'unsupported_architecture':
+      case 'unsupported_media_type':
+      case 'unsupported_schema':
+      case 'auth_rejected':
+      case 'auth_failed':
+      case 'size_limit':
+        return { ttlMs: 6 * FluxCacheManager.oneHour, reason: `Permanent error: ${errorMeta.errorType}` };
+      default:
+        return { ttlMs: 4 * FluxCacheManager.oneHour, reason: 'Unknown error type' };
+    }
+  }
+
+  // Fallback to message parsing if errorMeta not available (shouldn't happen with updated imageVerifier)
+  const errorMessage = error.message.toLowerCase();
+  if (errorMessage.includes('connection error') || errorMessage.includes('econnrefused')
+      || errorMessage.includes('enetunreach')) {
+    return { ttlMs: FluxCacheManager.oneHour, reason: 'Network error (fallback)' };
+  }
+  if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+    return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Rate limit (fallback)' };
+  }
+  if (errorMessage.includes('bad http status 5')) {
+    return { ttlMs: 3 * FluxCacheManager.oneHour, reason: 'Server error (fallback)' };
+  }
+
+  // Default permanent error
+  return { ttlMs: 6 * FluxCacheManager.oneHour, reason: 'Permanent error (fallback)' };
+}
 
 /**
  * Verify repository and image compliance
@@ -39,9 +89,9 @@ async function verifyRepository(repotag, options = {}) {
   // Check cache first to avoid redundant Docker Hub API calls
   // Cache key includes architecture since same image may have different arch support
   const cacheKey = `${repotag}:${architecture || 'any'}:${repoauth ? 'auth' : 'noauth'}`;
-  const cached = dockerHubVerificationCache.get(cacheKey);
+  const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
 
-  if (cached && Date.now() - cached.timestamp < DOCKER_HUB_CACHE_TTL) {
+  if (cached) {
     log.info(`Docker Hub verification cache HIT for ${repotag} (${architecture || 'any'})`);
     // If cached verification failed, throw the cached error
     if (cached.error) {
@@ -82,47 +132,28 @@ async function verifyRepository(repotag, options = {}) {
       throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
     }
 
-    // Cache successful verification
-    dockerHubVerificationCache.set(cacheKey, {
+    // Cache successful verification (uses default TTL from FluxCacheManager: 1 hour)
+    fluxCaching.dockerHubVerificationCache.set(cacheKey, {
       result: true,
-      timestamp: Date.now(),
       error: null,
     });
     log.info(`Docker Hub verification cache MISS - cached for ${repotag} (${architecture || 'any'})`);
 
     return true;
   } catch (error) {
-    // Intelligently cache failures based on error type
-    // Temporary errors (network, rate limit): shorter cache (1-3 hours)
-    // Permanent errors (not found, invalid format): longer cache (24 hours)
-    const errorMessage = error.message.toLowerCase();
-    let cacheTTL;
+    // Use errorMeta from imageVerifier for intelligent classification
+    const errorMeta = imgVerifier.errorMeta;
+    const { ttlMs, reason } = classifyVerificationError(error, errorMeta);
 
-    // Classify error types for appropriate retry timing
-    if (errorMessage.includes('connection error') || errorMessage.includes('etimedout')
-        || errorMessage.includes('econnrefused') || errorMessage.includes('enotfound')
-        || errorMessage.includes('enetunreach')) {
-      cacheTTL = 1 * 60 * 60 * 1000; // 1 hour for network issues
-      log.info(`Docker Hub verification failed (Network issue) - will retry in 1 hour: ${repotag}`);
-    } else if (errorMessage.includes('rate limit') || errorMessage.includes('too many requests')
-        || errorMessage.includes('429')) {
-      cacheTTL = 2 * 60 * 60 * 1000; // 2 hours for rate limiting
-      log.info(`Docker Hub verification failed (Rate limit) - will retry in 2 hours: ${repotag}`);
-    } else if (errorMessage.includes('unable to fetch') || errorMessage.includes('try again later')
-        || errorMessage.includes('bad http status 5')) {
-      cacheTTL = 3 * 60 * 60 * 1000; // 3 hours for server errors
-      log.info(`Docker Hub verification failed (Server error) - will retry in 3 hours: ${repotag}`);
-    } else {
-      // Permanent errors: invalid format, not found, not whitelisted, etc.
-      cacheTTL = 4 * 60 * 60 * 1000; // 4 hours for permanent errors
-      log.info(`Docker Hub verification failed (Permanent) - will retry in 4 hours: ${repotag}`);
-    }
+    log.warn(`Docker Hub verification failed for ${repotag}: ${error.message}`);
+    log.warn(`Error classified as: ${reason} (retry in ${ttlMs / 1000 / 60 / 60} hours)`);
 
-    dockerHubVerificationCache.set(cacheKey, {
+    // Cache failure with custom TTL based on error type
+    fluxCaching.dockerHubVerificationCache.set(cacheKey, {
       result: null,
-      timestamp: Date.now() - DOCKER_HUB_CACHE_TTL + cacheTTL,
       error: error.message,
-    });
+    }, { ttl: ttlMs });
+
     throw error;
   }
 }

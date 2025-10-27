@@ -123,6 +123,10 @@ class FluxCacheManager {
       max: 50,
       ttl: 5 * FluxCacheManager.oneMinute,
     },
+    dockerHubVerificationCache: {
+      max: 200,
+      ttl: FluxCacheManager.oneHour,
+    },
     // fluxCommunicationMessageSender
     tempMessageCache: {
       max: 250,
