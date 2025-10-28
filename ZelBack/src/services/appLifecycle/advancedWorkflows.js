@@ -2536,7 +2536,7 @@ async function reinstallOldApplications() {
                   log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // soft redeployment
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.appUninstallSoft(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, false, appComponent, true); // component
+                  await appUninstaller.appUninstallSoft(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, true, null, true); // component
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -2544,7 +2544,7 @@ async function reinstallOldApplications() {
                   log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // hard redeployment
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.appUninstallHard(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, false, appComponent, true); // component
+                  await appUninstaller.appUninstallHard(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, true, null, true); // component
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
