@@ -43,6 +43,7 @@ function initialize(deps) {
  */
 async function trySpawningGlobalApplication() {
   let shortDelayTime = 5 * 60 * 1000; // Default 5 minutes
+  let appHash = null; // Declare outside try block to be accessible in catch
   try {
     // how do we continue with this function?
     // we have globalapplication specifics list
@@ -173,7 +174,6 @@ async function trySpawningGlobalApplication() {
     let appToRun = null;
     let appToRunAux = null;
     let minInstances = null;
-    let appHash = null;
     let appFromAppsToBeCheckedLater = false;
     let appFromAppsSyncthingToBeCheckedLater = false;
     const { appsToBeCheckedLater, appsSyncthingToBeCheckedLater } = globalState;
@@ -599,6 +599,11 @@ async function trySpawningGlobalApplication() {
     trySpawningGlobalApplication();
   } catch (error) {
     log.error(error);
+    // Check if hash is assigned and not present in both caches, then add to trySpawningGlobalAppCache
+    if (appHash && !globalState.spawnErrorsLongerAppCache.has(appHash) && !globalState.trySpawningGlobalAppCache.has(appHash)) {
+      log.info(`trySpawningGlobalApplication - Adding app hash ${appHash} to trySpawningGlobalAppCache due to installation error`);
+      globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour * 6 });
+    }
     await serviceHelper.delay(shortDelayTime || 5 * 60 * 1000);
     trySpawningGlobalApplication();
   }
