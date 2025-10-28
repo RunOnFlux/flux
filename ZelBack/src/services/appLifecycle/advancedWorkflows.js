@@ -2510,13 +2510,117 @@ async function reinstallOldApplications() {
               // eslint-disable-next-line no-continue
               continue;
             }
+
             // Dynamic require to avoid circular dependency
             const appUninstaller = require('./appUninstaller');
             const appInstaller = require('./appInstaller');
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(appSpecifications.name, null, true);
-            // eslint-disable-next-line no-await-in-loop
-            await appInstaller.installAppLocally(appSpecifications, null, false);
+
+            try {
+              const reversedCompose = [...appSpecifications.compose].reverse();
+              // eslint-disable-next-line no-restricted-syntax
+              for (const appComponent of reversedCompose) {
+                if (appComponent.tiered) {
+                  const hddTier = `hdd${tier}`;
+                  const ramTier = `ram${tier}`;
+                  const cpuTier = `cpu${tier}`;
+                  appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+                  appComponent.ram = appComponent[ramTier] || appComponent.ram;
+                  appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+                }
+
+                const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
+
+                if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
+                  log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
+                } else if (appComponent.hdd === installedComponent.hdd) {
+                  log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  // soft redeployment
+                  // eslint-disable-next-line no-await-in-loop
+                  await appUninstaller.appUninstallSoft(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, false, appComponent, true); // component
+                  log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+                } else {
+                  log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  // hard redeployment
+                  // eslint-disable-next-line no-await-in-loop
+                  await appUninstaller.appUninstallHard(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, false, appComponent, true); // component
+                  log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+                }
+              }
+              // connect to mongodb
+              const dbopen = dbHelper.databaseConnection();
+              const appsDatabase = dbopen.db(config.database.appslocal.database);
+              const appsQuery = { name: appSpecifications.name };
+              const appsProjection = {};
+              log.warn('Cleaning up database...');
+              // eslint-disable-next-line no-await-in-loop
+              await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+              const databaseStatus2 = {
+                status: 'Database cleaned',
+              };
+              log.warn('Database cleaned');
+              log.warn(databaseStatus2);
+              log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
+              // composition removal done. Remove from installed apps and being installation
+              // eslint-disable-next-line no-await-in-loop
+              await appInstaller.checkAppRequirements(appSpecifications); // entire app
+              // eslint-disable-next-line no-restricted-syntax
+              for (const appComponent of appSpecifications.compose) {
+                if (appComponent.tiered) {
+                  const hddTier = `hdd${tier}`;
+                  const ramTier = `ram${tier}`;
+                  const cpuTier = `cpu${tier}`;
+                  appComponent.cpu = appComponent[cpuTier] || appComponent.cpu;
+                  appComponent.ram = appComponent[ramTier] || appComponent.ram;
+                  appComponent.hdd = appComponent[hddTier] || appComponent.hdd;
+                }
+
+                const installedComponent = installedApp.compose.find((component) => component.name === appComponent.name);
+
+                if (JSON.stringify(installedComponent) === JSON.stringify(appComponent)) {
+                  log.warn(`Component ${appComponent.name}_${appSpecifications.name} specs were not changed, skipping.`);
+                } else if (appComponent.hdd === installedComponent.hdd) {
+                  log.warn(`Continuing Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+                  // install the app
+                  // eslint-disable-next-line no-await-in-loop
+                  await softRegisterAppLocally(appSpecifications, appComponent); // component
+                } else {
+                  log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+                  // install the app
+                  // eslint-disable-next-line no-await-in-loop
+                  await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+                }
+              }
+              // register the app
+
+              const isEnterprise = Boolean(
+                appSpecifications.version >= 8 && appSpecifications.enterprise,
+              );
+
+              const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+              if (isEnterprise) {
+                dbSpecs.compose = [];
+                dbSpecs.contacts = [];
+              }
+
+              // eslint-disable-next-line no-await-in-loop
+              await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+              log.warn(`Composed application ${appSpecifications.name} updated.`);
+              log.warn(`Restarting application ${appSpecifications.name}`);
+              // eslint-disable-next-line no-await-in-loop, no-use-before-define
+              await appDockerRestart(appSpecifications.name);
+            } catch (error) {
+              log.error(error);
+              appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
+            }
           }
         }
       }
