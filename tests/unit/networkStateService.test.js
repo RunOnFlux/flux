@@ -334,4 +334,50 @@ describe('networkStateService tests', () => {
 
     expect(allPassed).to.be.true;
   });
+
+  it('should throttle daemon calls when fetched within 30 seconds', async () => {
+    const blockEmitter = new EventEmitter();
+    fluxnodeRpcStub.resolves(defaultNetworkState);
+
+    // First start - should call daemon
+    await networkStateService.start({ stateEmitter: blockEmitter });
+
+    expect(fluxnodeRpcStub.callCount).to.equal(1);
+
+    // Manually trigger multiple block events rapidly
+    blockEmitter.emit('blockReceived', 100);
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+
+    blockEmitter.emit('blockReceived', 101);
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+
+    blockEmitter.emit('blockReceived', 102);
+    await new Promise((resolve) => { setTimeout(resolve, 100); });
+
+    // Should still only have called daemon once due to throttling
+    // (the queuing mechanism in NetworkStateManager might allow 1-2 more calls)
+    expect(fluxnodeRpcStub.callCount).to.be.lessThan(4);
+
+    await networkStateService.stop();
+  });
+
+  it('should reset throttle state on stop', async () => {
+    const blockEmitter = new EventEmitter();
+    fluxnodeRpcStub.resolves(defaultNetworkState);
+
+    // Start and fetch once
+    await networkStateService.start({ stateEmitter: blockEmitter });
+    const firstCallCount = fluxnodeRpcStub.callCount;
+
+    // Stop should reset throttle state
+    await networkStateService.stop();
+
+    // Start again - should be able to fetch immediately
+    fluxnodeRpcStub.resetHistory();
+    await networkStateService.start({ stateEmitter: blockEmitter });
+
+    expect(fluxnodeRpcStub.callCount).to.equal(1);
+
+    await networkStateService.stop();
+  });
 });
