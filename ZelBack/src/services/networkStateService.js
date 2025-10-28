@@ -33,7 +33,7 @@ const DAEMON_CALL_THROTTLE_MS = 30000; // 30 seconds
  */
 async function start(options = {}) {
   return new Promise((resolve, reject) => {
-    if (stateManager) resolve();
+    if (stateManager) return resolve();
 
     const waitTimeoutMs = options.waitTimeoutMs || 0;
     const stateEmitter = options.stateEmitter || null;
