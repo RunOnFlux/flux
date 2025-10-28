@@ -540,7 +540,9 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
 
         const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
         const daemonHeight = syncStatus.data.height;
-        const expire = specifications.expire || 22000;
+        // Determine default expire based on whether app was registered after PON fork
+        const defaultExpire = height >= config.fluxapps.daemonPONFork ? 88000 : 22000;
+        const expire = specifications.expire || defaultExpire;
         let actualExpirationHeight = height + expire;
 
         // If app was registered before fork block and we are past fork block
@@ -763,9 +765,9 @@ async function continuousFluxAppHashesCheck(force = false) {
     }
 
     if (firstContinuousFluxAppHashesCheckRun && !globalState.checkAndSyncAppHashesWasEverExecuted) {
-      // Import checkAndSyncAppHashes from appsService - this function should be available there
-      const appsService = require('../appsService');
-      await appsService.checkAndSyncAppHashes();
+      // Import checkAndSyncAppHashes from appHashSyncService
+      const appHashSyncService = require('./appHashSyncService');
+      await appHashSyncService.checkAndSyncAppHashes();
     }
 
     const dbopen = dbHelper.databaseConnection();

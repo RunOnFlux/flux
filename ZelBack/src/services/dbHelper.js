@@ -461,7 +461,18 @@ async function isReindexAppsInformationRequired(
             {
               $add: [
                 '$maxHeightMsg.height',
-                { $ifNull: ['$maxHeightMsg.appSpecifications.expire', 22000] },
+                {
+                  $ifNull: [
+                    '$maxHeightMsg.appSpecifications.expire',
+                    {
+                      $cond: {
+                        if: { $gte: ['$maxHeightMsg.height', config.fluxapps.daemonPONFork] },
+                        then: 88000,
+                        else: 22000,
+                      },
+                    },
+                  ],
+                },
               ],
             },
             scannedHeight,
@@ -477,7 +488,23 @@ async function isReindexAppsInformationRequired(
   const appsInformationPipeline = [
     {
       $set: {
-        expireHeight: { $add: ['$height', { $ifNull: ['$expire', 22000] }] },
+        expireHeight: {
+          $add: [
+            '$height',
+            {
+              $ifNull: [
+                '$expire',
+                {
+                  $cond: {
+                    if: { $gte: ['$height', config.fluxapps.daemonPONFork] },
+                    then: 88000,
+                    else: 22000,
+                  },
+                },
+              ],
+            },
+          ],
+        },
       },
     },
     {

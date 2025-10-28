@@ -329,7 +329,7 @@ export default {
         },
         series: [],
       },
-      maxSupply: 440000000,
+      maxSupply: 560000000,
       lockedSupply: 0,
       lockedSupplyPerc: 0,
       circulatingSupply: 0,

@@ -17,7 +17,6 @@ const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockc
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
-const appsService = require('./appsService');
 const generalService = require('./generalService');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
@@ -1253,7 +1252,9 @@ async function getFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.flux.dos = dosResult.data;
-    const dosAppsResult = await appsService.getAppsDOSState();
+    // eslint-disable-next-line global-require
+    const appInspector = require('./appManagement/appInspector');
+    const dosAppsResult = await appInspector.getAppsDOSState();
     if (dosResult.status === 'error') {
       throw dosAppsResult.data;
     }
@@ -1295,22 +1296,28 @@ async function getFluxInfo(req, res) {
     }
     info.benchmark.bench = benchmarkBenchRes.data;
 
-    const apppsFluxUsage = await appsService.fluxUsage();
+    // eslint-disable-next-line global-require
+    const resourceQueryService = require('./appQuery/resourceQueryService');
+    const apppsFluxUsage = await resourceQueryService.fluxUsage();
     if (apppsFluxUsage.status === 'error') {
       throw apppsFluxUsage.data;
     }
     info.apps.fluxusage = apppsFluxUsage.data;
-    const appsRunning = await appsService.listRunningApps();
+    // eslint-disable-next-line global-require
+    const appQueryService = require('./appQuery/appQueryService');
+    const appsRunning = await appQueryService.listRunningApps();
     if (appsRunning.status === 'error') {
       throw appsRunning.data;
     }
     info.apps.runningapps = appsRunning.data;
-    const appsResources = await appsService.appsResources();
+    const appsResources = await resourceQueryService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
     }
     info.apps.resources = appsResources.data;
-    const appHashes = await appsService.getAppHashes();
+    // eslint-disable-next-line global-require
+    const registryManager = require('./appDatabase/registryManager');
+    const appHashes = await registryManager.getAppHashes();
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
@@ -1758,7 +1765,7 @@ async function streamChainPreparation(req, res) {
       return;
     }
 
-    if (blockCount + 5 < explorerResponse.data.info.blocks) {
+    if (blockCount + 20 < explorerResponse.data.info.blocks) {
       safeSetResponseStatus(res, 503, 'Error local Daemon is not synced.');
       return;
     }
@@ -1771,8 +1778,8 @@ async function streamChainPreparation(req, res) {
     }
 
     // check if it is outside maintenance window
-    if (fluxNodeInfo.status === 'CONFIRMED' && fluxNodeInfo.last_confirmed_height > 0 && (120 - (blockCount - fluxNodeInfo.last_confirmed_height)) < 8) {
-      // fluxnodes needs to confirm between 120 and 150 blocks, if it is 7 blocks remaining to enter confirmation window we already consider outside maintenance window, as this can take around 12 minutes.
+    if (fluxNodeInfo.status === 'CONFIRMED' && fluxNodeInfo.last_confirmed_height > 0 && (480 - (blockCount - fluxNodeInfo.last_confirmed_height)) < 30) {
+      // fluxnodes needs to confirm between 480 and 600 blocks, if it is 30 blocks (15m) remaining to enter confirmation window we already consider outside maintenance window, as this can take around 12 minutes.
       safeSetResponseStatus(res, 503, 'Error Fluxnode is not in maintenance window.');
       return;
     }

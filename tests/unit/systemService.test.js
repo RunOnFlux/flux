@@ -115,7 +115,7 @@ describe('system Services tests', () => {
       const cacheUpdateError = await systemService.updateAptCache();
 
       expect(cacheUpdateError).to.equal(false);
-      sinon.assert.calledOnceWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'update'] });
+      sinon.assert.calledOnceWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
     });
   });
 
@@ -150,7 +150,7 @@ describe('system Services tests', () => {
       const error = await systemService.upgradePackage('syncthing');
 
       expect(error).to.equal(false);
-      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
   });
 
@@ -257,7 +257,7 @@ describe('system Services tests', () => {
 
       const cmdRunner = sinon.fake((cmd) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '1.27.3:install ok installed' };
-        if (cmd === 'apt-get') return { error: null };
+        if (cmd === 'env') return { error: null };
         return null;
       });
 
@@ -272,7 +272,7 @@ describe('system Services tests', () => {
 
       await systemService.monitorSyncthingPackage();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
 
     it('should upgrade syncthing immediately if correct version present but uninstalled', async () => {
@@ -286,7 +286,7 @@ describe('system Services tests', () => {
 
       const cmdRunner = sinon.fake((cmd) => {
         if (cmd === 'dpkg-query') return { error: null, stdout: '2.2.2:deinstall ok config-files' };
-        if (cmd === 'apt-get') return { error: null };
+        if (cmd === 'env') return { error: null };
         return null;
       });
 
@@ -301,7 +301,7 @@ describe('system Services tests', () => {
 
       await systemService.monitorSyncthingPackage();
 
-      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'install', 'syncthing'] });
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'install', 'syncthing'] });
     });
 
     it('should not call upgradeSyncthing if on correct version', async () => {
@@ -330,7 +330,9 @@ describe('system Services tests', () => {
       });
 
       await systemService.monitorSyncthingPackage();
-      sinon.assert.calledOnceWithMatch(runCmdStub, 'dpkg-query');
+      // monitorSyncthingPackage calls getPackageVersion once (optimized):
+      // The current version is fetched once and passed to ensurePackageVersion
+      sinon.assert.calledOnce(runCmdStub.withArgs('dpkg-query'));
     });
   });
 
@@ -733,7 +735,7 @@ describe('system Services tests', () => {
 
       await systemService.addSyncthingRepository();
 
-      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n');
+      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n');
     });
 
     it('should force update cache if source added, even if cache was just updated', async () => {
@@ -766,8 +768,8 @@ describe('system Services tests', () => {
 
       await systemService.addSyncthingRepository();
 
-      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n');
-      sinon.assert.calledWithExactly(runCmdStub, 'apt-get', { runAsRoot: true, params: ['-o', 'DPkg::Lock::Timeout=180', 'update'] });
+      sinon.assert.calledWithExactly(writeStub, '/etc/apt/sources.list.d/syncthing.list', 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n');
+      sinon.assert.calledWithExactly(runCmdStub, 'env', { runAsRoot: true, params: ['DEBIAN_FRONTEND=noninteractive', 'apt-get', '-y', '-o', 'DPkg::Lock::Timeout=180', '-o', 'Dpkg::Options::=--force-confdef', '-o', 'Dpkg::Options::=--force-confold', 'update'] });
     });
   });
   describe('enableFluxdZmq tests', () => {
@@ -917,6 +919,405 @@ describe('system Services tests', () => {
 
       expect(result).to.equal(true);
       sinon.assert.calledOnceWithExactly(writeStub, '/home/testuser/.flux/.zmqEnabled', '');
+    });
+  });
+
+  describe('updateSyncthingSourceComponent tests', () => {
+    describe('legacy format tests', () => {
+      it('should update normal legacy format with single space', () => {
+        const input = 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n';
+        const expected = 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+
+      it('should handle legacy format with extra spaces between fields', () => {
+        const input = 'deb    [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ]    https://apt.syncthing.net/    syncthing    stable\n';
+        const expected = 'deb    [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ]    https://apt.syncthing.net/    syncthing    stable-v2\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+
+      it('should handle legacy format with tabs', () => {
+        const input = 'deb\t[ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ]\thttps://apt.syncthing.net/\tsyncthing\tstable\n';
+        const expected = 'deb\t[ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ]\thttps://apt.syncthing.net/\tsyncthing\tstable-v2\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+
+      it('should handle deb-src (source packages)', () => {
+        const input = 'deb-src [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n';
+        const expected = 'deb-src [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+
+      it('should handle legacy format without options', () => {
+        const input = 'deb https://apt.syncthing.net/ syncthing stable\n';
+        const expected = 'deb https://apt.syncthing.net/ syncthing stable-v2\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+
+      it('should not update if already on stable-v2', () => {
+        const input = 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(null);
+      });
+
+      it('should handle legacy format with trailing spaces', () => {
+        const input = 'deb https://apt.syncthing.net/ syncthing stable   \n';
+        const expected = 'deb https://apt.syncthing.net/ syncthing stable-v2   \n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+    });
+
+    describe('deb822 format tests', () => {
+      it('should update normal deb822 format', () => {
+        const input = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+        const expected = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable-v2
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+
+      it('should handle deb822 format with extra spaces after colon', () => {
+        const input = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components:   stable
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+        const expected = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components:   stable-v2
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+
+      it('should not update deb822 format already on stable-v2', () => {
+        const input = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable-v2
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(null);
+      });
+
+      it('should handle deb822 format with multiple components (only update stable)', () => {
+        const input = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable contrib
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+        const expected = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable-v2 contrib
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+
+      it('should handle deb822 format with trailing whitespace', () => {
+        const input = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+        const expected = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable-v2
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(expected);
+      });
+    });
+
+    describe('edge case tests', () => {
+      it('should return null for empty string', () => {
+        const result = systemService.updateSyncthingSourceComponent('');
+
+        expect(result).to.equal(null);
+      });
+
+      it('should return null for null input', () => {
+        const result = systemService.updateSyncthingSourceComponent(null);
+
+        expect(result).to.equal(null);
+      });
+
+      it('should return null for non-string input', () => {
+        const result = systemService.updateSyncthingSourceComponent({ foo: 'bar' });
+
+        expect(result).to.equal(null);
+      });
+
+      it('should not match "stable" in comments', () => {
+        const input = `# This is for stable repository
+deb https://apt.syncthing.net/ syncthing testing
+`;
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(null);
+      });
+
+      it('should not match "stable" in URL field', () => {
+        const input = 'deb https://stable.example.com/ syncthing testing\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(null);
+      });
+
+      it('should return null if no stable component found', () => {
+        const input = 'deb https://apt.syncthing.net/ syncthing testing\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(null);
+      });
+
+      it('should not partially match "stable" in "unstable"', () => {
+        const input = 'deb https://apt.syncthing.net/ syncthing unstable\n';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(null);
+      });
+
+      it('should handle malformed content gracefully', () => {
+        const input = 'this is not a valid apt source line stable';
+
+        const result = systemService.updateSyncthingSourceComponent(input);
+
+        expect(result).to.equal(null);
+      });
+    });
+
+    describe('updateSyncthingRepository tests', () => {
+      let runCmdStub;
+      let writeStub;
+      let rmStub;
+      let logSpy;
+      let cacheUpdateTimeStub;
+
+      beforeEach(() => {
+        runCmdStub = sinon.stub(serviceHelper, 'runCommand');
+        writeStub = sinon.stub(fs, 'writeFile');
+        rmStub = sinon.stub(fs, 'rm');
+        logSpy = sinon.spy(log, 'info');
+        // Stub cacheUpdateTime to avoid file system operations in updateAptCache
+        cacheUpdateTimeStub = sinon.stub(systemService, 'cacheUpdateTime').resolves(0);
+      });
+
+      afterEach(() => {
+        sinon.restore();
+        systemService.getQueue().clear();
+      });
+
+      it('should successfully update syncthing source from stable to stable-v2', async () => {
+        // Mock reading the source file as root
+        const sourceContent = 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable\n';
+        runCmdStub.withArgs('cat', sinon.match.any).resolves({ stdout: sourceContent });
+
+        // Mock moving the temp file as root
+        runCmdStub.withArgs('mv', sinon.match.any).resolves({ error: null });
+
+        // Mock apt-get update (called by updateAptCache)
+        runCmdStub.withArgs('apt-get', sinon.match.any).resolves({ error: null });
+
+        // Mock temp file operations
+        writeStub.resolves();
+        rmStub.resolves();
+
+        const result = await systemService.updateSyncthingRepository();
+
+        // Should return true on success
+        expect(result).to.equal(true);
+
+        // Should have read the file as root
+        sinon.assert.calledWith(runCmdStub, 'cat', sinon.match({
+          runAsRoot: true,
+          params: ['/etc/apt/sources.list.d/syncthing.list'],
+        }));
+
+        // Should have written temp file
+        const expectedNewContent = 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n';
+        sinon.assert.calledWith(writeStub, './syncthing.list.tmp', expectedNewContent, 'utf8');
+
+        // Should have moved temp file as root
+        sinon.assert.calledWith(runCmdStub, 'mv', sinon.match({
+          runAsRoot: true,
+          params: ['./syncthing.list.tmp', '/etc/apt/sources.list.d/syncthing.list'],
+        }));
+
+        // Should have cleaned up temp file
+        sinon.assert.calledWith(rmStub, './syncthing.list.tmp', { force: true });
+
+        // Should have logged success
+        sinon.assert.calledWith(logSpy, 'Switching syncthing apt source from stable to stable-v2...');
+        sinon.assert.calledWith(logSpy, 'Apt source updated to stable-v2');
+      });
+
+      it('should handle already migrated source (stable-v2)', async () => {
+        const sourceContent = 'deb [ signed-by=/usr/share/keyrings/syncthing-archive-keyring.gpg ] https://apt.syncthing.net/ syncthing stable-v2\n';
+        runCmdStub.withArgs('cat', sinon.match.any).resolves({ stdout: sourceContent });
+
+        const result = await systemService.updateSyncthingRepository();
+
+        // Should return true - sources are ready for v2
+        expect(result).to.equal(true);
+
+        // Should have read the file
+        sinon.assert.calledWith(runCmdStub, 'cat', sinon.match.any);
+
+        // Should NOT have written anything
+        sinon.assert.notCalled(writeStub);
+        sinon.assert.notCalled(rmStub);
+
+        // Should have logged already on v2
+        sinon.assert.calledWith(logSpy, 'Syncthing sources already on v2, nothing to do');
+      });
+
+      it('should handle file read failure gracefully', async () => {
+        runCmdStub.withArgs('cat', sinon.match.any).resolves({ stdout: '' });
+
+        const warnSpy = sinon.spy(log, 'warn');
+
+        const result = await systemService.updateSyncthingRepository();
+
+        // Should return false on failure
+        expect(result).to.equal(false);
+
+        // Should have warned about read failure
+        sinon.assert.calledWith(warnSpy, 'Unable to read syncthing sources, unable to update syncthing');
+
+        // Should NOT have written anything
+        sinon.assert.notCalled(writeStub);
+        sinon.assert.notCalled(rmStub);
+      });
+
+      it('should handle temp file write failure gracefully', async () => {
+        const sourceContent = 'deb https://apt.syncthing.net/ syncthing stable\n';
+        runCmdStub.withArgs('cat', sinon.match.any).resolves({ stdout: sourceContent });
+
+        // Mock write failure
+        writeStub.rejects(new Error('Write failed'));
+
+        const warnSpy = sinon.spy(log, 'warn');
+
+        const result = await systemService.updateSyncthingRepository();
+
+        // Should return false on failure
+        expect(result).to.equal(false);
+
+        // Should have warned about write failure
+        sinon.assert.calledWith(warnSpy, 'Unable to write to current directory, unable to update syncthing');
+
+        // Should NOT have tried to move the file
+        sinon.assert.neverCalledWith(runCmdStub, 'mv', sinon.match.any);
+      });
+
+      it('should handle move failure and log error', async () => {
+        const sourceContent = 'deb https://apt.syncthing.net/ syncthing stable\n';
+        runCmdStub.withArgs('cat', sinon.match.any).resolves({ stdout: sourceContent });
+        runCmdStub.withArgs('mv', sinon.match.any).resolves({ error: 'Permission denied' });
+
+        writeStub.resolves();
+        rmStub.resolves();
+
+        const errorSpy = sinon.spy(log, 'error');
+
+        const result = await systemService.updateSyncthingRepository();
+
+        // Should return false on failure
+        expect(result).to.equal(false);
+
+        // Should have logged the error
+        sinon.assert.calledWith(errorSpy, 'Failed to write syncthing apt source');
+
+        // Should still clean up temp file
+        sinon.assert.calledWith(rmStub, './syncthing.list.tmp', { force: true });
+      });
+
+      it('should handle deb822 format', async () => {
+        const sourceContent = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+        runCmdStub.withArgs('cat', sinon.match.any).resolves({ stdout: sourceContent });
+        runCmdStub.withArgs('mv', sinon.match.any).resolves({ error: null });
+        runCmdStub.withArgs('apt-get', sinon.match.any).resolves({ error: null });
+
+        writeStub.resolves();
+        rmStub.resolves();
+
+        const result = await systemService.updateSyncthingRepository();
+
+        // Should return true on success
+        expect(result).to.equal(true);
+
+        const expectedNewContent = `Types: deb
+URIs: https://apt.syncthing.net/
+Suites: syncthing
+Components: stable-v2
+Signed-By: /usr/share/keyrings/syncthing-archive-keyring.gpg
+`;
+
+        // Should have written the correct deb822 format
+        sinon.assert.calledWith(writeStub, './syncthing.list.tmp', expectedNewContent, 'utf8');
+
+        // Should have logged success
+        sinon.assert.calledWith(logSpy, 'Apt source updated to stable-v2');
+      });
     });
   });
 });

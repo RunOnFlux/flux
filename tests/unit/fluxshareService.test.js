@@ -171,6 +171,7 @@ describe('idService tests', () => {
       readdirSyncStub.returns(['file1', 'file2']);
       statSyncStub.returns({
         size: 1000000,
+        isDirectory: sinon.fake(() => false),
       });
 
       const result = await fluxshareService.getFluxShareSize(dirPath, arrayOfFiles);
@@ -198,6 +199,7 @@ describe('idService tests', () => {
       readdirSyncStub.returns(['file1', 'file2']);
       statSyncStub.returns({
         size: 1000000,
+        isDirectory: sinon.fake(() => false),
       });
 
       const result = await fluxshareService.getFluxShareSpecificFolderSize(dirPath, arrayOfFiles);
@@ -1309,6 +1311,7 @@ describe('idService tests', () => {
       sinon.stub(fs, 'readdirSync').returns(['file1', 'file2']);
       sinon.stub(fs, 'statSync').returns({
         size: 1000000,
+        isDirectory: sinon.fake(() => false),
       });
     });
 

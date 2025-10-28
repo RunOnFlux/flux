@@ -9,6 +9,7 @@ const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
 const userconfig = require('../../../../config/userconfig');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
+const fluxCaching = require('../utils/cacheManager').default;
 
 // Global cache for original compatibility
 let myLongCache = {
@@ -21,6 +22,60 @@ let myLongCache = {
 let cacheUserBlockedRepos = null;
 
 /**
+ * Classify error type and determine appropriate cache TTL
+ * Uses structured error metadata from imageVerifier when available
+ * @param {Error} error - The error from image verification
+ * @param {object} errorMeta - Error metadata from imageVerifier (httpStatus, errorCode, errorType)
+ * @returns {{ttlMs: number, reason: string}}
+ */
+function classifyVerificationError(error, errorMeta) {
+  const { FluxCacheManager } = require('../utils/cacheManager');
+
+  // Use structured errorMeta if available (from imageVerifier)
+  if (errorMeta && errorMeta.errorType) {
+    switch (errorMeta.errorType) {
+      case 'network':
+        return { ttlMs: FluxCacheManager.oneHour, reason: 'Network/Connection error' };
+      case 'rate_limit':
+        return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Rate limiting (429)' };
+      case 'server_error':
+        return { ttlMs: 3 * FluxCacheManager.oneHour, reason: 'Server error (5xx)' };
+      case 'whitelist_fetch_error':
+      case 'auth_unavailable':
+        return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Temporary service issue' };
+      // Permanent errors - longer cache
+      case 'not_whitelisted':
+      case 'invalid_format':
+      case 'unsupported_architecture':
+      case 'unsupported_media_type':
+      case 'unsupported_schema':
+      case 'auth_rejected':
+      case 'auth_failed':
+      case 'size_limit':
+        return { ttlMs: 6 * FluxCacheManager.oneHour, reason: `Permanent error: ${errorMeta.errorType}` };
+      default:
+        return { ttlMs: 4 * FluxCacheManager.oneHour, reason: 'Unknown error type' };
+    }
+  }
+
+  // Fallback to message parsing if errorMeta not available (shouldn't happen with updated imageVerifier)
+  const errorMessage = error.message.toLowerCase();
+  if (errorMessage.includes('connection error') || errorMessage.includes('econnrefused')
+      || errorMessage.includes('enetunreach')) {
+    return { ttlMs: FluxCacheManager.oneHour, reason: 'Network error (fallback)' };
+  }
+  if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+    return { ttlMs: 2 * FluxCacheManager.oneHour, reason: 'Rate limit (fallback)' };
+  }
+  if (errorMessage.includes('bad http status 5')) {
+    return { ttlMs: 3 * FluxCacheManager.oneHour, reason: 'Server error (fallback)' };
+  }
+
+  // Default permanent error
+  return { ttlMs: 6 * FluxCacheManager.oneHour, reason: 'Permanent error (fallback)' };
+}
+
+/**
  * Verify repository and image compliance
  * @param {string} repotag - Repository tag to verify
  * @param {object} options - Verification options
@@ -30,6 +85,20 @@ async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
   const skipVerification = options.skipVerification || false;
   const architecture = options.architecture || null;
+
+  // Check cache first to avoid redundant Docker Hub API calls
+  // Cache key includes architecture since same image may have different arch support
+  const cacheKey = `${repotag}:${architecture || 'any'}:${repoauth ? 'auth' : 'noauth'}`;
+  const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
+
+  if (cached) {
+    log.info(`Docker Hub verification cache HIT for ${repotag} (${architecture || 'any'})`);
+    // If cached verification failed, throw the cached error
+    if (cached.error) {
+      throw new Error(cached.error);
+    }
+    return cached.result;
+  }
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     repotag,
@@ -55,11 +124,37 @@ async function verifyRepository(repotag, options = {}) {
     imgVerifier.addCredentials(authToken);
   }
 
-  await imgVerifier.verifyImage();
-  imgVerifier.throwIfError();
+  try {
+    await imgVerifier.verifyImage();
+    imgVerifier.throwIfError();
 
-  if (architecture && !imgVerifier.supported) {
-    throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
+    if (architecture && !imgVerifier.supported) {
+      throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
+    }
+
+    // Cache successful verification (uses default TTL from FluxCacheManager: 1 hour)
+    fluxCaching.dockerHubVerificationCache.set(cacheKey, {
+      result: true,
+      error: null,
+    });
+    log.info(`Docker Hub verification cache MISS - cached for ${repotag} (${architecture || 'any'})`);
+
+    return true;
+  } catch (error) {
+    // Use errorMeta from imageVerifier for intelligent classification
+    const errorMeta = imgVerifier.errorMeta;
+    const { ttlMs, reason } = classifyVerificationError(error, errorMeta);
+
+    log.warn(`Docker Hub verification failed for ${repotag}: ${error.message}`);
+    log.warn(`Error classified as: ${reason} (retry in ${ttlMs / 1000 / 60 / 60} hours)`);
+
+    // Cache failure with custom TTL based on error type
+    fluxCaching.dockerHubVerificationCache.set(cacheKey, {
+      result: null,
+      error: error.message,
+    }, { ttl: ttlMs });
+
+    throw error;
   }
 }
 
@@ -227,7 +322,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
  * @param {object} appSpecs - Application specifications
  * @returns {Promise<boolean>} True if images are compliant
  */
-async function checkApplicationImagesComplience(appSpecs) {
+async function checkApplicationImagesCompliance(appSpecs) {
   const repos = await getBlockedRepositores();
   const userBlockedRepos = await getUserBlockedRepositores();
 
@@ -271,24 +366,24 @@ async function checkApplicationImagesComplience(appSpecs) {
 
   images.forEach((image) => {
     if (pureImagesOrOrganisationsRepos.includes(image)) {
-      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`);
+      throw new Error(`Image ${image} is blocked. Application ${appSpecs.name} cannot be spawned.`);
     }
   });
   organisations.forEach((org) => {
     if (pureImagesOrOrganisationsRepos.includes(org)) {
-      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`);
+      throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`);
     }
   });
   if (userBlockedRepos) {
     log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
     organisations.forEach((org) => {
       if (userBlockedRepos.includes(org.toLowerCase())) {
-        throw new Error(`Organisation ${org} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+        throw new Error(`Organisation ${org} is user blocked. Application ${appSpecs.name} cannot be spawned.`);
       }
     });
     images.forEach((image) => {
       if (userBlockedRepos.includes(image.toLowerCase())) {
-        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`);
+        throw new Error(`Image ${image} is user blocked. Application ${appSpecs.name} cannot be spawned.`);
       }
     });
   }
@@ -339,12 +434,12 @@ async function checkApplicationImagesBlocked(appSpecs) {
 
     images.forEach((image) => {
       if (pureImagesOrOrganisationsRepos.includes(image)) {
-        isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} connot be spawned.`;
+        isBlocked = `Image ${image} is blocked. Application ${appSpecs.name} cannot be spawned.`;
       }
     });
     organisations.forEach((org) => {
       if (pureImagesOrOrganisationsRepos.includes(org)) {
-        isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} connot be spawned.`;
+        isBlocked = `Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`;
       }
     });
   }
@@ -353,13 +448,13 @@ async function checkApplicationImagesBlocked(appSpecs) {
     log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
     organisations.forEach((org) => {
       if (userBlockedRepos.includes(org.toLowerCase())) {
-        isBlocked = `Organisation ${org} is user blocked. Application ${appSpecs.name} connot be spawned.`;
+        isBlocked = `Organisation ${org} is user blocked. Application ${appSpecs.name} cannot be spawned.`;
       }
     });
     if (!isBlocked) {
       images.forEach((image) => {
         if (userBlockedRepos.includes(image.toLowerCase())) {
-          isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} connot be spawned.`;
+          isBlocked = `Image ${image} is user blocked. Application ${appSpecs.name} cannot be spawned.`;
         }
       });
     }
@@ -454,7 +549,7 @@ module.exports = {
   getBlockedRepositores,
   getUserBlockedRepositores,
   checkAppSecrets,
-  checkApplicationImagesComplience,
+  checkApplicationImagesCompliance,
   checkApplicationImagesBlocked,
   checkDockerAccessibility,
   checkApplicationsCompliance,

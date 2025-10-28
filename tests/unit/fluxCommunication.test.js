@@ -11,7 +11,7 @@ const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const fluxCommunicationUtils = require('../../ZelBack/src/services/fluxCommunicationUtils');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
-const appsService = require('../../ZelBack/src/services/appsService');
+const messageStore = require('../../ZelBack/src/services/appMessaging/messageStore');
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
@@ -49,7 +49,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should broadcast the app message if a proper data is given', async () => {
-      sinon.stub(appsService, 'storeAppTemporaryMessage').returns(true);
+      sinon.stub(messageStore, 'storeAppTemporaryMessage').returns(true);
       const fromIp = '127.0.0.5';
       const port = 16127;
       const appSpecifications = {
@@ -257,7 +257,7 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should broadcast the app message if a proper data is given', async () => {
-      sinon.stub(appsService, 'storeAppTemporaryMessage').returns(true);
+      sinon.stub(messageStore, 'storeAppRunningMessage').returns(true);
       const fromIp = '127.0.0.5';
       const port = 16127;
       const type = 'fluxappregister';
@@ -1127,7 +1127,7 @@ describe('fluxCommunication tests', () => {
         lruRateLimitStub.returns(true);
         sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
         const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(true);
-        const storeAppTemporaryMessageStub = sinon.stub(appsService, 'storeAppTemporaryMessage').returns(false);
+        const storeAppTemporaryMessageStub = sinon.stub(messageStore, 'storeAppTemporaryMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
           {
@@ -1175,7 +1175,7 @@ describe('fluxCommunication tests', () => {
         lruRateLimitStub.returns(true);
         sinon.stub(FluxTTLCache.prototype, 'has').returns(false);
         const verifyFluxBroadcast = sinon.stub(fluxCommunicationUtils, 'verifyFluxBroadcast').returns(true);
-        const storeAppRunningMessageStub = sinon.stub(appsService, 'storeAppRunningMessage').returns(false);
+        const storeAppRunningMessageStub = sinon.stub(messageStore, 'storeAppRunningMessage').returns(false);
         daemonServiceMiscRpcsStub.returns({
           data:
           {

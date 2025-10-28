@@ -1602,8 +1602,7 @@ async function getDbRemoteNeed(req, res) {
  */
 async function getDbStatus(req, res) {
   try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
+    let folder = req?.params?.folder || req?.query?.folder;
     let apiPath = '/rest/db/status';
     if (folder) {
       apiPath += `?folder=${folder}`;

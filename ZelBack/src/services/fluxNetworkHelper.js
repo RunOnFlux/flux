@@ -723,14 +723,15 @@ async function ipChangesOverLimit() {
       }
       if (ipChangeData.count >= 2) {
         // eslint-disable-next-line global-require
-        const appsService = require('./appsService');
-        let apps = await appsService.installedApps();
+        const appQueryService = require('./appQuery/appQueryService');
+        const appUninstaller = require('./appLifecycle/appUninstaller');
+        let apps = await appQueryService.installedApps();
         if (apps.status === 'success' && apps.data.length > 0) {
           apps = apps.data;
           // eslint-disable-next-line no-restricted-syntax
           for (const app of apps) {
             // eslint-disable-next-line no-await-in-loop
-            await appsService.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
+            await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
             // eslint-disable-next-line no-await-in-loop
             await serviceHelper.delay(500);
           }
@@ -807,25 +808,28 @@ async function adjustExternalIP(ip) {
         log.error(dosMessage);
       }
       // eslint-disable-next-line global-require
-      const appsService = require('./appsService');
-      let apps = await appsService.installedApps();
+      const appQueryService = require('./appQuery/appQueryService');
+      const registryManager = require('./appDatabase/registryManager');
+      const appUninstaller = require('./appLifecycle/appUninstaller');
+      const appController = require('./appManagement/appController');
+      let apps = await appQueryService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
         let appsRemoved = 0;
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
           // eslint-disable-next-line no-await-in-loop
-          const runningAppList = await appsService.appLocation(app.name);
+          const runningAppList = await registryManager.appLocation(app.name);
           const findMyIP = runningAppList.find((instance) => instance.ip.split(':')[0] === ip);
           if (findMyIP) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
             // eslint-disable-next-line no-await-in-loop
-            await appsService.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+            await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
             appsRemoved += 1;
           } else {
             // once app specs v8 is done we check if app have specs that is using fluxnode service.
             // eslint-disable-next-line no-await-in-loop
-            await appsService.appDockerRestart(app.name);
+            await appController.appDockerRestart(app.name);
           }
         }
         if (apps.length > appsRemoved) {
@@ -1063,8 +1067,12 @@ async function checkDeterministicNodesCollisions() {
           let errorCall = false;
           const askingIP = nodeCollateralDifferentIp.ip.split(':')[0];
           const askingIpPort = nodeCollateralDifferentIp.ip.split(':')[1] || '16127';
-          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(errorCall = true);
+          log.info(`Detected same collateral on different IP: ${askingIP}:${askingIpPort}. Checking if other node is reachable...`);
+
+          // First reachability check
+          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(() => { errorCall = true; });
           if (!errorCall) {
+            // Other node is reachable and confirmed - this is a collision
             log.error(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
             dosState = 100;
             setDosMessage(`Flux collision detection. Node at ${askingIP}:${askingIpPort} is confirmed and reachable on flux network with the same collateral transaction information.`);
@@ -1073,16 +1081,29 @@ async function checkDeterministicNodesCollisions() {
             }, 60 * 1000);
             return;
           }
+
+          // First check failed - wait 60 seconds before confirming the other node is truly offline
+          // This grace period prevents false positives from temporary network issues or node restarts
+          log.info(`Other node at ${askingIP}:${askingIpPort} appears unreachable. Waiting 60 seconds to verify before taking over...`);
           errorCall = false;
-          await serviceHelper.delay(60 * 1000); // 60s await to double check the other machine is really offline or it just restarted or restarted fluxOs
-          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(errorCall = true);
+          await serviceHelper.delay(60 * 1000);
+
+          // Second reachability check after grace period
+          await serviceHelper.axiosGet(`http://${askingIP}:${askingIpPort}/flux/version`, axiosConfig).catch(() => { errorCall = true; });
           if (errorCall) {
+            // Other node is confirmed offline after grace period - take over the collateral
+            log.info(`Other node at ${askingIP}:${askingIpPort} confirmed offline. Creating confirmation transaction to take over collateral...`);
             const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
-            log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
+             log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
+            // Clear any previous DOS state related to this collision
             if (getDosMessage() && getDosMessage().includes('is confirmed and reachable on flux network')) {
+              log.info('Clearing previous collision DOS state - this node has successfully taken over the collateral');
               dosState = 0;
               setDosMessage(null);
             }
+          } else {
+            // Other node came back online during grace period
+            log.warn(`Node at ${askingIP}:${askingIpPort} came back online during grace period. Collision still exists.`);
           }
         }
       }
@@ -1883,4 +1904,5 @@ module.exports = {
   allowOnlyDockerNetworksToFluxNodeService,
   addFluxNodeServiceIpToLoopback,
   keepUPNPPortsOpen,
+  isArcane,
 };

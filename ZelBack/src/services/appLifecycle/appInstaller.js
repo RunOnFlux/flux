@@ -10,11 +10,11 @@ const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const appUninstaller = require('./appUninstaller');
-const advancedWorkflows = require('./advancedWorkflows');
+// const advancedWorkflows = require('./advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const { storeAppRunningMessage, storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
 const { systemArchitecture } = require('../appSystem/systemIntegration');
-const { checkApplicationImagesComplience } = require('../appSecurity/imageManager');
+const { checkApplicationImagesCompliance } = require('../appSecurity/imageManager');
 const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 const pgpService = require('../pgpService');
@@ -185,13 +185,13 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       return false;
     }
 
-    // Lazy-load appsService to avoid circular dependency issues
-    const appsService = require('../appsService');
-    const installedAppsRes = await appsService.installedApps();
+    // Lazy-load appQueryService to avoid circular dependency issues
+    const appQueryService = require('../appQuery/appQueryService');
+    const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
-    const runningAppsRes = await appsService.listRunningApps();
+    const runningAppsRes = await appQueryService.listRunningApps();
     if (runningAppsRes.status !== 'success') {
       throw new Error('Unable to check running Apps');
     }
@@ -491,7 +491,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   }
 
   // check blacklist
-  await checkApplicationImagesComplience(fullAppSpecs);
+  await checkApplicationImagesCompliance(fullAppSpecs);
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     appSpecifications.repotag,
@@ -539,6 +539,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     if (res.flush) res.flush();
   }
 
+  // Dynamic require to avoid circular dependency
+  const advancedWorkflows = require('./advancedWorkflows');
   await advancedWorkflows.createAppVolume(appSpecifications, appName, isComponent, res);
 
   // Verify that the volume was mounted successfully
@@ -705,7 +707,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   }
 
   // check blacklist
-  await checkApplicationImagesComplience(fullAppSpecs);
+  await checkApplicationImagesCompliance(fullAppSpecs);
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     appSpecifications.repotag,

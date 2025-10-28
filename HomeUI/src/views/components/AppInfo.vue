@@ -66,19 +66,19 @@
       kbd-variant="success"
     />
     <list-entry
-      v-if="data.hash && data.hash.length === 64"
+      v-if="data.hash && data.hash.length === 64 && expiresOnBlockheight"
       title="Expires on Blockheight"
-      :data="data.height + (data.expire || 22000)"
+      :data="expiresOnBlockheight"
       title-icon="hourglass-split"
       title-icon-scale="1.2"
       kbd-variant="success"
     />
     <list-entry
       title="Expires in"
-      :data="getNewExpireLabel"
+      :data="expiresInLabel"
       title-icon="clock"
       title-icon-scale="1.2"
-      :kbd-variant="isExpiringSoon('getNewExpireLabel') ? 'danger' : 'success'"
+      :kbd-variant="isExpiringSoon(expiresInLabel) ? 'danger' : 'success'"
     />
     <list-entry
       title="Enterprise Nodes"
@@ -98,6 +98,9 @@
 </template>
 
 <script>
+// PON (Proof of Node) Fork configuration - block height where chain speed increases 4x
+const FORK_BLOCK_HEIGHT = 2020000;
+
 export default {
   name: 'AppInfo',
   props: {
@@ -111,7 +114,84 @@ export default {
     },
     getNewExpireLabel: {
       type: [String, Number, Function],
-      required: true,
+      required: false,
+      default: null,
+    },
+    currentBlockHeight: {
+      type: Number,
+      required: false,
+      default: -1,
+    },
+  },
+  computed: {
+    expiresOnBlockheight() {
+      if (!this.data.height || !this.data.hash || this.data.hash.length !== 64) {
+        return null;
+      }
+
+      // After PON fork (block 2020000), default expire is 88000 blocks (4x22000)
+      const defaultExpire = this.data.height >= FORK_BLOCK_HEIGHT ? 88000 : 22000;
+      const expireIn = this.data.expire || defaultExpire;
+      const originalExpirationHeight = this.data.height + expireIn;
+
+      // If app was registered before PON fork AND expiration extends past the fork,
+      // the blocks AFTER the fork will be 4x faster, so multiply those by 4
+      if (this.data.height < FORK_BLOCK_HEIGHT
+          && originalExpirationHeight > FORK_BLOCK_HEIGHT) {
+        // Calculate blocks that were supposed to live after fork block
+        const blocksAfterFork = originalExpirationHeight - FORK_BLOCK_HEIGHT;
+        // Multiply by 4 to account for 4x faster chain
+        const adjustedBlocksAfterFork = blocksAfterFork * 4;
+        // New expiration = fork block + adjusted blocks
+        const adjustedExpiration = FORK_BLOCK_HEIGHT + adjustedBlocksAfterFork;
+
+        return adjustedExpiration;
+      }
+
+      return originalExpirationHeight;
+    },
+    expiresInLabel() {
+      if (!this.expiresOnBlockheight || this.currentBlockHeight < 0) {
+        return 'Not available';
+      }
+
+      const blocksRemaining = this.expiresOnBlockheight - this.currentBlockHeight;
+
+      if (blocksRemaining < 1) {
+        return 'Application Expired';
+      }
+
+      let totalMinutes = 0;
+
+      // Before fork: 2 minutes per block
+      // After fork: 0.5 minutes per block (30 seconds)
+      if (this.currentBlockHeight < FORK_BLOCK_HEIGHT) {
+        // We're currently before the fork
+        if (this.expiresOnBlockheight <= FORK_BLOCK_HEIGHT) {
+          // Expiration is before fork - all blocks at 2 min/block
+          totalMinutes = blocksRemaining * 2;
+        } else {
+          // Expiration is after fork - split calculation
+          const blocksUntilFork = FORK_BLOCK_HEIGHT - this.currentBlockHeight;
+          const blocksAfterFork = this.expiresOnBlockheight - FORK_BLOCK_HEIGHT;
+          totalMinutes = (blocksUntilFork * 2) + (blocksAfterFork * 0.5);
+        }
+      } else {
+        // We're currently after fork - all remaining blocks at 0.5 min/block
+        totalMinutes = blocksRemaining * 0.5;
+      }
+
+      // Convert minutes to human-readable format
+      const days = Math.floor(totalMinutes / 1440);
+      const hours = Math.floor((totalMinutes % 1440) / 60);
+      const minutes = Math.floor(totalMinutes % 60);
+
+      const parts = [];
+      if (days > 0) parts.push(`${days} day${days !== 1 ? 's' : ''}`);
+      if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`);
+      if (minutes > 0 || parts.length === 0) parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`);
+
+      return parts.slice(0, 3).join(', ');
     },
   },
   methods: {
