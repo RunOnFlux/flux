@@ -2403,6 +2403,9 @@ async function reinstallOldApplications() {
             }
             log.warn('Updating from old application version, doing hard redeploy...');
             const appUninstaller = require('./appUninstaller');
+            const appInstaller = require('./appInstaller');
+            const dbopen = dbHelper.databaseConnection();
+            const appsDatabase = dbopen.db(config.database.appslocal.database);
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(appSpecifications.name, null, true, false);
             log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
