@@ -1,5 +1,6 @@
 const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
+const log = require('./log');
 
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };
