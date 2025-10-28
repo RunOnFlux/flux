@@ -367,7 +367,6 @@ describe('networkStateService tests', () => {
 
     // Start and fetch once
     await networkStateService.start({ stateEmitter: blockEmitter });
-    const firstCallCount = fluxnodeRpcStub.callCount;
 
     // Stop should reset throttle state
     await networkStateService.stop();
