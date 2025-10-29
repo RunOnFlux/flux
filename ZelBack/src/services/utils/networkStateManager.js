@@ -424,19 +424,19 @@ class NetworkStateManager extends EventEmitter {
 
   #startEventEmitter() {
     const handler = async (blockHeight) => {
-      if (this.#fetchQueued) {
+      if (!this.canFetch) {
         log.info(
-          `Block ${blockHeight} received but a fetch ` +
-          'is already queued... skipping'
+          'Throttling networkUpdate - using cached nodelist ' +
+          `(${this.nodeCount} nodes). Next call allowed in ${this.remainingFetchSeconds}s`
         );
 
         return;
       }
 
-      if (!this.canFetch) {
+      if (this.#fetchQueued) {
         log.info(
-          'Throttling networkUpdate - using cached nodelist ' +
-          `(${this.nodeCount} nodes). Next call allowed in ${this.remainingFetchSeconds}s`
+          `Block ${blockHeight} received but a fetch ` +
+          'is already queued... skipping'
         );
 
         return;
