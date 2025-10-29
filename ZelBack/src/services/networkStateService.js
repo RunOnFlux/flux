@@ -39,16 +39,6 @@ async function start(options = {}) {
     const stateEmitter = options.stateEmitter || null;
 
     const fetcher = async (filter = null) => {
-      // Check if we should throttle the daemon call
-      const now = Date.now();
-      const timeSinceLastCall = now - lastDaemonCallTimestamp;
-
-      if (timeSinceLastCall < DAEMON_CALL_THROTTLE_MS && lastDaemonCallResult.length > 0) {
-        const remainingSeconds = Math.ceil((DAEMON_CALL_THROTTLE_MS - timeSinceLastCall) / 1000);
-        log.info(`Throttling daemon call - using cached nodelist (${lastDaemonCallResult.length} nodes). Next call allowed in ${remainingSeconds}s`);
-        return lastDaemonCallResult;
-      }
-
       // this is not how the function is supposed to be used, but it shouldn't take
       // an express req, res pair either. There should be an api function in front of it
       const rpcOptions = { params: { useCache: false, filter }, query: { filter: null } };

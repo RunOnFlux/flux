@@ -26,6 +26,8 @@ const log = require('../../lib/log');
  */
 
 class NetworkStateManager extends EventEmitter {
+  static #minFetchIntervalMs = 30_000;
+
   /**
    * @type {Array<Fluxnode>}
    */
@@ -37,11 +39,11 @@ class NetworkStateManager extends EventEmitter {
 
   #controller = new FluxController();
 
-  #indexStart = null;
-
   #started = false;
 
   #fetchQueued = false;
+
+  #lastFetchTime = BigInt(0);
 
   /**
    * @type {() => Promise | null}
@@ -136,6 +138,28 @@ class NetworkStateManager extends EventEmitter {
     this.#controller.addLock('fetcher');
   }
 
+  get lastFetchElapsedMs() {
+    const now = process.hrtime.bigint();
+
+    const elapsedMs = Number(now - this.#lastFetchTime) / 1_000_000;
+
+    return elapsedMs;
+  }
+
+  get canFetch() {
+    const canFetch =
+      this.lastFetchElapsedMs > NetworkStateManager.#minFetchIntervalMs;
+
+    return canFetch;
+  }
+
+  get remainingFetchSeconds() {
+    const remainingSec =
+      (NetworkStateManager.#minFetchIntervalMs - lastFetchElapsedMs) / 1_000;
+
+    return remainingSec;
+  }
+
   get updateTrigger() {
     return this.#updateTrigger;
   }
@@ -177,7 +201,10 @@ class NetworkStateManager extends EventEmitter {
    * the reference.
    */
   get #indexes() {
-    return { pubkey: this.#pubkeyIndex, socketAddress: this.#socketAddressIndex };
+    return {
+      pubkey: this.#pubkeyIndex,
+      socketAddress: this.#socketAddressIndex,
+    };
   }
 
   #setIndexes(pubkeyIndex, socketAddressIndex) {
@@ -200,8 +227,9 @@ class NetworkStateManager extends EventEmitter {
       const chunk = nodes.slice(startIndex, endIndex);
 
       chunk.forEach((node) => {
-        const nodesByPubkey = pubkeyIndex.get(node.pubkey)
-          || pubkeyIndex.set(node.pubkey, new Map()).get(node.pubkey);
+        const nodesByPubkey =
+          pubkeyIndex.get(node.pubkey) ||
+          pubkeyIndex.set(node.pubkey, new Map()).get(node.pubkey);
 
         nodesByPubkey.set(node.ip, node);
         socketAddressIndex.set(node.ip, node);
@@ -329,13 +357,10 @@ class NetworkStateManager extends EventEmitter {
       });
       fetchLock.disable();
 
-      const fetchElapsed = Number(
-        process.hrtime.bigint() - fetchStart,
-      ) / 1_000_000;
+      const fetchElapsed =
+        Number(process.hrtime.bigint() - fetchStart) / 1_000_000;
 
-      const rounded = Math.round(
-        (fetchElapsed + Number.EPSILON) * 100,
-      ) / 100;
+      const rounded = Math.round((fetchElapsed + Number.EPSILON) * 100) / 100;
 
       const elapsedMsg = `Network state fetch finished, elapsed: ${rounded} ms`;
       // We run first time without a blockheight, only on events do we get the height
@@ -349,27 +374,26 @@ class NetworkStateManager extends EventEmitter {
     if (state.length) {
       this.#state = state;
 
-      this.#indexStart = process.hrtime.bigint();
+      const indexStart = process.hrtime.bigint();
 
       await this.#buildIndexes(this.#state);
 
-      const indexElapsed = Number(
-        process.hrtime.bigint() - this.#indexStart,
-      ) / 1_000_000;
+      const indexElapsed =
+        Number(process.hrtime.bigint() - indexStart) / 1_000_000;
 
-      const rounded = Math.round(
-        (indexElapsed + Number.EPSILON) * 100,
-      ) / 100;
+      const rounded = Math.round((indexElapsed + Number.EPSILON) * 100) / 100;
 
       const pubkeySize = this.#pubkeyIndex.size;
       const socketAddressSize = this.#socketAddressIndex.size;
 
-      log.info('Network State Indexes created, nodes found: '
-        + `${state.length}, elapsed: ${rounded} ms`);
+      log.info(
+        'Network State Indexes created, nodes found: ' +
+        `${state.length}, elapsed: ${rounded} ms`
+      );
 
-      log.info(`pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`);
-
-      this.#indexStart = null;
+      log.info(
+        `pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`
+      );
 
       if (!populated) {
         this.emit('populated');
@@ -394,15 +418,27 @@ class NetworkStateManager extends EventEmitter {
   #startEventEmitter() {
     const handler = async (blockHeight) => {
       if (this.#fetchQueued) {
-        log.info(`Block ${blockHeight} received but a fetch `
-          + 'is already queued... skipping');
+        log.info(
+          `Block ${blockHeight} received but a fetch ` +
+          'is already queued... skipping'
+        );
+
+        return;
+      }
+
+      if (!this.canFetch) {
+        log.info(
+          'Throttling networkUpdate - using cached nodelist ' +
+          `(${this.nodeCount} nodes). Next call allowed in ${this.remainingFetchSeconds}s`
+        );
 
         return;
       }
 
       if (this.fetchRunning) {
-        log.info('Block received but fetching in progress... '
-          + 'queueing next fetch');
+        log.info(
+          'Block received but fetching in progress... ' + 'queueing next fetch'
+        );
 
         this.#fetchQueued = true;
         await this.waitFetchComplete;
@@ -421,9 +457,10 @@ class NetworkStateManager extends EventEmitter {
     await this.fetchNetworkState();
     await this.waitStarted;
 
-    const updater = this.#stateEmitter && this.stateEvent
-      ? this.#startEventEmitter
-      : this.#startPolling;
+    const updater =
+      this.#stateEmitter && this.stateEvent
+        ? this.#startEventEmitter
+        : this.#startPolling;
 
     updater.bind(this)();
   }
@@ -434,7 +471,7 @@ class NetworkStateManager extends EventEmitter {
     if (this.#stateEmitter) {
       this.#stateEmitter.removeListener(
         this.stateEvent,
-        this.#boundEventHandler,
+        this.#boundEventHandler
       );
       this.#boundEventHandler = null;
     }
@@ -450,9 +487,8 @@ class NetworkStateManager extends EventEmitter {
    * @returns {Promise<Map<string, Fluxnode>> | Fluxnode | null>} Clone of the state
    */
   async search(filter, type) {
-    const invalidInput = !filter
-    || typeof filter !== 'string'
-    || typeof type !== 'string';
+    const invalidInput =
+      !filter || typeof filter !== 'string' || typeof type !== 'string';
 
     if (invalidInput) return null;
 
