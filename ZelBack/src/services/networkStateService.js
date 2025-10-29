@@ -48,12 +48,6 @@ async function start(options = {}) {
 
       const nodes = res.status === 'success' ? res.data : [];
 
-      // Update throttle state only on successful calls
-      if (nodes.length > 0) {
-        lastDaemonCallTimestamp = now;
-        lastDaemonCallResult = nodes;
-      }
-
       return nodes;
     };
 
@@ -85,10 +79,6 @@ async function stop() {
 
   await stateManager.stop();
   stateManager = null;
-
-  // Reset throttle state
-  lastDaemonCallTimestamp = 0;
-  lastDaemonCallResult = [];
 }
 
 /**
