@@ -477,6 +477,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     if (!test) {
       const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
       log.info(removeStatus);
+      log.warn(`REMOVAL REASON: Installation failure - ${appSpecs.name} failed to install: ${error.message} (appInstaller)`);
       if (res) {
         res.write(serviceHelper.ensureString(removeStatus));
         if (res.flush) res.flush();

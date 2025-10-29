@@ -588,6 +588,11 @@ async function appUninstallSoft(appName, appId, appSpecifications, isComponent, 
  */
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   try {
+    // Log removal trigger with stack trace to identify caller
+    const stack = new Error().stack;
+    const callerLine = stack.split('\n')[2]?.trim();
+    log.warn(`APP REMOVAL TRIGGERED: ${app} | force=${force} | sendMessage=${sendMessage} | caller: ${callerLine}`);
+
     if (!force) {
       if (globalState.removalInProgress) {
         const warnResponse = messageHelper.createWarningMessage('Another application is undergoing removal. Removal not possible.');

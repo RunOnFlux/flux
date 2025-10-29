@@ -164,6 +164,7 @@ async function checkAndNotifyPeersOfRunningApps(
           log.error(err);
           if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress) {
             const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
+            log.warn(`REMOVAL REASON: App start failure - ${mainAppName} failed to start with error: ${err.message} (peerNotification)`);
             // already checked for mongo ok, daemon ok, docker ok.
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {

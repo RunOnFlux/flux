@@ -534,6 +534,7 @@ async function checkApplicationsCompliance(installedApps, removeAppLocally) {
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is blacklisted, removing`);
+      log.warn(`REMOVAL REASON: Blacklisted image - ${appName} uses a blacklisted Docker image (imageManager)`);
       // eslint-disable-next-line no-await-in-loop
       await removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop

@@ -730,6 +730,7 @@ async function ipChangesOverLimit() {
           apps = apps.data;
           // eslint-disable-next-line no-restricted-syntax
           for (const app of apps) {
+            log.warn(`REMOVAL REASON: Too many IP changes - ${app.name} being removed due to ${ipChangeData.count} IP changes in ${timeDifference}ms (DoS protection)`);
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(app.name, null, true, null, false).catch((error) => log.error(error)); // we will not send appremove messages because they will not be accepted by the other nodes
             // eslint-disable-next-line no-await-in-loop
@@ -823,6 +824,7 @@ async function adjustExternalIP(ip) {
           const findMyIP = runningAppList.find((instance) => instance.ip.split(':')[0] === ip);
           if (findMyIP) {
             log.info(`Aplication: ${app.name}, was found on the network already running under the same ip, uninstalling app`);
+            log.warn(`REMOVAL REASON: Duplicate IP detected - ${app.name} already running on network with IP ${ip} (after IP change)`);
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
             appsRemoved += 1;

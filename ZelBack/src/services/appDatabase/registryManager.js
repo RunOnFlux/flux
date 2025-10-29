@@ -1207,6 +1207,7 @@ async function expireGlobalApplications() {
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is expired, removing`);
+      log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (registryManager)`);
       // eslint-disable-next-line no-await-in-loop
       await appUninstaller.removeAppLocally(appName, null, false, true, true);
       // eslint-disable-next-line no-await-in-loop
