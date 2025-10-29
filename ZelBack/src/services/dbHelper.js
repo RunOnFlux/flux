@@ -191,9 +191,15 @@ async function countInDatabase(database, collection, query) {
  */
 async function insertOneToDatabase(database, collection, value) {
   const result = await database.collection(collection).insertOne(value).catch((error) => {
-    if (!(error.message && error.message.includes('duplicate key'))) {
-      throw error;
+    if (error.message && error.message.includes('duplicate key')) {
+      // Log duplicate key errors for debugging instead of silently swallowing them
+      const docIdentifier = value.name || value._id || JSON.stringify(value).slice(0, 100);
+      log.error(`Duplicate key error inserting into ${collection}: ${docIdentifier}`);
+      log.error(`Full error: ${error.message}`);
+      // Still swallow the error to maintain backward compatibility, but now we can see it in logs
+      return;
     }
+    throw error;
   });
   return result;
 }
