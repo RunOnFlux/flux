@@ -1,6 +1,5 @@
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
 const networkStateManager = require('./utils/networkStateManager');
-const log = require('../lib/log');
 
 /**
  * @typedef {import('./utils/networkStateManager').Fluxnode} Fluxnode

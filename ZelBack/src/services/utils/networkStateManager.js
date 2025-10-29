@@ -352,7 +352,7 @@ class NetworkStateManager extends EventEmitter {
       await fetchLock.enable();
       // eslint-disable-next-line no-await-in-loop
       state = await this.#stateFetcher().catch((err) => {
-        log.warning(`Network state fetcher error: ${err.message}`);
+        log.warn(`Network state fetcher error: ${err.message}`);
         return [];
       });
       fetchLock.disable();
