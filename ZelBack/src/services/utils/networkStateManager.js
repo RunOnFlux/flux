@@ -158,9 +158,9 @@ class NetworkStateManager extends EventEmitter {
       (NetworkStateManager.#minFetchIntervalMs - this.lastFetchElapsedMs) /
       1_000;
 
-    const rouneded = Math.round((remainingSec + Number.EPSILON) * 100) / 100;
+    const rounded = Math.round((remainingSec + Number.EPSILON) * 100) / 100;
 
-    return rouneded;
+    return rounded;
   }
 
   get updateTrigger() {
