@@ -353,7 +353,22 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         dbSpecs.contacts = [];
       }
 
-      await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+      // Ensure no stale database entry exists before inserting
+      // This prevents duplicate key errors and ensures fresh data
+      const cleanupQuery = { name: appSpecifications.name };
+      const existingEntry = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, cleanupQuery, {});
+      if (existingEntry) {
+        log.warn(`Found existing database entry for ${appSpecifications.name} during registration. Cleaning up stale entry.`);
+        await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, cleanupQuery, {});
+        log.info(`Stale database entry for ${appSpecifications.name} removed. Proceeding with fresh insert.`);
+      }
+
+      const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+      if (insertResult) {
+        log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
+      } else {
+        log.error(`Failed to create database entry for ${appSpecifications.name} - installation may be inconsistent`);
+      }
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;

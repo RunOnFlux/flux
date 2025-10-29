@@ -2404,25 +2404,27 @@ async function reinstallOldApplications() {
             log.warn('Updating from old application version, doing hard redeploy...');
             const appUninstaller = require('./appUninstaller');
             const appInstaller = require('./appInstaller');
-            const dbopen = dbHelper.databaseConnection();
-            const appsDatabase = dbopen.db(config.database.appslocal.database);
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(appSpecifications.name, null, true, false);
+            // connect to mongodb
+            const dbopen = dbHelper.databaseConnection();
+            const appsDatabase = dbopen.db(config.database.appslocal.database);
+            const appsQuery = { name: appSpecifications.name };
+            const appsProjection = {};
+            log.warn('Cleaning up database...');
+            // eslint-disable-next-line no-await-in-loop
+            await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+            const databaseStatus2 = {
+              status: 'Database cleaned',
+            };
+            log.warn('Database cleaned');
+            log.warn(databaseStatus2);
             log.warn(`Compositions of application ${appSpecifications.name} uninstalled. Continuing with installation...`);
             // composition removal done. Remove from installed apps and being installation
             // eslint-disable-next-line no-await-in-loop
             await appInstaller.checkAppRequirements(appSpecifications); // entire app
-            // eslint-disable-next-line no-restricted-syntax
-            for (const appComponent of appSpecifications.compose) {
-              log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
-              // eslint-disable-next-line no-await-in-loop
-              await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
-              // install the app
-              // eslint-disable-next-line no-await-in-loop
-              await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
-            }
-            // register the app
 
+            // Register the app in database BEFORE creating Docker containers to prevent race condition
             const isEnterprise = Boolean(
               appSpecifications.version >= 8 && appSpecifications.enterprise,
             );
@@ -2435,7 +2437,23 @@ async function reinstallOldApplications() {
             }
 
             // eslint-disable-next-line no-await-in-loop
-            await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+            const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+            if (insertResult) {
+              log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (version upgrade path)`);
+            } else {
+              log.error(`Failed to create database entry for ${appSpecifications.name} - reinstallation may be inconsistent`);
+            }
+
+            // Now install components - containers will be created but app is already in DB
+            // eslint-disable-next-line no-restricted-syntax
+            for (const appComponent of appSpecifications.compose) {
+              log.warn(`Continuing Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+              // install the app
+              // eslint-disable-next-line no-await-in-loop
+              await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
+            }
             log.warn(`Composed application ${appSpecifications.name} updated.`);
             log.warn(`Restarting application ${appSpecifications.name}`);
             // eslint-disable-next-line no-await-in-loop, no-use-before-define
@@ -2570,6 +2588,28 @@ async function reinstallOldApplications() {
               // composition removal done. Remove from installed apps and being installation
               // eslint-disable-next-line no-await-in-loop
               await appInstaller.checkAppRequirements(appSpecifications); // entire app
+
+              // Register the app in database BEFORE creating Docker containers to prevent race condition
+              const isEnterprise = Boolean(
+                appSpecifications.version >= 8 && appSpecifications.enterprise,
+              );
+
+              const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
+
+              if (isEnterprise) {
+                dbSpecs.compose = [];
+                dbSpecs.contacts = [];
+              }
+
+              // eslint-disable-next-line no-await-in-loop
+              const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
+              if (insertResult) {
+                log.info(`Database entry created for ${appSpecifications.name} BEFORE component Docker container creation (composed redeployment path)`);
+              } else {
+                log.error(`Failed to create database entry for ${appSpecifications.name} - redeployment may be inconsistent`);
+              }
+
+              // Now install components - containers will be created but app is already in DB
               // eslint-disable-next-line no-restricted-syntax
               for (const appComponent of appSpecifications.compose) {
                 if (appComponent.tiered) {
@@ -2601,21 +2641,6 @@ async function reinstallOldApplications() {
                   await appInstaller.registerAppLocally(appSpecifications, appComponent); // component
                 }
               }
-              // register the app
-
-              const isEnterprise = Boolean(
-                appSpecifications.version >= 8 && appSpecifications.enterprise,
-              );
-
-              const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
-
-              if (isEnterprise) {
-                dbSpecs.compose = [];
-                dbSpecs.contacts = [];
-              }
-
-              // eslint-disable-next-line no-await-in-loop
-              await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
               log.warn(`Composed application ${appSpecifications.name} updated.`);
               log.warn(`Restarting application ${appSpecifications.name}`);
               // eslint-disable-next-line no-await-in-loop, no-use-before-define
@@ -2637,17 +2662,18 @@ async function reinstallOldApplications() {
 
 /**
  * Force cleanup of applications that are not in the installed apps list
- * @param {Function} installedApps - Function to get installed apps
- * @param {Function} listAllApps - Function to get all Docker apps
- * @param {Function} getApplicationGlobalSpecifications - Function to get app specs
- * @param {Function} removeAppLocally - Function to remove app locally
  * @returns {Promise<void>}
  */
-async function forceAppRemovals(installedApps, listAllApps, getApplicationGlobalSpecifications, removeAppLocally) {
+async function forceAppRemovals() {
   try {
-    const dockerAppsReported = await listAllApps();
+    // Import services to match original business logic where everything was in the same file
+    const appQueryService = require('../appQuery/appQueryService');
+    const registryManager = require('../appDatabase/registryManager');
+    const appUninstaller = require('./appUninstaller');
+
+    const dockerAppsReported = await appQueryService.listAllApps();
     const dockerApps = dockerAppsReported.data;
-    const installedAppsRes = await installedApps();
+    const installedAppsRes = await appQueryService.installedApps();
     const appsInstalled = installedAppsRes.data;
     const dockerAppsNames = dockerApps.map((app) => {
       if (app.Names[0].startsWith('/zel')) {
@@ -2670,19 +2696,19 @@ async function forceAppRemovals(installedApps, listAllApps, getApplicationGlobal
       const appInstalledExists = appsInstalled.find((app) => app.name === dApp);
       if (!appInstalledExists) {
         // eslint-disable-next-line no-await-in-loop
-        const appDetails = await getApplicationGlobalSpecifications(dApp);
+        const appDetails = await registryManager.getApplicationGlobalSpecifications(dApp);
         if (appDetails) {
           // it is global app
           // do removal
           log.warn(`${dApp} does not exist in installed app. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app
+          await appUninstaller.removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         } else {
           log.warn(`${dApp} does not exist in installed apps and global application specifications are missing. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
+          await appUninstaller.removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         }
