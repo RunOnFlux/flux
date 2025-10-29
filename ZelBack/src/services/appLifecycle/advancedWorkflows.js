@@ -2666,6 +2666,7 @@ async function reinstallOldApplications() {
  */
 async function forceAppRemovals() {
   try {
+    log.info('Executing forceAppRemovals.');
     // Import services to match original business logic where everything was in the same file
     const appQueryService = require('../appQuery/appQueryService');
     const registryManager = require('../appDatabase/registryManager');
