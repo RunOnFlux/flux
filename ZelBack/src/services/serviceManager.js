@@ -408,13 +408,13 @@ async function startFluxFunctions() {
         appHashSyncService.continuousFluxAppHashesCheck();
       }, 30 * 60 * 1000);
       appHashSyncService.continuousFluxAppHashesCheck();
-    }, (2 * 60 * 1000)); // start between 15m and 30m after fluxOs start
+    }, (Math.floor(Math.random() * (30 - 15 + 1)) + 15) * 60 * 1000); // start between 15m and 30m after fluxOs start
     setTimeout(() => {
       // after 125 minutes of running ok and to make sure we are connected for enough time for receiving all apps running on other nodes
       // 125 minutes should give enough time for node receive currently two times the apprunning messages
       log.info('Starting to spawn applications');
       appSpawner.trySpawningGlobalApplication();
-    }, (5 * 60 * 1000)); //(Math.floor(Math.random() * (135 - 125 + 1)) + 125) * 60 * 1000); // start between 125 and 135m after fluxos starts;
+    }, (Math.floor(Math.random() * (135 - 125 + 1)) + 125) * 60 * 1000); // start between 125 and 135m after fluxos starts;
     setInterval(() => {
       imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, 60 * 60 * 1000); //  every hour
@@ -422,8 +422,8 @@ async function startFluxFunctions() {
       advancedWorkflows.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
         advancedWorkflows.forceAppRemovals();
-      }, 10 * 60 * 60 * 1000);
-    }, 10 * 60 * 1000);
+      }, 24 * 60 * 60 * 1000);
+    }, 30 * 60 * 1000);
     setTimeout(() => {
       appInspector.checkStorageSpaceForApps(
         appQueryService.installedApps,
