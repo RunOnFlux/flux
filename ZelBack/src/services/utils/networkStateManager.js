@@ -357,8 +357,12 @@ class NetworkStateManager extends EventEmitter {
       });
       fetchLock.disable();
 
+      const fetchEnd = process.hrtime.bigint();
+
+      this.#lastFetchTime = fetchEnd;
+
       const fetchElapsed =
-        Number(process.hrtime.bigint() - fetchStart) / 1_000_000;
+        Number(fetchEnd - fetchStart) / 1_000_000;
 
       const rounded = Math.round((fetchElapsed + Number.EPSILON) * 100) / 100;
 
