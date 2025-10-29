@@ -155,7 +155,8 @@ class NetworkStateManager extends EventEmitter {
 
   get remainingFetchSeconds() {
     const remainingSec =
-      (NetworkStateManager.#minFetchIntervalMs - lastFetchElapsedMs) / 1_000;
+      (NetworkStateManager.#minFetchIntervalMs - this.lastFetchElapsedMs) /
+      1_000;
 
     return remainingSec;
   }
