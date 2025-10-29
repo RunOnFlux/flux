@@ -116,6 +116,19 @@ describe('networkStateManager tests', () => {
 
     fetcher.resolves(defaultNetworkState);
 
+    // Stub process.hrtime.bigint() to simulate time progression beyond throttle
+    let hrtimeCallCount = 0;
+    const hrtimeStub = sinon.stub(process.hrtime, 'bigint');
+    hrtimeStub.callsFake(() => {
+      hrtimeCallCount += 1;
+      // First 3 calls are for initial fetch (start, end, index timing)
+      if (hrtimeCallCount <= 3) {
+        return BigInt(hrtimeCallCount * 100_000_000); // 0, 100ms, 200ms
+      }
+      // After initial fetch, simulate 31 seconds have passed for canFetch check
+      return BigInt(31_000_000_000 + (hrtimeCallCount - 4) * 100_000_000);
+    });
+
     const nsm = new NetworkStateManager(fetcher, options);
 
     sinon.assert.notCalled(fetcher);
@@ -346,6 +359,19 @@ describe('networkStateManager tests', () => {
       stateEmitter: blockEmitter,
     };
 
+    // Stub process.hrtime.bigint() to simulate time progression beyond throttle
+    let hrtimeCallCount = 0;
+    const hrtimeStub = sinon.stub(process.hrtime, 'bigint');
+    hrtimeStub.callsFake(() => {
+      hrtimeCallCount += 1;
+      // First 3 calls are for initial fetch (start, end, index timing)
+      if (hrtimeCallCount <= 3) {
+        return BigInt(hrtimeCallCount * 100_000_000); // 0, 100ms, 200ms
+      }
+      // After initial fetch, simulate 31 seconds have passed for canFetch check
+      return BigInt(31_000_000_000 + (hrtimeCallCount - 4) * 100_000_000);
+    });
+
     const nsm = new NetworkStateManager(fetcher, options);
     await nsm.start();
 
@@ -444,6 +470,19 @@ describe('networkStateManager tests', () => {
       stateEmitter: blockEmitter,
     };
 
+    // Stub process.hrtime.bigint() to simulate time progression beyond throttle
+    let hrtimeCallCount = 0;
+    const hrtimeStub = sinon.stub(process.hrtime, 'bigint');
+    hrtimeStub.callsFake(() => {
+      hrtimeCallCount += 1;
+      // First 3 calls are for initial fetch (start, end, index timing)
+      if (hrtimeCallCount <= 3) {
+        return BigInt(hrtimeCallCount * 100_000_000); // 0, 100ms, 200ms
+      }
+      // After initial fetch, simulate 31 seconds have passed for canFetch check
+      return BigInt(31_000_000_000 + (hrtimeCallCount - 4) * 100_000_000);
+    });
+
     const nsm = new NetworkStateManager(fetcher, options);
     await nsm.start();
 
@@ -504,6 +543,20 @@ describe('networkStateManager tests', () => {
 
     const clock = sinon.useFakeTimers({ toFake: ['setTimeout'] });
 
+    // Stub process.hrtime.bigint() to simulate time progression beyond throttle
+    // We need to coordinate with the fake timer to ensure throttling allows fetches
+    let hrtimeCallCount = 0;
+    let fetchPhase = 0; // Track which fetch we're in (0=start, 1=first block, 2=queued, etc)
+    const hrtimeStub = sinon.stub(process.hrtime, 'bigint');
+    hrtimeStub.callsFake(() => {
+      hrtimeCallCount += 1;
+      // Each fetch phase gets 31+ seconds to ensure throttle allows it
+      // Within a phase, time advances by small amounts for timing calculations
+      const phaseBaseTime = BigInt(fetchPhase * 31_000_000_000);
+      const withinPhaseTime = BigInt(hrtimeCallCount * 100_000_000);
+      return phaseBaseTime + withinPhaseTime;
+    });
+
     const emitBlock = () => {
       blockCount += 1;
       blockEmitter.emit('blockReceived', blockCount);
@@ -519,6 +572,9 @@ describe('networkStateManager tests', () => {
     await clock.tickAsync(fetchtime);
     await startPromise;
 
+    // Advance to next fetch phase before emitting blocks
+    fetchPhase = 1;
+
     emitBlock();
     emitBlock();
     emitBlock();
@@ -529,6 +585,9 @@ describe('networkStateManager tests', () => {
     expect(nsm.fetchQueued).to.be.true;
     // one call was from the initial startup
     expect(callCounter).to.be.equal(2);
+
+    // Advance to next fetch phase before the queued fetch runs
+    fetchPhase = 2;
 
     await clock.tickAsync(fetchtime);
     expect(callCounter).to.be.equal(3);
@@ -541,6 +600,9 @@ describe('networkStateManager tests', () => {
     expect(nsm.indexesReady).to.be.true;
 
     // do one more block, to make sure it will still process blocks
+    // Advance to next fetch phase before emitting the block
+    fetchPhase = 3;
+
     emitBlock();
     await clock.tickAsync(fetchtime);
     expect(callCounter).to.be.equal(4);
