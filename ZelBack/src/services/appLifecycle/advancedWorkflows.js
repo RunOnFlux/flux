@@ -20,6 +20,7 @@ const {
   globalAppsInformation,
   globalAppsInstallingErrorsLocations,
   globalAppsMessages,
+  globalAppsLocations,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -2672,6 +2673,13 @@ async function forceAppRemovals() {
     const registryManager = require('../appDatabase/registryManager');
     const appUninstaller = require('./appUninstaller');
 
+    // Get current node's IP for checking app locations
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!myIP) {
+      log.warn('Unable to get node IP, skipping forceAppRemovals');
+      return;
+    }
+
     const dockerAppsReported = await appQueryService.listAllApps();
     const dockerApps = dockerAppsReported.data;
     const installedAppsRes = await appQueryService.installedApps();
@@ -2691,11 +2699,34 @@ async function forceAppRemovals() {
     // array of unique main app names
     let dockerAppsTrueNameB = [...new Set(dockerAppsTrueNames)];
     dockerAppsTrueNameB = dockerAppsTrueNameB.filter((appName) => appName !== 'watchtower');
+
+    // Connect to database for checking app locations
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.appsglobal.database);
+
     // eslint-disable-next-line no-restricted-syntax
     for (const dApp of dockerAppsTrueNameB) {
       // check if app is in installedApps
       const appInstalledExists = appsInstalled.find((app) => app.name === dApp);
       if (!appInstalledExists) {
+        // Check if this app is registered in locations for this node's IP
+        let shouldBroadcast = false;
+        try {
+          const locationQuery = { name: dApp, ip: myIP };
+          const locationProjection = { projection: { _id: 0 } };
+          // eslint-disable-next-line no-await-in-loop
+          const appLocation = await dbHelper.findOneInDatabase(database, globalAppsLocations, locationQuery, locationProjection);
+          if (appLocation) {
+            shouldBroadcast = true;
+            log.info(`${dApp} found in locations for this IP (${myIP}), will broadcast removal`);
+          } else {
+            log.info(`${dApp} not found in locations for this IP (${myIP}), skipping broadcast`);
+          }
+        } catch (locationError) {
+          log.error(`Error checking app location for ${dApp}: ${locationError.message}`);
+          // Default to not broadcasting on error to avoid false positives
+        }
+
         // eslint-disable-next-line no-await-in-loop
         const appDetails = await registryManager.getApplicationGlobalSpecifications(dApp);
         if (appDetails) {
@@ -2703,13 +2734,13 @@ async function forceAppRemovals() {
           // do removal
           log.warn(`${dApp} does not exist in installed app. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await appUninstaller.removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app
+          await appUninstaller.removeAppLocally(dApp, null, true, true, shouldBroadcast).catch((error) => log.error(error)); // remove entire app, only broadcast if in locations
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         } else {
           log.warn(`${dApp} does not exist in installed apps and global application specifications are missing. Forcing removal.`);
           // eslint-disable-next-line no-await-in-loop
-          await appUninstaller.removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
+          await appUninstaller.removeAppLocally(dApp, null, true, true, shouldBroadcast).catch((error) => log.error(error)); // remove entire app, only broadcast if in locations
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         }
