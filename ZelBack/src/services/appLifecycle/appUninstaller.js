@@ -688,6 +688,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       isComponent = false;
     } else if (isComponent) {
       const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
+      appId = dockerService.getAppIdentifier(`${componentSpecifications.name}_${appSpecifications.name}`);
       await appUninstallHard(appName, appId, componentSpecifications, isComponent, res, stopAppMonitoring, force);
     } else {
       await appUninstallHard(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring, force);
@@ -888,6 +889,7 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
       isComponent = false;
     } else if (isComponent) {
       const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
+      appId = dockerService.getAppIdentifier(`${componentSpecifications.name}_${appSpecifications.name}`);
       await appUninstallSoft(appName, appId, componentSpecifications, isComponent, res, stopAppMonitoring);
     } else {
       await appUninstallSoft(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring);
