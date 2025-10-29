@@ -29,7 +29,6 @@ const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
 const globalState = require('./utils/globalState');
 const appQueryService = require('./appQuery/appQueryService');
-const registryManager = require('./appDatabase/registryManager');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const fluxService = require('./fluxService');
@@ -420,19 +419,9 @@ async function startFluxFunctions() {
       imageManager.checkApplicationsCompliance(appQueryService.installedApps, appUninstaller.removeAppLocally);
     }, 60 * 60 * 1000); //  every hour
     setTimeout(() => {
-      advancedWorkflows.forceAppRemovals(
-        appQueryService.installedApps,
-        appQueryService.listAllApps,
-        registryManager.getApplicationGlobalSpecifications,
-        appUninstaller.removeAppLocally,
-      ); // force cleanup of apps every day
+      advancedWorkflows.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
-        advancedWorkflows.forceAppRemovals(
-          appQueryService.installedApps,
-          appQueryService.listAllApps,
-          registryManager.getApplicationGlobalSpecifications,
-          appUninstaller.removeAppLocally,
-        );
+        advancedWorkflows.forceAppRemovals();
       }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
     setTimeout(() => {
