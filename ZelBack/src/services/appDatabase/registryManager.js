@@ -486,7 +486,7 @@ async function getApplicationSpecificationAPI(req, res) {
     const mainAppName = appname.split('_')[1] || appname;
 
     if (!specifications) {
-      throw new Error('Application not found');
+      throw new Error(`Application: ${appname} not found`);
     }
 
     const isEnterprise = Boolean(
