@@ -1241,7 +1241,6 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       // check repository whitelisted and repotag is available for download
       await imageManager.verifyRepository(appSpecifications.repotag);
     } else {
-
       // we have to skip this on v7 as we don't have the key
       const skipVerification = appSpecifications.version === 7;
       const usePgpDecrypt = appSpecifications.version === 7;
