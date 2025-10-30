@@ -311,10 +311,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         }
         dockerNetworkAddrValue = Math.floor(Math.random() * 256);
       }
-      log.info(`Flux App Network: ${util.inspect(fluxNet, { depth: null })}`);
       if (!fluxNet) {
         throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
       }
+      log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
       const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       const accessRemovedRes = {
