@@ -309,10 +309,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         }
         dockerNetworkAddrValue = Math.floor(Math.random() * 256);
       }
+      log.info(`Flux App Network: ${util.inspect(fluxNet, { depth: null })}`);
       if (!fluxNet) {
         throw new Error(`Flux App network of ${appName} failed to initiate. Not possible to create docker application network.`);
       }
-      log.info(serviceHelper.ensureString(fluxNet));
       const fluxNetworkInterfaces = await dockerService.getFluxDockerNetworkPhysicalInterfaceNames();
       const accessRemoved = await fluxNetworkHelper.removeDockerContainerAccessToNonRoutable(fluxNetworkInterfaces);
       const accessRemovedRes = {
@@ -430,6 +430,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       }
       throw error;
     }
+
+    log.info(`Flux App: ${appName} is test install: ${test}`);
+
     if (!test) {
       const broadcastedAt = Date.now();
       const newAppRunningMessage = {
@@ -477,7 +480,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     if (!test) {
       const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
       log.info(removeStatus);
-      log.warn(`REMOVAL REASON: Installation failure - ${appSpecs.name} failed to install: ${error.message} (appInstaller)`);
       if (res) {
         res.write(serviceHelper.ensureString(removeStatus));
         if (res.flush) res.flush();
@@ -519,14 +521,21 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   let authToken = null;
 
   if (appSpecifications.repoauth) {
-    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+    let authToken;
 
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
+    if (appSpecifications === 7) {
+      authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
 
-    if (!authToken.includes(':')) {
-      throw new Error('Provided credentials not in the correct username:token format');
+      if (!authToken) {
+        throw new Error('Unable to decrypt provided credentials');
+      }
+
+      if (!authToken.includes(':')) {
+        throw new Error('Provided credentials not in the correct username:token format');
+      }
+    } else {
+      // v8+ we use the decrypted repoauth
+      authToken = appSpecifications.repoauth
     }
 
     imgVerifier.addCredentials(authToken);
