@@ -197,7 +197,7 @@ async function insertOneToDatabase(database, collection, value) {
       log.error(`Duplicate key error inserting into ${collection}: ${docIdentifier}`);
       log.error(`Full error: ${error.message}`);
       // Still swallow the error to maintain backward compatibility, but now we can see it in logs
-      return null;
+      return undefined;
     }
     throw error;
   });
