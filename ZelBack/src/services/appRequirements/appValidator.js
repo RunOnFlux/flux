@@ -1241,18 +1241,21 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       // check repository whitelisted and repotag is available for download
       await imageManager.verifyRepository(appSpecifications.repotag);
     } else {
+
+      // we have to skip this on v7 as we don't have the key
+      const skipVerification = appSpecifications.version === 7;
+      const usePgpDecrypt = appSpecifications.version === 7;
+
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
         // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
 
-        // we have to skip this on v7 as we don't have the key
-        const skipVerification = appSpecifications.version === 7;
-
         // eslint-disable-next-line no-await-in-loop
         await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
           skipVerification,
+          usePgpDecrypt,
         });
       }
     }

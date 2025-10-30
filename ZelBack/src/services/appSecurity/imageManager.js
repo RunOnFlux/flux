@@ -2,6 +2,7 @@ const config = require('config');
 const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
+const pgpService = require('../pgpService');
 const imageVerifier = require('../utils/imageVerifier');
 const dbHelper = require('../dbHelper');
 const verificationHelper = require('../verificationHelper');
@@ -83,6 +84,7 @@ function classifyVerificationError(error, errorMeta) {
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
   const skipVerification = options.skipVerification || false;
+  const usePgpDecrypt = options.usePgpDecrypt || false;
   const architecture = options.architecture || null;
 
   // Check cache first to avoid redundant Docker Hub API calls
@@ -108,20 +110,39 @@ async function verifyRepository(repotag, options = {}) {
     architectureSet: supportedArchitectures,
   });
 
-  // this is specifically for v7 where we don't have the pgp key
-  if (repoauth && skipVerification) {
-    // fail open
-
-    fluxCaching.dockerHubVerificationCache.set(cacheKey, {
-      result: true,
-      error: null,
-    });
-
-    return true;
-  }
-
   if (repoauth) {
-    imgVerifier.addCredentials(repoauth);
+    if (skipVerification) {
+      // fail open. This is done for v7 apps during verify when the node
+      // doesn't have the pgp key
+
+      fluxCaching.dockerHubVerificationCache.set(cacheKey, {
+        result: true,
+        error: null,
+      });
+
+      return true;
+    }
+
+    let authToken;
+
+    if (usePgpDecrypt) {
+      // v7 only, use pgp
+
+      authToken = await pgpService.decryptMessage(repoauth);
+
+      if (!authToken) {
+        throw new Error('Unable to decrypt provided credentials');
+      }
+
+      if (!authToken.includes(':')) {
+        throw new Error('Provided credentials not in the correct username:token format');
+      }
+    } else {
+      // v8+ specs repoauth is part of encrypted specs
+      authToken = repoauth;
+    }
+
+    imgVerifier.addCredentials(authToken);
   }
 
   try {
