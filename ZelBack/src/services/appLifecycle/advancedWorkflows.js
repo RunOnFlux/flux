@@ -20,6 +20,7 @@ const {
   globalAppsInformation,
   globalAppsInstallingErrorsLocations,
   globalAppsMessages,
+  globalAppsLocations,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -775,6 +776,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
     }
     const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
     log.info(removeStatus);
+    log.warn(`REMOVAL REASON: Soft registration failure - ${appSpecs.name} failed during soft registration: ${error.message} (softRegisterAppLocally)`);
     if (res) {
       res.write(serviceHelper.ensureString(removeStatus));
       if (res.flush) res.flush();
@@ -1090,6 +1092,7 @@ async function softRedeploy(appSpecs, res) {
   } catch (error) {
     log.info('Error on softRedeploy');
     log.error(error);
+    log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
     globalState.softRedeployInProgress = false;
     const appUninstaller = require('./appUninstaller');
     appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
@@ -1141,6 +1144,7 @@ async function hardRedeploy(appSpecs, res) {
       return;
     }
     globalState.hardRedeployInProgress = true;
+    log.warn(`REMOVAL REASON: Hard redeploy initiated - ${appSpecs.name} being removed as part of hard redeploy process (hardRedeploy)`);
     await appUninstaller.removeAppLocally(appSpecs.name, res, false, false);
     const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
     log.info(appRedeployResponse);
@@ -1158,6 +1162,7 @@ async function hardRedeploy(appSpecs, res) {
     globalState.hardRedeployInProgress = false;
   } catch (error) {
     log.error(error);
+    log.warn(`REMOVAL REASON: Hard redeploy failure - ${appSpecs.name} failed during hard redeploy: ${error.message} (hardRedeploy)`);
     globalState.hardRedeployInProgress = false;
     appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
   }
@@ -2293,6 +2298,7 @@ async function checkAndRemoveApplicationInstance() {
             const index = runningAppList.findIndex((x) => x.ip === myIP);
             if (index === 0) {
               log.info(`Application ${installedApp.name} going to be removed from node as it was the latest one running it to install it..`);
+              log.warn(`REMOVAL REASON: Too many instances - ${installedApp.name} running on ${runningAppList.length} instances (max: ${minInstances}) - This node is the newest instance`);
               log.warn(`Removing application ${installedApp.name} locally`);
               // eslint-disable-next-line no-await-in-loop
               await appUninstaller.removeAppLocally(installedApp.name, null, false, true, true);
@@ -2402,6 +2408,7 @@ async function reinstallOldApplications() {
               continue;
             }
             log.warn('Updating from old application version, doing hard redeploy...');
+            log.warn(`REMOVAL REASON: App version upgrade - ${appSpecifications.name} upgrading from v${installedApp.version} to v${appSpecifications.version}`);
             const appUninstaller = require('./appUninstaller');
             const appInstaller = require('./appInstaller');
             // eslint-disable-next-line no-await-in-loop
@@ -2502,6 +2509,7 @@ async function reinstallOldApplications() {
               await appInstaller.installApplicationSoft(appSpecifications, appSpecifications.name, false, null, appSpecifications);
             } else {
               log.warn(`Beginning Hard Redeployment of ${appSpecifications.name}...`);
+              log.warn(`REMOVAL REASON: Hard redeployment - ${appSpecifications.name} HDD changed from ${installedApp.hdd} to ${appSpecifications.hdd}`);
               // hard redeployment
               // eslint-disable-next-line no-await-in-loop
               await appUninstaller.appUninstallHard(appSpecifications.name, null, appSpecifications, false, null, true);
@@ -2563,6 +2571,7 @@ async function reinstallOldApplications() {
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
                 } else {
                   log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
+                  log.warn(`REMOVAL REASON: Hard redeployment (component) - ${appComponent.name}_${appSpecifications.name} HDD changed from ${installedComponent.hdd} to ${appComponent.hdd}`);
                   // hard redeployment
                   // eslint-disable-next-line no-await-in-loop
                   await appUninstaller.appUninstallHard(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, true, null, true); // component
@@ -2647,6 +2656,7 @@ async function reinstallOldApplications() {
               await appDockerRestart(appSpecifications.name);
             } catch (error) {
               log.error(error);
+              log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
               appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
             }
           }
@@ -2672,6 +2682,13 @@ async function forceAppRemovals() {
     const registryManager = require('../appDatabase/registryManager');
     const appUninstaller = require('./appUninstaller');
 
+    // Get current node's IP for checking app locations
+    const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!myIP) {
+      log.warn('Unable to get node IP, skipping forceAppRemovals');
+      return;
+    }
+
     const dockerAppsReported = await appQueryService.listAllApps();
     const dockerApps = dockerAppsReported.data;
     const installedAppsRes = await appQueryService.installedApps();
@@ -2691,25 +2708,50 @@ async function forceAppRemovals() {
     // array of unique main app names
     let dockerAppsTrueNameB = [...new Set(dockerAppsTrueNames)];
     dockerAppsTrueNameB = dockerAppsTrueNameB.filter((appName) => appName !== 'watchtower');
+
+    // Connect to database for checking app locations
+    const dbopen = dbHelper.databaseConnection();
+    const database = dbopen.db(config.database.appsglobal.database);
+
     // eslint-disable-next-line no-restricted-syntax
     for (const dApp of dockerAppsTrueNameB) {
       // check if app is in installedApps
       const appInstalledExists = appsInstalled.find((app) => app.name === dApp);
       if (!appInstalledExists) {
+        // Check if this app is registered in locations for this node's IP
+        let shouldBroadcast = false;
+        try {
+          const locationQuery = { name: dApp, ip: myIP };
+          const locationProjection = { projection: { _id: 0 } };
+          // eslint-disable-next-line no-await-in-loop
+          const appLocation = await dbHelper.findOneInDatabase(database, globalAppsLocations, locationQuery, locationProjection);
+          if (appLocation) {
+            shouldBroadcast = true;
+            log.info(`${dApp} found in locations for this IP (${myIP}), will broadcast removal`);
+          } else {
+            log.info(`${dApp} not found in locations for this IP (${myIP}), skipping broadcast`);
+          }
+        } catch (locationError) {
+          log.error(`Error checking app location for ${dApp}: ${locationError.message}`);
+          // Default to not broadcasting on error to avoid false positives
+        }
+
         // eslint-disable-next-line no-await-in-loop
         const appDetails = await registryManager.getApplicationGlobalSpecifications(dApp);
         if (appDetails) {
           // it is global app
           // do removal
           log.warn(`${dApp} does not exist in installed app. Forcing removal.`);
+          log.warn(`REMOVAL REASON: Orphan app cleanup - ${dApp} running in Docker but not in installed apps database (forceAppRemovals)`);
           // eslint-disable-next-line no-await-in-loop
-          await appUninstaller.removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app
+          await appUninstaller.removeAppLocally(dApp, null, true, true, shouldBroadcast).catch((error) => log.error(error)); // remove entire app, only broadcast if in locations
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         } else {
           log.warn(`${dApp} does not exist in installed apps and global application specifications are missing. Forcing removal.`);
+          log.warn(`REMOVAL REASON: Orphan app cleanup - ${dApp} running in Docker but missing from both installed apps DB and global specs (forceAppRemovals)`);
           // eslint-disable-next-line no-await-in-loop
-          await appUninstaller.removeAppLocally(dApp, null, true, true, true).catch((error) => log.error(error)); // remove entire app, as of missing specs will be done based on latest app specs message
+          await appUninstaller.removeAppLocally(dApp, null, true, true, shouldBroadcast).catch((error) => log.error(error)); // remove entire app, only broadcast if in locations
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.delay(3 * 60 * 1000); // 3 mins
         }
