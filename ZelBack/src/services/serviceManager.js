@@ -423,7 +423,7 @@ async function startFluxFunctions() {
       advancedWorkflows.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
         advancedWorkflows.forceAppRemovals();
-      }, 30 * 60 * 60 * 1000);
+      }, 24 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
     setTimeout(() => {
       appInspector.checkStorageSpaceForApps(
