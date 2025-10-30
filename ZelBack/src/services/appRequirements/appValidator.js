@@ -1243,7 +1243,6 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     } else {
       // we have to skip this on v7 as we don't have the key
       const skipVerification = appSpecifications.version === 7;
-      const usePgpDecrypt = appSpecifications.version === 7;
 
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
@@ -1254,7 +1253,6 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
           skipVerification,
-          usePgpDecrypt,
         });
       }
     }
