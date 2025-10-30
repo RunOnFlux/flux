@@ -1101,6 +1101,21 @@ async function appDockerRemove(idOrName) {
 }
 
 /**
+ * Force removes app's docker container (even if running).
+ *
+ * @param {string} idOrName
+ * @param {boolean} removeVolumes - Also remove anonymous volumes
+ * @returns {string} message
+ */
+async function appDockerForceRemove(idOrName, removeVolumes = true) {
+  // container ID or name
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+  await dockerContainer.remove({ force: true, v: removeVolumes });
+  return `Flux App ${idOrName} successfully force removed.`;
+}
+
+/**
  * Removes app's docker image.
  *
  * @param {string} idOrName
@@ -1281,6 +1296,54 @@ async function removeFluxAppDockerNetwork(appname) {
 }
 
 /**
+ * Force removes flux application docker network by disconnecting all endpoints first
+ *
+ * @param {string} appname - Application name
+ * @returns {object} response
+ */
+async function forceRemoveFluxAppDockerNetwork(appname) {
+  const log = require('../lib/log');
+  const fluxAppNetworkName = `fluxDockerNetwork_${appname}`;
+  const network = docker.getNetwork(fluxAppNetworkName);
+
+  // Check if network exists
+  let networkInfo;
+  try {
+    networkInfo = await dockerNetworkInspect(network);
+  } catch (error) {
+    return `Flux App Network of ${appname} already does not exist.`;
+  }
+
+  // Disconnect all containers from the network
+  if (networkInfo.Containers) {
+    const containerIds = Object.keys(networkInfo.Containers);
+    if (containerIds.length > 0) {
+      log.info(`Force disconnecting ${containerIds.length} container(s) from network ${fluxAppNetworkName}`);
+
+      // Disconnect each container
+      for (const containerId of containerIds) {
+        try {
+          await network.disconnect({ Container: containerId, Force: true });
+          log.info(`Disconnected container ${containerId} from network ${fluxAppNetworkName}`);
+        } catch (error) {
+          log.warn(`Failed to disconnect container ${containerId}: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  // Now try to remove the network
+  try {
+    const response = await dockerRemoveNetwork(network);
+    log.info(`Successfully removed network ${fluxAppNetworkName}`);
+    return response;
+  } catch (error) {
+    log.error(`Failed to remove network ${fluxAppNetworkName} after disconnecting endpoints: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
  * Remove all unused containers. Unused contaienrs are those wich are not running
  */
 async function pruneContainers() {
@@ -1406,6 +1469,7 @@ module.exports = {
   appDockerKill,
   appDockerPause,
   appDockerRemove,
+  appDockerForceRemove,
   appDockerRestart,
   appDockerStart,
   appDockerStop,
@@ -1444,5 +1508,6 @@ module.exports = {
   pruneNetworks,
   pruneVolumes,
   removeFluxAppDockerNetwork,
+  forceRemoveFluxAppDockerNetwork,
   getAppNameByContainerIp,
 };

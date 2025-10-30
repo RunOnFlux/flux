@@ -586,6 +586,7 @@ async function trySpawningGlobalApplication() {
       log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned on ${runningAppList.length} instances, my instance is number ${index + 1}`);
       if (index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is going to be removed as already passed the instances required.`);
+        log.warn(`REMOVAL REASON: Exceeded required instances - ${appSpecifications.name} already has sufficient instances, removing local installation (appSpawner)`);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         // Call appUninstaller.removeAppLocally directly (initialized via initialize())
         // This needs getGlobalState and stopAppMonitoring callbacks which we don't have here

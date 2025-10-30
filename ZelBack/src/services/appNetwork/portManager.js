@@ -284,6 +284,7 @@ async function restoreAppsPortsSupport() {
           // eslint-disable-next-line no-await-in-loop
           const upnpOk = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${application.name}`);
           if (!upnpOk) {
+            log.warn(`REMOVAL REASON: UPNP port mapping failure - ${application.name} failed to map port ${port} via UPNP (portManager)`);
             // Import locally to avoid circular dependency
             const appUninstaller = require('../appLifecycle/appUninstaller');
             // eslint-disable-next-line no-await-in-loop

@@ -171,6 +171,7 @@ async function startFluxFunctions() {
       // eslint-disable-next-line no-restricted-syntax
       for (const appName of appsToRemove) {
         log.warn(`Application ${appName} is expired, removing`);
+        log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (serviceManager)`);
         // eslint-disable-next-line no-await-in-loop
         await appUninstaller.removeAppLocally(appName, null, false, true, true);
         // eslint-disable-next-line no-await-in-loop
@@ -422,7 +423,7 @@ async function startFluxFunctions() {
       advancedWorkflows.forceAppRemovals(); // force cleanup of apps every day
       setInterval(() => {
         advancedWorkflows.forceAppRemovals();
-      }, 24 * 60 * 60 * 1000);
+      }, 30 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
     setTimeout(() => {
       appInspector.checkStorageSpaceForApps(

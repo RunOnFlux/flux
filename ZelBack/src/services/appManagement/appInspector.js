@@ -817,6 +817,7 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
           if (operatorStatus && operatorStatus.data) {
             if (operatorStatus.data.status === 'UNINSTALL') {
               log.info(`monitorSharedDBApps: ${installedApp.name} operatorStatus is UNINSTALL, going to uninstall the app`);
+              log.warn(`REMOVAL REASON: Operator uninstall request - ${installedApp.name} operator status set to UNINSTALL (sharedDB monitoring)`);
               // eslint-disable-next-line no-await-in-loop
               await removeAppLocally(installedApp.name, null, true, false, true);
             } else {
@@ -876,6 +877,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
           const occurancies = appsStorageViolations.filter((appName) => (appName) === app.name).length;
           if (occurancies > 3) { // if more than 3 violations, then remove the app
             log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Removing...`);
+            log.warn(`REMOVAL REASON: Storage violation - ${app.name} using ${totalSize} bytes (max: ${maxAllowedSize}) - ${occurancies} violations (storage monitoring)`);
             // eslint-disable-next-line no-await-in-loop
             await removeAppLocally(app.name).catch((error) => {
               log.error(error);
@@ -903,6 +905,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
             const occurancies = appsStorageViolations.filter((appName) => (appName) === app.name).length;
             if (occurancies > 3) { // if more than 3 violations, then remove the app
               log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Removing...`);
+              log.warn(`REMOVAL REASON: Container storage violation - ${app.name} container using ${contExists.SizeRootFs} bytes (max: ${allowedMaximum}) - ${occurancies} violations (storage monitoring)`);
               // eslint-disable-next-line no-await-in-loop
               await removeAppLocally(app.name).catch((error) => {
                 log.error(error);

@@ -122,6 +122,7 @@ async function handleFirstRun(params) {
     appDockerStopFn,
     appDeleteDataInMountPointFn,
     syncthingFolder,
+    receiveOnlySyncthingAppsCache,
   } = params;
 
   if (!syncFolder) {
@@ -129,6 +130,9 @@ async function handleFirstRun(params) {
     log.info(`handleFirstRun - First run, no sync folder - stopping and cleaning ${appId}`);
     syncthingFolder.type = 'receiveonly';
     const cache = { numberOfExecutions: 1 };
+
+    // Set cache BEFORE stopping/deleting to prevent race condition
+    receiveOnlySyncthingAppsCache.set(appId, cache);
 
     await appDockerStopFn(appId);
     await serviceHelper.delay(OPERATION_DELAY_MS);
@@ -179,11 +183,15 @@ async function handleSkippedAppSecondEncounter(params) {
     appDockerStopFn,
     appDeleteDataInMountPointFn,
     syncthingFolder,
+    receiveOnlySyncthingAppsCache,
   } = params;
 
   log.info(`handleSkippedAppSecondEncounter - ${appId} was skipped on first encounter, now processing as new app`);
   syncthingFolder.type = 'receiveonly';
   const cache = { numberOfExecutions: 1 };
+
+  // Set cache BEFORE stopping/deleting to prevent race condition
+  receiveOnlySyncthingAppsCache.set(appId, cache);
 
   await appDockerStopFn(appId);
   await serviceHelper.delay(OPERATION_DELAY_MS);
@@ -285,15 +293,20 @@ async function handleReceiveOnlyTransition(params) {
 async function handleNewApp(params) {
   const {
     appId,
-    syncthingAppsFirstRun,
     appDockerStopFn,
     appDeleteDataInMountPointFn,
     syncthingFolder,
+    receiveOnlySyncthingAppsCache,
   } = params;
 
   log.info(`handleNewApp - ${appId} NOT in cache. stopping and cleaning ${appId}`);
   syncthingFolder.type = 'receiveonly';
   const cache = { numberOfExecutions: 1 };
+
+  // Set cache BEFORE stopping/deleting to prevent race condition
+  // This matches the old code behavior and ensures subsequent monitoring
+  // cycles don't re-process this app as "new"
+  receiveOnlySyncthingAppsCache.set(appId, cache);
 
   await appDockerStopFn(appId);
   await serviceHelper.delay(OPERATION_DELAY_MS);
@@ -362,6 +375,7 @@ async function manageFolderSyncState(params) {
       appDockerStopFn,
       appDeleteDataInMountPointFn,
       syncthingFolder,
+      receiveOnlySyncthingAppsCache,
     });
     return result;
   }
@@ -375,6 +389,7 @@ async function manageFolderSyncState(params) {
       appDockerStopFn,
       appDeleteDataInMountPointFn,
       syncthingFolder,
+      receiveOnlySyncthingAppsCache,
     });
     return result;
   }
@@ -402,10 +417,10 @@ async function manageFolderSyncState(params) {
       log.info(`manageFolderSyncState - ${appId} NOT in cache but syncFolder doesn't exist, treating as new app installation`);
       const result = await handleNewApp({
         appId,
-        syncthingAppsFirstRun,
         appDockerStopFn,
         appDeleteDataInMountPointFn,
         syncthingFolder,
+        receiveOnlySyncthingAppsCache,
       });
       return result;
     }
@@ -421,10 +436,10 @@ async function manageFolderSyncState(params) {
     // First run and not in cache - clean install
     const result = await handleNewApp({
       appId,
-      syncthingAppsFirstRun,
       appDockerStopFn,
       appDeleteDataInMountPointFn,
       syncthingFolder,
+      receiveOnlySyncthingAppsCache,
     });
     return result;
   }

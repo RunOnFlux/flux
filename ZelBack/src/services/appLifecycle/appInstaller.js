@@ -20,6 +20,8 @@ const imageVerifier = require('../utils/imageVerifier');
 const pgpService = require('../pgpService');
 const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
 const log = require('../../lib/log');
 const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
@@ -29,7 +31,6 @@ const config = require('config');
 
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
-
 
 // Helper functions and constants for installApplicationHard
 const util = require('util');
@@ -430,6 +431,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       }
       throw error;
     }
+
+    log.info(`Flux App: ${appName} is test install: ${test}`);
+
     if (!test) {
       const broadcastedAt = Date.now();
       const newAppRunningMessage = {
@@ -515,17 +519,22 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   const pullConfig = { repoTag: appSpecifications.repotag };
 
-  let authToken = null;
-
   if (appSpecifications.repoauth) {
-    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
+    let authToken = null;
 
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
+    if (appSpecifications.version === 7) {
+      authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
 
-    if (!authToken.includes(':')) {
-      throw new Error('Provided credentials not in the correct username:token format');
+      if (!authToken) {
+        throw new Error('Unable to decrypt provided credentials');
+      }
+
+      if (!authToken.includes(':')) {
+        throw new Error('Provided credentials not in the correct username:token format');
+      }
+    } else {
+      // v8+ we use the decrypted repoauth
+      authToken = appSpecifications.repoauth;
     }
 
     imgVerifier.addCredentials(authToken);
@@ -949,6 +958,18 @@ async function installAppLocally(req, res) {
       if (!appSpecifications) {
         throw new Error(`Application Specifications of ${appname} not found`);
       }
+
+      // we have to do this as not all paths above decrypt the app specs
+      // this is a bit of a hack until we tidy up the app spec mess (use classes)
+      if (
+        appSpecifications.version >= 8
+        && appSpecifications.enterprise
+        && !appSpecifications.compose.length
+      ) {
+        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+        appSpecifications = specificationFormatter(appSpecifications);
+      }
+
       // get current height
       const dbopen = dbHelper.databaseConnection();
       if (!appSpecifications.height && appSpecifications.height !== 0) {
@@ -1094,7 +1115,6 @@ async function testAppInstall(req, res) {
 
       // Run test installation (registerAppLocally with test=true)
       await registerAppLocally(appSpecifications, undefined, res, true);
-
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
