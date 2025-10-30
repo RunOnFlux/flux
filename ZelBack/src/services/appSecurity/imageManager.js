@@ -61,7 +61,7 @@ function classifyVerificationError(error, errorMeta) {
   // Fallback to message parsing if errorMeta not available (shouldn't happen with updated imageVerifier)
   const errorMessage = error.message.toLowerCase();
   if (errorMessage.includes('connection error') || errorMessage.includes('econnrefused')
-      || errorMessage.includes('enetunreach')) {
+    || errorMessage.includes('enetunreach')) {
     return { ttlMs: FluxCacheManager.oneHour, reason: 'Network error (fallback)' };
   }
   if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
@@ -83,7 +83,7 @@ function classifyVerificationError(error, errorMeta) {
  */
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
-  const skipVerification = options.skipVerification || false;
+  const authVersion = options.authVersion || 8;
   const architecture = options.architecture || null;
 
   // Check cache first to avoid redundant Docker Hub API calls
@@ -105,23 +105,13 @@ async function verifyRepository(repotag, options = {}) {
     { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
   );
 
-  // ToDo: fix this upstream
-  if (repoauth && skipVerification) {
+  // we skip veriying repos on v7 encrypted as we probably don't have the key
+  if (repoauth && authVersion === 7) {
     return;
   }
 
   if (repoauth) {
-    const authToken = await pgpService.decryptMessage(repoauth);
-
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
-
-    if (!authToken.includes(':')) {
-      throw new Error('Provided credentials not in the correct username:token format');
-    }
-
-    imgVerifier.addCredentials(authToken);
+    imgVerifier.addCredentials(repoauth);
   }
 
   try {

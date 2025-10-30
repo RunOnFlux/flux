@@ -1242,13 +1242,16 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
 
     if (appSpecifications.version <= 3) {
       // check repository whitelisted and repotag is available for download
-      await imageManager.verifyRepository(appSpecifications.repotag, { repoauth: appSpecifications.repoauth, skipVerification: true });
+      await imageManager.verifyRepository(appSpecifications.repotag);
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
         // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
-        await imageManager.verifyRepository(appComponent.repotag, { repoauth: appComponent.repoauth, skipVerification: true });
+        await imageManager.verifyRepository(appComponent.repotag, {
+          repoauth: appComponent.repoauth,
+          authVersion: appSpecifications.version,
+        });
       }
     }
   }
