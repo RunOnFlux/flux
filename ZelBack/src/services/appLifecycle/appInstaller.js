@@ -32,7 +32,6 @@ const config = require('config');
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
-
 // Helper functions and constants for installApplicationHard
 const util = require('util');
 const { exec } = require('child_process');
@@ -535,7 +534,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
       }
     } else {
       // v8+ we use the decrypted repoauth
-      authToken = appSpecifications.repoauth
+      authToken = appSpecifications.repoauth;
     }
 
     imgVerifier.addCredentials(authToken);
@@ -963,9 +962,9 @@ async function installAppLocally(req, res) {
       // we have to do this as not all paths above decrypt the app specs
       // this is a bit of a hack until we tidy up the app spec mess (use classes)
       if (
-        appSpecifications.version >= 8 &&
-        appSpecifications.enterprise &&
-        !appSpecifications.compose.length
+        appSpecifications.version >= 8
+        && appSpecifications.enterprise
+        && !appSpecifications.compose.length
       ) {
         appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
         appSpecifications = specificationFormatter(appSpecifications);
@@ -1116,7 +1115,6 @@ async function testAppInstall(req, res) {
 
       // Run test installation (registerAppLocally with test=true)
       await registerAppLocally(appSpecifications, undefined, res, true);
-
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
