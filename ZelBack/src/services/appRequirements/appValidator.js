@@ -10,7 +10,6 @@ const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const imageManager = require('../appSecurity/imageManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
-const { supportedArchitectures } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const portManager = require('../appNetwork/portManager');
@@ -562,10 +561,8 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (!appSpecifications.name.match(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/)) {
       throw new Error('Flux App name contains special characters. Only a-z, A-Z, 0-9 and hyphens are allowed (hyphens cannot be first or last character)');
     }
-  } else {
-    if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
-      throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
-    }
+  } else if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
+    throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
   }
   if (appSpecifications.name.startsWith('zel')) {
     throw new Error('Flux App name can not start with zel');
@@ -1553,7 +1550,6 @@ async function registerAppGlobalyApi(req, res) {
         return;
       }
       throw new Error('Unable to register application on the network. Try again later.');
-
     } catch (error) {
       log.warn(error);
       const errorResponse = messageHelper.createErrorMessage(

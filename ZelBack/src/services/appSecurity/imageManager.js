@@ -2,7 +2,6 @@ const config = require('config');
 const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
-const pgpService = require('../pgpService');
 const imageVerifier = require('../utils/imageVerifier');
 const dbHelper = require('../dbHelper');
 const verificationHelper = require('../verificationHelper');
@@ -12,10 +11,10 @@ const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = re
 const fluxCaching = require('../utils/cacheManager').default;
 
 // Global cache for original compatibility
-let myLongCache = {
+const myLongCache = {
   cache: new Map(),
   get(key) { return this.cache.get(key); },
-  set(key, value) { this.cache.set(key, value); }
+  set(key, value) { this.cache.set(key, value); },
 };
 
 // Cache for blocked repositories
@@ -107,7 +106,14 @@ async function verifyRepository(repotag, options = {}) {
 
   // we skip veriying repos on v7 encrypted as we probably don't have the key
   if (repoauth && authVersion === 7) {
-    return;
+    // fail open
+
+    fluxCaching.dockerHubVerificationCache.set(cacheKey, {
+      result: true,
+      error: null,
+    });
+
+    return true;
   }
 
   if (repoauth) {
@@ -127,12 +133,13 @@ async function verifyRepository(repotag, options = {}) {
       result: true,
       error: null,
     });
+
     log.info(`Docker Hub verification cache MISS - cached for ${repotag} (${architecture || 'any'})`);
 
     return true;
   } catch (error) {
     // Use errorMeta from imageVerifier for intelligent classification
-    const errorMeta = imgVerifier.errorMeta;
+    const { errorMeta } = imgVerifier;
     const { ttlMs, reason } = classifyVerificationError(error, errorMeta);
 
     log.warn(`Docker Hub verification failed for ${repotag}: ${error.message}`);
@@ -204,7 +211,6 @@ async function getUserBlockedRepositores() {
       return cacheUserBlockedRepos;
     }
     return [];
-
   } catch (error) {
     log.error(error);
     return [];
@@ -251,7 +257,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
         if (normalizedComponentSecret === appComponentSecrets) {
           if (registration) {
             throw new Error(
-              `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`
+              `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`,
             );
           } else if (app.name !== appName) {
             foundSecretsWithDifferentAppName = true;
@@ -297,7 +303,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
 
         if (message.appSpecifications.owner !== appOwner) {
           throw new Error(
-            `Provided component '${appComponentSpecs.name}' secrets are not valid (owner mismatch: '${message.appSpecifications.owner}').`
+            `Provided component '${appComponentSpecs.name}' secrets are not valid (owner mismatch: '${message.appSpecifications.owner}').`,
           );
         }
       }
@@ -452,7 +458,6 @@ async function checkApplicationImagesBlocked(appSpecs) {
 
   return isBlocked;
 }
-
 
 /**
  * Check Docker accessibility for repository
