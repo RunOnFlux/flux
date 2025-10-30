@@ -21,6 +21,7 @@ const pgpService = require('../pgpService');
 const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
 const log = require('../../lib/log');
 const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
