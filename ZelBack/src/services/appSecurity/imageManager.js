@@ -82,7 +82,7 @@ function classifyVerificationError(error, errorMeta) {
  */
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
-  const authVersion = options.authVersion || 8;
+  const skipVerification = options.skipVerification || false;
   const architecture = options.architecture || null;
 
   // Check cache first to avoid redundant Docker Hub API calls
@@ -91,21 +91,25 @@ async function verifyRepository(repotag, options = {}) {
   const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
 
   if (cached) {
-    log.info(`Docker Hub verification cache HIT for ${repotag} (${architecture || 'any'})`);
+    log.info('Docker Hub verification cache HIT for '
+      + `${repotag} (${architecture || 'any'})`);
+
     // If cached verification failed, throw the cached error
     if (cached.error) {
       throw new Error(cached.error);
     }
+
     return cached.result;
   }
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
+  const imgVerifier = new imageVerifier.ImageVerifier(repotag, {
+    maxImageSize: config.fluxapps.maxImageSize,
+    architecture,
+    architectureSet: supportedArchitectures,
+  });
 
-  // we skip veriying repos on v7 encrypted as we probably don't have the key
-  if (repoauth && authVersion === 7) {
+  // this is specifically for v7 where we don't have the pgp key
+  if (repoauth && skipVerification) {
     // fail open
 
     fluxCaching.dockerHubVerificationCache.set(cacheKey, {

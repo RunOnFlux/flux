@@ -1245,9 +1245,14 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       for (const appComponent of appSpecifications.compose) {
         // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
+
+        // we have to skip this on v7 as we don't have the key
+        const skipVerification = appSpecifications.version === 7;
+
+        // eslint-disable-next-line no-await-in-loop
         await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
-          authVersion: appSpecifications.version,
+          skipVerification,
         });
       }
     }
