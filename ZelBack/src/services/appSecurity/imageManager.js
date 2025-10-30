@@ -134,12 +134,13 @@ async function verifyRepository(repotag, options = {}) {
         throw new Error('Unable to decrypt provided credentials');
       }
 
-      if (!authToken.includes(':')) {
-        throw new Error('Provided credentials not in the correct username:token format');
-      }
     } else {
       // v8+ specs repoauth is part of encrypted specs
       authToken = repoauth;
+    }
+
+    if (typeof authToken !== 'string' || !authToken.includes(':')) {
+      throw new Error('Provided credentials not in the correct username:token format');
     }
 
     imgVerifier.addCredentials(authToken);
