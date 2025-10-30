@@ -520,12 +520,10 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   const pullConfig = { repoTag: appSpecifications.repotag };
 
-  let authToken = null;
-
   if (appSpecifications.repoauth) {
-    let authToken;
+    let authToken = null;
 
-    if (appSpecifications === 7) {
+    if (appSpecifications.version === 7) {
       authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
 
       if (!authToken) {
