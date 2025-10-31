@@ -55,6 +55,7 @@ describe('imageManager tests', () => {
 
       await imageManager.verifyRepository('test/app:latest', {
         repoauth: 'encrypted_credentials',
+        usePgpDecrypt: true,
       });
 
       const instance = ImageVerifierStub.firstCall.returnValue;
@@ -68,6 +69,7 @@ describe('imageManager tests', () => {
       try {
         await imageManager.verifyRepository('test/app:latest', {
           repoauth: 'invalid_credentials',
+          usePgpDecrypt: true,
         });
         expect.fail('Should have thrown an error');
       } catch (error) {
@@ -94,7 +96,7 @@ describe('imageManager tests', () => {
         skipVerification: true,
       });
 
-      expect(result).to.be.undefined;
+      expect(result).to.be.true;
     });
 
     it('should throw error if architecture not supported', async () => {
