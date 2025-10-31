@@ -396,18 +396,8 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
       if (!errorInfo) continue;
 
       const { folder, error } = errorInfo;
-      log.error(`syncthingAppsCore - Errors detected on syncthing folderId:${folder.id} - app is going to be uninstalled`);
+      log.error(`syncthingAppsCore - Errors detected on syncthing folderId:${folder.id}`);
       log.error(error);
-
-      let appName = folder.id;
-      if (appName.includes('_')) {
-        appName = appName.split('_')[1];
-      }
-
-      // eslint-disable-next-line no-await-in-loop
-      await removeAppLocallyFn(appName, null, true, false, true);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(ERROR_RETRY_DELAY_MS);
     }
 
     // Log sync state every 5 minutes
