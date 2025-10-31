@@ -365,11 +365,10 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       }
 
       const insertResult = await dbHelper.insertOneToDatabase(appsDatabase, localAppsInformation, dbSpecs);
-      if (insertResult) {
-        log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
-      } else {
-        log.error(`Failed to create database entry for ${appSpecifications.name} - installation may be inconsistent`);
+      if (!insertResult) {
+        throw new Error(`CRITICAL: Failed to create database entry for ${appSpecifications.name}. Database insert returned undefined - likely duplicate key error or database failure. Aborting installation to prevent orphaned Docker containers.`);
       }
+      log.info(`Database entry created for ${appSpecifications.name} BEFORE Docker container creation`);
       const hddTier = `hdd${tier}`;
       const ramTier = `ram${tier}`;
       const cpuTier = `cpu${tier}`;
@@ -387,6 +386,18 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
     try {
+      // Validate database entry exists before creating Docker containers (atomic transaction check)
+      // This prevents orphaned Docker containers if DB entry was deleted/corrupted between insert and Docker creation
+      if (!isComponent) {
+        const dbValidationQuery = { name: appSpecifications.name };
+        const dbValidationProjection = { projection: { _id: 0, name: 1 } };
+        const dbEntryExists = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, dbValidationQuery, dbValidationProjection);
+        if (!dbEntryExists) {
+          throw new Error(`Database entry validation failed for ${appSpecifications.name}. Entry was inserted but disappeared before Docker container creation. Possible race condition or database corruption detected.`);
+        }
+        log.info(`Database entry validated for ${appSpecifications.name} before Docker container creation`);
+      }
+
       if (specificationsToInstall.version >= 4) { // version is undefined for component
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponentSpecs of specificationsToInstall.compose) {
@@ -485,7 +496,8 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         res.write(serviceHelper.ensureString(removeStatus));
         if (res.flush) res.flush();
       }
-      appUninstaller.removeAppLocally(appSpecs.name, res, true, true, false);
+      await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, false);
+      log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
     }
     return false;
   }
