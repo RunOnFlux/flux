@@ -539,7 +539,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
-  const { repotag, repoauth, version } = appSpecifications;
+  const { repotag, repoauth } = appSpecifications;
+  const { version: specVersion } = fullAppSpecs;
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     repotag,
@@ -548,7 +549,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   const pullConfig = { repoTag: repotag };
 
-  const authToken = await handleRepoauthDecryption(repoauth, version);
+  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
 
   if (authToken) {
     imgVerifier.addCredentials(authToken);
@@ -747,7 +748,8 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
-  const { repotag, repoauth, version } = appSpecifications;
+  const { repotag, repoauth } = appSpecifications;
+  const { version: specVersion } = fullAppSpecs;
 
   const imgVerifier = new imageVerifier.ImageVerifier(
     repotag,
@@ -756,7 +758,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
   const pullConfig = { repoTag: repotag };
 
-  const authToken = await handleRepoauthDecryption(repoauth, version);
+  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
 
   if (authToken) {
     imgVerifier.addCredentials(authToken);
