@@ -42,6 +42,12 @@ const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 const supportedArchitectures = ['amd64', 'arm64'];
 
 
+/**
+ *
+ * @param {string} repoauth The docker repository authentication
+ * @param {number} specVersion The app spec version (to determine decryption type)
+ * @returns {Promise<null|string>}
+ */
 async function handleRepoauthDecryption(repoauth, specVersion) {
   if (!repoauth) return null;
 
