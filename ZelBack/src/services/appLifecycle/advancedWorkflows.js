@@ -2681,6 +2681,29 @@ async function reinstallOldApplications() {
 async function forceAppRemovals() {
   try {
     log.info('Executing forceAppRemovals.');
+
+    // Skip if any installation or removal operations are in progress
+    if (globalState.removalInProgress) {
+      log.info('Skipping forceAppRemovals: Another application removal is in progress');
+      return;
+    }
+    if (globalState.installationInProgress) {
+      log.info('Skipping forceAppRemovals: Another application installation is in progress');
+      return;
+    }
+    if (globalState.softRedeployInProgress) {
+      log.info('Skipping forceAppRemovals: Soft redeploy is in progress');
+      return;
+    }
+    if (globalState.hardRedeployInProgress) {
+      log.info('Skipping forceAppRemovals: Hard redeploy is in progress');
+      return;
+    }
+    if (globalState.reinstallationOfOldAppsInProgress) {
+      log.info('Skipping forceAppRemovals: Reinstallation of old apps is in progress');
+      return;
+    }
+
     // Import services to match original business logic where everything was in the same file
     const appQueryService = require('../appQuery/appQueryService');
     const registryManager = require('../appDatabase/registryManager');
