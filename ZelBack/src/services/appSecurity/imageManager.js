@@ -12,10 +12,10 @@ const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = re
 const fluxCaching = require('../utils/cacheManager').default;
 
 // Global cache for original compatibility
-let myLongCache = {
+const myLongCache = {
   cache: new Map(),
   get(key) { return this.cache.get(key); },
-  set(key, value) { this.cache.set(key, value); }
+  set(key, value) { this.cache.set(key, value); },
 };
 
 // Cache for blocked repositories
@@ -61,7 +61,7 @@ function classifyVerificationError(error, errorMeta) {
   // Fallback to message parsing if errorMeta not available (shouldn't happen with updated imageVerifier)
   const errorMessage = error.message.toLowerCase();
   if (errorMessage.includes('connection error') || errorMessage.includes('econnrefused')
-      || errorMessage.includes('enetunreach')) {
+    || errorMessage.includes('enetunreach')) {
     return { ttlMs: FluxCacheManager.oneHour, reason: 'Network error (fallback)' };
   }
   if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
@@ -84,6 +84,7 @@ function classifyVerificationError(error, errorMeta) {
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
   const skipVerification = options.skipVerification || false;
+  const usePgpDecrypt = options.usePgpDecrypt || false;
   const architecture = options.architecture || null;
 
   // Check cache first to avoid redundant Docker Hub API calls
@@ -92,32 +93,53 @@ async function verifyRepository(repotag, options = {}) {
   const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
 
   if (cached) {
-    log.info(`Docker Hub verification cache HIT for ${repotag} (${architecture || 'any'})`);
+    log.info('Docker Hub verification cache HIT for '
+      + `${repotag} (${architecture || 'any'})`);
+
     // If cached verification failed, throw the cached error
     if (cached.error) {
       throw new Error(cached.error);
     }
+
     return cached.result;
   }
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
-
-  // ToDo: fix this upstream
-  if (repoauth && skipVerification) {
-    return;
-  }
+  const imgVerifier = new imageVerifier.ImageVerifier(repotag, {
+    maxImageSize: config.fluxapps.maxImageSize,
+    architecture,
+    architectureSet: supportedArchitectures,
+  });
 
   if (repoauth) {
-    const authToken = await pgpService.decryptMessage(repoauth);
+    if (skipVerification) {
+      // fail open. This is done for v7 apps during verify when the node
+      // doesn't have the pgp key
 
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
+      fluxCaching.dockerHubVerificationCache.set(cacheKey, {
+        result: true,
+        error: null,
+      });
+
+      return true;
     }
 
-    if (!authToken.includes(':')) {
+    let authToken;
+
+    if (usePgpDecrypt) {
+      // v7 only, use pgp
+
+      authToken = await pgpService.decryptMessage(repoauth);
+
+      if (!authToken) {
+        throw new Error('Unable to decrypt provided credentials');
+      }
+
+    } else {
+      // v8+ specs repoauth is part of encrypted specs
+      authToken = repoauth;
+    }
+
+    if (typeof authToken !== 'string' || !authToken.includes(':')) {
       throw new Error('Provided credentials not in the correct username:token format');
     }
 
@@ -137,12 +159,13 @@ async function verifyRepository(repotag, options = {}) {
       result: true,
       error: null,
     });
+
     log.info(`Docker Hub verification cache MISS - cached for ${repotag} (${architecture || 'any'})`);
 
     return true;
   } catch (error) {
     // Use errorMeta from imageVerifier for intelligent classification
-    const errorMeta = imgVerifier.errorMeta;
+    const { errorMeta } = imgVerifier;
     const { ttlMs, reason } = classifyVerificationError(error, errorMeta);
 
     log.warn(`Docker Hub verification failed for ${repotag}: ${error.message}`);
@@ -214,7 +237,6 @@ async function getUserBlockedRepositores() {
       return cacheUserBlockedRepos;
     }
     return [];
-
   } catch (error) {
     log.error(error);
     return [];
@@ -261,7 +283,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
         if (normalizedComponentSecret === appComponentSecrets) {
           if (registration) {
             throw new Error(
-              `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`
+              `Provided component '${appComponentSpecs.name}' secrets are not valid (duplicate in app: '${app.name}')`,
             );
           } else if (app.name !== appName) {
             foundSecretsWithDifferentAppName = true;
@@ -307,7 +329,7 @@ async function checkAppSecrets(appName, appComponentSpecs, appOwner, registratio
 
         if (message.appSpecifications.owner !== appOwner) {
           throw new Error(
-            `Provided component '${appComponentSpecs.name}' secrets are not valid (owner mismatch: '${message.appSpecifications.owner}').`
+            `Provided component '${appComponentSpecs.name}' secrets are not valid (owner mismatch: '${message.appSpecifications.owner}').`,
           );
         }
       }
@@ -462,7 +484,6 @@ async function checkApplicationImagesBlocked(appSpecs) {
 
   return isBlocked;
 }
-
 
 /**
  * Check Docker accessibility for repository

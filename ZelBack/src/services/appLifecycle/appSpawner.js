@@ -480,18 +480,31 @@ async function trySpawningGlobalApplication() {
 
     // TODO evaluate later to move to more broad check as image can be shared among multiple apps
     const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
+
+    const usePgpDecrypt = appSpecifications.version === 7;
+
     // eslint-disable-next-line no-restricted-syntax
     for (const componentToInstall of compositedSpecification) {
       // check image is whitelisted and repotag is available for download
       // eslint-disable-next-line no-await-in-loop
-      await imageManager.verifyRepository(componentToInstall.repotag, { repoauth: componentToInstall.repoauth, architecture }).catch((error) => {
-        // imageManager already handles error classification and caching with intelligent TTLs (1h-7d)
-        // Add to spawn cache with 1-hour TTL to allow retry sooner than default 12h
-        // This lets temporary Docker Hub issues (network, rate limit) be retried faster
-        log.warn(`trySpawningGlobalApplication - Docker Hub verification failed for ${appToRun}: ${error.message}`);
-        globalState.trySpawningGlobalAppCache.set(appHash, '', { ttl: FluxCacheManager.oneHour });
-        throw error;
-      });
+      await imageManager
+        .verifyRepository(componentToInstall.repotag, {
+          repoauth: componentToInstall.repoauth,
+          usePgpDecrypt,
+          architecture,
+        })
+        .catch((error) => {
+          // imageManager already handles error classification and caching with intelligent TTLs (1h-7d)
+          // Add to spawn cache with 1-hour TTL to allow retry sooner than default 12h
+          // This lets temporary Docker Hub issues (network, rate limit) be retried faster
+          log.warn(
+            `trySpawningGlobalApplication - Docker Hub verification failed for ${appToRun}: ${error.message}`
+          );
+          globalState.trySpawningGlobalAppCache.set(appHash, '', {
+            ttl: FluxCacheManager.oneHour,
+          });
+          throw error;
+        });
     }
 
     // triple check if app is installed on the number of instances requested

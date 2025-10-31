@@ -41,6 +41,39 @@ const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
 
+
+/**
+ *
+ * @param {string} repoauth The docker repository authentication
+ * @param {number} specVersion The app spec version (to determine decryption type)
+ * @returns {Promise<null|string>}
+ */
+async function handleRepoauthDecryption(repoauth, specVersion) {
+  if (!repoauth) return null;
+
+  if (specVersion < 7) {
+    throw new Error('Specifications less than v7 do not have repoauth')
+  }
+
+  let authToken = null;
+
+  if (specVersion === 7) {
+    authToken = await pgpService.decryptMessage(repoauth);
+
+    if (!authToken) {
+      throw new Error('Unable to decrypt provided credentials');
+    }
+  } else {
+    authToken = repoauth;
+  }
+
+  if (!authToken.includes(':')) {
+    throw new Error('Provided credentials not in the correct username:token format');
+  }
+
+  return authToken;
+}
+
 /**
  * Verify that the app volume is mounted
  * @param {string} appName - Application name
@@ -512,31 +545,19 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
+  const { repotag, repoauth } = appSpecifications;
+  const { version: specVersion } = fullAppSpecs;
+
   const imgVerifier = new imageVerifier.ImageVerifier(
-    appSpecifications.repotag,
+    repotag,
     { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
   );
 
-  const pullConfig = { repoTag: appSpecifications.repotag };
+  const pullConfig = { repoTag: repotag };
 
-  if (appSpecifications.repoauth) {
-    let authToken = null;
+  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
 
-    if (appSpecifications.version === 7) {
-      authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
-
-      if (!authToken) {
-        throw new Error('Unable to decrypt provided credentials');
-      }
-
-      if (!authToken.includes(':')) {
-        throw new Error('Provided credentials not in the correct username:token format');
-      }
-    } else {
-      // v8+ we use the decrypted repoauth
-      authToken = appSpecifications.repoauth;
-    }
-
+  if (authToken) {
     imgVerifier.addCredentials(authToken);
     pullConfig.authToken = authToken;
   }
@@ -733,26 +754,19 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
+  const { repotag, repoauth } = appSpecifications;
+  const { version: specVersion } = fullAppSpecs;
+
   const imgVerifier = new imageVerifier.ImageVerifier(
-    appSpecifications.repotag,
+    repotag,
     { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
   );
 
-  const pullConfig = { repoTag: appSpecifications.repotag };
+  const pullConfig = { repoTag: repotag };
 
-  let authToken = null;
+  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
 
-  if (appSpecifications.repoauth) {
-    authToken = await pgpService.decryptMessage(appSpecifications.repoauth);
-
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
-
-    if (!authToken.includes(':')) {
-      throw new Error('Provided credentials not in the correct username:token format');
-    }
-
+  if (authToken) {
     imgVerifier.addCredentials(authToken);
     pullConfig.authToken = authToken;
   }

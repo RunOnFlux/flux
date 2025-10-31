@@ -123,7 +123,7 @@ async function encryptMessage(message, encryptionKeys) {
  * To decrypt a message with an armored private key
  * @param {string} encryptedMessage Message to encrypt
  * @param {string} decryptionKey Armored version of private key
- * @returns {string} Return plain text message
+ * @returns {Promise<string>} Return plain text message
  */
 async function decryptMessage(encryptedMessage, decryptionKey = userconfig.initial.pgpPrivateKey) {
   try {
