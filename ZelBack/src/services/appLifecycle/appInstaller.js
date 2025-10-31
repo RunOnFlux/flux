@@ -57,6 +57,8 @@ async function handleRepoauthDecryption(repoauth, specVersion) {
     if (!authToken) {
       throw new Error('Unable to decrypt provided credentials');
     }
+  } else {
+    authToken = repoauth;
   }
 
   if (!authToken.includes(':')) {
