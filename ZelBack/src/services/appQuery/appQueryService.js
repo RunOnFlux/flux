@@ -102,47 +102,6 @@ async function installedApps(req, res) {
 }
 
 /**
- * To list installed apps with decrypted enterprise apps. Returns apps from local database.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message.
- */
-async function installedAppsDecrypted(req, res) {
-  try {
-    const dbopen = dbHelper.databaseConnection();
-    const appsDatabase = dbopen.db(config.database.appslocal.database);
-
-    let appsQuery = {};
-    if (req && req.params && req.query) {
-      let { appname } = req.params;
-      appname = appname || req.query.appname;
-      if (appname) {
-        appsQuery = { name: appname };
-      }
-    } else if (req && typeof req === 'string') {
-      appsQuery = { name: req };
-    }
-
-    const appsProjection = {
-      projection: { _id: 0 },
-    };
-
-    const apps = await dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, appsQuery, appsProjection);
-    const decryptedApps = await decryptEnterpriseApps(apps);
-    const dataResponse = messageHelper.createDataMessage(decryptedApps);
-    return res ? res.json(dataResponse) : dataResponse;
-  } catch (error) {
-    log.error(error);
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    return res ? res.json(errorResponse) : errorResponse;
-  }
-}
-
-/**
  * To list running apps.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -284,7 +243,6 @@ async function getAppsInstallingLocations(req, res) {
 
 module.exports = {
   installedApps,
-  installedAppsDecrypted,
   decryptEnterpriseApps,
   listRunningApps,
   listAllApps,
