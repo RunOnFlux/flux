@@ -1258,6 +1258,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         // eslint-disable-next-line no-await-in-loop
         await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
+          specVersion: appSpecifications.version,
         });
       }
     }

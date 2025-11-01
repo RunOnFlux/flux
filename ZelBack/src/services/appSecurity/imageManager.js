@@ -78,12 +78,17 @@ function classifyVerificationError(error, errorMeta) {
  */
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
+  const specVersion = options.specVersion || null;
   const architecture = options.architecture || null;
 
   // Check cache first to avoid redundant Docker Hub API calls
   // Cache key includes architecture since same image may have different arch support
   const cacheKey = `${repotag}:${architecture || 'any'}:${repoauth ? 'auth' : 'noauth'}`;
   const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
+
+  if (repoauth && !specVersion) {
+    throw new Error('specVersion is required when using repoauth');
+  }
 
   if (cached) {
     log.info('Docker Hub verification cache HIT for '
@@ -108,7 +113,7 @@ async function verifyRepository(repotag, options = {}) {
     const credentials = await registryCredentialHelper.getCredentials(
       repotag,
       repoauth,
-      appVersion,
+      specVersion,
     );
 
     if (credentials) {

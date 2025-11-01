@@ -487,6 +487,7 @@ async function trySpawningGlobalApplication() {
       // eslint-disable-next-line no-await-in-loop
       await imageManager.verifyRepository(componentToInstall.repotag, {
         repoauth: componentToInstall.repoauth,
+        specVersion: appSpecifications.version,
         architecture,
       }).catch((error) => {
         // imageManager already handles error classification and caching with intelligent TTLs (1h-7d)
