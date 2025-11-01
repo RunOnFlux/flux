@@ -11,7 +11,7 @@
  * - Primary: [flags]:<path>  (e.g., r:/data, g:/primary, /config)
  * - Component ref: <number>:<path>  (e.g., 0:/shared)
  * - Directory mount: m:<subdir>:<path>  (e.g., m:logs:/var/log)
- * - File mount: f:<filename>:<path>  (e.g., f:config.yaml:/etc/config.yaml)
+ * - File mount: f:<filename>:<path>[:<base64_content>]  (e.g., f:config.yaml:/etc/config.yaml or f:config.yaml:/etc/config.yaml:SGVsbG8gV29ybGQh)
  * - Component dir: c:<number>:<subdir>:<path>  (e.g., c:0:backups:/backups)
  * - Component file: cf:<number>:<filename>:<path>  (e.g., cf:0:cert.pem:/etc/ssl/cert.pem)
  */
@@ -198,17 +198,31 @@ function parseMountDefinition(mountDef, index) {
     };
   }
 
-  // New syntax: f:<filename>:<path>
+  // New syntax: f:<filename>:<path> or f:<filename>:<path>:<base64_content>
   if (firstPart === 'f') {
-    if (parts.length !== 3) {
-      throw new Error(`Invalid file mount syntax: ${mountDef}. Expected f:<filename>:<path>`);
+    if (parts.length !== 3 && parts.length !== 4) {
+      throw new Error(`Invalid file mount syntax: ${mountDef}. Expected f:<filename>:<path> or f:<filename>:<path>:<base64_content>`);
     }
 
     const filename = parts[1];
     const containerPath = parts[2];
+    const content = parts.length === 4 ? parts[3] : null;
 
     validateSubdirOrFilename(filename);
     validateMountPath(containerPath);
+
+    // Validate base64 content if provided
+    if (content !== null) {
+      // Check content size (max 10MB when base64 decoded, ~13.3MB encoded)
+      if (content.length > 14000000) {
+        throw new Error(`File content too large for ${filename}. Max 10MB after decoding.`);
+      }
+
+      // Basic base64 validation
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(content)) {
+        throw new Error(`File content for ${filename} must be valid base64`);
+      }
+    }
 
     return {
       type: MountType.FILE,
@@ -216,6 +230,7 @@ function parseMountDefinition(mountDef, index) {
       containerPath,
       flags: [],
       isFile: true,
+      content, // Store base64 content (null if not provided)
     };
   }
 
@@ -247,6 +262,7 @@ function parseMountDefinition(mountDef, index) {
   }
 
   // New syntax: cf:<number>:<filename>:<path>
+  // Note: Content not supported for component file mounts (they reference existing files)
   if (firstPart === 'cf') {
     if (parts.length !== 4) {
       throw new Error(`Invalid component file mount syntax: ${mountDef}. Expected cf:<number>:<filename>:<path>`);
@@ -270,6 +286,7 @@ function parseMountDefinition(mountDef, index) {
       containerPath,
       flags: [],
       isFile: true,
+      content: null, // Component files don't have content (they reference existing files)
     };
   }
 
@@ -324,8 +341,10 @@ function parseContainerData(containerData) {
 
 /**
  * Get all subdirectories/files that need to be created for this component
+ * Only includes items that should actually be created on disk.
+ * Files without content are skipped (app will create them on first run).
  * @param {object} parsedMounts - Result from parseContainerData
- * @returns {Array<{name: string, isFile: boolean}>}
+ * @returns {Array<{name: string, isFile: boolean, content: string|null}>}
  */
 function getRequiredLocalPaths(parsedMounts) {
   const paths = [];
@@ -333,9 +352,15 @@ function getRequiredLocalPaths(parsedMounts) {
   for (const mount of parsedMounts.allMounts) {
     // Only include local mounts (not component references)
     if (mount.type === MountType.PRIMARY || mount.type === MountType.DIRECTORY || mount.type === MountType.FILE) {
+      // Skip files without content - they should be created by the app on first run
+      if (mount.isFile && !mount.content) {
+        continue; // eslint-disable-line no-continue
+      }
+
       paths.push({
         name: mount.subdir,
         isFile: mount.isFile,
+        content: mount.content || null, // Include base64 content if available
       });
     }
   }

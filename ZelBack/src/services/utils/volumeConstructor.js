@@ -96,9 +96,10 @@ function validateAndGetComponentIdentifier(componentIndex, currentIndex, fullApp
  * @param {string} appName - Application name
  * @param {object} fullAppSpecs - Full application specifications (required for component refs)
  * @param {object} appSpecifications - Current component specifications
- * @returns {Array<string>} Array of Docker bind mount strings (format: "host:container")
+ * @param {boolean} useModernMounts - If true, return Mount objects instead of Binds strings (default: true)
+ * @returns {Array<Object|string>} Array of Docker Mount objects or bind mount strings
  */
-function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSpecifications) {
+function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSpecifications, useModernMounts = true) {
   const volumes = [];
 
   // Find current component's index (for validation)
@@ -114,8 +115,15 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
 
   // Process all mounts
   for (const mount of parsedMounts.allMounts) {
+    // Skip files without content - they won't be created or mounted
+    // This allows apps to create their own files on first run
+    if (mount.isFile && !mount.content) {
+      log.info(`Skipping file mount without content: ${mount.containerPath} (app will create on first run)`);
+      continue; // eslint-disable-line no-continue
+    }
+
     let hostPath;
-    let containerPath = mount.containerPath;
+    const containerPath = mount.containerPath;
 
     switch (mount.type) {
       case MountType.PRIMARY:
@@ -149,11 +157,27 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
         throw new Error(`Unknown mount type: ${mount.type}`);
     }
 
-    // Construct the bind mount string
-    const bindMount = `${hostPath}:${containerPath}`;
-    volumes.push(bindMount);
+    if (useModernMounts) {
+      // Construct Docker Mount object (modern API)
+      const mountObject = {
+        Type: 'bind',
+        Source: hostPath,
+        Target: containerPath,
+        ReadOnly: false, // Can be extended to support read-only mounts in the future
+        BindOptions: {
+          Propagation: 'rprivate', // Default propagation mode
+        },
+      };
+      volumes.push(mountObject);
 
-    log.info(`Constructed bind mount: ${bindMount} (type: ${mount.type}, isFile: ${mount.isFile})`);
+      log.info(`Constructed mount object: ${hostPath} -> ${containerPath} (type: ${mount.type}, isFile: ${mount.isFile})`);
+    } else {
+      // Construct the bind mount string (legacy API for backward compatibility)
+      const bindMount = `${hostPath}:${containerPath}`;
+      volumes.push(bindMount);
+
+      log.info(`Constructed bind mount: ${bindMount} (type: ${mount.type}, isFile: ${mount.isFile})`);
+    }
   }
 
   return volumes;

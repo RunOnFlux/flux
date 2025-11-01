@@ -2,6 +2,7 @@ const config = require('config');
 const util = require('util');
 const df = require('node-df');
 const path = require('node:path');
+const fs = require('fs/promises');
 const nodecmd = require('node-cmd');
 const systemcrontab = require('crontab');
 const axios = require('axios');
@@ -395,7 +396,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
 
       if (pathInfo.isFile) {
-        // Create an empty file under appdata/
+        // Create file under appdata/ with optional content
         const createFileStatus = {
           status: `Creating file: appdata/${pathInfo.name}...`,
         };
@@ -404,9 +405,33 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           res.write(serviceHelper.ensureString(createFileStatus));
           if (res.flush) res.flush();
         }
-        const execFile = `sudo touch ${appsFolder + appId}/appdata/${pathInfo.name}`;
-        // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(execFile);
+
+        const filePath = `${appsFolder + appId}/appdata/${pathInfo.name}`;
+
+        if (pathInfo.content) {
+          // Decode base64 content and write to file
+          try {
+            const buffer = Buffer.from(pathInfo.content, 'base64');
+            // Write file with sudo - create temp file first, then move with sudo
+            const tempFilePath = `${filePath}.tmp`;
+            // eslint-disable-next-line no-await-in-loop
+            await fs.writeFile(tempFilePath, buffer);
+            // eslint-disable-next-line no-await-in-loop
+            await cmdAsync(`sudo mv ${tempFilePath} ${filePath}`);
+            // eslint-disable-next-line no-await-in-loop
+            await cmdAsync(`sudo chown 100:101 ${filePath}`);
+            log.info(`File created with content (${buffer.length} bytes): appdata/${pathInfo.name}`);
+          } catch (error) {
+            log.error(`Failed to write file content for ${pathInfo.name}: ${error.message}`);
+            throw new Error(`Failed to write file content for ${pathInfo.name}: ${error.message}`);
+          }
+        } else {
+          // Create empty file (backward compatible)
+          const execFile = `sudo touch ${filePath}`;
+          // eslint-disable-next-line no-await-in-loop
+          await cmdAsync(execFile);
+        }
+
         const createFileStatus2 = {
           status: `File created: appdata/${pathInfo.name}`,
         };
