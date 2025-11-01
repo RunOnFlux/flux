@@ -21,20 +21,25 @@ const { AuthProviderFactory } = require('../registryAuth/services/authProviderFa
  *
  * @param {string} repotag - Docker image tag (e.g., "nginx:latest" or "123.dkr.ecr.us-east-1.amazonaws.com/app:v1")
  * @param {string} repoauth - Authentication string (encrypted for v7, plain for v8+)
- * @param {number} appVersion - Application specification version (7, 8, etc.)
+ * @param {number} specVersion - Application specification version (7, 8, etc.)
  * @returns {Promise<{username: string, password: string}|null>} Credentials object or null if no auth
  * @throws {Error} If decryption fails or credentials are invalid
  */
-async function getCredentials(repotag, repoauth, appVersion) {
+async function getCredentials(repotag, repoauth, specVersion) {
   // No authentication needed
   if (!repoauth) {
     return null;
   }
 
+  if (specVersion < 7) {
+    throw new Error('Specs less than 7 do not have repoauth');
+  }
+
   // Version-aware decryption
   let plainRepoauth;
-  if (appVersion === 7 || appVersion < 7) {
-    // v7 and earlier: repoauth is PGP encrypted
+
+  if (specVersion === 7) {
+    // v7: repoauth is PGP encrypted
     plainRepoauth = await pgpService.decryptMessage(repoauth);
 
     if (!plainRepoauth) {

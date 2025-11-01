@@ -31,7 +31,6 @@ const config = require('config');
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
-
 // Helper functions and constants for installApplicationHard
 const util = require('util');
 const { exec } = require('child_process');
@@ -744,25 +743,29 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    appSpecifications.repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
+  const { repotag, repoauth } = appSpecifications;
+  const { version: specVersion } = fullAppSpecs;
 
-  const pullConfig = { repoTag: appSpecifications.repotag };
+  const imgVerifier = new imageVerifier.ImageVerifier(repotag, {
+    maxImageSize: config.fluxapps.maxImageSize,
+    architecture,
+    architectureSet: supportedArchitectures,
+  });
+
+  const pullConfig = { repoTag: repotag };
 
   let authToken = null;
 
-  if (appSpecifications.repoauth) {
+  if (repoauth) {
     // Use credential helper to handle version-aware decryption and cloud providers
     const credentials = await registryCredentialHelper.getCredentials(
-      appSpecifications.repotag,
-      appSpecifications.repoauth,
-      fullAppSpecs.version, // Pass parent spec version for v7/v8 handling
+      repotag,
+      repoauth,
+      specVersion,
     );
 
     if (!credentials) {
-      throw new Error('Unable to get credentials');
+      throw new Error(`Unable to get credentials for repotag: ${repotag}`);
     }
 
     // Pass credentials object directly to ImageVerifier (no string conversion needed)
