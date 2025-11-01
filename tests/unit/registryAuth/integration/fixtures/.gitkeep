@@ -1,0 +1,2 @@
+# This file keeps the fixtures directory in git
+# Actual fixture files (*.json) are gitignored for security

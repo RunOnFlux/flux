@@ -18,10 +18,9 @@ const { checkApplicationImagesCompliance } = require('../appSecurity/imageManage
 const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 const pgpService = require('../pgpService');
+const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
-const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-const { specificationFormatter } = require('../utils/appSpecHelpers');
 const log = require('../../lib/log');
 const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
@@ -40,39 +39,6 @@ const cmdAsync = util.promisify(exec);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
-
-
-/**
- *
- * @param {string} repoauth The docker repository authentication
- * @param {number} specVersion The app spec version (to determine decryption type)
- * @returns {Promise<null|string>}
- */
-async function handleRepoauthDecryption(repoauth, specVersion) {
-  if (!repoauth) return null;
-
-  if (specVersion < 7) {
-    throw new Error('Specifications less than v7 do not have repoauth')
-  }
-
-  let authToken = null;
-
-  if (specVersion === 7) {
-    authToken = await pgpService.decryptMessage(repoauth);
-
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
-  } else {
-    authToken = repoauth;
-  }
-
-  if (!authToken.includes(':')) {
-    throw new Error('Provided credentials not in the correct username:token format');
-  }
-
-  return authToken;
-}
 
 /**
  * Verify that the app volume is mounted
@@ -560,18 +526,31 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   const { repotag, repoauth } = appSpecifications;
   const { version: specVersion } = fullAppSpecs;
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
+  const imgVerifier = new imageVerifier.ImageVerifier(repotag, {
+    maxImageSize: config.fluxapps.maxImageSize,
+    architecture,
+    architectureSet: supportedArchitectures,
+  });
 
   const pullConfig = { repoTag: repotag };
 
-  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
+  if (repoauth) {
+    // Use credential helper to handle version-aware decryption and cloud providers
+    const credentials = await registryCredentialHelper.getCredentials(
+      repotag,
+      repoauth,
+      specVersion,
+    );
 
-  if (authToken) {
-    imgVerifier.addCredentials(authToken);
-    pullConfig.authToken = authToken;
+    if (!credentials) {
+      throw new Error(`Unable to get credentials for repotag: ${repotag}`);
+    }
+
+    // Pass credentials object directly to ImageVerifier (no string conversion needed)
+    imgVerifier.addCredentials(credentials);
+
+    // dockerService still expects string format - convert only for that
+    pullConfig.authToken = `${credentials.username}:${credentials.password}`;
   }
 
   await imgVerifier.verifyImage();
@@ -769,18 +748,31 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   const { repotag, repoauth } = appSpecifications;
   const { version: specVersion } = fullAppSpecs;
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
+  const imgVerifier = new imageVerifier.ImageVerifier(repotag, {
+    maxImageSize: config.fluxapps.maxImageSize,
+    architecture,
+    architectureSet: supportedArchitectures,
+  });
 
   const pullConfig = { repoTag: repotag };
 
-  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
+  if (repoauth) {
+    // Use credential helper to handle version-aware decryption and cloud providers
+    const credentials = await registryCredentialHelper.getCredentials(
+      repotag,
+      repoauth,
+      specVersion,
+    );
 
-  if (authToken) {
-    imgVerifier.addCredentials(authToken);
-    pullConfig.authToken = authToken;
+    if (!credentials) {
+      throw new Error(`Unable to get credentials for repotag: ${repotag}`);
+    }
+
+    // Pass credentials object directly to ImageVerifier (no string conversion needed)
+    imgVerifier.addCredentials(credentials);
+
+    // dockerService still expects string format - convert only for that
+    pullConfig.authToken = `${credentials.username}:${credentials.password}`;
   }
 
   await imgVerifier.verifyImage();
