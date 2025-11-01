@@ -366,6 +366,26 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       if (res.flush) res.flush();
     }
 
+    // Create the appdata directory first (required for all apps)
+    const makeAppDataDir = {
+      status: 'Creating appdata directory...',
+    };
+    log.info(makeAppDataDir);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeAppDataDir));
+      if (res.flush) res.flush();
+    }
+    const execAppdataDir = `sudo mkdir -p ${appsFolder + appId}/appdata`;
+    await cmdAsync(execAppdataDir);
+    const makeAppDataDir2 = {
+      status: 'Appdata directory created',
+    };
+    log.info(makeAppDataDir2);
+    if (res) {
+      res.write(serviceHelper.ensureString(makeAppDataDir2));
+      if (res.flush) res.flush();
+    }
+
     const makeDirectoryB = {
       status: 'Making application data directories and files...',
     };
