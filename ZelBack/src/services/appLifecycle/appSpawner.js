@@ -480,6 +480,7 @@ async function trySpawningGlobalApplication() {
 
     // TODO evaluate later to move to more broad check as image can be shared among multiple apps
     const compositedSpecification = appSpecifications.compose || [appSpecifications]; // use compose array if v4+ OR if not defined its <= 3 do an array of appSpecs.
+
     // eslint-disable-next-line no-restricted-syntax
     for (const componentToInstall of compositedSpecification) {
       // check image is whitelisted and repotag is available for download
@@ -487,7 +488,6 @@ async function trySpawningGlobalApplication() {
       await imageManager.verifyRepository(componentToInstall.repotag, {
         repoauth: componentToInstall.repoauth,
         architecture,
-        appVersion: appSpecifications.version // Pass version for credential handling
       }).catch((error) => {
         // imageManager already handles error classification and caching with intelligent TTLs (1h-7d)
         // Add to spawn cache with 1-hour TTL to allow retry sooner than default 12h

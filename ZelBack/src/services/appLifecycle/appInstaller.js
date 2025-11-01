@@ -1133,7 +1133,6 @@ async function testAppInstall(req, res) {
 
       // Run test installation (registerAppLocally with test=true)
       await registerAppLocally(appSpecifications, undefined, res, true);
-
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       res.json(errMessage);
