@@ -9,10 +9,10 @@
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
 class BasicAuthProvider extends RegistryAuthProvider {
-  constructor(username, password) {
-    super();
-    this.username = username;
-    this.password = password;
+  constructor(config) {
+    super(config);
+    this.username = config.username;
+    this.password = config.password;
   }
 
   /**
@@ -119,7 +119,10 @@ class BasicAuthProvider extends RegistryAuthProvider {
       throw new Error('Both username and password are required');
     }
 
-    return new BasicAuthProvider(username.trim(), password.trim());
+    return new BasicAuthProvider({
+      username: username.trim(),
+      password: password.trim()
+    });
   }
 
   /**
@@ -139,7 +142,7 @@ class BasicAuthProvider extends RegistryAuthProvider {
       throw new Error('Credentials object must contain username and password fields');
     }
 
-    return new BasicAuthProvider(username, password);
+    return new BasicAuthProvider(credentialsObj);
   }
 
   /**
