@@ -629,6 +629,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     }
 
     log.info(`Flux App: ${appName} is test install: ${test}`);
+
     if (!test) {
       const broadcastedAt = Date.now();
       const newAppRunningMessage = {
