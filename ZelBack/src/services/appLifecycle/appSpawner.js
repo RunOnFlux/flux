@@ -527,7 +527,7 @@ async function trySpawningGlobalApplication() {
     await serviceHelper.delay(500);
     await fluxCommMessagesSender.broadcastMessageToIncoming(newAppInstallingMessage);
 
-    await serviceHelper.delay(30 * 1000); // give it time so messages are propagated on the network
+    await serviceHelper.delay(90 * 1000); // give it 1.5m so messages are propagated on the network
 
     // double check if app is installed in more of the instances requested
     runningAppList = await registryManager.appLocation(appToRun);
