@@ -539,8 +539,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         res.write(serviceHelper.ensureString(stFolderCreation));
         if (res.flush) res.flush();
       }
-      // Create .stfolder in appdata directory for syncthing
-      const execDIRst = `sudo mkdir -p ${appsFolder + appId}/appdata/.stfolder`;
+      // Create .stfolder in parent directory for syncthing (not inside appdata)
+      const execDIRst = `sudo mkdir -p ${appsFolder + appId}/.stfolder`;
       await cmdAsync(execDIRst);
       const stFolderCreation2 = {
         status: '.stfolder created',
@@ -551,8 +551,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         if (res.flush) res.flush();
       }
 
-      // Create .stignore file to exclude backup directory
-      const stignore = `sudo echo '/backup' >| ${appsFolder + appId}/appdata/.stignore`;
+      // Create .stignore file to exclude backup directory (in parent directory)
+      const stignore = `sudo echo '/backup' >| ${appsFolder + appId}/.stignore`;
       log.info(stignore);
       await cmdAsync(stignore);
       const stiFileCreation = {

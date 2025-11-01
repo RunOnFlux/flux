@@ -116,13 +116,6 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
 
   // Process all mounts
   for (const mount of parsedMounts.allMounts) {
-    // Skip files without content - they won't be created or mounted
-    // This allows apps to create their own files on first run
-    if (mount.isFile && !mount.content) {
-      log.info(`Skipping file mount without content: ${mount.containerPath} (app will create on first run)`);
-      continue; // eslint-disable-line no-continue
-    }
-
     let hostPath;
     const containerPath = mount.containerPath;
 
