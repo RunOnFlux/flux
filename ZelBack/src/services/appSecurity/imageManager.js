@@ -79,9 +79,7 @@ function classifyVerificationError(error, errorMeta) {
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
   const skipVerification = options.skipVerification || false;
-  const usePgpDecrypt = options.usePgpDecrypt || false;
   const architecture = options.architecture || null;
-  const appVersion = options.appVersion || 7; // Default to v7 for backward compatibility
 
   // Check cache first to avoid redundant Docker Hub API calls
   // Cache key includes architecture since same image may have different arch support
