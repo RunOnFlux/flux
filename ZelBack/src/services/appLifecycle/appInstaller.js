@@ -534,8 +534,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   const pullConfig = { repoTag: repotag };
 
-  let authToken = null;
-
   if (repoauth) {
     // Use credential helper to handle version-aware decryption and cloud providers
     const credentials = await registryCredentialHelper.getCredentials(
@@ -552,8 +550,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     imgVerifier.addCredentials(credentials);
 
     // dockerService still expects string format - convert only for that
-    authToken = `${credentials.username}:${credentials.password}`;
-    pullConfig.authToken = authToken;
+    pullConfig.authToken = `${credentials.username}:${credentials.password}`;
   }
 
   await imgVerifier.verifyImage();
@@ -759,8 +756,6 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
   const pullConfig = { repoTag: repotag };
 
-  let authToken = null;
-
   if (repoauth) {
     // Use credential helper to handle version-aware decryption and cloud providers
     const credentials = await registryCredentialHelper.getCredentials(
@@ -777,8 +772,7 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
     imgVerifier.addCredentials(credentials);
 
     // dockerService still expects string format - convert only for that
-    authToken = `${credentials.username}:${credentials.password}`;
-    pullConfig.authToken = authToken;
+    pullConfig.authToken = `${credentials.username}:${credentials.password}`;
   }
 
   await imgVerifier.verifyImage();
