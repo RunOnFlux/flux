@@ -10,15 +10,14 @@ const { MountType } = require('./mountParser');
 const { appsFolder } = require('./appConstants');
 
 /**
- * Get app identifier (removes 'flux' prefix if present)
- * @param {string} identifier - App identifier
- * @returns {string} App identifier without 'flux' prefix
+ * Get app identifier with proper flux prefix
+ * Uses lazy require to avoid circular dependency
+ * @param {string} identifier - App/component identifier
+ * @returns {string} App identifier with flux prefix
  */
 function getAppIdentifier(identifier) {
-  if (identifier.startsWith('flux')) {
-    return identifier.substring(4);
-  }
-  return identifier;
+  const dockerService = require('../dockerService');
+  return dockerService.getAppIdentifier(identifier);
 }
 
 /**
@@ -29,12 +28,13 @@ function getAppIdentifier(identifier) {
  * @returns {string} Full host path
  */
 function constructLocalHostPath(identifier, subdir) {
+  const appId = getAppIdentifier(identifier);
   // Primary mount uses appdata directly
   if (subdir === 'appdata') {
-    return `${appsFolder}${getAppIdentifier(identifier)}/appdata`;
+    return `${appsFolder}${appId}/appdata`;
   }
   // All other mounts are under appdata/
-  return `${appsFolder}${getAppIdentifier(identifier)}/appdata/${subdir}`;
+  return `${appsFolder}${appId}/appdata/${subdir}`;
 }
 
 /**
@@ -45,12 +45,13 @@ function constructLocalHostPath(identifier, subdir) {
  * @returns {string} Full host path
  */
 function constructComponentHostPath(componentIdentifier, subdir) {
+  const appId = getAppIdentifier(componentIdentifier);
   // Primary mount uses appdata directly
   if (subdir === 'appdata') {
-    return `${appsFolder}${getAppIdentifier(componentIdentifier)}/appdata`;
+    return `${appsFolder}${appId}/appdata`;
   }
   // All other mounts are under appdata/
-  return `${appsFolder}${getAppIdentifier(componentIdentifier)}/appdata/${subdir}`;
+  return `${appsFolder}${appId}/appdata/${subdir}`;
 }
 
 /**
