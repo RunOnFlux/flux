@@ -519,6 +519,10 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       if (pathInfo.name === 'appdata') {
         continue; // eslint-disable-line no-continue
       }
+      // Skip files without content (they were never created)
+      if (pathInfo.isFile && !pathInfo.content) {
+        continue; // eslint-disable-line no-continue
+      }
       const execPERMpath = `sudo chmod 777 ${appsFolder + appId}/appdata/${pathInfo.name}`;
       // eslint-disable-next-line no-await-in-loop
       await cmdAsync(execPERMpath);
