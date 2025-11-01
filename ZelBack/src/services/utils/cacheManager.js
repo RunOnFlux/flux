@@ -127,6 +127,10 @@ class FluxCacheManager {
       max: 200,
       ttl: FluxCacheManager.oneHour,
     },
+    registryProviderCache: {
+      max: 500,
+      ttl: 12 * FluxCacheManager.oneHour,
+    },
     // fluxCommunicationMessageSender
     tempMessageCache: {
       max: 250,

@@ -86,6 +86,7 @@ async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
   const specVersion = options.specVersion || null;
   const architecture = options.architecture || null;
+  const appName = options.appName || null;
 
   // Check cache first to avoid redundant Docker Hub API calls
   // Cache key includes architecture since same image may have different arch support
@@ -120,6 +121,7 @@ async function verifyRepository(repotag, options = {}) {
       repotag,
       repoauth,
       specVersion,
+      appName,
     );
 
     if (credentials) {

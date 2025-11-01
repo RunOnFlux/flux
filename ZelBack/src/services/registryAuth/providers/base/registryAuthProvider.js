@@ -7,8 +7,9 @@
  */
 
 class RegistryAuthProvider {
-  constructor(config = {}) {
+  constructor(config = {}, appName = null) {
     this.config = config;
+    this.appName = appName;
     this.tokenCache = null;
     this.tokenExpiry = null;
     this.lastError = null;

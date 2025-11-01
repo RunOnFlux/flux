@@ -10,8 +10,8 @@ const { JWT } = require('google-auth-library');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
 class GoogleGarAuthProvider extends RegistryAuthProvider {
-  constructor(config) {
-    super(config);
+  constructor(config, appName) {
+    super(config, appName);
     this.jwtClient = null;
 
     // Initialize JWT client
