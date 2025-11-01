@@ -31,7 +31,6 @@ const config = require('config');
 // Legacy apps that use old gateway IP assignment method
 const appsThatMightBeUsingOldGatewayIpAssignment = ['HNSDoH', 'dane', 'fdm', 'Jetpack2', 'fdmdedicated', 'isokosse', 'ChainBraryDApp', 'health', 'ethercalc'];
 
-
 // Helper functions and constants for installApplicationHard
 const util = require('util');
 const { exec } = require('child_process');
