@@ -188,30 +188,39 @@ describe('mountParser tests', () => {
       expect(config.content).to.equal(base64Content);
     });
 
-    it('should NOT include files without content (app will create them)', () => {
+    it('should include files without content (empty files for mounting)', () => {
       const parsed = mountParser.parseContainerData('/data|f:config.yaml:/etc/config.yaml');
       const paths = mountParser.getRequiredLocalPaths(parsed);
 
-      // File without content should not be in required paths
+      // File without content should be in required paths (empty file will be created)
       const config = paths.find((p) => p.name === 'config.yaml');
-      expect(config).to.be.undefined;
+      expect(config).to.exist;
+      expect(config.isFile).to.be.true;
+      expect(config.content).to.be.null;
 
-      // Only appdata should be present
-      expect(paths).to.have.lengthOf(1);
-      expect(paths[0].name).to.equal('appdata');
+      // Both appdata and config file should be present
+      expect(paths).to.have.lengthOf(2);
+      expect(paths.map((p) => p.name)).to.include('appdata');
+      expect(paths.map((p) => p.name)).to.include('config.yaml');
     });
 
-    it('should skip multiple files without content', () => {
+    it('should include all files (with and without content)', () => {
       const base64Content = Buffer.from('test').toString('base64');
       const parsed = mountParser.parseContainerData(`/data|f:empty1.txt:/etc/empty1.txt|f:filled.txt:/etc/filled.txt:${base64Content}|f:empty2.txt:/etc/empty2.txt`);
       const paths = mountParser.getRequiredLocalPaths(parsed);
 
-      // Only appdata and the file with content should be present
-      expect(paths).to.have.lengthOf(2);
+      // All files should be present (empty files will be created for mounting)
+      expect(paths).to.have.lengthOf(4);
       expect(paths.map((p) => p.name)).to.include('appdata');
       expect(paths.map((p) => p.name)).to.include('filled.txt');
-      expect(paths.map((p) => p.name)).to.not.include('empty1.txt');
-      expect(paths.map((p) => p.name)).to.not.include('empty2.txt');
+      expect(paths.map((p) => p.name)).to.include('empty1.txt');
+      expect(paths.map((p) => p.name)).to.include('empty2.txt');
+
+      // Check content fields
+      const filled = paths.find((p) => p.name === 'filled.txt');
+      expect(filled.content).to.equal(base64Content);
+      const empty1 = paths.find((p) => p.name === 'empty1.txt');
+      expect(empty1.content).to.be.null;
     });
   });
 

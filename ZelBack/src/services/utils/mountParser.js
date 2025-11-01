@@ -341,8 +341,7 @@ function parseContainerData(containerData) {
 
 /**
  * Get all subdirectories/files that need to be created for this component
- * Only includes items that should actually be created on disk.
- * Files without content are skipped (app will create them on first run).
+ * Includes all local mounts (directories and files, with or without content)
  * @param {object} parsedMounts - Result from parseContainerData
  * @returns {Array<{name: string, isFile: boolean, content: string|null}>}
  */
@@ -352,11 +351,6 @@ function getRequiredLocalPaths(parsedMounts) {
   for (const mount of parsedMounts.allMounts) {
     // Only include local mounts (not component references)
     if (mount.type === MountType.PRIMARY || mount.type === MountType.DIRECTORY || mount.type === MountType.FILE) {
-      // Skip files without content - they should be created by the app on first run
-      if (mount.isFile && !mount.content) {
-        continue; // eslint-disable-line no-continue
-      }
-
       paths.push({
         name: mount.subdir,
         isFile: mount.isFile,
