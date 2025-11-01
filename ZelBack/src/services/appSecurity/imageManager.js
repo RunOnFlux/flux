@@ -435,12 +435,20 @@ async function checkApplicationImagesBlocked(appSpecs) {
     });
   }
   if (repos) {
+    // Check if app hash or owner is directly in the blocked repositories list
+    if (repos.includes(appSpecs.hash)) {
+      return `${appSpecs.hash} is not allowed to be spawned`;
+    }
+    if (repos.includes(appSpecs.owner)) {
+      return `${appSpecs.owner} is not allowed to run applications`;
+    }
+
     const pureImagesOrOrganisationsRepos = [];
     repos.forEach((repo) => {
       pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
     });
 
-    // blacklist works also for zelid and app hash
+    // blacklist works also for zelid and app hash (check processed list too)
     if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
       return `${appSpecs.hash} is not allowed to be spawned`;
     }
