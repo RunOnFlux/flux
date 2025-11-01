@@ -5,10 +5,42 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const registryManager = require('../appDatabase/registryManager');
 const appConstants = require('../utils/appConstants');
+const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const { specificationFormatter } = require('../utils/appSpecHelpers');
 const log = require('../../lib/log');
 
 // Database collections
 const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
+
+/**
+ * Decrypt enterprise apps from a list of apps
+ * @param {Array} apps - Array of app specifications
+ * @returns {Promise<Array>} Array of decrypted app specifications
+ */
+async function decryptEnterpriseApps(apps) {
+  const decryptedApps = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const spec of apps) {
+    const isEnterprise = Boolean(
+      spec.version >= 8 && spec.enterprise,
+    );
+    if (isEnterprise) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const decrypted = await checkAndDecryptAppSpecs(spec);
+        const formatted = specificationFormatter(decrypted);
+        decryptedApps.push(formatted);
+      } catch (error) {
+        log.error(`Failed to decrypt enterprise app ${spec.name}: ${error.message}`);
+        // If decryption fails, we still want to include the app but log the error
+        decryptedApps.push(spec);
+      }
+    } else {
+      decryptedApps.push(spec);
+    }
+  }
+  return decryptedApps;
+}
 
 /**
  * To list installed apps. Returns apps from local database.
@@ -38,6 +70,47 @@ async function installedApps(req, res) {
 
     const apps = await dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, appsQuery, appsProjection);
     const dataResponse = messageHelper.createDataMessage(apps);
+    return res ? res.json(dataResponse) : dataResponse;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * To list installed apps with decrypted enterprise apps. Returns apps from local database.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function installedAppsDecrypted(req, res) {
+  try {
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+
+    let appsQuery = {};
+    if (req && req.params && req.query) {
+      let { appname } = req.params;
+      appname = appname || req.query.appname;
+      if (appname) {
+        appsQuery = { name: appname };
+      }
+    } else if (req && typeof req === 'string') {
+      appsQuery = { name: req };
+    }
+
+    const appsProjection = {
+      projection: { _id: 0 },
+    };
+
+    const apps = await dbHelper.findInDatabase(appsDatabase, appConstants.localAppsInformation, appsQuery, appsProjection);
+    const decryptedApps = await decryptEnterpriseApps(apps);
+    const dataResponse = messageHelper.createDataMessage(decryptedApps);
     return res ? res.json(dataResponse) : dataResponse;
   } catch (error) {
     log.error(error);
@@ -192,6 +265,8 @@ async function getAppsInstallingLocations(req, res) {
 
 module.exports = {
   installedApps,
+  installedAppsDecrypted,
+  decryptEnterpriseApps,
   listRunningApps,
   listAllApps,
   getlatestApplicationSpecificationAPI,
