@@ -10,6 +10,7 @@ describe('appQueryService tests', () => {
   let registryManagerStub;
   let enterpriseHelperStub;
   let appSpecHelpersStub;
+  let cacheManagerStub;
   let logStub;
   let configStub;
 
@@ -75,6 +76,15 @@ describe('appQueryService tests', () => {
       specificationFormatter: sinon.stub().returnsArg(0), // Return app as-is by default
     };
 
+    cacheManagerStub = {
+      default: {
+        enterpriseAppDecryptionCache: {
+          get: sinon.stub().returns(null), // By default, cache misses
+          set: sinon.stub(),
+        },
+      },
+    };
+
     logStub = {
       error: sinon.stub(),
       info: sinon.stub(),
@@ -90,6 +100,7 @@ describe('appQueryService tests', () => {
       '../appDatabase/registryManager': registryManagerStub,
       '../utils/enterpriseHelper': enterpriseHelperStub,
       '../utils/appSpecHelpers': appSpecHelpersStub,
+      '../utils/cacheManager': cacheManagerStub,
       '../../lib/log': logStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,

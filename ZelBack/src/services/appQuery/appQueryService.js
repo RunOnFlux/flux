@@ -7,6 +7,7 @@ const registryManager = require('../appDatabase/registryManager');
 const appConstants = require('../utils/appConstants');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const fluxCaching = require('../utils/cacheManager');
 const log = require('../../lib/log');
 
 // Database collections
@@ -19,6 +20,8 @@ const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
  */
 async function decryptEnterpriseApps(apps) {
   const decryptedApps = [];
+  const cache = fluxCaching.default.enterpriseAppDecryptionCache;
+
   // eslint-disable-next-line no-restricted-syntax
   for (const spec of apps) {
     const isEnterprise = Boolean(
@@ -26,10 +29,26 @@ async function decryptEnterpriseApps(apps) {
     );
     if (isEnterprise) {
       try {
-        // eslint-disable-next-line no-await-in-loop
-        const decrypted = await checkAndDecryptAppSpecs(spec);
-        const formatted = specificationFormatter(decrypted);
-        decryptedApps.push(formatted);
+        // Use app hash as cache key
+        const cacheKey = spec.hash;
+
+        // Check if decrypted app is in cache
+        const cachedApp = cache.get(cacheKey);
+        if (cachedApp) {
+          log.info(`Using cached decrypted app for ${spec.name} (${cacheKey})`);
+          decryptedApps.push(cachedApp);
+        } else {
+          // Decrypt and cache the app
+          // eslint-disable-next-line no-await-in-loop
+          const decrypted = await checkAndDecryptAppSpecs(spec);
+          const formatted = specificationFormatter(decrypted);
+
+          // Store in cache with 7-day TTL (configured in cacheManager)
+          cache.set(cacheKey, formatted);
+          log.info(`Cached decrypted app for ${spec.name} (${cacheKey})`);
+
+          decryptedApps.push(formatted);
+        }
       } catch (error) {
         log.error(`Failed to decrypt enterprise app ${spec.name}: ${error.message}`);
         // If decryption fails, we still want to include the app but log the error
