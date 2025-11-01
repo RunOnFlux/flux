@@ -63,6 +63,10 @@ const syncthingMonitorHelpersMock = {
   folderNeedsUpdate: sinon.stub().returns(false),
 };
 
+const appQueryServiceMock = {
+  decryptEnterpriseApps: sinon.stub().returnsArg(0), // Return apps as-is by default
+};
+
 // Load module with mocked dependencies
 const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingMonitor', {
   '../dbHelper': dbHelperMock,
@@ -70,6 +74,7 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   '../dockerService': dockerServiceMock,
   '../fluxNetworkHelper': fluxNetworkHelperMock,
   '../syncthingService': syncthingServiceMock,
+  '../appQuery/appQueryService': appQueryServiceMock,
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
 });
