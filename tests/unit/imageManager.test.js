@@ -22,6 +22,9 @@ describe('imageManager tests', () => {
     if (fluxCaching.dockerHubVerificationCache) {
       fluxCaching.dockerHubVerificationCache.clear();
     }
+    if (fluxCaching.blockedRepositoriesCache) {
+      fluxCaching.blockedRepositoriesCache.clear();
+    }
   });
 
   afterEach(() => {

@@ -12,13 +12,6 @@ const userconfig = require('../../../../config/userconfig');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
 const fluxCaching = require('../utils/cacheManager').default;
 
-// Global cache for original compatibility
-const myLongCache = {
-  cache: new Map(),
-  get(key) { return this.cache.get(key); },
-  set(key, value) { this.cache.set(key, value); },
-};
-
 // Cache for blocked repositories
 let cacheUserBlockedRepos = null;
 
@@ -188,13 +181,13 @@ async function verifyRepository(repotag, options = {}) {
  */
 async function getBlockedRepositores() {
   try {
-    const cachedResponse = myLongCache.get('blockedRepositories');
+    const cachedResponse = fluxCaching.blockedRepositoriesCache.get('blockedRepositories');
     if (cachedResponse) {
       return cachedResponse;
     }
     const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json');
     if (resBlockedRepo.data) {
-      myLongCache.set('blockedRepositories', resBlockedRepo.data);
+      fluxCaching.blockedRepositoriesCache.set('blockedRepositories', resBlockedRepo.data);
       return resBlockedRepo.data;
     }
     return null;

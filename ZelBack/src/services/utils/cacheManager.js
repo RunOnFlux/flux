@@ -127,6 +127,10 @@ class FluxCacheManager {
       max: 200,
       ttl: FluxCacheManager.oneHour,
     },
+    blockedRepositoriesCache: {
+      max: 10,
+      ttl: 6 * FluxCacheManager.oneHour,
+    },
     // fluxCommunicationMessageSender
     tempMessageCache: {
       max: 250,
