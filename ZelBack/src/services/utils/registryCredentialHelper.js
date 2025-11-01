@@ -22,10 +22,11 @@ const { AuthProviderFactory } = require('../registryAuth/services/authProviderFa
  * @param {string} repotag - Docker image tag (e.g., "nginx:latest" or "123.dkr.ecr.us-east-1.amazonaws.com/app:v1")
  * @param {string} repoauth - Authentication string (encrypted for v7, plain for v8+)
  * @param {number} specVersion - Application specification version (7, 8, etc.)
+ * @param {string} appName - Application name for per-app provider caching isolation
  * @returns {Promise<{username: string, password: string}|null>} Credentials object or null if no auth
  * @throws {Error} If decryption fails or credentials are invalid
  */
-async function getCredentials(repotag, repoauth, specVersion) {
+async function getCredentials(repotag, repoauth, specVersion, appName) {
   // No authentication needed
   if (!repoauth) {
     return null;
@@ -73,7 +74,7 @@ async function getCredentials(repotag, repoauth, specVersion) {
 
   // Create appropriate provider based on auth config and registry URL
   // This will throw detailed validation errors if configuration is invalid
-  const provider = AuthProviderFactory.createProvider(registryUrl, authConfig);
+  const provider = AuthProviderFactory.createProvider(registryUrl, authConfig, appName);
 
   if (!provider) {
     throw new Error(

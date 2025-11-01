@@ -10,8 +10,8 @@ const { ECRClient, DescribeRepositoriesCommand, GetAuthorizationTokenCommand } =
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
 class AwsEcrAuthProvider extends RegistryAuthProvider {
-  constructor(config) {
-    super(config);
+  constructor(config, appName) {
+    super(config, appName);
     this.ecrClient = null;
     this.ecrRegion = config.region || process.env.AWS_DEFAULT_REGION;
 

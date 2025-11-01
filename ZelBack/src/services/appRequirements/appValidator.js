@@ -1259,6 +1259,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
           specVersion: appSpecifications.version,
+          appName: appSpecifications.name,
         });
       }
     }

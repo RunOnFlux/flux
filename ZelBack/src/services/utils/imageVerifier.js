@@ -318,7 +318,11 @@ class ImageVerifier {
         return { data: { token: null } };
       });
 
-    if (!token) return;
+    if (!token) {
+      this.authConfigured = true;
+      this.authVerified = false;
+      return;
+    }
 
     this.authConfigured = true;
     this.authVerified = true; // Verified at realm endpoint

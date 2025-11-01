@@ -3,6 +3,7 @@ const sinon = require('sinon');
 const { AuthProviderFactory } = require('../../../ZelBack/src/services/registryAuth/services/authProviderFactory');
 const { BasicAuthProvider } = require('../../../ZelBack/src/services/registryAuth/providers/basicAuthProvider');
 const { RegistryAuthProvider } = require('../../../ZelBack/src/services/registryAuth/providers/base/registryAuthProvider');
+const { default: fluxCaching } = require('../../../ZelBack/src/services/utils/cacheManager');
 
 describe('AuthProviderFactory Tests', () => {
   beforeEach(() => {
@@ -145,7 +146,7 @@ describe('AuthProviderFactory Tests', () => {
       const cacheKey = 'test-cache-key';
       AuthProviderFactory.getCachedProvider(cacheKey, () => new CustomProvider({}));
 
-      expect(AuthProviderFactory.providerCache.size).to.be.greaterThan(0);
+      expect(fluxCaching.registryProviderCache.size).to.be.greaterThan(0);
 
       // Unregister should clear cache
       AuthProviderFactory.unregisterProvider('custom');
@@ -158,19 +159,19 @@ describe('AuthProviderFactory Tests', () => {
 
   describe('createProvider() - String Format', () => {
     it('should create BasicAuthProvider from username:password string', () => {
-      const provider = AuthProviderFactory.createProvider('registry.example.com', 'myuser:mypassword');
+      const provider = AuthProviderFactory.createProvider('registry.example.com', 'myuser:mypassword', 'testapp');
 
       expect(provider).to.be.instanceOf(BasicAuthProvider);
     });
 
     it('should handle complex passwords in string format', () => {
-      const provider = AuthProviderFactory.createProvider('registry.example.com', 'user:p@ss:w0rd');
+      const provider = AuthProviderFactory.createProvider('registry.example.com', 'user:p@ss:w0rd', 'testapp');
 
       expect(provider).to.be.instanceOf(BasicAuthProvider);
     });
 
     it('should return null for empty string', () => {
-      const provider = AuthProviderFactory.createProvider('registry.example.com', '');
+      const provider = AuthProviderFactory.createProvider('registry.example.com', '', 'testapp');
 
       expect(provider).to.be.null;
     });
@@ -184,7 +185,7 @@ describe('AuthProviderFactory Tests', () => {
         password: 'mypassword',
       };
 
-      const provider = AuthProviderFactory.createProvider('registry.example.com', config);
+      const provider = AuthProviderFactory.createProvider('registry.example.com', config, 'testapp');
 
       expect(provider).to.be.instanceOf(BasicAuthProvider);
       expect(provider.registeredName).to.equal('basic');
@@ -199,7 +200,7 @@ describe('AuthProviderFactory Tests', () => {
       };
 
       try {
-        const provider = AuthProviderFactory.createProvider('123456789012.dkr.ecr.us-east-1.amazonaws.com', config);
+        const provider = AuthProviderFactory.createProvider('123456789012.dkr.ecr.us-east-1.amazonaws.com', config, 'testapp');
 
         // If AWS SDK is available
         expect(provider).to.exist;
@@ -219,7 +220,7 @@ describe('AuthProviderFactory Tests', () => {
       };
 
       // Factory catches "Unknown provider type" and returns null
-      const provider = AuthProviderFactory.createProvider('registry.example.com', config);
+      const provider = AuthProviderFactory.createProvider('registry.example.com', config, 'testapp');
       expect(provider).to.be.null;
     });
 
@@ -230,7 +231,7 @@ describe('AuthProviderFactory Tests', () => {
         password: 'mypassword',
       };
 
-      const provider = AuthProviderFactory.createProvider('registry.example.com', config);
+      const provider = AuthProviderFactory.createProvider('registry.example.com', config, 'testapp');
 
       expect(provider).to.be.instanceOf(BasicAuthProvider);
     });
@@ -245,7 +246,7 @@ describe('AuthProviderFactory Tests', () => {
       };
 
       try {
-        const provider = AuthProviderFactory.createProvider('123456789012.dkr.ecr.us-east-1.amazonaws.com', config);
+        const provider = AuthProviderFactory.createProvider('123456789012.dkr.ecr.us-east-1.amazonaws.com', config, 'testapp');
 
         if (provider) {
           expect(provider.registeredName).to.equal('aws-ecr');
@@ -264,7 +265,7 @@ describe('AuthProviderFactory Tests', () => {
       };
 
       try {
-        const provider = AuthProviderFactory.createProvider('myregistry.azurecr.io', config);
+        const provider = AuthProviderFactory.createProvider('myregistry.azurecr.io', config, 'testapp');
 
         if (provider) {
           expect(provider.registeredName).to.equal('azure-acr');
@@ -288,7 +289,7 @@ describe('AuthProviderFactory Tests', () => {
       };
 
       try {
-        const provider = AuthProviderFactory.createProvider('us-docker.pkg.dev', config);
+        const provider = AuthProviderFactory.createProvider('us-docker.pkg.dev', config, 'testapp');
 
         if (provider) {
           expect(provider.registeredName).to.equal('google-gar');
@@ -305,7 +306,7 @@ describe('AuthProviderFactory Tests', () => {
         password: 'mypassword',
       };
 
-      const provider = AuthProviderFactory.createProvider('unknown-registry.example.com', config);
+      const provider = AuthProviderFactory.createProvider('unknown-registry.example.com', config, 'testapp');
 
       expect(provider).to.be.instanceOf(BasicAuthProvider);
     });
@@ -316,7 +317,7 @@ describe('AuthProviderFactory Tests', () => {
         someRandomConfig: 'value',
       };
 
-      const provider = AuthProviderFactory.createProvider('unknown-registry.example.com', config);
+      const provider = AuthProviderFactory.createProvider('unknown-registry.example.com', config, 'testapp');
 
       expect(provider).to.be.null;
     });
@@ -329,16 +330,26 @@ describe('AuthProviderFactory Tests', () => {
 
       const createFn = () => {
         createCount += 1;
-        return new BasicAuthProvider({ username: 'user', password: 'pass', registryUrl: 'test.com' });
+        const provider = new BasicAuthProvider({ username: 'user', password: 'pass', registryUrl: 'test.com' }, 'testapp');
+        // Verify provider is valid
+        expect(provider.isTokenValid()).to.be.true;
+        // BasicAuthProvider inherits getTimeUntilExpiry from base class, but tokenExpiry is null
+        expect(provider.tokenExpiry).to.be.null;
+        return provider;
       };
 
       // First call should create
       const provider1 = AuthProviderFactory.getCachedProvider(cacheKey, createFn);
       expect(createCount).to.equal(1);
+      expect(fluxCaching.registryProviderCache.has(cacheKey)).to.be.true;
+
+      // Verify cached provider is valid
+      const cached = fluxCaching.registryProviderCache.get(cacheKey);
+      expect(cached.isTokenValid()).to.be.true;
 
       // Second call should use cache
       const provider2 = AuthProviderFactory.getCachedProvider(cacheKey, createFn);
-      expect(createCount).to.equal(1); // Not incremented
+      expect(createCount).to.equal(1); // Not incremented - should use cached instance
 
       expect(provider1).to.equal(provider2);
     });
@@ -375,33 +386,117 @@ describe('AuthProviderFactory Tests', () => {
       expect(key1).to.not.equal(key2);
     });
 
+    it('should create different cache keys for different apps with same credentials', () => {
+      const config = {
+        username: 'myuser',
+        password: 'mypassword',
+      };
+
+      const key1 = AuthProviderFactory.createCacheKey('registry.example.com', config, 'app1');
+      const key2 = AuthProviderFactory.createCacheKey('registry.example.com', config, 'app2');
+
+      expect(key1).to.not.equal(key2);
+      expect(key1).to.include('app1');
+      expect(key2).to.include('app2');
+    });
+
+    it('should use provider-specific TTL when caching', () => {
+      const cacheKey = 'test-ttl-key';
+      let createCount = 0;
+
+      // Mock a provider with specific expiry time
+      const createFn = () => {
+        createCount += 1;
+        const provider = new BasicAuthProvider({ username: 'user', password: 'pass', registryUrl: 'test.com' }, 'testapp');
+
+        // Mock provider to have token expiry (1 hour from now)
+        const oneHourMs = 60 * 60 * 1000;
+        provider.tokenExpiry = Date.now() + oneHourMs;
+
+        // Stub getTimeUntilExpiry to return specific value
+        sinon.stub(provider, 'getTimeUntilExpiry').returns(oneHourMs);
+
+        return provider;
+      };
+
+      // Create and cache provider
+      const provider = AuthProviderFactory.getCachedProvider(cacheKey, createFn);
+      expect(createCount).to.equal(1);
+      expect(provider.getTimeUntilExpiry()).to.equal(60 * 60 * 1000);
+
+      // Verify provider was cached
+      expect(fluxCaching.registryProviderCache.has(cacheKey)).to.be.true;
+
+      // Verify we can retrieve it from cache
+      const cachedProvider = AuthProviderFactory.getCachedProvider(cacheKey, createFn);
+      expect(createCount).to.equal(1); // Should not create new instance
+      expect(cachedProvider).to.equal(provider);
+    });
+
+    it('should evict and refresh tokens expiring within 15 minutes', () => {
+      const cacheKey = 'test-expiring-key';
+      let createCount = 0;
+
+      const createFn = () => {
+        createCount += 1;
+        const provider = new BasicAuthProvider({ username: 'user', password: 'pass', registryUrl: 'test.com' }, 'testapp');
+
+        if (createCount === 1) {
+          // First creation: token expiring in 10 minutes (less than 15-minute buffer)
+          const tenMinutesMs = 10 * 60 * 1000;
+          provider.tokenExpiry = Date.now() + tenMinutesMs;
+          sinon.stub(provider, 'getTimeUntilExpiry').returns(tenMinutesMs);
+          sinon.stub(provider, 'isTokenExpiringSoon').returns(true); // Expiring soon
+        } else {
+          // Second creation: fresh token with 1 hour expiry
+          const oneHourMs = 60 * 60 * 1000;
+          provider.tokenExpiry = Date.now() + oneHourMs;
+          sinon.stub(provider, 'getTimeUntilExpiry').returns(oneHourMs);
+          sinon.stub(provider, 'isTokenExpiringSoon').returns(false); // Not expiring soon
+        }
+
+        return provider;
+      };
+
+      // First call creates provider with token expiring in 10 minutes
+      const provider1 = AuthProviderFactory.getCachedProvider(cacheKey, createFn);
+      expect(createCount).to.equal(1);
+      expect(provider1.isTokenExpiringSoon()).to.be.true;
+
+      // Second call should detect expiring token and create new provider
+      const provider2 = AuthProviderFactory.getCachedProvider(cacheKey, createFn);
+      expect(createCount).to.equal(2); // Should create new instance due to expiring token
+      expect(provider2.isTokenExpiringSoon()).to.be.false;
+      expect(provider2).to.not.equal(provider1); // Should be different instance
+    });
+
     it('should clear all cache', () => {
-      const provider1 = new BasicAuthProvider({ username: 'user1', password: 'pass1', registryUrl: 'test1.com' });
-      const provider2 = new BasicAuthProvider({ username: 'user2', password: 'pass2', registryUrl: 'test2.com' });
+      const provider1 = new BasicAuthProvider({ username: 'user1', password: 'pass1', registryUrl: 'test1.com' }, 'testapp');
+      const provider2 = new BasicAuthProvider({ username: 'user2', password: 'pass2', registryUrl: 'test2.com' }, 'testapp');
 
-      AuthProviderFactory.providerCache.set('key1', provider1);
-      AuthProviderFactory.providerCache.set('key2', provider2);
+      fluxCaching.registryProviderCache.set('key1', provider1);
+      fluxCaching.registryProviderCache.set('key2', provider2);
 
-      expect(AuthProviderFactory.providerCache.size).to.equal(2);
+      expect(fluxCaching.registryProviderCache.size).to.equal(2);
 
       AuthProviderFactory.clearProviderCache();
 
-      expect(AuthProviderFactory.providerCache.size).to.equal(0);
+      expect(fluxCaching.registryProviderCache.size).to.equal(0);
     });
 
     it('should clear cache for specific provider', () => {
-      const provider1 = new BasicAuthProvider({ username: 'user1', password: 'pass1', registryUrl: 'test1.com' });
-      const provider2 = new BasicAuthProvider({ username: 'user2', password: 'pass2', registryUrl: 'test2.com' });
+      const provider1 = new BasicAuthProvider({ username: 'user1', password: 'pass1', registryUrl: 'test1.com' }, 'testapp');
+      const provider2 = new BasicAuthProvider({ username: 'user2', password: 'pass2', registryUrl: 'test2.com' }, 'testapp');
 
-      AuthProviderFactory.providerCache.set('key1', provider1);
-      AuthProviderFactory.providerCache.set('key2', provider2);
+      fluxCaching.registryProviderCache.set('key1', provider1);
+      fluxCaching.registryProviderCache.set('key2', provider2);
 
-      expect(AuthProviderFactory.providerCache.size).to.equal(2);
+      expect(fluxCaching.registryProviderCache.size).to.equal(2);
 
       AuthProviderFactory.clearProviderCache('basic');
 
       // Both should be cleared since both are basic providers
-      expect(AuthProviderFactory.providerCache.size).to.equal(0);
+      expect(fluxCaching.registryProviderCache.size).to.equal(0);
     });
   });
 
@@ -579,8 +674,8 @@ describe('AuthProviderFactory Tests', () => {
       expect(AuthProviderFactory.getAvailableProviders()).to.include('custom');
 
       // Add to cache
-      AuthProviderFactory.providerCache.set('test-key', new CustomProvider({}));
-      expect(AuthProviderFactory.providerCache.size).to.be.greaterThan(0);
+      fluxCaching.registryProviderCache.set('test-key', new CustomProvider({}));
+      expect(fluxCaching.registryProviderCache.size).to.be.greaterThan(0);
 
       // Reset
       AuthProviderFactory.resetToDefaults();
@@ -589,7 +684,7 @@ describe('AuthProviderFactory Tests', () => {
       expect(AuthProviderFactory.getAvailableProviders()).to.not.include('custom');
 
       // Cache should be cleared
-      expect(AuthProviderFactory.providerCache.size).to.equal(0);
+      expect(fluxCaching.registryProviderCache.size).to.equal(0);
 
       // Built-in providers should still be registered
       expect(AuthProviderFactory.getAvailableProviders()).to.include('basic');
@@ -598,12 +693,12 @@ describe('AuthProviderFactory Tests', () => {
 
   describe('Error Handling', () => {
     it('should return null for null authConfig', () => {
-      const provider = AuthProviderFactory.createProvider('registry.example.com', null);
+      const provider = AuthProviderFactory.createProvider('registry.example.com', null, 'testapp');
       expect(provider).to.be.null;
     });
 
     it('should return null for undefined authConfig', () => {
-      const provider = AuthProviderFactory.createProvider('registry.example.com', undefined);
+      const provider = AuthProviderFactory.createProvider('registry.example.com', undefined, 'testapp');
       expect(provider).to.be.null;
     });
 
@@ -614,7 +709,7 @@ describe('AuthProviderFactory Tests', () => {
       };
 
       expect(() => {
-        AuthProviderFactory.createProvider('registry.example.com', config);
+        AuthProviderFactory.createProvider('registry.example.com', config, 'testapp');
       }).to.throw();
     });
 
@@ -647,7 +742,7 @@ describe('AuthProviderFactory Tests', () => {
       };
 
       // Should fallback to basic auth despite failing provider
-      const provider = AuthProviderFactory.createProvider('registry.example.com', config);
+      const provider = AuthProviderFactory.createProvider('registry.example.com', config, 'testapp');
       expect(provider).to.be.instanceOf(BasicAuthProvider);
     });
   });
@@ -662,7 +757,7 @@ describe('AuthProviderFactory Tests', () => {
       };
 
       // Even with empty registry, fallback creates BasicAuthProvider from username/password
-      const provider = AuthProviderFactory.createProvider('registry.example.com', config);
+      const provider = AuthProviderFactory.createProvider('registry.example.com', config, 'testapp');
       expect(provider).to.be.instanceOf(BasicAuthProvider);
 
       // Restore
@@ -678,7 +773,7 @@ describe('AuthProviderFactory Tests', () => {
         accessKeyId: 'should-be-ignored',
       };
 
-      const provider = AuthProviderFactory.createProvider('registry.example.com', config);
+      const provider = AuthProviderFactory.createProvider('registry.example.com', config, 'testapp');
 
       // Explicit type should take precedence
       expect(provider).to.be.instanceOf(BasicAuthProvider);

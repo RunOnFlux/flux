@@ -489,6 +489,7 @@ async function trySpawningGlobalApplication() {
         repoauth: componentToInstall.repoauth,
         specVersion: appSpecifications.version,
         architecture,
+        appName: appSpecifications.name,
       }).catch((error) => {
         // imageManager already handles error classification and caching with intelligent TTLs (1h-7d)
         // Add to spawn cache with 1-hour TTL to allow retry sooner than default 12h

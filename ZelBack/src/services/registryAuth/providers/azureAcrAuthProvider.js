@@ -14,8 +14,8 @@ const { ClientSecretCredential } = require('@azure/identity');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
 class AzureAcrAuthProvider extends RegistryAuthProvider {
-  constructor(config) {
-    super(config);
+  constructor(config, appName) {
+    super(config, appName);
     this.azureCredential = null;
 
     // Extract registry name from config if provided

@@ -556,7 +556,8 @@ describe('imageVerifier tests', () => {
       await verifier.verifyImage();
 
       sinon.assert.calledWith(axiosGetStub, expected);
-      expect(verifier.authed).to.equal(true);
+      expect(verifier.authConfigured).to.equal(true);
+      expect(verifier.authVerified).to.equal(true);
     });
 
     it('should call auth endpoint with correct url params, and not set auth details if not authed', async () => {
@@ -583,7 +584,8 @@ describe('imageVerifier tests', () => {
       await verifier.verifyImage();
 
       sinon.assert.calledWith(axiosGetStub, expected);
-      expect(verifier.authed).to.equal(false);
+      expect(verifier.authConfigured).to.equal(true);
+      expect(verifier.authVerified).to.equal(false);
       expect(() => verifier.throwIfError()).to.throw(`Authentication rejected for: ${repotag}`);
     });
 

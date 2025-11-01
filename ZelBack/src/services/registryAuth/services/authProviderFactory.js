@@ -7,15 +7,13 @@
  */
 
 const log = require('../../../lib/log');
+const { default: fluxCaching } = require('../../utils/cacheManager');
 const { RegistryAuthProvider } = require('../providers/base/registryAuthProvider');
 const { BasicAuthProvider } = require('../providers/basicAuthProvider');
 
 class AuthProviderFactory {
   // Registry of available provider classes
   static providers = new Map();
-
-  // Cache for provider instances to avoid recreating them
-  static providerCache = new Map();
 
   /**
    * Register a new authentication provider class
@@ -68,37 +66,42 @@ class AuthProviderFactory {
    *
    * @param {string} registryUrl - Registry URL to authenticate with
    * @param {string|object} authConfig - Authentication configuration
+   * @param {string} appName - Application name for per-app provider caching isolation
    * @returns {RegistryAuthProvider|null} Appropriate provider or null
    * @throws {Error} If provider configuration is invalid
    */
-  static createProvider(registryUrl, authConfig) {
+  static createProvider(registryUrl, authConfig, appName) {
     if (!authConfig) {
       return null;
     }
 
-    try {
-      // Handle legacy string format (username:password)
-      if (typeof authConfig === 'string') {
-        return this.createBasicAuthProvider(authConfig);
-      }
+    const cacheKey = this.createCacheKey(registryUrl, authConfig, appName);
 
-      // Handle object-based configuration
-      if (typeof authConfig === 'object') {
-        return this.createProviderFromObject(registryUrl, authConfig);
-      }
+    return this.getCachedProvider(cacheKey, () => {
+      try {
+        // Handle legacy string format (username:password)
+        if (typeof authConfig === 'string') {
+          return this.createBasicAuthProvider(authConfig, appName);
+        }
 
-      return null;
-    } catch (error) {
-      // Re-throw configuration/validation errors with full context
-      // Only swallow errors for truly unknown/unavailable providers
-      if (error.message.includes('Unknown provider type')) {
-        log.warn(`Failed to create auth provider: ${error.message}`);
+        // Handle object-based configuration
+        if (typeof authConfig === 'object') {
+          return this.createProviderFromObject(registryUrl, authConfig, appName);
+        }
+
         return null;
-      }
+      } catch (error) {
+        // Re-throw configuration/validation errors with full context
+        // Only swallow errors for truly unknown/unavailable providers
+        if (error.message.includes('Unknown provider type')) {
+          log.warn(`Failed to create auth provider: ${error.message}`);
+          return null;
+        }
 
-      // Propagate validation errors (invalid config, parsing errors, etc.)
-      throw error;
-    }
+        // Propagate validation errors (invalid config, parsing errors, etc.)
+        throw error;
+      }
+    });
   }
 
   /**
@@ -106,23 +109,24 @@ class AuthProviderFactory {
    *
    * @param {string} registryUrl - Registry URL
    * @param {object} authConfig - Object configuration
+   * @param {string} appName - Application name for per-app provider caching isolation
    * @returns {RegistryAuthProvider|null} Created provider
    */
-  static createProviderFromObject(registryUrl, authConfig) {
+  static createProviderFromObject(registryUrl, authConfig, appName) {
     // Explicit provider type specified
     if (authConfig.type) {
-      return this.createExplicitProvider(authConfig.type, authConfig, registryUrl);
+      return this.createExplicitProvider(authConfig.type, authConfig, registryUrl, appName);
     }
 
     // Auto-detect provider based on registry URL
-    const autoDetectedProvider = this.autoDetectProvider(registryUrl, authConfig);
+    const autoDetectedProvider = this.autoDetectProvider(registryUrl, authConfig, appName);
     if (autoDetectedProvider) {
       return autoDetectedProvider;
     }
 
     // Fallback to basic auth if username/password provided
     if (authConfig.username && authConfig.password) {
-      return BasicAuthProvider.fromCredentialsObject(authConfig);
+      return BasicAuthProvider.fromCredentialsObject(authConfig, appName);
     }
 
     return null;
@@ -134,9 +138,10 @@ class AuthProviderFactory {
    * @param {string} providerType - Explicit provider type
    * @param {object} config - Provider configuration
    * @param {string} [registryUrl] - Optional registry URL for extracting metadata
+   * @param {string} appName - Application name for per-app provider caching isolation
    * @returns {RegistryAuthProvider|null} Created provider
    */
-  static createExplicitProvider(providerType, config, registryUrl = null) {
+  static createExplicitProvider(providerType, config, registryUrl = null, appName) {
     const ProviderClass = this.providers.get(providerType.toLowerCase());
     if (!ProviderClass) {
       throw new Error(`Unknown provider type: ${providerType}`);
@@ -144,7 +149,7 @@ class AuthProviderFactory {
 
     // Handle special cases for providers that don't use standard config object constructor
     if (providerType.toLowerCase() === 'basic') {
-      const provider = BasicAuthProvider.fromCredentialsObject(config);
+      const provider = BasicAuthProvider.fromCredentialsObject(config, appName);
       provider.registeredName = providerType.toLowerCase();
       return provider;
     }
@@ -154,7 +159,7 @@ class AuthProviderFactory {
       ? { ...config, registry: registryUrl }
       : config;
 
-    const provider = new ProviderClass(configWithRegistry);
+    const provider = new ProviderClass(configWithRegistry, appName);
     provider.registeredName = providerType.toLowerCase();
     return provider;
   }
@@ -164,9 +169,10 @@ class AuthProviderFactory {
    *
    * @param {string} registryUrl - Registry URL
    * @param {object} authConfig - Authentication configuration
+   * @param {string} appName - Application name for per-app provider caching isolation
    * @returns {RegistryAuthProvider|null} Detected provider
    */
-  static autoDetectProvider(registryUrl, authConfig) {
+  static autoDetectProvider(registryUrl, authConfig, appName) {
     if (!registryUrl || !RegistryAuthProvider.isValidRegistryUrl(registryUrl)) {
       return null;
     }
@@ -174,7 +180,7 @@ class AuthProviderFactory {
     // Try each registered provider to see if it can handle this registry
     for (const [name, ProviderClass] of this.providers) {
       try {
-        const instance = new ProviderClass(authConfig);
+        const instance = new ProviderClass(authConfig, appName);
         instance.registeredName = name;
 
         // Check if provider supports this registry and has valid config
@@ -195,10 +201,11 @@ class AuthProviderFactory {
    * Create basic auth provider from string credentials
    *
    * @param {string} credentialString - Credentials in "username:password" format
+   * @param {string} appName - Application name for per-app provider caching isolation
    * @returns {BasicAuthProvider} Basic auth provider
    */
-  static createBasicAuthProvider(credentialString) {
-    return BasicAuthProvider.fromCredentialString(credentialString);
+  static createBasicAuthProvider(credentialString, appName) {
+    return BasicAuthProvider.fromCredentialString(credentialString, appName);
   }
 
   /**
@@ -233,13 +240,47 @@ class AuthProviderFactory {
    * @returns {RegistryAuthProvider|null} Provider instance
    */
   static getCachedProvider(cacheKey, createFn) {
-    if (this.providerCache.has(cacheKey)) {
-      return this.providerCache.get(cacheKey);
+    if (fluxCaching.registryProviderCache.has(cacheKey)) {
+      const provider = fluxCaching.registryProviderCache.get(cacheKey);
+
+      // Lazy validation: check if token is still valid
+      // For providers with expiring tokens (cloud providers), also check if expiring soon
+      // For providers without expiring tokens (BasicAuth), just check if valid
+      const isValid = provider.isTokenValid && provider.isTokenValid();
+      if (!isValid) {
+        // Token invalid - remove from cache
+        fluxCaching.registryProviderCache.delete(cacheKey);
+      } else {
+        // Token is valid - for expiring tokens, also check if expiring soon
+        // Check if provider has an actual token expiry set (not just the method)
+        const hasTokenExpiry = provider.tokenExpiry !== null && provider.tokenExpiry !== undefined;
+        const isExpiringSoon = hasTokenExpiry && provider.isTokenExpiringSoon();
+
+        if (!isExpiringSoon) {
+          // Token valid and not expiring soon (or doesn't have expiry) - return cached
+          return provider;
+        }
+
+        // Token expiring soon - remove from cache and create new one
+        fluxCaching.registryProviderCache.delete(cacheKey);
+      }
     }
 
     const provider = createFn();
     if (provider) {
-      this.providerCache.set(cacheKey, provider);
+      // Use provider's actual token expiry as TTL
+      // Falls back to 12hr for BasicAuth (which doesn't expire)
+      let ttl = 12 * 60 * 60 * 1000; // Default 12 hours
+
+      if (provider.getTimeUntilExpiry) {
+        const timeUntilExpiry = provider.getTimeUntilExpiry();
+        // Only use if it's a positive value, otherwise use default
+        if (timeUntilExpiry > 0) {
+          ttl = timeUntilExpiry;
+        }
+      }
+
+      fluxCaching.registryProviderCache.set(cacheKey, provider, { ttl });
     }
 
     return provider;
@@ -253,14 +294,15 @@ class AuthProviderFactory {
   static clearProviderCache(providerName = null) {
     if (providerName) {
       // Clear cache entries for specific provider
-      for (const [key, provider] of this.providerCache) {
+      // Note: FluxTTLCache extends Map, so we can iterate using entries()
+      for (const [key, provider] of fluxCaching.registryProviderCache.entries()) {
         if (provider.getProviderName() === providerName.toLowerCase()) {
-          this.providerCache.delete(key);
+          fluxCaching.registryProviderCache.delete(key);
         }
       }
     } else {
       // Clear all cache
-      this.providerCache.clear();
+      fluxCaching.registryProviderCache.clear();
     }
   }
 
@@ -270,7 +312,7 @@ class AuthProviderFactory {
    */
   static resetToDefaults() {
     this.providers.clear();
-    this.providerCache.clear();
+    fluxCaching.registryProviderCache.clear();
 
     // Re-register built-in providers
     this.registerProvider('basic', BasicAuthProvider);
@@ -305,12 +347,14 @@ class AuthProviderFactory {
    *
    * @param {string} registryUrl - Registry URL
    * @param {object} config - Provider configuration
+   * @param {string} appName - Application name for per-app isolation
    * @returns {string} Cache key
    */
-  static createCacheKey(registryUrl, config) {
-    // Create a stable cache key from registry URL and config
+  static createCacheKey(registryUrl, config, appName) {
+    // Create a stable cache key from app name, registry URL, and config
     const configStr = JSON.stringify(config, Object.keys(config).sort());
-    return `${registryUrl}:${Buffer.from(configStr).toString('base64')}`;
+    const configHash = Buffer.from(configStr).toString('base64');
+    return `${appName}:${registryUrl}:${configHash}`;
   }
 
   /**
@@ -321,7 +365,7 @@ class AuthProviderFactory {
   static getProviderStats() {
     return {
       registeredProviders: this.getAvailableProviders(),
-      cachedInstances: this.providerCache.size,
+      cachedInstances: fluxCaching.registryProviderCache.size,
       totalProviders: this.providers.size
     };
   }

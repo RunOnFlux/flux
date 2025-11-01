@@ -9,8 +9,8 @@
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
 class BasicAuthProvider extends RegistryAuthProvider {
-  constructor(config) {
-    super(config);
+  constructor(config, appName) {
+    super(config, appName);
     this.username = config.username;
     this.password = config.password;
   }
@@ -101,9 +101,10 @@ class BasicAuthProvider extends RegistryAuthProvider {
    * Handles the common "username:password" format
    *
    * @param {string} credentialString - Credentials in "username:password" format
+   * @param {string} appName - Application name for per-app provider caching isolation
    * @returns {BasicAuthProvider} New provider instance
    */
-  static fromCredentialString(credentialString) {
+  static fromCredentialString(credentialString, appName) {
     if (!credentialString || typeof credentialString !== 'string') {
       throw new Error('Credential string is required');
     }
@@ -122,16 +123,17 @@ class BasicAuthProvider extends RegistryAuthProvider {
     return new BasicAuthProvider({
       username: username.trim(),
       password: password.trim()
-    });
+    }, appName);
   }
 
   /**
    * Create a BasicAuthProvider from a credentials object
    *
    * @param {object} credentialsObj - Object with username and password fields
+   * @param {string} appName - Application name for per-app provider caching isolation
    * @returns {BasicAuthProvider} New provider instance
    */
-  static fromCredentialsObject(credentialsObj) {
+  static fromCredentialsObject(credentialsObj, appName) {
     if (!credentialsObj || typeof credentialsObj !== 'object') {
       throw new Error('Credentials object is required');
     }
@@ -142,7 +144,7 @@ class BasicAuthProvider extends RegistryAuthProvider {
       throw new Error('Credentials object must contain username and password fields');
     }
 
-    return new BasicAuthProvider(credentialsObj);
+    return new BasicAuthProvider(credentialsObj, appName);
   }
 
   /**
