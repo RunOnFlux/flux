@@ -562,10 +562,8 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (!appSpecifications.name.match(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/)) {
       throw new Error('Flux App name contains special characters. Only a-z, A-Z, 0-9 and hyphens are allowed (hyphens cannot be first or last character)');
     }
-  } else {
-    if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
-      throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
-    }
+  } else if (!appSpecifications.name.match(/^[a-zA-Z0-9]+$/)) {
+    throw new Error('Flux App name contains special characters. Only a-z, A-Z and 0-9 are allowed');
   }
   if (appSpecifications.name.startsWith('zel')) {
     throw new Error('Flux App name can not start with zel');
@@ -1240,30 +1238,26 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     // check blacklist
     await imageManager.checkApplicationImagesCompliance(appSpecifications);
 
-    // For v7 enterprise apps, skip verification because repoauth is PGP-encrypted
-    // and only selected nodes have the private keys to decrypt it.
-    // For v8+, repoauth is plain text (already decrypted from enterprise blob),
-    // so we can and should verify the repository.
-    const shouldSkipVerification = appSpecifications.version === 7
-      && appSpecifications.nodes
-      && appSpecifications.nodes.length > 0;
-
     if (appSpecifications.version <= 3) {
       // check repository whitelisted and repotag is available for download
-      await imageManager.verifyRepository(appSpecifications.repotag, {
-        repoauth: appSpecifications.repoauth,
-        skipVerification: shouldSkipVerification,
-        appVersion: appSpecifications.version,
-      });
+      await imageManager.verifyRepository(appSpecifications.repotag);
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
+        // For v7 enterprise apps, skip verification because repoauth is PGP-encrypted
+        // and only selected nodes have the private keys to decrypt it.
+        // For v8+, repoauth is plain text (already decrypted from enterprise blob),
+        // so we can and should verify the repository.
+        const skipVerification =
+          appSpecifications.version === 7 && appComponent.repoauth;
+
+        // fail open
+        if (skipVerification) return true;
+
         // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
         await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
-          skipVerification: shouldSkipVerification,
-          appVersion: appSpecifications.version,
         });
       }
     }

@@ -78,7 +78,6 @@ function classifyVerificationError(error, errorMeta) {
  */
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
-  const skipVerification = options.skipVerification || false;
   const architecture = options.architecture || null;
 
   // Check cache first to avoid redundant Docker Hub API calls
@@ -105,18 +104,6 @@ async function verifyRepository(repotag, options = {}) {
   });
 
   if (repoauth) {
-    if (skipVerification) {
-      // fail open. This is done for v7 apps during verify when the node
-      // doesn't have the pgp key
-
-      fluxCaching.dockerHubVerificationCache.set(cacheKey, {
-        result: true,
-        error: null,
-      });
-
-      return true;
-    }
-
     // Use credential helper to handle version-aware decryption and cloud providers
     const credentials = await registryCredentialHelper.getCredentials(
       repotag,

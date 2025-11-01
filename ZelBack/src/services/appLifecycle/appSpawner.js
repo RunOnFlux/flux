@@ -600,6 +600,7 @@ async function trySpawningGlobalApplication() {
 
     await serviceHelper.delay(delayTime);
     log.info('trySpawningGlobalApplication - Reinitiating possible app installation');
+    log.warn(`REMOVAL REASON: Exceeded required instances - ${appSpecifications.name} already has sufficient instances, removing local installation (appSpawner)`);
     trySpawningGlobalApplication();
   } catch (error) {
     log.error(error);
