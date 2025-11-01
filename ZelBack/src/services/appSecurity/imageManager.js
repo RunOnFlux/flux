@@ -6,17 +6,11 @@ const pgpService = require('../pgpService');
 const imageVerifier = require('../utils/imageVerifier');
 const dbHelper = require('../dbHelper');
 const verificationHelper = require('../verificationHelper');
+const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const userconfig = require('../../../../config/userconfig');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
 const fluxCaching = require('../utils/cacheManager').default;
-
-// Global cache for original compatibility
-const myLongCache = {
-  cache: new Map(),
-  get(key) { return this.cache.get(key); },
-  set(key, value) { this.cache.set(key, value); },
-};
 
 // Cache for blocked repositories
 let cacheUserBlockedRepos = null;
@@ -187,13 +181,13 @@ async function verifyRepository(repotag, options = {}) {
  */
 async function getBlockedRepositores() {
   try {
-    const cachedResponse = myLongCache.get('blockedRepositories');
+    const cachedResponse = fluxCaching.blockedRepositoriesCache.get('blockedRepositories');
     if (cachedResponse) {
       return cachedResponse;
     }
     const resBlockedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/blockedrepositories.json');
     if (resBlockedRepo.data) {
-      myLongCache.set('blockedRepositories', resBlockedRepo.data);
+      fluxCaching.blockedRepositoriesCache.set('blockedRepositories', resBlockedRepo.data);
       return resBlockedRepo.data;
     }
     return null;
@@ -441,12 +435,20 @@ async function checkApplicationImagesBlocked(appSpecs) {
     });
   }
   if (repos) {
+    // Check if app hash or owner is directly in the blocked repositories list
+    if (repos.includes(appSpecs.hash)) {
+      return `${appSpecs.hash} is not allowed to be spawned`;
+    }
+    if (repos.includes(appSpecs.owner)) {
+      return `${appSpecs.owner} is not allowed to run applications`;
+    }
+
     const pureImagesOrOrganisationsRepos = [];
     repos.forEach((repo) => {
       pureImagesOrOrganisationsRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
     });
 
-    // blacklist works also for zelid and app hash
+    // blacklist works also for zelid and app hash (check processed list too)
     if (pureImagesOrOrganisationsRepos.includes(appSpecs.hash)) {
       return `${appSpecs.hash} is not allowed to be spawned`;
     }
@@ -539,6 +541,8 @@ async function checkApplicationsCompliance(installedApps, removeAppLocally) {
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
+    // Decrypt enterprise apps (version 8 with encrypted content)
+    installedAppsRes.data = await decryptEnterpriseApps(installedAppsRes.data);
     const appsInstalled = installedAppsRes.data;
     const appsToRemoveNames = [];
     // eslint-disable-next-line no-restricted-syntax
