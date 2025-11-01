@@ -78,10 +78,9 @@ class RegistryAuthProvider {
    * @returns {string} Provider name
    */
   getProviderName() {
-    if (!this.registeredName) {
-      throw new Error('Provider name not set - must be created through AuthProviderFactory');
-    }
-    return this.registeredName;
+    // If registeredName is set (via factory), use it
+    // Otherwise derive from class name for direct instantiation (useful for testing)
+    return this.registeredName || this.constructor.name.replace('AuthProvider', '').toLowerCase();
   }
 
   // ===== Common utility methods =====
