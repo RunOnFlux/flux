@@ -8,6 +8,9 @@ describe('appQueryService tests', () => {
   let messageHelperStub;
   let dockerServiceStub;
   let registryManagerStub;
+  let enterpriseHelperStub;
+  let appSpecHelpersStub;
+  let cacheManagerStub;
   let logStub;
   let configStub;
 
@@ -65,6 +68,23 @@ describe('appQueryService tests', () => {
       appInstallingLocation: sinon.stub(),
     };
 
+    enterpriseHelperStub = {
+      checkAndDecryptAppSpecs: sinon.stub().returnsArg(0), // Return app as-is by default
+    };
+
+    appSpecHelpersStub = {
+      specificationFormatter: sinon.stub().returnsArg(0), // Return app as-is by default
+    };
+
+    cacheManagerStub = {
+      default: {
+        enterpriseAppDecryptionCache: {
+          get: sinon.stub().returns(null), // By default, cache misses
+          set: sinon.stub(),
+        },
+      },
+    };
+
     logStub = {
       error: sinon.stub(),
       info: sinon.stub(),
@@ -78,6 +98,9 @@ describe('appQueryService tests', () => {
       '../messageHelper': messageHelperStub,
       '../dockerService': dockerServiceStub,
       '../appDatabase/registryManager': registryManagerStub,
+      '../utils/enterpriseHelper': enterpriseHelperStub,
+      '../utils/appSpecHelpers': appSpecHelpersStub,
+      '../utils/cacheManager': cacheManagerStub,
       '../../lib/log': logStub,
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
