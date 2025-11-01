@@ -875,6 +875,18 @@ async function installAppLocally(req, res) {
       if (!appSpecifications) {
         throw new Error(`Application Specifications of ${appname} not found`);
       }
+
+      // we have to do this as not all paths above decrypt the app specs
+      // this is a bit of a hack until we tidy up the app spec mess (use classes)
+      if (
+        appSpecifications.version >= 8
+        && appSpecifications.enterprise
+        && !appSpecifications.compose.length
+      ) {
+        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+        appSpecifications = specificationFormatter(appSpecifications);
+      }
+
       // get current height
       const dbopen = dbHelper.databaseConnection();
       if (!appSpecifications.height && appSpecifications.height !== 0) {
