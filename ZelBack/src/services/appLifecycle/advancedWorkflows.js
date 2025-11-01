@@ -416,19 +416,20 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
 
       if (pathInfo.isFile) {
-        // Create file under appdata/ with optional content
-        const createFileStatus = {
-          status: `Creating file: appdata/${pathInfo.name}...`,
-        };
-        log.info(createFileStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(createFileStatus));
-          if (res.flush) res.flush();
-        }
-
-        const filePath = `${appsFolder + appId}/appdata/${pathInfo.name}`;
-
+        // Only create files that have content
+        // Files without content are NOT mounted and will be created by the app internally
         if (pathInfo.content) {
+          const createFileStatus = {
+            status: `Creating file with content: appdata/${pathInfo.name}...`,
+          };
+          log.info(createFileStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(createFileStatus));
+            if (res.flush) res.flush();
+          }
+
+          const filePath = `${appsFolder + appId}/appdata/${pathInfo.name}`;
+
           // Decode base64 content and write to file
           try {
             const buffer = Buffer.from(pathInfo.content, 'base64');
@@ -445,20 +446,26 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
             log.error(`Failed to write file content for ${pathInfo.name}: ${error.message}`);
             throw new Error(`Failed to write file content for ${pathInfo.name}: ${error.message}`);
           }
-        } else {
-          // Create empty file (backward compatible)
-          const execFile = `sudo touch ${filePath}`;
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(execFile);
-        }
 
-        const createFileStatus2 = {
-          status: `File created: appdata/${pathInfo.name}`,
-        };
-        log.info(createFileStatus2);
-        if (res) {
-          res.write(serviceHelper.ensureString(createFileStatus2));
-          if (res.flush) res.flush();
+          const createFileStatus2 = {
+            status: `File created: appdata/${pathInfo.name}`,
+          };
+          log.info(createFileStatus2);
+          if (res) {
+            res.write(serviceHelper.ensureString(createFileStatus2));
+            if (res.flush) res.flush();
+          }
+        } else {
+          // File without content - NOT created or mounted
+          // The app will create it internally (non-persistent)
+          const skipFileStatus = {
+            status: `Skipping file mount (no content, app will create): appdata/${pathInfo.name}`,
+          };
+          log.info(skipFileStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(skipFileStatus));
+            if (res.flush) res.flush();
+          }
         }
       } else {
         // Create a directory under appdata/

@@ -116,6 +116,13 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
 
   // Process all mounts
   for (const mount of parsedMounts.allMounts) {
+    // Skip LOCAL file mounts without content (they are not created and should not be mounted)
+    // Component file mounts (COMPONENT_FILE) should still be mounted as they reference existing files
+    if (mount.type === MountType.FILE && !mount.content) {
+      log.info(`Skipping local file mount without content: ${mount.containerPath} (app will create internally)`);
+      continue; // eslint-disable-line no-continue
+    }
+
     let hostPath;
     const containerPath = mount.containerPath;
 
