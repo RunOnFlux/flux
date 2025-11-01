@@ -443,6 +443,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     }
 
     log.info(`Flux App: ${appName} is test install: ${test}`);
+
     if (!test) {
       const broadcastedAt = Date.now();
       const newAppRunningMessage = {
@@ -522,25 +523,29 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   // check blacklist
   await checkApplicationImagesCompliance(fullAppSpecs);
 
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    appSpecifications.repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
+  const { repotag, repoauth } = appSpecifications;
+  const { version: specVersion } = fullAppSpecs;
 
-  const pullConfig = { repoTag: appSpecifications.repotag };
+  const imgVerifier = new imageVerifier.ImageVerifier(repotag, {
+    maxImageSize: config.fluxapps.maxImageSize,
+    architecture,
+    architectureSet: supportedArchitectures,
+  });
+
+  const pullConfig = { repoTag: repotag };
 
   let authToken = null;
 
-  if (appSpecifications.repoauth) {
+  if (repoauth) {
     // Use credential helper to handle version-aware decryption and cloud providers
     const credentials = await registryCredentialHelper.getCredentials(
-      appSpecifications.repotag,
-      appSpecifications.repoauth,
-      fullAppSpecs.version, // Pass parent spec version for v7/v8 handling
+      repotag,
+      repoauth,
+      specVersion,
     );
 
     if (!credentials) {
-      throw new Error('Unable to get credentials');
+      throw new Error(`Unable to get credentials for repotag: ${repotag}`);
     }
 
     // Pass credentials object directly to ImageVerifier (no string conversion needed)
