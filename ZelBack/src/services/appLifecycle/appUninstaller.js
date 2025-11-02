@@ -27,69 +27,13 @@ const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
 
 /**
- * Hard uninstall application (complete removal)
- * @param {string} appName - Application name
+ * Stop Syncthing app and clean up cache
+ * @param {string} monitoredName - Monitored app name
  * @param {string} appId - Application ID
- * @param {object} appSpecifications - App specifications
- * @param {boolean} isComponent - Whether this is a component
  * @param {object} res - Response object for streaming
- * @param {function} stopAppMonitoring - Function to stop monitoring
- * @param {boolean} force - Use aggressive removal (kill + force remove) for stuck containers
- * @returns {Promise<object>} Uninstallation result
+ * @returns {Promise<void>}
  */
-async function appUninstallHard(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring, force = false) {
-  const stopStatus = {
-    status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
-  };
-  log.info(stopStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(stopStatus));
-    if (res.flush) res.flush();
-  }
-  let monitoredName = appName;
-  if (isComponent) {
-    monitoredName = `${appSpecifications.name}_${appName}`;
-  }
-  if (stopAppMonitoring) {
-    stopAppMonitoring(monitoredName, true);
-  }
-
-  // Use kill instead of stop for forced removals to ensure container terminates
-  if (force) {
-    await dockerService.appDockerKill(appId).catch((error) => {
-      log.warn(`Failed to kill container ${appId}: ${error.message}`);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-        if (res.flush) res.flush();
-      }
-    });
-  } else {
-    await dockerService.appDockerStop(appId).catch((error) => {
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-        if (res.flush) res.flush();
-      }
-    });
-  }
-  const stopStatus2 = {
-    status: isComponent ? `Flux App Component ${appSpecifications.name} stopped` : `Flux App ${appName} stopped`,
-  };
-  log.info(stopStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(stopStatus2));
-    if (res.flush) res.flush();
-  }
-
+async function stopSyncthingAndCleanup(monitoredName, appId, res) {
   try {
     // Dynamic require to avoid circular dependency
     const advancedWorkflows = require('./advancedWorkflows');
@@ -105,200 +49,98 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
   } catch (error) {
     log.error(`Error stopping Syncthing app: ${error.message}`);
   }
+}
 
-  const removeStatus = {
-    status: isComponent ? `Removing Flux App component ${appSpecifications.name} container...` : `Removing Flux App ${appName} container...`,
-  };
-  log.info(removeStatus);
+/**
+ * Unmount volume for application or component
+ * @param {string} appId - Application ID
+ * @param {string} entityName - Entity name for logging
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<void>}
+ */
+async function unmountVolume(appId, entityName, res) {
+  log.info(`Unmounting volume of ${entityName}...`);
   if (res) {
-    res.write(serviceHelper.ensureString(removeStatus));
+    res.write(serviceHelper.ensureString({ status: `Unmounting volume of ${entityName}...` }));
     if (res.flush) res.flush();
   }
 
-  // Use force remove for forced removals to ensure container is removed even if running
-  let containerRemoved = false;
-  if (force) {
-    await dockerService.appDockerForceRemove(appId).then(() => {
-      containerRemoved = true;
-    }).catch((error) => {
-      log.error(`Force remove failed for ${appId}: ${error.message}`);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-        if (res.flush) res.flush();
-      }
-    });
-  } else {
-    await dockerService.appDockerRemove(appId).then(() => {
-      containerRemoved = true;
-    }).catch((error) => {
-      log.error(`Container remove failed for ${appId}: ${error.message}`);
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
-      if (res) {
-        res.write(serviceHelper.ensureString(errorResponse));
-        if (res.flush) res.flush();
-      }
-    });
-  }
-
-  if (containerRemoved) {
-    const removeStatus2 = {
-      status: isComponent ? `Flux App component ${appSpecifications.name} container removed` : `Flux App ${appName} container removed`,
-    };
-    log.info(removeStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(removeStatus2));
-      if (res.flush) res.flush();
-    }
-  } else {
-    const removeStatusWarning = {
-      status: `WARNING: Container ${appId} may not have been fully removed. Network cleanup may fail.`,
-    };
-    log.warn(removeStatusWarning);
-    if (res) {
-      res.write(serviceHelper.ensureString(removeStatusWarning));
-      if (res.flush) res.flush();
-    }
-  }
-
-  const portStatus = {
-    status: isComponent ? `Denying Flux App component ${appSpecifications.name} ports...` : `Denying Flux App ${appName} ports...`,
-  };
-  log.info(portStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(portStatus));
-    if (res.flush) res.flush();
-  }
-  if (appSpecifications.ports) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(port));
-      }
-    }
-    const isUPNP = upnpService.isUPNP();
-    if (isUPNP) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
-      }
-    }
-    // v1 compatibility
-  } else if (appSpecifications.port) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(appSpecifications.port));
-    }
-    const isUPNP = upnpService.isUPNP();
-    if (isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
-    }
-  }
-  const portStatus2 = {
-    status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
-  };
-  log.info(portStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(portStatus2));
-    if (res.flush) res.flush();
-  }
-
-  const unmountStatus = {
-    status: isComponent ? `Unmounting volume of component ${appName}...` : `Unmounting volume of ${appName}...`,
-  };
-  log.info(unmountStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(unmountStatus));
-    if (res.flush) res.flush();
-  }
   const execUnmount = `sudo umount ${appsFolder + appId}`;
   const execSuccess = await cmdAsync(execUnmount).catch((e) => {
     log.error(e);
-    const unmountStatus3 = {
-      status: isComponent ? `An error occured while unmounting component ${appSpecifications.name} storage. Continuing...` : `An error occured while unmounting ${appName} storage. Continuing...`,
-    };
-    log.info(unmountStatus3);
+    log.info(`An error occured while unmounting ${entityName} storage. Continuing...`);
     if (res) {
-      res.write(serviceHelper.ensureString(unmountStatus3));
+      res.write(serviceHelper.ensureString({ status: `An error occured while unmounting ${entityName} storage. Continuing...` }));
       if (res.flush) res.flush();
     }
   });
+
   if (execSuccess) {
-    const unmountStatus2 = {
-      status: isComponent ? `Volume of component ${appSpecifications.name} unmounted` : `Volume of ${appName} unmounted`,
-    };
-    log.info(unmountStatus2);
+    log.info(`Volume of ${entityName} unmounted`);
     if (res) {
-      res.write(serviceHelper.ensureString(unmountStatus2));
+      res.write(serviceHelper.ensureString({ status: `Volume of ${entityName} unmounted` }));
       if (res.flush) res.flush();
     }
   }
+}
 
-  const cleaningStatus = {
-    status: isComponent ? `Cleaning up component ${appSpecifications.name} data...` : `Cleaning up ${appName} data...`,
-  };
-  log.info(cleaningStatus);
+/**
+ * Clean up application data directory
+ * @param {string} appId - Application ID
+ * @param {string} entityName - Entity name for logging
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<void>}
+ */
+async function cleanupAppData(appId, entityName, res) {
+  log.info(`Cleaning up ${entityName} data...`);
   if (res) {
-    res.write(serviceHelper.ensureString(cleaningStatus));
+    res.write(serviceHelper.ensureString({ status: `Cleaning up ${entityName} data...` }));
     if (res.flush) res.flush();
   }
+
   const execDelete = `sudo rm -rf ${appsFolder + appId}`;
   await cmdAsync(execDelete).catch((e) => {
     log.error(e);
-    const cleaningStatusE = {
-      status: isComponent ? `An error occured while cleaning component ${appSpecifications.name} data. Continuing...` : `An error occured while cleaning ${appName} data. Continuing...`,
-    };
-    log.info(cleaningStatusE);
+    log.info(`An error occured while cleaning ${entityName} data. Continuing...`);
     if (res) {
-      res.write(serviceHelper.ensureString(cleaningStatusE));
+      res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} data. Continuing...` }));
       if (res.flush) res.flush();
     }
   });
-  const cleaningStatus2 = {
-    status: isComponent ? `Data of component ${appSpecifications.name} cleaned` : `Data of ${appName} cleaned`,
-  };
-  log.info(cleaningStatus2);
+
+  log.info(`Data of ${entityName} cleaned`);
   if (res) {
-    res.write(serviceHelper.ensureString(cleaningStatus2));
+    res.write(serviceHelper.ensureString({ status: `Data of ${entityName} cleaned` }));
     if (res.flush) res.flush();
   }
+}
 
-  let volumepath;
-  // CRONTAB
-  const cronStatus = {
-    status: 'Adjusting crontab...',
-  };
-  log.info(cronStatus);
+/**
+ * Clean up crontab entry for application
+ * @param {string} appId - Application ID
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<string|null>} Volume path if found, null otherwise
+ */
+async function cleanupCrontab(appId, res) {
+  let volumepath = null;
+
+  log.info('Adjusting crontab...');
   if (res) {
-    res.write(serviceHelper.ensureString(cronStatus));
+    res.write(serviceHelper.ensureString({ status: 'Adjusting crontab...' }));
     if (res.flush) res.flush();
   }
 
   const crontab = await crontabLoad().catch((e) => {
     log.error(e);
-    const cronE = {
-      status: 'An error occured while loading crontab. Continuing...',
-    };
-    log.info(cronE);
+    log.info('An error occured while loading crontab. Continuing...');
     if (res) {
-      res.write(serviceHelper.ensureString(cronE));
+      res.write(serviceHelper.ensureString({ status: 'An error occured while loading crontab. Continuing...' }));
       if (res.flush) res.flush();
     }
   });
+
   if (crontab) {
     const jobs = crontab.jobs();
-    // find correct cronjob
     let jobToRemove;
     jobs.forEach((job) => {
       if (job.comment() === appId) {
@@ -314,116 +156,378 @@ async function appUninstallHard(appName, appId, appSpecifications, isComponent, 
         }
       }
     });
-    // remove the job
+
     if (jobToRemove) {
       crontab.remove(jobToRemove);
-      // save
       try {
         crontab.save();
       } catch (e) {
         log.error(e);
-        const cronE = {
-          status: 'An error occured while saving crontab. Continuing...',
-        };
-        log.info(cronE);
+        log.info('An error occured while saving crontab. Continuing...');
         if (res) {
-          res.write(serviceHelper.ensureString(cronE));
+          res.write(serviceHelper.ensureString({ status: 'An error occured while saving crontab. Continuing...' }));
           if (res.flush) res.flush();
         }
       }
-      const cronStatusDone = {
-        status: 'Crontab Adjusted.',
-      };
-      log.info(cronStatusDone);
+      log.info('Crontab Adjusted.');
       if (res) {
-        res.write(serviceHelper.ensureString(cronStatusDone));
+        res.write(serviceHelper.ensureString({ status: 'Crontab Adjusted.' }));
         if (res.flush) res.flush();
       }
     } else {
-      const cronStatusNotFound = {
-        status: 'Crontab not found.',
-      };
-      log.info(cronStatusNotFound);
+      log.info('Crontab not found.');
       if (res) {
-        res.write(serviceHelper.ensureString(cronStatusNotFound));
+        res.write(serviceHelper.ensureString({ status: 'Crontab not found.' }));
         if (res.flush) res.flush();
       }
     }
   }
 
-  if (volumepath) {
-    const cleaningVolumeStatus = {
-      status: isComponent ? `Cleaning up data volume of ${appSpecifications.name}...` : `Cleaning up data volume of ${appName}...`,
-    };
-    log.info(cleaningVolumeStatus);
+  return volumepath;
+}
+
+/**
+ * Clean up volume path
+ * @param {string} volumepath - Volume path to clean
+ * @param {string} entityName - Entity name for logging
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<void>}
+ */
+async function cleanupVolumePath(volumepath, entityName, res) {
+  if (!volumepath) return;
+
+  log.info(`Cleaning up data volume of ${entityName}...`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Cleaning up data volume of ${entityName}...` }));
+    if (res.flush) res.flush();
+  }
+
+  const execVolumeDelete = `sudo rm -rf ${volumepath}`;
+  await cmdAsync(execVolumeDelete).catch((e) => {
+    log.error(e);
+    log.info(`An error occured while cleaning ${entityName} volume. Continuing...`);
     if (res) {
-      res.write(serviceHelper.ensureString(cleaningVolumeStatus));
+      res.write(serviceHelper.ensureString({ status: `An error occured while cleaning ${entityName} volume. Continuing...` }));
       if (res.flush) res.flush();
     }
-    const execVolumeDelete = `sudo rm -rf ${volumepath}`;
-    await cmdAsync(execVolumeDelete).catch((e) => {
-      log.error(e);
-      const cleaningVolumeStatusE = {
-        status: isComponent ? `An error occured while cleaning component ${appSpecifications.name} volume. Continuing...` : `An error occured while cleaning ${appName} volume. Continuing...`,
-      };
-      log.info(cleaningVolumeStatusE);
+  });
+
+  log.info(`Volume of ${entityName} cleaned`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Volume of ${entityName} cleaned` }));
+    if (res.flush) res.flush();
+  }
+}
+
+/**
+ * Hard uninstall a component (complete removal including data)
+ * @param {string} appName - Parent application name
+ * @param {string} appId - Component ID
+ * @param {object} componentSpecifications - Component specifications
+ * @param {object} res - Response object for streaming
+ * @param {function} stopAppMonitoring - Function to stop monitoring
+ * @param {boolean} force - Use aggressive removal (kill + force remove) for stuck containers
+ * @returns {Promise<void>}
+ */
+async function hardUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, force = false) {
+  const componentName = componentSpecifications.name;
+
+  // Stop monitoring and container
+  log.info(`Stopping Flux App Component ${componentName}...`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Stopping Flux App Component ${componentName}...` }));
+    if (res.flush) res.flush();
+  }
+
+  const monitoredName = `${componentName}_${appName}`;
+  if (stopAppMonitoring) {
+    stopAppMonitoring(monitoredName, true);
+  }
+
+  // Use kill instead of stop for forced removals
+  if (force) {
+    await dockerService.appDockerKill(appId).catch((error) => {
+      log.warn(`Failed to kill container ${appId}: ${error.message}`);
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
       if (res) {
-        res.write(serviceHelper.ensureString(cleaningVolumeStatusE));
+        res.write(serviceHelper.ensureString(errorResponse));
         if (res.flush) res.flush();
       }
     });
-    const cleaningVolumeStatus2 = {
-      status: isComponent ? `Volume of component ${appSpecifications.name} cleaned` : `Volume of ${appName} cleaned`,
-    };
-    log.info(cleaningVolumeStatus2);
+  } else {
+    await dockerService.appDockerStop(appId).catch((error) => {
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  }
+
+  log.info(`Flux App Component ${componentName} stopped`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Flux App Component ${componentName} stopped` }));
+    if (res.flush) res.flush();
+  }
+
+  // Stop Syncthing
+  await stopSyncthingAndCleanup(monitoredName, appId, res);
+
+  // Remove container
+  log.info(`Removing Flux App component ${componentName} container...`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Removing Flux App component ${componentName} container...` }));
+    if (res.flush) res.flush();
+  }
+
+  let containerRemoved = false;
+  if (force) {
+    await dockerService.appDockerForceRemove(appId).then(() => {
+      containerRemoved = true;
+    }).catch((error) => {
+      log.error(`Force remove failed for ${appId}: ${error.message}`);
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  } else {
+    await dockerService.appDockerRemove(appId).then(() => {
+      containerRemoved = true;
+    }).catch((error) => {
+      log.error(`Container remove failed for ${appId}: ${error.message}`);
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  }
+
+  if (containerRemoved) {
+    log.info(`Flux App component ${componentName} container removed`);
     if (res) {
-      res.write(serviceHelper.ensureString(cleaningVolumeStatus2));
+      res.write(serviceHelper.ensureString({ status: `Flux App component ${componentName} container removed` }));
+      if (res.flush) res.flush();
+    }
+  } else {
+    log.warn(`WARNING: Container ${appId} may not have been fully removed. Network cleanup may fail.`);
+    if (res) {
+      res.write(serviceHelper.ensureString({ status: `WARNING: Container ${appId} may not have been fully removed. Network cleanup may fail.` }));
       if (res.flush) res.flush();
     }
   }
 
-  // Image removal: done AFTER all filesystem cleanup to avoid conflicts
-  // Only attempt if container was successfully removed
+  // Cleanup ports
+  await cleanupPorts(componentSpecifications, appName, res, `component ${componentName}`);
+
+  // Unmount volume
+  await unmountVolume(appId, `component ${componentName}`, res);
+
+  // Clean up data
+  await cleanupAppData(appId, `component ${componentName}`, res);
+
+  // Clean up crontab and get volume path
+  const volumepath = await cleanupCrontab(appId, res);
+
+  // Clean up volume path
+  await cleanupVolumePath(volumepath, `component ${componentName}`, res);
+
+  // Remove image (only if container was successfully removed)
   if (containerRemoved) {
-    const imageStatus = {
-      status: isComponent ? `Removing Flux App component ${appSpecifications.name} image...` : `Removing Flux App ${appName} image...`,
-    };
-    log.info(imageStatus);
+    log.info(`Removing Flux App component ${componentName} image...`);
     if (res) {
-      res.write(serviceHelper.ensureString(imageStatus));
+      res.write(serviceHelper.ensureString({ status: `Removing Flux App component ${componentName} image...` }));
       if (res.flush) res.flush();
     }
-    await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-      const errorResponse = messageHelper.createErrorMessage(
-        error.message || error,
-        error.name,
-        error.code,
-      );
+
+    await dockerService.appDockerImageRemove(componentSpecifications.repotag).catch((error) => {
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
       log.error(errorResponse);
       if (res) {
         res.write(serviceHelper.ensureString(errorResponse));
         if (res.flush) res.flush();
       }
     });
-    const imageStatus2 = {
-      status: isComponent ? `Flux App component ${appSpecifications.name} image operations done` : `Flux App ${appName} image operations done`,
-    };
-    log.info(imageStatus2);
+
+    log.info(`Flux App component ${componentName} image operations done`);
     if (res) {
-      res.write(serviceHelper.ensureString(imageStatus2));
+      res.write(serviceHelper.ensureString({ status: `Flux App component ${componentName} image operations done` }));
       if (res.flush) res.flush();
     }
   } else {
     log.warn(`Skipping image removal for ${appId} because container removal failed`);
   }
 
-  const appRemovalResponse = {
-    status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
-  };
-  log.info(appRemovalResponse);
+  log.info(`Flux App component ${componentName} of ${appName} was successfuly removed`);
   if (res) {
-    res.write(serviceHelper.ensureString(appRemovalResponse));
+    res.write(serviceHelper.ensureString({ status: `Flux App component ${componentName} of ${appName} was successfuly removed` }));
     if (res.flush) res.flush();
+  }
+}
+
+/**
+ * Hard uninstall an application (complete removal including data)
+ * @param {string} appName - Application name
+ * @param {string} appId - Application ID
+ * @param {object} appSpecifications - App specifications
+ * @param {object} res - Response object for streaming
+ * @param {function} stopAppMonitoring - Function to stop monitoring
+ * @param {boolean} force - Use aggressive removal (kill + force remove) for stuck containers
+ * @returns {Promise<void>}
+ */
+async function hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force = false) {
+  // Stop monitoring and container
+  log.info(`Stopping Flux App ${appName}...`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Stopping Flux App ${appName}...` }));
+    if (res.flush) res.flush();
+  }
+
+  if (stopAppMonitoring) {
+    stopAppMonitoring(appName, true);
+  }
+
+  // Use kill instead of stop for forced removals
+  if (force) {
+    await dockerService.appDockerKill(appId).catch((error) => {
+      log.warn(`Failed to kill container ${appId}: ${error.message}`);
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  } else {
+    await dockerService.appDockerStop(appId).catch((error) => {
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  }
+
+  log.info(`Flux App ${appName} stopped`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Flux App ${appName} stopped` }));
+    if (res.flush) res.flush();
+  }
+
+  // Stop Syncthing
+  await stopSyncthingAndCleanup(appName, appId, res);
+
+  // Remove container
+  log.info(`Removing Flux App ${appName} container...`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Removing Flux App ${appName} container...` }));
+    if (res.flush) res.flush();
+  }
+
+  let containerRemoved = false;
+  if (force) {
+    await dockerService.appDockerForceRemove(appId).then(() => {
+      containerRemoved = true;
+    }).catch((error) => {
+      log.error(`Force remove failed for ${appId}: ${error.message}`);
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  } else {
+    await dockerService.appDockerRemove(appId).then(() => {
+      containerRemoved = true;
+    }).catch((error) => {
+      log.error(`Container remove failed for ${appId}: ${error.message}`);
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+  }
+
+  if (containerRemoved) {
+    log.info(`Flux App ${appName} container removed`);
+    if (res) {
+      res.write(serviceHelper.ensureString({ status: `Flux App ${appName} container removed` }));
+      if (res.flush) res.flush();
+    }
+  } else {
+    log.warn(`WARNING: Container ${appId} may not have been fully removed. Network cleanup may fail.`);
+    if (res) {
+      res.write(serviceHelper.ensureString({ status: `WARNING: Container ${appId} may not have been fully removed. Network cleanup may fail.` }));
+      if (res.flush) res.flush();
+    }
+  }
+
+  // Cleanup ports
+  await cleanupPorts(appSpecifications, appName, res, appName);
+
+  // Unmount volume
+  await unmountVolume(appId, appName, res);
+
+  // Clean up data
+  await cleanupAppData(appId, appName, res);
+
+  // Clean up crontab and get volume path
+  const volumepath = await cleanupCrontab(appId, res);
+
+  // Clean up volume path
+  await cleanupVolumePath(volumepath, appName, res);
+
+  // Remove image (only if container was successfully removed)
+  if (containerRemoved) {
+    log.info(`Removing Flux App ${appName} image...`);
+    if (res) {
+      res.write(serviceHelper.ensureString({ status: `Removing Flux App ${appName} image...` }));
+      if (res.flush) res.flush();
+    }
+
+    await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
+      const errorResponse = messageHelper.createErrorMessage(error.message || error, error.name, error.code);
+      log.error(errorResponse);
+      if (res) {
+        res.write(serviceHelper.ensureString(errorResponse));
+        if (res.flush) res.flush();
+      }
+    });
+
+    log.info(`Flux App ${appName} image operations done`);
+    if (res) {
+      res.write(serviceHelper.ensureString({ status: `Flux App ${appName} image operations done` }));
+      if (res.flush) res.flush();
+    }
+  } else {
+    log.warn(`Skipping image removal for ${appId} because container removal failed`);
+  }
+
+  log.info(`Flux App ${appName} was successfuly removed`);
+  if (res) {
+    res.write(serviceHelper.ensureString({ status: `Flux App ${appName} was successfuly removed` }));
+    if (res.flush) res.flush();
+  }
+}
+
+/**
+ * Hard uninstall application or component (router function for backward compatibility)
+ * @param {string} appName - Application name
+ * @param {string} appId - Application ID
+ * @param {object} appSpecifications - App specifications
+ * @param {boolean} isComponent - Whether this is a component
+ * @param {object} res - Response object for streaming
+ * @param {function} stopAppMonitoring - Function to stop monitoring
+ * @param {boolean} force - Use aggressive removal (kill + force remove) for stuck containers
+ * @returns {Promise<void>}
+ */
+async function appUninstallHard(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring, force = false) {
+  if (isComponent) {
+    await hardUninstallComponent(appName, appId, appSpecifications, res, stopAppMonitoring, force);
+  } else {
+    await hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force);
   }
 }
 
