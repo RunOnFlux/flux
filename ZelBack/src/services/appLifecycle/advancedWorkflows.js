@@ -792,152 +792,6 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
 }
 
 /**
- * Helper function to uninstall app components softly
- * @param {string} appName App name
- * @param {string} appId App ID
- * @param {object} appSpecifications App specifications
- * @param {boolean} isComponent Whether this is a component
- * @param {object} res Response object
- */
-async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res) {
-  const stopStatus = {
-    status: isComponent ? `Stopping Flux App Component ${appSpecifications.name}...` : `Stopping Flux App ${appName}...`,
-  };
-  log.info(stopStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(stopStatus));
-    if (res.flush) res.flush();
-  }
-  let monitoredName = appName;
-  if (isComponent) {
-    monitoredName = `${appSpecifications.name}_${appName}`;
-  }
-  stopAppMonitoring(monitoredName, false);
-  await dockerService.appDockerStop(appId).catch((error) => {
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
-      if (res.flush) res.flush();
-    }
-  });
-
-  const stopStatus2 = {
-    status: isComponent ? `Flux App Component ${appSpecifications.name} stopped` : `Flux App ${appName} stopped`,
-  };
-  log.info(stopStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(stopStatus2));
-    if (res.flush) res.flush();
-  }
-
-  const removeStatus = {
-    status: isComponent ? `Removing Flux App component ${appSpecifications.name} container...` : `Removing Flux App ${appName} container...`,
-  };
-  log.info(removeStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(removeStatus));
-    if (res.flush) res.flush();
-  }
-
-  await dockerService.appDockerRemove(appId);
-
-  const removeStatus2 = {
-    status: isComponent ? `Flux App component ${appSpecifications.name}container removed` : `Flux App ${appName} container removed`,
-  };
-  log.info(removeStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(removeStatus2));
-    if (res.flush) res.flush();
-  }
-
-  const imageStatus = {
-    status: isComponent ? `Removing Flux App component ${appSpecifications.name} image...` : `Removing Flux App ${appName} image...`,
-  };
-  log.info(imageStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(imageStatus));
-    if (res.flush) res.flush();
-  }
-  await dockerService.appDockerImageRemove(appSpecifications.repotag).catch((error) => {
-    const errorResponse = messageHelper.createErrorMessage(
-      error.message || error,
-      error.name,
-      error.code,
-    );
-    log.error(errorResponse);
-    if (res) {
-      res.write(serviceHelper.ensureString(errorResponse));
-      if (res.flush) res.flush();
-    }
-  });
-  const imageStatus2 = {
-    status: isComponent ? `Flux App component ${appSpecifications.name} image operations done` : `Flux App ${appName} image operations done`,
-  };
-  log.info(imageStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(imageStatus2));
-    if (res.flush) res.flush();
-  }
-
-  const portStatus = {
-    status: isComponent ? `Denying Flux App component ${appSpecifications.name} ports...` : `Denying Flux App ${appName} ports...`,
-  };
-  log.info(portStatus);
-  if (res) {
-    res.write(serviceHelper.ensureString(portStatus));
-    if (res.flush) res.flush();
-  }
-  if (appSpecifications.ports) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(port));
-      }
-    }
-    const isUPNP = upnpService.isUPNP();
-    if (isUPNP) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
-      }
-    }
-    // v1 compatibility
-  } else if (appSpecifications.port) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      await fluxNetworkHelper.deleteAllowPortRule(serviceHelper.ensureNumber(appSpecifications.port));
-    }
-    const isUPNP = upnpService.isUPNP();
-    if (isUPNP) {
-      await upnpService.removeMapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
-    }
-  }
-  const portStatus2 = {
-    status: isComponent ? `Ports of component ${appSpecifications.name} denied` : `Ports of ${appName} denied`,
-  };
-  log.info(portStatus2);
-  if (res) {
-    res.write(serviceHelper.ensureString(portStatus2));
-    if (res.flush) res.flush();
-  }
-  const appRemovalResponse = {
-    status: isComponent ? `Flux App component ${appSpecifications.name} of ${appName} was successfuly removed` : `Flux App ${appName} was successfuly removed`,
-  };
-  log.info(appRemovalResponse);
-  if (res) {
-    res.write(serviceHelper.ensureString(appRemovalResponse));
-    if (res.flush) res.flush();
-  }
-}
-
-/**
  * To remove an app locally (including any components) without storage and cache deletion (keeps mounted volumes and cron job). First finds app specifications in database and then deletes the app from database. For app reload. Only for internal usage. We are throwing in functions using this.
  * @param {string} app App name.
  * @param {object} res Response.
@@ -981,6 +835,9 @@ async function softRemoveAppLocally(app, res) {
   appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
   appSpecifications = specificationFormatter(appSpecifications);
 
+  // Dynamic require to avoid circular dependency
+  const appUninstaller = require('./appUninstaller');
+
   if (appSpecifications.version >= 4 && !isComponent) {
     // it is a composed application
     // eslint-disable-next-line no-restricted-syntax
@@ -989,14 +846,14 @@ async function softRemoveAppLocally(app, res) {
       appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
       const appComponentSpecifications = appComposedComponent;
       // eslint-disable-next-line no-await-in-loop
-      await appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res);
+      await appUninstaller.appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res, stopAppMonitoring);
     }
     isComponent = false;
   } else if (isComponent) {
     const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
-    await appUninstallSoft(appName, appId, componentSpecifications, isComponent, res);
+    await appUninstaller.appUninstallSoft(appName, appId, componentSpecifications, isComponent, res, stopAppMonitoring);
   } else {
-    await appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+    await appUninstaller.appUninstallSoft(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring);
   }
 
   if (!isComponent) {
