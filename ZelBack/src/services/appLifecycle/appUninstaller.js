@@ -513,25 +513,6 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
 }
 
 /**
- * Hard uninstall application or component (router function for backward compatibility)
- * @param {string} appName - Application name
- * @param {string} appId - Application ID
- * @param {object} appSpecifications - App specifications
- * @param {boolean} isComponent - Whether this is a component
- * @param {object} res - Response object for streaming
- * @param {function} stopAppMonitoring - Function to stop monitoring
- * @param {boolean} force - Use aggressive removal (kill + force remove) for stuck containers
- * @returns {Promise<void>}
- */
-async function appUninstallHard(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring, force = false) {
-  if (isComponent) {
-    await hardUninstallComponent(appName, appId, appSpecifications, res, stopAppMonitoring, force);
-  } else {
-    await hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force);
-  }
-}
-
-/**
  * Helper function to cleanup ports (firewall and UPnP)
  * @param {object} appSpecifications - App specifications
  * @param {string} appName - Application name
@@ -758,24 +739,6 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
 }
 
 /**
- * Soft uninstall application or component (router function for backward compatibility)
- * @param {string} appName - Application name
- * @param {string} appId - Application ID
- * @param {object} appSpecifications - App specifications
- * @param {boolean} isComponent - Whether this is a component
- * @param {object} res - Response object for streaming
- * @param {function} stopAppMonitoring - Function to stop monitoring
- * @returns {Promise<void>}
- */
-async function appUninstallSoft(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring) {
-  if (isComponent) {
-    await softUninstallComponent(appName, appId, appSpecifications, res, stopAppMonitoring);
-  } else {
-    await softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
-  }
-}
-
-/**
  * Remove application completely from local node
  * @param {string} app - Application name
  * @param {object} res - Response object for streaming
@@ -824,7 +787,7 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       throw new Error('No App specified');
     }
 
-    let isComponent = app.includes('_');
+    const isComponent = app.includes('_');
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
 
@@ -882,19 +845,17 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
       for (const appComposedComponent of appSpecifications.compose.reverse()) {
-        isComponent = true;
         appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
         const appComponentSpecifications = appComposedComponent;
         // eslint-disable-next-line no-await-in-loop
-        await appUninstallHard(appName, appId, appComponentSpecifications, isComponent, res, stopAppMonitoring, force);
+        await hardUninstallComponent(appName, appId, appComponentSpecifications, res, stopAppMonitoring, force);
       }
-      isComponent = false;
     } else if (isComponent) {
       const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
       appId = dockerService.getAppIdentifier(`${componentSpecifications.name}_${appSpecifications.name}`);
-      await appUninstallHard(appName, appId, componentSpecifications, isComponent, res, stopAppMonitoring, force);
+      await hardUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, force);
     } else {
-      await appUninstallHard(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring, force);
+      await hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force);
     }
 
     if (sendMessage) {
@@ -1058,7 +1019,7 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
       throw new Error('No Flux App specified');
     }
 
-    let isComponent = app.includes('_');
+    const isComponent = app.includes('_');
     const appName = isComponent ? app.split('_')[1] : app;
     const appComponent = app.split('_')[0];
 
@@ -1083,19 +1044,17 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
       // it is a composed application
       // eslint-disable-next-line no-restricted-syntax
       for (const appComposedComponent of appSpecifications.compose.reverse()) {
-        isComponent = true;
         appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
         const appComponentSpecifications = appComposedComponent;
         // eslint-disable-next-line no-await-in-loop
-        await appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res, stopAppMonitoring);
+        await softUninstallComponent(appName, appId, appComponentSpecifications, res, stopAppMonitoring);
       }
-      isComponent = false;
     } else if (isComponent) {
       const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
       appId = dockerService.getAppIdentifier(`${componentSpecifications.name}_${appSpecifications.name}`);
-      await appUninstallSoft(appName, appId, componentSpecifications, isComponent, res, stopAppMonitoring);
+      await softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring);
     } else {
-      await appUninstallSoft(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring);
+      await softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
     }
 
     if (!isComponent) {
@@ -1187,8 +1146,8 @@ async function removeAppLocallyApi(req, res) {
 }
 
 module.exports = {
-  appUninstallHard,
-  appUninstallSoft,
+  hardUninstallComponent,
+  hardUninstallApplication,
   softUninstallComponent,
   softUninstallApplication,
   cleanupPorts,
