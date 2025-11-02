@@ -792,97 +792,156 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
 }
 
 /**
+ * Soft uninstall a composed application (version >= 4) by removing all its components
+ * @param {object} appSpecifications - Application specifications
+ * @param {string} appName - Application name
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<void>}
+ */
+async function softUninstallComposedApp(appSpecifications, appName, res) {
+  // Dynamic require to avoid circular dependency
+  const appUninstaller = require('./appUninstaller');
+
+  // Uninstall all components in reverse order
+  // eslint-disable-next-line no-restricted-syntax
+  for (const appComposedComponent of appSpecifications.compose.reverse()) {
+    const appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
+    // eslint-disable-next-line no-await-in-loop
+    await appUninstaller.softUninstallComponent(appName, appId, appComposedComponent, res, stopAppMonitoring);
+  }
+}
+
+/**
+ * Soft uninstall a single component of a composed application
+ * @param {object} appSpecifications - Application specifications
+ * @param {string} appName - Application name
+ * @param {string} appComponent - Component name
+ * @param {string} appId - Application/Component ID
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<void>}
+ */
+async function softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res) {
+  // Dynamic require to avoid circular dependency
+  const appUninstaller = require('./appUninstaller');
+
+  const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
+  await appUninstaller.softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring);
+}
+
+/**
+ * Soft uninstall a simple (non-composed) application
+ * @param {object} appSpecifications - Application specifications
+ * @param {string} appName - Application name
+ * @param {string} appId - Application ID
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<void>}
+ */
+async function softUninstallSimpleApp(appSpecifications, appName, appId, res) {
+  // Dynamic require to avoid circular dependency
+  const appUninstaller = require('./appUninstaller');
+
+  await appUninstaller.softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
+}
+
+/**
+ * Clean up database after app removal
+ * @param {object} appsDatabase - Database connection
+ * @param {string} appName - Application name
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<void>}
+ */
+async function cleanupAppDatabase(appsDatabase, appName, res) {
+  const databaseStatus = {
+    status: 'Cleaning up database...',
+  };
+  log.info(databaseStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(databaseStatus));
+    if (res.flush) res.flush();
+  }
+
+  const appsQuery = { name: appName };
+  const appsProjection = {};
+  await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+
+  const databaseStatus2 = {
+    status: 'Database cleaned',
+  };
+  log.info(databaseStatus2);
+  if (res) {
+    res.write(serviceHelper.ensureString(databaseStatus2));
+    if (res.flush) res.flush();
+  }
+
+  const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
+  log.info(appRemovalResponseDone);
+  if (res) {
+    res.write(serviceHelper.ensureString(appRemovalResponseDone));
+    if (res.flush) res.flush();
+  }
+}
+
+/**
  * To remove an app locally (including any components) without storage and cache deletion (keeps mounted volumes and cron job). First finds app specifications in database and then deletes the app from database. For app reload. Only for internal usage. We are throwing in functions using this.
  * @param {string} app App name.
  * @param {object} res Response.
  */
 async function softRemoveAppLocally(app, res) {
-  // remove app from local machine.
-  // find in database, stop app, remove container, close port, remove from database
-  // we want to remove the image as well (repotag) what if other container uses the same image -> then it shall result in an error so ok anyway
+  // Validate state
   if (globalState.removalInProgress) {
     throw new Error('Another application is undergoing removal');
   }
   if (globalState.installationInProgress) {
     throw new Error('Another application is undergoing installation');
   }
-  globalState.removalInProgress = true;
   if (!app) {
     throw new Error('No Flux App specified');
   }
 
-  let isComponent = app.includes('_'); // copmonent is defined by appComponent.name_appSpecs.name
+  globalState.removalInProgress = true;
 
-  const appName = isComponent ? app.split('_')[1] : app;
-  const appComponent = app.split('_')[0];
+  try {
+    // Parse app name and component
+    const isComponent = app.includes('_'); // component is defined by appComponent.name_appSpecs.name
+    const appName = isComponent ? app.split('_')[1] : app;
+    const appComponent = app.split('_')[0];
 
-  // first find the appSpecifications in our database.
-  // connect to mongodb
-  const dbopen = dbHelper.databaseConnection();
+    // Fetch app specifications from database
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const appsQuery = { name: appName };
+    const appsProjection = {};
 
-  const appsDatabase = dbopen.db(config.database.appslocal.database);
+    let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    if (!appSpecifications) {
+      throw new Error('Flux App not found');
+    }
 
-  const appsQuery = { name: appName };
-  const appsProjection = {};
-  let appSpecifications = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-  if (!appSpecifications) {
-    throw new Error('Flux App not found');
+    // Decrypt and format specifications
+    appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+    appSpecifications = specificationFormatter(appSpecifications);
+
+    const appId = dockerService.getAppIdentifier(app);
+
+    // Determine uninstall strategy based on app type
+    if (appSpecifications.version >= 4 && !isComponent) {
+      // Composed application - uninstall all components
+      await softUninstallComposedApp(appSpecifications, appName, res);
+    } else if (isComponent) {
+      // Single component of a composed app
+      await softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res);
+    } else {
+      // Simple non-composed application
+      await softUninstallSimpleApp(appSpecifications, appName, appId, res);
+    }
+
+    // Clean up database (only for full app removal, not individual components)
+    if (!isComponent) {
+      await cleanupAppDatabase(appsDatabase, appName, res);
+    }
+  } finally {
+    globalState.removalInProgress = false;
   }
-
-  let appId = dockerService.getAppIdentifier(app);
-
-  // do this temporarily - otherwise we have to move a bunch of functions around
-  appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
-  appSpecifications = specificationFormatter(appSpecifications);
-
-  // Dynamic require to avoid circular dependency
-  const appUninstaller = require('./appUninstaller');
-
-  if (appSpecifications.version >= 4 && !isComponent) {
-    // it is a composed application
-    // eslint-disable-next-line no-restricted-syntax
-    for (const appComposedComponent of appSpecifications.compose.reverse()) {
-      isComponent = true;
-      appId = dockerService.getAppIdentifier(`${appComposedComponent.name}_${appSpecifications.name}`);
-      const appComponentSpecifications = appComposedComponent;
-      // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.appUninstallSoft(appName, appId, appComponentSpecifications, isComponent, res, stopAppMonitoring);
-    }
-    isComponent = false;
-  } else if (isComponent) {
-    const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
-    await appUninstaller.appUninstallSoft(appName, appId, componentSpecifications, isComponent, res, stopAppMonitoring);
-  } else {
-    await appUninstaller.appUninstallSoft(appName, appId, appSpecifications, isComponent, res, stopAppMonitoring);
-  }
-
-  if (!isComponent) {
-    const databaseStatus = {
-      status: 'Cleaning up database...',
-    };
-    log.info(databaseStatus);
-    if (res) {
-      res.write(serviceHelper.ensureString(databaseStatus));
-      if (res.flush) res.flush();
-    }
-    await dbHelper.findOneAndDeleteInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
-    const databaseStatus2 = {
-      status: 'Database cleaned',
-    };
-    log.info(databaseStatus2);
-    if (res) {
-      res.write(serviceHelper.ensureString(databaseStatus2));
-      if (res.flush) res.flush();
-    }
-    const appRemovalResponseDone = messageHelper.createSuccessMessage(`Removal step done. Result: Flux App ${appName} was partially removed`);
-    log.info(appRemovalResponseDone);
-    if (res) {
-      res.write(serviceHelper.ensureString(appRemovalResponseDone));
-      if (res.flush) res.flush();
-    }
-  }
-
-  globalState.removalInProgress = false;
 }
 
 /**
