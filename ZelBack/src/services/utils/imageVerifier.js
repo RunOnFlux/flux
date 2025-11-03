@@ -292,23 +292,7 @@ class ImageVerifier {
       return;
     }
 
-    // For Bearer auth, check if credentials already contain a pre-authenticated token
-    // Cloud providers (AWS ECR, Azure ACR, Google GAR) provide ready-to-use bearer tokens
-    // that should be used directly without attempting token exchange at the realm
-    if (scheme === 'Bearer' && this.credentials && this.credentials.type === 'bearer') {
-      // Use the pre-authenticated token directly
-      this.#axiosInstance.interceptors.request.use((config) => {
-        // eslint-disable-next-line no-param-reassign
-        config.headers.Authorization = `Bearer ${this.credentials.password}`;
-        return config;
-      });
-
-      this.authConfigured = true;
-      this.authVerified = false; // Not verified yet - will be tested on retry
-      return;
-    }
-
-    // For Bearer auth (Docker Hub, etc.) without pre-authenticated tokens, do token exchange
+    // For Bearer auth (Docker Hub, etc.), do token exchange
     const {
       data: { token },
     } = await serviceHelper
@@ -334,11 +318,7 @@ class ImageVerifier {
         return { data: { token: null } };
       });
 
-    if (!token) {
-      this.authConfigured = true;
-      this.authVerified = false;
-      return;
-    }
+    if (!token) return;
 
     this.authConfigured = true;
     this.authVerified = true; // Verified at realm endpoint
@@ -543,8 +523,7 @@ class ImageVerifier {
     if (credentials && typeof credentials === 'object' && credentials.username && credentials.password) {
       this.credentials = {
         username: credentials.username,
-        password: credentials.password,
-        type: credentials.type // Preserve auth type for cloud provider bearer tokens
+        password: credentials.password
       };
       return;
     }
