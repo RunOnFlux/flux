@@ -68,7 +68,7 @@ async function unmountVolume(appId, entityName, res) {
   const execUnmount = `sudo umount ${appsFolder + appId}`;
   const execSuccess = await cmdAsync(execUnmount).catch((e) => {
     log.error(e);
-    log.info(`An error occured while unmounting ${entityName} storage. Continuing...`);
+    log.info(`An error occurred while unmounting ${entityName} storage. Continuing...`);
     if (res) {
       res.write(serviceHelper.ensureString({ status: `An error occured while unmounting ${entityName} storage. Continuing...` }));
       if (res.flush) res.flush();
@@ -360,9 +360,9 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
     log.warn(`Skipping image removal for ${appId} because container removal failed`);
   }
 
-  log.info(`Flux App component ${componentName} of ${appName} was successfuly removed`);
+  log.info(`Flux App component ${componentName} of ${appName} was successfully removed`);
   if (res) {
-    res.write(serviceHelper.ensureString({ status: `Flux App component ${componentName} of ${appName} was successfuly removed` }));
+    res.write(serviceHelper.ensureString({ status: `Flux App component ${componentName} of ${appName} was successfully removed` }));
     if (res.flush) res.flush();
   }
 }
@@ -505,7 +505,7 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
     log.warn(`Skipping image removal for ${appId} because container removal failed`);
   }
 
-  log.info(`Flux App ${appName} was successfuly removed`);
+  log.info(`Flux App ${appName} was successfully removed`);
   if (res) {
     res.write(serviceHelper.ensureString({ status: `Flux App ${appName} was successfuly removed` }));
     if (res.flush) res.flush();
@@ -648,9 +648,9 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
   // Cleanup ports
   await cleanupPorts(componentSpecifications, appName, res, `component ${componentName}`);
 
-  log.info(`Flux App component ${componentName} of ${appName} was successfuly removed`);
+  log.info(`Flux App component ${componentName} of ${appName} was successfully removed`);
   if (res) {
-    res.write(serviceHelper.ensureString({ status: `Flux App component ${componentName} of ${appName} was successfuly removed` }));
+    res.write(serviceHelper.ensureString({ status: `Flux App component ${componentName} of ${appName} was successfully removed` }));
     if (res.flush) res.flush();
   }
 }
