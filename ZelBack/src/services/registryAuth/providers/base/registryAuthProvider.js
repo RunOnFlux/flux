@@ -6,6 +6,8 @@
  * subclasses to implement provider-specific authentication logic.
  */
 
+const config = require('../../../../../config/default');
+
 class RegistryAuthProvider {
   constructor(config = {}, appName = null) {
     this.config = config;
@@ -14,6 +16,7 @@ class RegistryAuthProvider {
     this.tokenExpiry = null;
     this.lastError = null;
     this.registeredName = null; // Will be set by factory during creation
+    this._refreshPromise = null; // Used to prevent concurrent token refreshes
   }
 
   /**
@@ -102,6 +105,7 @@ class RegistryAuthProvider {
     this.tokenCache = null;
     this.tokenExpiry = null;
     this.lastError = null;
+    this._refreshPromise = null;
   }
 
   /**
@@ -129,15 +133,19 @@ class RegistryAuthProvider {
   /**
    * Check if token will expire within the given time window
    *
-   * @param {number} windowMs - Time window in milliseconds (default: 15 minutes)
+   * @param {number} windowMs - Time window in milliseconds (default: from config or 15 minutes)
    * @returns {boolean} True if token expires soon
    */
-  isTokenExpiringSoon(windowMs = 15 * 60 * 1000) {
-    return this.getTimeUntilExpiry() <= windowMs;
+  isTokenExpiringSoon(windowMs) {
+    // Priority: 1) explicit parameter, 2) config file value, 3) hardcoded default
+    const defaultBuffer = config.registryAuth?.tokenRefreshBufferMs || (15 * 60 * 1000);
+    const effectiveWindow = windowMs !== undefined ? windowMs : defaultBuffer;
+    return this.getTimeUntilExpiry() <= effectiveWindow;
   }
 
   /**
    * Get cached credentials if valid, otherwise refresh
+   * Uses promise-based locking to prevent concurrent refresh operations
    *
    * @returns {Promise<object>} Valid credentials
    */
@@ -147,8 +155,20 @@ class RegistryAuthProvider {
       return this.tokenCache;
     }
 
-    // Otherwise refresh credentials
-    return this.refreshCredentials();
+    // If a refresh is already in progress, return the existing promise
+    // This prevents multiple concurrent refresh operations (race condition)
+    if (this._refreshPromise) {
+      return this._refreshPromise;
+    }
+
+    // Start a new refresh and store the promise
+    this._refreshPromise = this.refreshCredentials()
+      .finally(() => {
+        // Clear the promise when done (success or failure)
+        this._refreshPromise = null;
+      });
+
+    return this._refreshPromise;
   }
 
   /**

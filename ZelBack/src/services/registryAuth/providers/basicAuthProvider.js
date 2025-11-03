@@ -28,6 +28,9 @@ class BasicAuthProvider extends RegistryAuthProvider {
       throw error;
     }
 
+    // Clear any previous error on successful validation
+    this.lastError = null;
+
     // Create standardized credentials object
     const credentials = this.createCredentials(
       this.username,

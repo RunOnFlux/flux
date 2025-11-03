@@ -32,6 +32,11 @@ async function getCredentials(repotag, repoauth, specVersion, appName) {
     return null;
   }
 
+  // Validate specVersion is a positive integer
+  if (typeof specVersion !== 'number' || !Number.isInteger(specVersion) || specVersion < 1) {
+    throw new Error(`specVersion must be a positive integer, got: ${specVersion} (type: ${typeof specVersion})`);
+  }
+
   if (specVersion < 7) {
     throw new Error('Specs less than 7 do not have repoauth');
   }

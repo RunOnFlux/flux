@@ -294,4 +294,10 @@ module.exports = {
     '03cf1d8b708ca7f5979accb4d0dba35a90391e3dfc4422cf12670c929bb58d16ac',
     '03e29783936a36b396c28706494dbfd35f3d087f2addeb3df32e451f71bf9a53f3',
   ],
+  registryAuth: {
+    // Token refresh buffer in milliseconds
+    // Tokens will be refreshed when they expire within this time window
+    // Default: 15 minutes (15 * 60 * 1000 = 900000ms)
+    tokenRefreshBufferMs: 15 * 60 * 1000,
+  },
 };

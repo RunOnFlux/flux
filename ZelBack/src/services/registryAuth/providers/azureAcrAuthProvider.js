@@ -161,8 +161,23 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
       }
 
       // ACR access tokens are typically valid for 1-3 hours
-      // If expires_in is provided, use it; otherwise default to 3 hours
-      const expiresInSeconds = data.expires_in || (3 * 60 * 60);
+      // Validate and use expires_in with explicit null/undefined check and type validation
+      let expiresInSeconds = 3 * 60 * 60; // Default: 3 hours
+      if (data.expires_in != null) {
+        const providedExpiry = Number(data.expires_in);
+        if (Number.isFinite(providedExpiry)) {
+          // Use the provided value even if zero or negative
+          // Negative/zero values indicate already-expired tokens
+          expiresInSeconds = providedExpiry;
+          if (providedExpiry <= 0) {
+            console.warn(`[AzureAcrAuthProvider] Token already expired (expires_in: ${data.expires_in})`);
+          }
+        } else {
+          // Invalid type (NaN, Infinity, etc), use default
+          // This could happen if Azure API returns unexpected non-numeric values
+          console.warn(`[AzureAcrAuthProvider] Invalid expires_in from Azure: ${data.expires_in}, using default 3hr`);
+        }
+      }
       const expiryTime = Date.now() + (expiresInSeconds * 1000);
 
       return {
