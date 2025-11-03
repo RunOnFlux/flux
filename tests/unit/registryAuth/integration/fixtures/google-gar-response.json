@@ -12,8 +12,8 @@
     "capturedAt": "2025-11-01T09:53:17.554Z",
     "provider": "google-gar",
     "apiCall": "JWT.getAccessToken",
-    "projectId": "chode-400710",
-    "clientEmail": "fluxos-gar-test@chode-400710.iam.gserviceaccount.com",
+    "projectId": "example-project-12345",
+    "clientEmail": "test-sa@example-project-12345.iam.gserviceaccount.com",
     "sanitized": true,
     "sanitizedFields": [
       "token",

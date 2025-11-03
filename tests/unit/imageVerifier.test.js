@@ -226,7 +226,7 @@ describe('imageVerifier tests', () => {
     });
 
     it('should return true if registry namespace has 2 slashes and is whitelisted', async () => {
-      const repotag = 'europe-west2-docker.pkg.dev/chode-400710/mugawump/testimage:blahblah';
+      const repotag = 'us-central1-docker.pkg.dev/example-project-12345/test-repo/testimage:blahblah';
 
       const verifier = new ImageVerifier(repotag);
       const result = await verifier.isWhitelisted();

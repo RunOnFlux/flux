@@ -7,7 +7,7 @@
     "capturedAt": "2025-11-01T12:04:55.229Z",
     "provider": "azure-acr",
     "apiCall": "ClientSecretCredential.getToken",
-    "tenantId": "64646407-27be-478c-991c-0ce576a3229a",
+    "tenantId": "12345678-abcd-efgh-ijkl-123456789012",
     "sanitized": true,
     "sanitizedFields": [
       "token",
