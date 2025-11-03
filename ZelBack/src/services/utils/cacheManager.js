@@ -154,7 +154,7 @@ class FluxCacheManager {
     // every message, and check if it's in the cache. We should come up with a better algo here.
     messageCache: {
       max: 1_000,
-      ttl: FluxCacheManager.oneMinute,
+      ttl: 5 * FluxCacheManager.oneMinute,
     },
     wsPeerCache: {
       max: 100,
