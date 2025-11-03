@@ -42,37 +42,19 @@ describe('mountParser tests', () => {
       expect(result.additional[0].isFile).to.be.false;
     });
 
-    it('should parse file mount without content', () => {
+    it('should parse file mount (always empty)', () => {
       const result = mountParser.parseContainerData('/data|f:config.yaml:/etc/config.yaml');
       expect(result.additional).to.have.lengthOf(1);
       expect(result.additional[0].type).to.equal('file');
       expect(result.additional[0].subdir).to.equal('config.yaml');
       expect(result.additional[0].containerPath).to.equal('/etc/config.yaml');
       expect(result.additional[0].isFile).to.be.true;
-      expect(result.additional[0].content).to.be.null;
     });
 
-    it('should parse file mount with base64 content', () => {
-      const base64Content = Buffer.from('Hello World!').toString('base64');
-      const result = mountParser.parseContainerData(`/data|f:config.yaml:/etc/config.yaml:${base64Content}`);
-      expect(result.additional).to.have.lengthOf(1);
-      expect(result.additional[0].type).to.equal('file');
-      expect(result.additional[0].content).to.equal(base64Content);
-      expect(result.additional[0].isFile).to.be.true;
-    });
-
-    it('should reject file mount with invalid base64 content', () => {
+    it('should reject file mount with extra parameters', () => {
       expect(() => {
-        mountParser.parseContainerData('/data|f:config.yaml:/etc/config.yaml:invalid@base64!');
-      }).to.throw('must be valid base64');
-    });
-
-    it('should reject file mount with too large content', () => {
-      // Create a string larger than 14MB (base64 encoded)
-      const largeContent = 'A'.repeat(15000000);
-      expect(() => {
-        mountParser.parseContainerData(`/data|f:config.yaml:/etc/config.yaml:${largeContent}`);
-      }).to.throw('too large');
+        mountParser.parseContainerData('/data|f:config.yaml:/etc/config.yaml:extraParam');
+      }).to.throw('Invalid file mount syntax');
     });
 
     it('should parse component directory mount', () => {
@@ -164,9 +146,8 @@ describe('mountParser tests', () => {
       expect(paths.map((p) => p.name)).to.not.include('shared');
     });
 
-    it('should correctly identify files vs directories with content', () => {
-      const base64Content = Buffer.from('test').toString('base64');
-      const parsed = mountParser.parseContainerData(`/data|m:logs:/var/log|f:config.yaml:/etc/config.yaml:${base64Content}`);
+    it('should correctly identify files vs directories', () => {
+      const parsed = mountParser.parseContainerData('/data|m:logs:/var/log|f:config.yaml:/etc/config.yaml');
       const paths = mountParser.getRequiredLocalPaths(parsed);
 
       const appdata = paths.find((p) => p.name === 'appdata');
@@ -178,25 +159,14 @@ describe('mountParser tests', () => {
       expect(config.isFile).to.be.true;
     });
 
-    it('should include content field in required paths', () => {
-      const base64Content = Buffer.from('test content').toString('base64');
-      const parsed = mountParser.parseContainerData(`/data|f:config.yaml:/etc/config.yaml:${base64Content}`);
-      const paths = mountParser.getRequiredLocalPaths(parsed);
-
-      const config = paths.find((p) => p.name === 'config.yaml');
-      expect(config).to.exist;
-      expect(config.content).to.equal(base64Content);
-    });
-
-    it('should include files without content (empty files for mounting)', () => {
+    it('should include files in required paths (all created empty)', () => {
       const parsed = mountParser.parseContainerData('/data|f:config.yaml:/etc/config.yaml');
       const paths = mountParser.getRequiredLocalPaths(parsed);
 
-      // File without content should be in required paths (empty file will be created)
+      // File should be in required paths (empty file will be created)
       const config = paths.find((p) => p.name === 'config.yaml');
       expect(config).to.exist;
       expect(config.isFile).to.be.true;
-      expect(config.content).to.be.null;
 
       // Both appdata and config file should be present
       expect(paths).to.have.lengthOf(2);
@@ -204,23 +174,16 @@ describe('mountParser tests', () => {
       expect(paths.map((p) => p.name)).to.include('config.yaml');
     });
 
-    it('should include all files (with and without content)', () => {
-      const base64Content = Buffer.from('test').toString('base64');
-      const parsed = mountParser.parseContainerData(`/data|f:empty1.txt:/etc/empty1.txt|f:filled.txt:/etc/filled.txt:${base64Content}|f:empty2.txt:/etc/empty2.txt`);
+    it('should include all files (all created empty)', () => {
+      const parsed = mountParser.parseContainerData('/data|f:empty1.txt:/etc/empty1.txt|f:empty2.txt:/etc/empty2.txt|f:empty3.txt:/etc/empty3.txt');
       const paths = mountParser.getRequiredLocalPaths(parsed);
 
       // All files should be present (empty files will be created for mounting)
       expect(paths).to.have.lengthOf(4);
       expect(paths.map((p) => p.name)).to.include('appdata');
-      expect(paths.map((p) => p.name)).to.include('filled.txt');
       expect(paths.map((p) => p.name)).to.include('empty1.txt');
       expect(paths.map((p) => p.name)).to.include('empty2.txt');
-
-      // Check content fields
-      const filled = paths.find((p) => p.name === 'filled.txt');
-      expect(filled.content).to.equal(base64Content);
-      const empty1 = paths.find((p) => p.name === 'empty1.txt');
-      expect(empty1.content).to.be.null;
+      expect(paths.map((p) => p.name)).to.include('empty3.txt');
     });
   });
 

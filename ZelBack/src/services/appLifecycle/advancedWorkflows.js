@@ -2,7 +2,6 @@ const config = require('config');
 const util = require('util');
 const df = require('node-df');
 const path = require('node:path');
-const fs = require('fs/promises');
 const nodecmd = require('node-cmd');
 const systemcrontab = require('crontab');
 const axios = require('axios');
@@ -416,7 +415,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
 
       if (pathInfo.isFile) {
-        // Create file under appdata/ - either with content or empty
+        // Create empty file under appdata/ - app will initialize it on first run
+        // File is mounted so changes persist across restarts
         const createFileStatus = {
           status: `Creating file: appdata/${pathInfo.name}...`,
         };
@@ -427,34 +427,12 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         }
 
         const filePath = `${appsFolder + appId}/appdata/${pathInfo.name}`;
-
-        if (pathInfo.content) {
-          // Decode base64 content and write to file
-          try {
-            const buffer = Buffer.from(pathInfo.content, 'base64');
-            // Write file with sudo - create temp file first, then move with sudo
-            const tempFilePath = `${filePath}.tmp`;
-            // eslint-disable-next-line no-await-in-loop
-            await fs.writeFile(tempFilePath, buffer);
-            // eslint-disable-next-line no-await-in-loop
-            await cmdAsync(`sudo mv ${tempFilePath} ${filePath}`);
-            // eslint-disable-next-line no-await-in-loop
-            await cmdAsync(`sudo chown 100:101 ${filePath}`);
-            log.info(`File created with content (${buffer.length} bytes): appdata/${pathInfo.name}`);
-          } catch (error) {
-            log.error(`Failed to write file content for ${pathInfo.name}: ${error.message}`);
-            throw new Error(`Failed to write file content for ${pathInfo.name}: ${error.message}`);
-          }
-        } else {
-          // Create empty file - app will initialize it on first run
-          // File is mounted so changes persist across restarts
-          const execFile = `sudo touch ${filePath}`;
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(execFile);
-          // eslint-disable-next-line no-await-in-loop
-          await cmdAsync(`sudo chown 100:101 ${filePath}`);
-          log.info(`Empty file created (app will initialize): appdata/${pathInfo.name}`);
-        }
+        const execFile = `sudo touch ${filePath}`;
+        // eslint-disable-next-line no-await-in-loop
+        await cmdAsync(execFile);
+        // eslint-disable-next-line no-await-in-loop
+        await cmdAsync(`sudo chown 100:101 ${filePath}`);
+        log.info(`Empty file created (app will initialize): appdata/${pathInfo.name}`);
 
         const createFileStatus2 = {
           status: `File created: appdata/${pathInfo.name}`,
