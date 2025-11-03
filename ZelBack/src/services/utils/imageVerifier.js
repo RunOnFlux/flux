@@ -292,7 +292,23 @@ class ImageVerifier {
       return;
     }
 
-    // For Bearer auth (Docker Hub, etc.), do token exchange
+    // For Bearer auth, check if credentials already contain a pre-authenticated token
+    // Cloud providers (AWS ECR, Azure ACR, Google GAR) provide ready-to-use bearer tokens
+    // that should be used directly without attempting token exchange at the realm
+    if (scheme === 'Bearer' && this.credentials && this.credentials.type === 'bearer') {
+      // Use the pre-authenticated token directly
+      this.#axiosInstance.interceptors.request.use((config) => {
+        // eslint-disable-next-line no-param-reassign
+        config.headers.Authorization = `Bearer ${this.credentials.password}`;
+        return config;
+      });
+
+      this.authConfigured = true;
+      this.authVerified = false; // Not verified yet - will be tested on retry
+      return;
+    }
+
+    // For Bearer auth (Docker Hub, etc.) without pre-authenticated tokens, do token exchange
     const {
       data: { token },
     } = await serviceHelper
