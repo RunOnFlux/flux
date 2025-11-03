@@ -129,7 +129,7 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
    * @param {string} scope - Repository scope (e.g., 'repository:myrepo:pull')
    * @returns {Promise<object>} Object with access_token and expiry info
    */
-  async exchangeRefreshTokenForAccessToken(refreshToken, scope = 'registry:catalog:*') {
+  async exchangeRefreshTokenForAccessToken(refreshToken, scope = 'repository:*:pull') {
     const registryUrl = `https://${this.registryName}.azurecr.io`;
     const tokenUrl = `${registryUrl}/oauth2/token`;
 
