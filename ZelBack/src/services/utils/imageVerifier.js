@@ -543,7 +543,8 @@ class ImageVerifier {
     if (credentials && typeof credentials === 'object' && credentials.username && credentials.password) {
       this.credentials = {
         username: credentials.username,
-        password: credentials.password
+        password: credentials.password,
+        type: credentials.type // Preserve auth type for cloud provider bearer tokens
       };
       return;
     }
