@@ -584,7 +584,7 @@ describe('imageVerifier tests', () => {
       await verifier.verifyImage();
 
       sinon.assert.calledWith(axiosGetStub, expected);
-      expect(verifier.authConfigured).to.equal(true);
+      expect(verifier.authConfigured).to.equal(false);
       expect(verifier.authVerified).to.equal(false);
       expect(() => verifier.throwIfError()).to.throw(`Authentication rejected for: ${repotag}`);
     });
