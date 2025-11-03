@@ -106,6 +106,243 @@ async function verifyAppVolumeMount(appName, isComponent, componentName) {
 }
 
 /**
+ * Perform Docker cleanup (prune containers, networks, volumes, images)
+ * @param {object} res - Response object for streaming
+ * @returns {Promise<void>}
+ */
+async function performDockerCleanup(res) {
+  const dockerContainers = {
+    status: 'Clearing up unused docker containers...',
+  };
+  log.info(dockerContainers);
+  if (res) {
+    res.write(serviceHelper.ensureString(dockerContainers));
+    if (res.flush) res.flush();
+  }
+  await dockerService.pruneContainers();
+  const dockerContainers2 = {
+    status: 'Docker containers cleaned.',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(dockerContainers2));
+    if (res.flush) res.flush();
+  }
+
+  const dockerNetworks = {
+    status: 'Clearing up unused docker networks...',
+  };
+  log.info(dockerNetworks);
+  if (res) {
+    res.write(serviceHelper.ensureString(dockerNetworks));
+    if (res.flush) res.flush();
+  }
+  await dockerService.pruneNetworks();
+  const dockerNetworks2 = {
+    status: 'Docker networks cleaned.',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(dockerNetworks2));
+    if (res.flush) res.flush();
+  }
+
+  const dockerVolumes = {
+    status: 'Clearing up unused docker volumes...',
+  };
+  log.info(dockerVolumes);
+  if (res) {
+    res.write(serviceHelper.ensureString(dockerVolumes));
+    if (res.flush) res.flush();
+  }
+  await dockerService.pruneVolumes();
+  const dockerVolumes2 = {
+    status: 'Docker volumes cleaned.',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(dockerVolumes2));
+    if (res.flush) res.flush();
+  }
+
+  const dockerImages = {
+    status: 'Clearing up unused docker images...',
+  };
+  log.info(dockerImages);
+  if (res) {
+    res.write(serviceHelper.ensureString(dockerImages));
+    if (res.flush) res.flush();
+  }
+  await dockerService.pruneImages();
+  const dockerImages2 = {
+    status: 'Docker images cleaned.',
+  };
+  if (res) {
+    res.write(serviceHelper.ensureString(dockerImages2));
+    if (res.flush) res.flush();
+  }
+}
+
+/**
+ * Setup firewall and UPnP ports for application/component
+ * @param {object} appSpecifications - App or component specifications
+ * @param {string} appName - Application name
+ * @param {boolean} isComponent - Whether this is a component
+ * @param {object} res - Response object for streaming
+ * @param {boolean} test - Whether this is a test installation (skips port setup if true)
+ * @returns {Promise<void>}
+ */
+async function setupApplicationPorts(appSpecifications, appName, isComponent, res, test = false) {
+  const portStatusInitial = {
+    status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
+  };
+  log.info(portStatusInitial);
+  if (res) {
+    res.write(serviceHelper.ensureString(portStatusInitial));
+    if (res.flush) res.flush();
+  }
+
+  if (!test && appSpecifications.ports) {
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
+        if (portResponse.status === true) {
+          const portStatus = {
+            status: `Port ${port} OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+            if (res.flush) res.flush();
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to open.`);
+        }
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    const isUPNP = upnpService.isUPNP();
+    if (isUPNP) {
+      log.info('Custom port specified, mapping ports');
+      // eslint-disable-next-line no-restricted-syntax
+      for (const port of appSpecifications.ports) {
+        // eslint-disable-next-line no-await-in-loop
+        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
+        if (portResponse === true) {
+          const portStatus = {
+            status: `Port ${port} mapped OK`,
+          };
+          log.info(portStatus);
+          if (res) {
+            res.write(serviceHelper.ensureString(portStatus));
+            if (res.flush) res.flush();
+          }
+        } else {
+          throw new Error(`Error: Port ${port} FAILed to map.`);
+        }
+      }
+    }
+  } else if (!test && appSpecifications.port) {
+    // v1 compatibility
+    const firewallActive = await fluxNetworkHelper.isFirewallActive();
+    if (firewallActive) {
+      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
+      if (portResponse.status === true) {
+        const portStatus = {
+          status: `Port ${appSpecifications.port} OK`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
+      }
+    } else {
+      log.info('Firewall not active, application ports are open');
+    }
+    const isUPNP = upnpService.isUPNP();
+    if (isUPNP) {
+      log.info('Custom port specified, mapping ports');
+      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
+      if (portResponse === true) {
+        const portStatus = {
+          status: `Port ${appSpecifications.port} mapped OK`,
+        };
+        log.info(portStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(portStatus));
+          if (res.flush) res.flush();
+        }
+      } else {
+        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
+      }
+    }
+  }
+}
+
+/**
+ * Verify and pull Docker image for application/component
+ * @param {object} appSpecifications - App or component specifications
+ * @param {string} appName - Application name
+ * @param {boolean} isComponent - Whether this is a component
+ * @param {object} res - Response object for streaming
+ * @param {object} fullAppSpecs - Full app specifications
+ * @returns {Promise<void>}
+ */
+async function verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+  // check image and its architecture
+  const architecture = await systemArchitecture();
+  if (!supportedArchitectures.includes(architecture)) {
+    throw new Error(`Invalid architecture ${architecture} detected.`);
+  }
+
+  // check blacklist
+  await checkApplicationImagesCompliance(fullAppSpecs);
+
+  const { repotag, repoauth } = appSpecifications;
+  const { version: specVersion } = fullAppSpecs;
+
+  const imgVerifier = new imageVerifier.ImageVerifier(
+    repotag,
+    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
+  );
+
+  const pullConfig = { repoTag: repotag };
+
+  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
+
+  if (authToken) {
+    imgVerifier.addCredentials(authToken);
+    pullConfig.authToken = authToken;
+  }
+
+  await imgVerifier.verifyImage();
+  imgVerifier.throwIfError();
+
+  if (!imgVerifier.supported) {
+    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
+  }
+
+  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
+  pullConfig.provider = imgVerifier.provider;
+
+  // eslint-disable-next-line no-unused-vars
+  await dockerPullStreamPromise(pullConfig, res);
+
+  const pullStatus = {
+    status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,
+  };
+
+  if (res) {
+    res.write(serviceHelper.ensureString(pullStatus));
+    if (res.flush) res.flush();
+  }
+}
+
+/**
  * To register an app locally. Performs pre-installation checks - database in place, Flux Docker network in place and if app already installed. Then registers app in database and performs hard install. If registration fails, the app is removed locally.
  * @param {object} appSpecs App specifications.
  * @param {object} componentSpecs Component specifications.
@@ -252,73 +489,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     const runningSet = new Set(runningAppsNames);
     const stoppedApps = installedAppComponentNames.filter((installedApp) => !runningSet.has(installedApp));
     if (stoppedApps.length === 0 && !globalState.masterSlaveAppsRunning) {
-      const dockerContainers = {
-        status: 'Clearing up unused docker containers...',
-      };
-      log.info(dockerContainers);
-      if (res) {
-        res.write(serviceHelper.ensureString(dockerContainers));
-        if (res.flush) res.flush();
-      }
-      await dockerService.pruneContainers();
-      const dockerContainers2 = {
-        status: 'Docker containers cleaned.',
-      };
-      if (res) {
-        res.write(serviceHelper.ensureString(dockerContainers2));
-        if (res.flush) res.flush();
-      }
-
-      const dockerNetworks = {
-        status: 'Clearing up unused docker networks...',
-      };
-      log.info(dockerNetworks);
-      if (res) {
-        res.write(serviceHelper.ensureString(dockerNetworks));
-        if (res.flush) res.flush();
-      }
-      await dockerService.pruneNetworks();
-      const dockerNetworks2 = {
-        status: 'Docker networks cleaned.',
-      };
-      if (res) {
-        res.write(serviceHelper.ensureString(dockerNetworks2));
-        if (res.flush) res.flush();
-      }
-
-      const dockerVolumes = {
-        status: 'Clearing up unused docker volumes...',
-      };
-      log.info(dockerVolumes);
-      if (res) {
-        res.write(serviceHelper.ensureString(dockerVolumes));
-        if (res.flush) res.flush();
-      }
-      await dockerService.pruneVolumes();
-      const dockerVolumes2 = {
-        status: 'Docker volumes cleaned.',
-      };
-      if (res) {
-        res.write(serviceHelper.ensureString(dockerVolumes2));
-        if (res.flush) res.flush();
-      }
-
-      const dockerImages = {
-        status: 'Clearing up unused docker images...',
-      };
-      log.info(dockerImages);
-      if (res) {
-        res.write(serviceHelper.ensureString(dockerImages));
-        if (res.flush) res.flush();
-      }
-      await dockerService.pruneImages();
-      const dockerImages2 = {
-        status: 'Docker images cleaned.',
-      };
-      if (res) {
-        res.write(serviceHelper.ensureString(dockerImages2));
-        if (res.flush) res.flush();
-      }
+      await performDockerCleanup(res);
     }
 
     if (!isComponent) {
@@ -548,53 +719,8 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
  * @returns {Promise<void>} Installation result
  */
 async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
-  // check image and its architecture
-  const architecture = await systemArchitecture();
-  if (!supportedArchitectures.includes(architecture)) {
-    throw new Error(`Invalid architecture ${architecture} detected.`);
-  }
-
-  // check blacklist
-  await checkApplicationImagesCompliance(fullAppSpecs);
-
-  const { repotag, repoauth } = appSpecifications;
-  const { version: specVersion } = fullAppSpecs;
-
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
-
-  const pullConfig = { repoTag: repotag };
-
-  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
-
-  if (authToken) {
-    imgVerifier.addCredentials(authToken);
-    pullConfig.authToken = authToken;
-  }
-
-  await imgVerifier.verifyImage();
-  imgVerifier.throwIfError();
-
-  if (!imgVerifier.supported) {
-    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
-  }
-
-  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
-  pullConfig.provider = imgVerifier.provider;
-
-  // eslint-disable-next-line no-unused-vars
-  await dockerPullStreamPromise(pullConfig, res);
-
-  const pullStatus = {
-    status: isComponent ? `Pulling component ${appSpecifications.name} of Flux App ${appName}` : `Pulling global Flux App ${appName} was successful`,
-  };
-
-  if (res) {
-    res.write(serviceHelper.ensureString(pullStatus));
-    if (res.flush) res.flush();
-  }
+  // Verify and pull Docker image
+  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
 
   // Dynamic require to avoid circular dependency
   const advancedWorkflows = require('./advancedWorkflows');
@@ -632,96 +758,9 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
-  const portStatusInitial = {
-    status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
-  };
-  log.info(portStatusInitial);
-  if (res) {
-    res.write(serviceHelper.ensureString(portStatusInitial));
-    if (res.flush) res.flush();
-  }
-  if (!test && appSpecifications.ports) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
-        if (portResponse.status === true) {
-          const portStatus = {
-            status: `Port ${port} OK`,
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
-            if (res.flush) res.flush();
-          }
-        } else {
-          throw new Error(`Error: Port ${port} FAILed to open.`);
-        }
-      }
-    } else {
-      log.info('Firewall not active, application ports are open');
-    }
-    const isUPNP = upnpService.isUPNP();
-    if (isUPNP) {
-      log.info('Custom port specified, mapping ports');
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
-        if (portResponse === true) {
-          const portStatus = {
-            status: `Port ${port} mapped OK`,
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
-            if (res.flush) res.flush();
-          }
-        } else {
-          throw new Error(`Error: Port ${port} FAILed to map.`);
-        }
-      }
-    }
-  } else if (!test && appSpecifications.port) {
-    // v1 compatibility
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-      if (portResponse.status === true) {
-        const portStatus = {
-          status: `Port ${appSpecifications.port} OK`,
-        };
-        log.info(portStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(portStatus));
-          if (res.flush) res.flush();
-        }
-      } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
-      }
-    } else {
-      log.info('Firewall not active, application ports are open');
-    }
-    const isUPNP = upnpService.isUPNP();
-    if (isUPNP) {
-      log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
-      if (portResponse === true) {
-        const portStatus = {
-          status: `Port ${appSpecifications.port} mapped OK`,
-        };
-        log.info(portStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(portStatus));
-          if (res.flush) res.flush();
-        }
-      } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
-      }
-    }
-  }
+  // Setup firewall and UPnP ports
+  await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
+
   const startStatus = {
     status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
   };
@@ -758,50 +797,8 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
-  const architecture = await systemArchitecture();
-  if (!supportedArchitectures.includes(architecture)) {
-    throw new Error(`Invalid architecture ${architecture} detected.`);
-  }
-
-  // check blacklist
-  await checkApplicationImagesCompliance(fullAppSpecs);
-
-  const { repotag, repoauth } = appSpecifications;
-  const { version: specVersion } = fullAppSpecs;
-
-  const imgVerifier = new imageVerifier.ImageVerifier(
-    repotag,
-    { maxImageSize: config.fluxapps.maxImageSize, architecture, architectureSet: supportedArchitectures },
-  );
-
-  const pullConfig = { repoTag: repotag };
-
-  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
-
-  if (authToken) {
-    imgVerifier.addCredentials(authToken);
-    pullConfig.authToken = authToken;
-  }
-
-  await imgVerifier.verifyImage();
-  imgVerifier.throwIfError();
-
-  if (!imgVerifier.supported) {
-    throw new Error(`Architecture ${architecture} not supported by ${appSpecifications.repotag}`);
-  }
-
-  // if dockerhub, this is now registry-1.docker.io instead of hub.docker.com
-  pullConfig.provider = imgVerifier.provider;
-
-  await dockerPullStreamPromise(pullConfig, res);
-
-  const pullStatus = {
-    status: isComponent ? `Pulling global Flux App ${appSpecifications.name} was successful` : `Pulling global Flux App ${appName} was successful`,
-  };
-  if (res) {
-    res.write(serviceHelper.ensureString(pullStatus));
-    if (res.flush) res.flush();
-  }
+  // Verify and pull Docker image
+  await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
 
   const createApp = {
     status: isComponent ? `Creating component ${appSpecifications.name} of local Flux App ${appName}` : `Creating local Flux App ${appName}`,
@@ -814,96 +811,9 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
-  const portStatusInitial = {
-    status: isComponent ? `Allowing component ${appSpecifications.name} of Flux App ${appName} ports...` : `Allowing Flux App ${appName} ports...`,
-  };
-  log.info(portStatusInitial);
-  if (res) {
-    res.write(serviceHelper.ensureString(portStatusInitial));
-    if (res.flush) res.flush();
-  }
-  if (appSpecifications.ports) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(port));
-        if (portResponse.status === true) {
-          const portStatus = {
-            status: `Port ${port} OK`,
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
-            if (res.flush) res.flush();
-          }
-        } else {
-          throw new Error(`Error: Port ${port} FAILed to open.`);
-        }
-      }
-    } else {
-      log.info('Firewall not active, application ports are open');
-    }
-    const isUPNP = upnpService.isUPNP();
-    if (isUPNP) {
-      log.info('Custom port specified, mapping ports');
-      // eslint-disable-next-line no-restricted-syntax
-      for (const port of appSpecifications.ports) {
-        // eslint-disable-next-line no-await-in-loop
-        const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(port), `Flux_App_${appName}`);
-        if (portResponse === true) {
-          const portStatus = {
-            status: `Port ${port} mapped OK`,
-          };
-          log.info(portStatus);
-          if (res) {
-            res.write(serviceHelper.ensureString(portStatus));
-            if (res.flush) res.flush();
-          }
-        } else {
-          throw new Error(`Error: Port ${port} FAILed to map.`);
-        }
-      }
-    }
-  } else if (appSpecifications.port) {
-    const firewallActive = await fluxNetworkHelper.isFirewallActive();
-    if (firewallActive) {
-      // v1 compatibility
-      const portResponse = await fluxNetworkHelper.allowPort(serviceHelper.ensureNumber(appSpecifications.port));
-      if (portResponse.status === true) {
-        const portStatus = {
-          status: 'Port OK',
-        };
-        log.info(portStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(portStatus));
-          if (res.flush) res.flush();
-        }
-      } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to open.`);
-      }
-    } else {
-      log.info('Firewall not active, application ports are open');
-    }
-    const isUPNP = upnpService.isUPNP();
-    if (isUPNP) {
-      log.info('Custom port specified, mapping ports');
-      const portResponse = await upnpService.mapUpnpPort(serviceHelper.ensureNumber(appSpecifications.port), `Flux_App_${appName}`);
-      if (portResponse === true) {
-        const portStatus = {
-          status: `Port ${appSpecifications.port} mapped OK`,
-        };
-        log.info(portStatus);
-        if (res) {
-          res.write(serviceHelper.ensureString(portStatus));
-          if (res.flush) res.flush();
-        }
-      } else {
-        throw new Error(`Error: Port ${appSpecifications.port} FAILed to map.`);
-      }
-    }
-  }
+  // Setup firewall and UPnP ports (no test parameter for soft install, defaults to false)
+  await setupApplicationPorts(appSpecifications, appName, isComponent, res);
+
   const startStatus = {
     status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
   };
