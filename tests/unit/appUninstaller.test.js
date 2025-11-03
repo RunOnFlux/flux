@@ -154,7 +154,7 @@ describe('appUninstaller tests', () => {
     });
   });
 
-  describe('appUninstallHard tests', () => {
+  describe('hardUninstallApplication tests', () => {
     it('should hard uninstall app, no ports passed', async () => {
       const appName = 'testapp';
       const appId = 1111;
@@ -162,13 +162,12 @@ describe('appUninstaller tests', () => {
         name: appName,
         repotag: '/flux',
       };
-      const isComponent = false;
       const res = {
         write: sinon.stub(),
         end: sinon.stub(),
       };
 
-      await appUninstaller.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
+      await appUninstaller.hardUninstallApplication(appName, appId, appSpecifications, res);
 
       expect(res.write.called).to.be.true;
     });
@@ -181,19 +180,18 @@ describe('appUninstaller tests', () => {
         repotag: '/flux',
         port: 111,
       };
-      const isComponent = false;
       const res = {
         write: sinon.stub(),
         end: sinon.stub(),
       };
 
-      await appUninstaller.appUninstallHard(appName, appId, appSpecifications, isComponent, res);
+      await appUninstaller.hardUninstallApplication(appName, appId, appSpecifications, res);
 
       expect(res.write.called).to.be.true;
     });
   });
 
-  describe('appUninstallSoft tests', () => {
+  describe('softUninstallApplication tests', () => {
     it('should soft uninstall app, no ports passed', async () => {
       const appName = 'testapp';
       const appId = 1111;
@@ -201,13 +199,12 @@ describe('appUninstaller tests', () => {
         name: appName,
         repotag: '/flux',
       };
-      const isComponent = false;
       const res = {
         write: sinon.stub(),
         end: sinon.stub(),
       };
 
-      await appUninstaller.appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+      await appUninstaller.softUninstallApplication(appName, appId, appSpecifications, res);
 
       expect(res.write.called).to.be.true;
     });
@@ -220,13 +217,12 @@ describe('appUninstaller tests', () => {
         repotag: '/flux',
         port: 111,
       };
-      const isComponent = false;
       const res = {
         write: sinon.stub(),
         end: sinon.stub(),
       };
 
-      await appUninstaller.appUninstallSoft(appName, appId, appSpecifications, isComponent, res);
+      await appUninstaller.softUninstallApplication(appName, appId, appSpecifications, res);
 
       expect(res.write.called).to.be.true;
     });
@@ -609,8 +605,10 @@ describe('appUninstaller tests', () => {
 
   describe('exported functions', () => {
     it('should export all required functions', () => {
-      expect(appUninstaller.appUninstallHard).to.be.a('function');
-      expect(appUninstaller.appUninstallSoft).to.be.a('function');
+      expect(appUninstaller.hardUninstallComponent).to.be.a('function');
+      expect(appUninstaller.hardUninstallApplication).to.be.a('function');
+      expect(appUninstaller.softUninstallComponent).to.be.a('function');
+      expect(appUninstaller.softUninstallApplication).to.be.a('function');
       expect(appUninstaller.removeAppLocally).to.be.a('function');
       expect(appUninstaller.softRemoveAppLocally).to.be.a('function');
       expect(appUninstaller.removeAppLocallyApi).to.be.a('function');
