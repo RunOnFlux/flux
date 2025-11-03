@@ -1092,6 +1092,288 @@ async function hardRedeploy(appSpecs, res) {
 }
 
 /**
+ * Soft redeploy a single component - removes and reinstalls component locally (soft)
+ * @param {string} appName - Application name
+ * @param {string} componentName - Component name
+ * @param {object} res - Response object
+ */
+async function softRedeployComponent(appName, componentName, res) {
+  const appUninstaller = require('./appUninstaller');
+  const appInstaller = require('./appInstaller');
+
+  try {
+    if (globalState.removalInProgress) {
+      log.warn('Another application is undergoing removal');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.installationInProgress) {
+      log.warn('Another application is undergoing installation');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.softRedeployInProgress) {
+      log.warn('Another application is undergoing soft redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.hardRedeployInProgress) {
+      log.warn('Another application is undergoing hard redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+
+    globalState.softRedeployInProgress = true;
+    log.info(`Starting soft redeploy of component ${componentName} from app ${appName}`);
+
+    // Get app specifications
+    const appSpecifications = await getStrictApplicationSpecifications(appName);
+    if (!appSpecifications) {
+      throw new Error(`Application ${appName} not found`);
+    }
+
+    // Find the component in the app specs
+    if (!appSpecifications.compose || appSpecifications.compose.length === 0) {
+      throw new Error(`Application ${appName} is not a composed application`);
+    }
+
+    const componentSpec = appSpecifications.compose.find((comp) => comp.name === componentName);
+    if (!componentSpec) {
+      throw new Error(`Component ${componentName} not found in application ${appName}`);
+    }
+
+    const fullComponentName = `${componentName}_${appName}`;
+
+    try {
+      log.warn(`Beginning Soft Redeployment of component ${fullComponentName}...`);
+      await appUninstaller.softUninstallComponent(fullComponentName, null, componentSpec, res, stopAppMonitoring);
+
+      const appRedeployResponse = messageHelper.createSuccessMessage(`Component ${fullComponentName} softly removed. Awaiting installation...`);
+      log.info(appRedeployResponse);
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+
+      await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+
+      // Verify requirements
+      await appInstaller.checkAppRequirements(appSpecifications);
+
+      // Register component
+      log.warn(`Continuing Soft Redeployment of component ${fullComponentName}...`);
+      await softRegisterAppLocally(appSpecifications, componentSpec, res);
+
+      log.info(`Component ${fullComponentName} softly redeployed`);
+      globalState.softRedeployInProgress = false;
+    } catch (error) {
+      log.error(error);
+      log.warn(`REMOVAL REASON: Soft redeploy failure - ${appName} being removed after component ${fullComponentName} failed during soft redeploy: ${error.message} (softRedeployComponent)`);
+      globalState.softRedeployInProgress = false;
+      await appUninstaller.removeAppLocally(appName, res, true, true, true);
+      log.info(`Cleanup completed for ${appName} after component ${fullComponentName} soft redeploy failure`);
+      throw error;
+    }
+  } catch (error) {
+    log.error('Error on softRedeployComponent');
+    log.error(error);
+    globalState.softRedeployInProgress = false;
+    throw error;
+  }
+}
+
+/**
+ * Hard redeploy a single component - removes and reinstalls component locally (hard)
+ * @param {string} appName - Application name
+ * @param {string} componentName - Component name
+ * @param {object} res - Response object
+ */
+async function hardRedeployComponent(appName, componentName, res) {
+  const appUninstaller = require('./appUninstaller');
+  const appInstaller = require('./appInstaller');
+
+  try {
+    if (globalState.removalInProgress) {
+      log.warn('Another application is undergoing removal');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing removal');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.installationInProgress) {
+      log.warn('Another application is undergoing installation');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing installation');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.softRedeployInProgress) {
+      log.warn('Another application is undergoing soft redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing soft redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+    if (globalState.hardRedeployInProgress) {
+      log.warn('Another application is undergoing hard redeploy');
+      const appRedeployResponse = messageHelper.createWarningMessage('Another application is undergoing hard redeploy');
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+      return;
+    }
+
+    globalState.hardRedeployInProgress = true;
+    log.info(`Starting hard redeploy of component ${componentName} from app ${appName}`);
+
+    // Get app specifications
+    const appSpecifications = await getStrictApplicationSpecifications(appName);
+    if (!appSpecifications) {
+      throw new Error(`Application ${appName} not found`);
+    }
+
+    // Find the component in the app specs
+    if (!appSpecifications.compose || appSpecifications.compose.length === 0) {
+      throw new Error(`Application ${appName} is not a composed application`);
+    }
+
+    const componentSpec = appSpecifications.compose.find((comp) => comp.name === componentName);
+    if (!componentSpec) {
+      throw new Error(`Component ${componentName} not found in application ${appName}`);
+    }
+
+    const fullComponentName = `${componentName}_${appName}`;
+
+    try {
+      log.warn(`Beginning Hard Redeployment of component ${fullComponentName}...`);
+      log.warn(`REMOVAL REASON: Hard redeploy initiated - ${fullComponentName} being removed as part of hard redeploy process (hardRedeployComponent)`);
+
+      await appUninstaller.hardUninstallComponent(fullComponentName, null, componentSpec, res, stopAppMonitoring, false);
+
+      const appRedeployResponse = messageHelper.createSuccessMessage(`Component ${fullComponentName} removed. Awaiting installation...`);
+      log.info(appRedeployResponse);
+      if (res) {
+        res.write(serviceHelper.ensureString(appRedeployResponse));
+        if (res.flush) res.flush();
+      }
+
+      await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
+
+      // Verify requirements
+      await appInstaller.checkAppRequirements(appSpecifications);
+
+      // Register component
+      log.warn(`Continuing Hard Redeployment of component ${fullComponentName}...`);
+      await appInstaller.registerAppLocally(appSpecifications, componentSpec, res);
+
+      log.info(`Component ${fullComponentName} hard redeployed`);
+      globalState.hardRedeployInProgress = false;
+    } catch (error) {
+      log.error(error);
+      log.warn(`REMOVAL REASON: Hard redeploy failure - ${appName} being removed after component ${fullComponentName} failed during hard redeploy: ${error.message} (hardRedeployComponent)`);
+      globalState.hardRedeployInProgress = false;
+      await appUninstaller.removeAppLocally(appName, res, true, true, true);
+      log.info(`Cleanup completed for ${appName} after component ${fullComponentName} hard redeploy failure`);
+      throw error;
+    }
+  } catch (error) {
+    log.error('Error on hardRedeployComponent');
+    log.error(error);
+    globalState.hardRedeployInProgress = false;
+    throw error;
+  }
+}
+
+/**
+ * Redeploy component via API
+ * @param {object} req - Request object
+ * @param {object} res - Response object
+ */
+async function redeployComponentAPI(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+    let { component } = req.params;
+    component = component || req.query.component;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    if (!component) {
+      throw new Error('No component specified');
+    }
+
+    // Validate that appname does not contain underscore (it should be the app name, not component_app format)
+    if (appname.includes('_')) {
+      throw new Error('Invalid app name format. Please provide the app name and component name separately');
+    }
+
+    const redeploySkip = globalState.restoreInProgress.some((backupItem) => appname === backupItem);
+    if (redeploySkip) {
+      log.info(`Restore is running for ${appname}, component redeploy skipped...`);
+      const skipResponse = messageHelper.createWarningMessage(`Restore is running for ${appname}, component redeploy skipped...`);
+      res.json(skipResponse);
+      return;
+    }
+
+    let { force } = req.params;
+    force = force || req.query.force || false;
+    force = serviceHelper.ensureBoolean(force);
+
+    // Authorization check - must be app owner or above
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, appname);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      res.json(errMessage);
+      return;
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+
+    if (force) {
+      await hardRedeployComponent(appname, component, res);
+    } else {
+      await softRedeployComponent(appname, component, res);
+    }
+
+    const successMessage = messageHelper.createSuccessMessage(`Component ${component} of ${appname} redeployed successfully`);
+    res.json(successMessage);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
+/**
  * Redeploy app via API
  * @param {object} req - Request object
  * @param {object} res - Response object
@@ -3180,7 +3462,10 @@ module.exports = {
   softRegisterAppLocally,
   softRemoveAppLocally,
   hardRedeploy,
+  softRedeployComponent,
+  hardRedeployComponent,
   redeployAPI,
+  redeployComponentAPI,
   verifyAppUpdateParameters,
   updateAppGlobalyApi,
   stopSyncthingApp,
