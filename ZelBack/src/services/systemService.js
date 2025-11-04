@@ -1056,17 +1056,21 @@ async function ensureChronyd() {
     // Disable and mask systemd-timesyncd to prevent it from running
     log.info('Disabling and masking systemd-timesyncd service...');
 
-    await serviceHelper.runCommand('systemctl', {
+    const { error: disableError } = await serviceHelper.runCommand('systemctl', {
       runAsRoot: true,
+      logError: false,
       params: ['disable', 'systemd-timesyncd'],
     });
 
-    await serviceHelper.runCommand('systemctl', {
-      runAsRoot: true,
-      params: ['mask', 'systemd-timesyncd'],
-    });
-
-    log.info('systemd-timesyncd disabled and masked');
+    if (!disableError) {
+      await serviceHelper.runCommand('systemctl', {
+        runAsRoot: true,
+        params: ['mask', 'systemd-timesyncd'],
+      });
+      log.info('systemd-timesyncd disabled and masked');
+    } else {
+      log.info('systemd-timesyncd service not found, skipping disable/mask');
+    }
     log.info('Chrony configured successfully');
     return true;
   } catch (error) {
