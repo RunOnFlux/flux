@@ -1053,30 +1053,20 @@ async function ensureChronyd() {
       log.info('Chrony is synchronizing time successfully');
     }
 
-    // Now that chrony is working, purge systemd-timesyncd
-    const timedInstalled = Boolean(await getPackageVersion('systemd-timesyncd'));
+    // Disable and mask systemd-timesyncd to prevent it from running
+    log.info('Disabling and masking systemd-timesyncd service...');
 
-    if (timedInstalled) {
-      log.info('Purging systemd-timesyncd package and config...');
+    await serviceHelper.runCommand('systemctl', {
+      runAsRoot: true,
+      params: ['disable', 'systemd-timesyncd'],
+    });
 
-      await serviceHelper.runCommand('systemctl', {
-        runAsRoot: true,
-        params: ['disable', 'systemd-timesyncd'],
-      });
+    await serviceHelper.runCommand('systemctl', {
+      runAsRoot: true,
+      params: ['mask', 'systemd-timesyncd'],
+    });
 
-      const { error: purgeError } = await queueAptGetCommand('purge', {
-        wait: true,
-        params: ['systemd-timesyncd'],
-      });
-
-      if (purgeError) {
-        log.warn('Failed to purge systemd-timesyncd, but chrony is running');
-        // We don't fail here since chrony is working
-      } else {
-        log.info('systemd-timesyncd purged successfully');
-      }
-    }
-
+    log.info('systemd-timesyncd disabled and masked');
     log.info('Chrony configured successfully');
     return true;
   } catch (error) {
