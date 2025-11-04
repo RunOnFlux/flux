@@ -357,7 +357,7 @@ const response = {
     'gocd',
     'ruimarinho',
     'lncm',
-    'europe-west2-docker.pkg.dev/chode-400710/mugawump',
+    'us-central1-docker.pkg.dev/example-project-12345/test-repo',
     // these are dummies
     'justfortesting/imagetime',
     'us-docker.pkg.dev/google-samples/containers',

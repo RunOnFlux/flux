@@ -2860,7 +2860,8 @@ async function reinstallOldApplications() {
             } catch (error) {
               log.error(error);
               log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
-              appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
+              await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
+              log.info(`Cleanup completed for ${appSpecifications.name} after redeployment failure`);
             }
           }
         }

@@ -18,6 +18,7 @@ const { checkApplicationImagesCompliance } = require('../appSecurity/imageManage
 const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 const pgpService = require('../pgpService');
+const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -40,39 +41,6 @@ const cmdAsync = util.promisify(exec);
 const dockerPullStreamPromise = util.promisify(dockerService.dockerPullStream);
 
 const supportedArchitectures = ['amd64', 'arm64'];
-
-
-/**
- *
- * @param {string} repoauth The docker repository authentication
- * @param {number} specVersion The app spec version (to determine decryption type)
- * @returns {Promise<null|string>}
- */
-async function handleRepoauthDecryption(repoauth, specVersion) {
-  if (!repoauth) return null;
-
-  if (specVersion < 7) {
-    throw new Error('Specifications less than v7 do not have repoauth')
-  }
-
-  let authToken = null;
-
-  if (specVersion === 7) {
-    authToken = await pgpService.decryptMessage(repoauth);
-
-    if (!authToken) {
-      throw new Error('Unable to decrypt provided credentials');
-    }
-  } else {
-    authToken = repoauth;
-  }
-
-  if (!authToken.includes(':')) {
-    throw new Error('Provided credentials not in the correct username:token format');
-  }
-
-  return authToken;
-}
 
 /**
  * Verify that the app volume is mounted
@@ -312,10 +280,25 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
 
   const pullConfig = { repoTag: repotag };
 
-  const authToken = await handleRepoauthDecryption(repoauth, specVersion);
+  let authToken = null;
 
-  if (authToken) {
-    imgVerifier.addCredentials(authToken);
+  if (repoauth) {
+    // Use credential helper to handle version-aware decryption and cloud providers
+    const credentials = await registryCredentialHelper.getCredentials(
+      repotag,
+      repoauth,
+      specVersion, // Pass parent spec version for v7/v8 handling
+    );
+
+    if (!credentials) {
+      throw new Error('Unable to get credentials');
+    }
+
+    // Pass credentials object directly to ImageVerifier (no string conversion needed)
+    imgVerifier.addCredentials(credentials);
+
+    // dockerService still expects string format - convert only for that
+    authToken = `${credentials.username}:${credentials.password}`;
     pullConfig.authToken = authToken;
   }
 
