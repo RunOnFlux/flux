@@ -212,6 +212,8 @@
   },
   "overrides": {
     "eslint-webpack-plugin": "^5.0.2",
-    "eslint-plugin-vue": "~10.4.0"
+    "@vue/eslint-config-airbnb": {
+      "eslint-plugin-vue": "~10.4.0"
+    }
   }
 }
