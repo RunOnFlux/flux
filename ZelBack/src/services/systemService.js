@@ -915,7 +915,7 @@ async function enableFluxdZmq(zmqEndpoint) {
 
 /**
  * Ensures chrony is installed and running, replacing systemd-timesyncd.
- * Will stop and purge systemd-timesyncd after confirming chrony is working.
+ * Will disable and mask systemd-timesyncd after confirming chrony is working.
  * On failure to install chrony, restarts systemd-timesyncd if it was previously stopped.
  * @returns {Promise<boolean>} True if chrony is configured successfully, false otherwise
  */
