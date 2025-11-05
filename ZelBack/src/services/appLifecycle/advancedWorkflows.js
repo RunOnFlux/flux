@@ -3353,6 +3353,65 @@ async function getPeerAppsInstallingErrorMessages() {
   }
 }
 
+/**
+ * Ensures all required local mount paths (files and directories) exist for a component.
+ * This function should be called before creating a container to prevent Docker mount errors
+ * when files or directories have been deleted or don't exist yet.
+ *
+ * @param {object} appSpecifications - Component specifications
+ * @param {string} appName - Application name
+ * @param {boolean} isComponent - Whether this is a component of a compose app
+ * @param {object} fullAppSpecs - Full application specifications (for compose apps)
+ * @returns {Promise<void>}
+ */
+async function ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs) {
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+  const appId = dockerService.getAppIdentifier(identifier);
+
+  // Parse containerData to get required paths
+  const mountParser = require('../utils/mountParser');
+  // eslint-disable-next-line global-require
+  const fs = require('fs').promises;
+  let parsedMounts;
+  try {
+    parsedMounts = mountParser.parseContainerData(appSpecifications.containerData);
+  } catch (error) {
+    log.error(`Failed to parse containerData for ${identifier}: ${error.message}`);
+    throw error;
+  }
+
+  const requiredPaths = mountParser.getRequiredLocalPaths(parsedMounts);
+  log.info(`Ensuring ${requiredPaths.length} local path(s) exist for ${appId}`);
+
+  // Create all required directories and files under appdata/
+  for (const pathInfo of requiredPaths) {
+    const fullPath = `${appsFolder}${appId}/appdata${pathInfo.name === 'appdata' ? '' : `/${pathInfo.name}`}`;
+
+    // Check if path exists
+    try {
+      await fs.access(fullPath);
+      // Path exists, skip
+      log.info(`Path already exists: ${fullPath}`);
+    } catch (error) {
+      // Path doesn't exist, need to create it
+      log.warn(`Path missing, creating: ${fullPath}`);
+
+      if (pathInfo.isFile) {
+        // Create empty file
+        const execFile = `sudo touch ${fullPath}`;
+        await cmdAsync(execFile);
+        await cmdAsync(`sudo chown 100:101 ${fullPath}`);
+        log.info(`Created empty file: ${fullPath}`);
+      } else {
+        // Create directory
+        const execDIR = `sudo mkdir -p ${fullPath}`;
+        await cmdAsync(execDIR);
+        log.info(`Created directory: ${fullPath}`);
+      }
+    }
+  }
+}
+
 module.exports = {
   createAppVolume,
   softRegisterAppLocally,
@@ -3383,4 +3442,5 @@ module.exports = {
   forceAppRemovals,
   masterSlaveApps,
   getPeerAppsInstallingErrorMessages,
+  ensureMountPathsExist,
 };
