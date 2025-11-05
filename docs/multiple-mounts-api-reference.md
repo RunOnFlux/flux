@@ -105,21 +105,21 @@ parseContainerData("r:/data|m:logs:/var/log|m:cache:/tmp/cache");
 #### Example 6: Single file mount
 ```javascript
 // containerData: "/data|f:config.yaml:/etc/app/config.yaml"
-// Host sources:
+// Host structure:
 //   - /apps/fluxCOMPONENT_APPNAME/appdata/ -> /data
-//   - /apps/fluxCOMPONENT_APPNAME/appdata/config.yaml -> /etc/app/config.yaml
-// File config.yaml is created as EMPTY file inside appdata/
-// Application must initialize it on first run
+//   - /apps/fluxCOMPONENT_APPNAME/appdata/config.yaml/config.yaml -> /etc/app/config.yaml
+// File is stored in subdirectory with 777 permissions to allow container user writes
+// File is created empty - application must initialize it on first run
 parseContainerData("/data|f:config.yaml:/etc/app/config.yaml");
 ```
 
 #### Example 7: Multiple file mounts (SSL certificates)
 ```javascript
 // containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
-// Host sources (all EMPTY files created inside appdata/):
+// Host structure (files in subdirectories with 777 permissions):
 //   - /apps/fluxCOMPONENT_APPNAME/appdata/ -> /data
-//   - /apps/fluxCOMPONENT_APPNAME/appdata/cert.pem -> /etc/ssl/cert.pem
-//   - /apps/fluxCOMPONENT_APPNAME/appdata/key.pem -> /etc/ssl/key.pem
+//   - /apps/fluxCOMPONENT_APPNAME/appdata/cert.pem/cert.pem -> /etc/ssl/cert.pem
+//   - /apps/fluxCOMPONENT_APPNAME/appdata/key.pem/key.pem -> /etc/ssl/key.pem
 parseContainerData("/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem");
 ```
 
@@ -129,7 +129,7 @@ parseContainerData("/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pe
 // Host sources:
 //   - /apps/fluxCOMPONENT_APPNAME/appdata/ -> /data (replicated)
 //   - /apps/fluxCOMPONENT_APPNAME/appdata/logs/ -> /var/log
-//   - /apps/fluxCOMPONENT_APPNAME/appdata/app.conf -> /etc/app.conf
+//   - /apps/fluxCOMPONENT_APPNAME/appdata/app.conf/app.conf -> /etc/app.conf
 parseContainerData("r:/data|m:logs:/var/log|f:app.conf:/etc/app.conf");
 ```
 
@@ -306,7 +306,7 @@ const parsed3 = parseContainerData("/data|f:config.yaml:/etc/app.yaml");
 const volumes3 = constructVolumes(parsed3, "api_myapp", "myapp", null, null);
 // Result: [
 //   { Source: '/apps/fluxapi_myapp/appdata', Target: '/data' },
-//   { Source: '/apps/fluxapi_myapp/appdata/config.yaml', Target: '/etc/app.yaml' }
+//   { Source: '/apps/fluxapi_myapp/appdata/config.yaml/app.yaml', Target: '/etc/app.yaml' }
 // ]
 ```
 
@@ -362,7 +362,7 @@ const parsed6 = parseContainerData("r:/www|cf:0:ssl.pem:/etc/ssl/cert.pem");
 const volumes6 = constructVolumes(parsed6, "web_certapp", "certapp", fullSpecs6, fullSpecs6.compose[1]);
 // Result: [
 //   { Source: '/apps/fluxweb_certapp/appdata', Target: '/www' },
-//   { Source: '/apps/fluxcerts_certapp/appdata/ssl.pem', Target: '/etc/ssl/cert.pem' }  ← Component 0's file
+//   { Source: '/apps/fluxcerts_certapp/appdata/ssl.pem/cert.pem', Target: '/etc/ssl/cert.pem' }  ← Component 0's file
 // ]
 ```
 
@@ -394,7 +394,7 @@ const parsed7a = parseContainerData("r:/var/lib/postgresql/data|f:postgresql.con
 const volumes7a = constructVolumes(parsed7a, "database_webapp", "webapp", fullSpecs7, fullSpecs7.compose[0]);
 // Result: [
 //   { Source: '/apps/fluxdatabase_webapp/appdata', Target: '/var/lib/postgresql/data' },
-//   { Source: '/apps/fluxdatabase_webapp/appdata/postgresql.conf', Target: '/etc/postgresql.conf' }
+//   { Source: '/apps/fluxdatabase_webapp/appdata/postgresql.conf/postgresql.conf', Target: '/etc/postgresql.conf' }
 // ]
 
 // Component 1 (app) volumes:
@@ -404,7 +404,7 @@ const volumes7b = constructVolumes(parsed7b, "app_webapp", "webapp", fullSpecs7,
 //   { Source: '/apps/fluxapp_webapp/appdata', Target: '/app' },
 //   { Source: '/apps/fluxdatabase_webapp/appdata', Target: '/database' },              ← DB access
 //   { Source: '/apps/fluxapp_webapp/appdata/uploads', Target: '/app/uploads' },
-//   { Source: '/apps/fluxapp_webapp/appdata/app.conf', Target: '/etc/app.conf' }
+//   { Source: '/apps/fluxapp_webapp/appdata/app.conf/app.conf', Target: '/etc/app.conf' }
 // ]
 
 // Component 2 (nginx) volumes:
@@ -414,7 +414,7 @@ const volumes7c = constructVolumes(parsed7c, "nginx_webapp", "webapp", fullSpecs
 //   { Source: '/apps/fluxnginx_webapp/appdata', Target: '/usr/share/nginx/html' },
 //   { Source: '/apps/fluxapp_webapp/appdata/uploads', Target: '/www/uploads' },       ← Serve app uploads
 //   { Source: '/apps/fluxnginx_webapp/appdata/logs', Target: '/var/log/nginx' },
-//   { Source: '/apps/fluxnginx_webapp/appdata/nginx.conf', Target: '/etc/nginx/nginx.conf' }
+//   { Source: '/apps/fluxnginx_webapp/appdata/nginx.conf/nginx.conf', Target: '/etc/nginx/nginx.conf' }
 // ]
 ```
 
@@ -444,9 +444,9 @@ const parsed8a = parseContainerData("/config|f:shared.json:/config.json|f:cert.p
 const volumes8a = constructVolumes(parsed8a, "config_microservices", "microservices", fullSpecs8, fullSpecs8.compose[0]);
 // Result: [
 //   { Source: '/apps/fluxconfig_microservices/appdata', Target: '/config' },
-//   { Source: '/apps/fluxconfig_microservices/appdata/shared.json', Target: '/config.json' },
-//   { Source: '/apps/fluxconfig_microservices/appdata/cert.pem', Target: '/cert.pem' },
-//   { Source: '/apps/fluxconfig_microservices/appdata/key.pem', Target: '/key.pem' }
+//   { Source: '/apps/fluxconfig_microservices/appdata/shared.json/config.json', Target: '/config.json' },
+//   { Source: '/apps/fluxconfig_microservices/appdata/cert.pem/cert.pem', Target: '/cert.pem' },
+//   { Source: '/apps/fluxconfig_microservices/appdata/key.pem/key.pem', Target: '/key.pem' }
 // ]
 
 // Component 1 & 2 (services) - all read from Component 0's files
@@ -454,9 +454,9 @@ const parsed8b = parseContainerData("/app|cf:0:shared.json:/etc/config.json|cf:0
 const volumes8b = constructVolumes(parsed8b, "service1_microservices", "microservices", fullSpecs8, fullSpecs8.compose[1]);
 // Result: [
 //   { Source: '/apps/fluxservice1_microservices/appdata', Target: '/app' },
-//   { Source: '/apps/fluxconfig_microservices/appdata/shared.json', Target: '/etc/config.json' },  ← Shared
-//   { Source: '/apps/fluxconfig_microservices/appdata/cert.pem', Target: '/etc/ssl/cert.pem' },    ← Shared
-//   { Source: '/apps/fluxconfig_microservices/appdata/key.pem', Target: '/etc/ssl/key.pem' }       ← Shared
+//   { Source: '/apps/fluxconfig_microservices/appdata/shared.json/config.json', Target: '/etc/config.json' },  ← Shared
+//   { Source: '/apps/fluxconfig_microservices/appdata/cert.pem/cert.pem', Target: '/etc/ssl/cert.pem' },    ← Shared
+//   { Source: '/apps/fluxconfig_microservices/appdata/key.pem/key.pem', Target: '/etc/ssl/key.pem' }       ← Shared
 // ]
 // Service2 gets identical mounts from Component 0
 ```
@@ -568,8 +568,10 @@ const paths3 = getRequiredLocalPaths(parsed3);
 // ]
 // Will create:
 //   /apps/fluxCOMPONENT_APPNAME/appdata/
-//   /apps/fluxCOMPONENT_APPNAME/appdata/config.yaml (empty file)
-//   /apps/fluxCOMPONENT_APPNAME/appdata/cert.pem (empty file)
+//   /apps/fluxCOMPONENT_APPNAME/appdata/config.yaml/ (subdirectory)
+//   /apps/fluxCOMPONENT_APPNAME/appdata/config.yaml/app.yaml (empty file with 777 perms)
+//   /apps/fluxCOMPONENT_APPNAME/appdata/cert.pem/ (subdirectory)
+//   /apps/fluxCOMPONENT_APPNAME/appdata/cert.pem/cert.pem (empty file with 777 perms)
 ```
 
 #### Example 4: Mixed local mounts (directories and files)
@@ -601,7 +603,8 @@ const paths6 = getRequiredLocalPaths(parsed6);
 //   { name: 'appdata', isFile: false },  → /apps/fluxweb_app/appdata/
 //   { name: 'logs', isFile: false },     → /apps/fluxweb_app/appdata/logs/
 //   { name: 'cache', isFile: false },    → /apps/fluxweb_app/appdata/cache/
-//   { name: 'nginx.conf', isFile: true } → /apps/fluxweb_app/appdata/nginx.conf (empty)
+//   { name: 'nginx.conf', isFile: true } → /apps/fluxweb_app/appdata/nginx.conf/ (subdir)
+//                                        → /apps/fluxweb_app/appdata/nginx.conf/nginx.conf (file)
 // ]
 ```
 
@@ -634,9 +637,9 @@ const paths7 = getRequiredLocalPaths(parsed7);
 
 ### 3. FILE MOUNT (f:)
 - **Syntax:** `f:<filename>:<container_path>`
-- **Host Path:** `/apps/fluxCOMPONENT_APPNAME/appdata/<filename>`
+- **Host Path:** `/apps/fluxCOMPONENT_APPNAME/appdata/<filename>/<filename>`
 - **Purpose:** Persistent configuration files
-- **Created:** As an empty file INSIDE appdata
+- **Created:** As a subdirectory containing the file with 777 permissions INSIDE appdata
 - **Important:** Application must initialize file content on first run
 
 ### 4. COMPONENT PRIMARY (0:)
@@ -653,7 +656,7 @@ const paths7 = getRequiredLocalPaths(parsed7);
 
 ### 6. COMPONENT FILE (cf:)
 - **Syntax:** `cf:<component_index>:<filename>:<container_path>`
-- **Host Path:** `/apps/fluxOTHER_COMPONENT_APPNAME/appdata/<filename>`
+- **Host Path:** `/apps/fluxOTHER_COMPONENT_APPNAME/appdata/<filename>/<filename>`
 - **Purpose:** Access specific file from another component
 - **Important:** File must exist in the referenced component
 
@@ -755,19 +758,20 @@ The system automatically prevents double-counting of nested mounts through intel
 
 **Host paths created:**
 ```
-/apps/fluxcomponent_app/appdata/           ← Primary mount
-/apps/fluxcomponent_app/appdata/logs/      ← Nested inside primary
-/apps/fluxcomponent_app/appdata/cache/     ← Nested inside primary
-/apps/fluxcomponent_app/appdata/config.yaml ← Nested inside primary
+/apps/fluxcomponent_app/appdata/                     ← Primary mount
+/apps/fluxcomponent_app/appdata/logs/                ← Nested inside primary
+/apps/fluxcomponent_app/appdata/cache/               ← Nested inside primary
+/apps/fluxcomponent_app/appdata/config.yaml/         ← Subdirectory for file
+/apps/fluxcomponent_app/appdata/config.yaml/app.yaml ← Nested file inside primary
 ```
 
 **Usage calculation:**
 ```
 Mount List from Docker:
-  ✓ /apps/fluxcomponent_app/appdata          → COUNTED (50 GB)
-  ✗ /apps/fluxcomponent_app/appdata/logs     → SKIPPED (nested, already in parent count)
-  ✗ /apps/fluxcomponent_app/appdata/cache    → SKIPPED (nested, already in parent count)
-  ✗ /apps/fluxcomponent_app/appdata/config.yaml → SKIPPED (nested, already in parent count)
+  ✓ /apps/fluxcomponent_app/appdata                     → COUNTED (50 GB)
+  ✗ /apps/fluxcomponent_app/appdata/logs                → SKIPPED (nested, already in parent count)
+  ✗ /apps/fluxcomponent_app/appdata/cache               → SKIPPED (nested, already in parent count)
+  ✗ /apps/fluxcomponent_app/appdata/config.yaml/app.yaml → SKIPPED (nested, already in parent count)
 
 Total Usage: 50 GB (includes everything in appdata)
 ```
