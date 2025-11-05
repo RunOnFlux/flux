@@ -22,6 +22,7 @@ const {
   globalAppsInstallingErrorsLocations,
   globalAppsMessages,
   globalAppsLocations,
+  appsFolder,
 } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -42,8 +43,6 @@ const timeTostartNewMasterApp = new Map();
 const cmdAsync = util.promisify(nodecmd.run);
 const crontabLoad = util.promisify(systemcrontab.load);
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
-const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
-const appsFolder = `${appsFolderPath}/`;
 
 // We need to avoid circular dependency, so we'll implement getInstalledAppsForDocker locally
 // eslint-disable-next-line no-unused-vars

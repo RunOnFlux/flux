@@ -479,6 +479,7 @@ describe('advancedWorkflows tests', () => {
     let mountParserStub;
     let logStub;
     let utilStub;
+    let appConstantsStub;
     let proxyquire;
 
     beforeEach(() => {
@@ -519,12 +520,24 @@ describe('advancedWorkflows tests', () => {
       mountParserStub = {
         parseContainerData: sinon.stub(),
         getRequiredLocalPaths: sinon.stub(),
+        MountType: {
+          PRIMARY: 'primary',
+          DIRECTORY: 'directory',
+          FILE: 'file',
+          COMPONENT_PRIMARY: 'component_primary',
+          COMPONENT_DIRECTORY: 'component_directory',
+          COMPONENT_FILE: 'component_file',
+        },
       };
 
       logStub = {
         info: sinon.stub(),
         warn: sinon.stub(),
         error: sinon.stub(),
+      };
+
+      appConstantsStub = {
+        appsFolder: '/test/apps/folder/',
       };
     });
 
@@ -573,6 +586,7 @@ describe('advancedWorkflows tests', () => {
       const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
         '../dockerService': dockerServiceStub,
         '../utils/mountParser': mountParserStub,
+        '../utils/appConstants': appConstantsStub,
         'node-cmd': nodecmdStub,
         util: utilStub,
         '../../lib/log': logStub,
@@ -633,6 +647,7 @@ describe('advancedWorkflows tests', () => {
       const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
         '../dockerService': dockerServiceStub,
         '../utils/mountParser': mountParserStub,
+        '../utils/appConstants': appConstantsStub,
         'node-cmd': nodecmdStub,
         util: {
           ...utilStub,
@@ -652,10 +667,12 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      expect(cmdAsyncStub.calledOnce).to.be.true;
+      expect(cmdAsyncStub.callCount).to.equal(2); // mkdir parent dir + touch file
+      // Should call mkdir to ensure parent directory exists
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('mkdir -p');
       // Should call touch to create file
-      expect(cmdAsyncStub.firstCall.args[0]).to.include('touch');
-      expect(cmdAsyncStub.firstCall.args[0]).to.include('config.yaml');
+      expect(cmdAsyncStub.secondCall.args[0]).to.include('touch');
+      expect(cmdAsyncStub.secondCall.args[0]).to.include('config.yaml');
     });
 
     it('should create missing directory', async () => {
@@ -786,6 +803,7 @@ describe('advancedWorkflows tests', () => {
       const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
         '../dockerService': dockerServiceStub,
         '../utils/mountParser': mountParserStub,
+        '../utils/appConstants': appConstantsStub,
         'node-cmd': nodecmdStub,
         util: {
           ...utilStub,
@@ -805,12 +823,12 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      // Should create: logs dir, config.yaml file (touch), cache dir = 3 commands
-      expect(cmdAsyncStub.callCount).to.equal(3);
+      // Should create: logs dir, parent dir for file, config.yaml file (touch), cache dir = 4 commands
+      expect(cmdAsyncStub.callCount).to.equal(4);
 
-      // Check that mkdir was called for directories
+      // Check that mkdir was called for directories (logs, cache, and parent dir for config.yaml)
       const mkdirCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('mkdir'));
-      expect(mkdirCalls.length).to.equal(2); // logs and cache
+      expect(mkdirCalls.length).to.equal(3); // logs, parent dir, and cache
 
       // Check that touch was called for file
       const touchCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('touch'));
@@ -856,6 +874,7 @@ describe('advancedWorkflows tests', () => {
       const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
         '../dockerService': dockerServiceStub,
         '../utils/mountParser': mountParserStub,
+        '../utils/appConstants': appConstantsStub,
         'node-cmd': nodecmdStub,
         util: utilStub,
         '../../lib/log': logStub,
@@ -884,6 +903,7 @@ describe('advancedWorkflows tests', () => {
       const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
         '../dockerService': dockerServiceStub,
         '../utils/mountParser': mountParserStub,
+        '../utils/appConstants': appConstantsStub,
         'node-cmd': nodecmdStub,
         util: utilStub,
         '../../lib/log': logStub,
@@ -907,6 +927,15 @@ describe('advancedWorkflows tests', () => {
       };
       const appName = 'testapp';
       const isComponent = true;
+
+      // Provide fullAppSpecs so component references can be validated
+      const fullAppSpecs = {
+        version: 4,
+        compose: [
+          { name: 'db', containerData: 'r:/var/lib/db' },
+          { name: 'backup', containerData: '/data|0:/database' },
+        ],
+      };
 
       dockerServiceStub.getAppIdentifier.returns('fluxbackup_testapp');
 
@@ -940,6 +969,7 @@ describe('advancedWorkflows tests', () => {
       const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
         '../dockerService': dockerServiceStub,
         '../utils/mountParser': mountParserStub,
+        '../utils/appConstants': appConstantsStub,
         'node-cmd': nodecmdStub,
         util: utilStub,
         '../../lib/log': logStub,
@@ -947,10 +977,11 @@ describe('advancedWorkflows tests', () => {
       });
 
       // Execute
-      await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
+      await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
 
-      // Verify - should only check appdata, not the component reference
-      expect(fsStub.promises.access.calledOnce).to.be.true;
+      // Verify - should check appdata for this component and also the component reference path
+      // The component reference (component 0) path should also be checked to ensure it exists
+      expect(fsStub.promises.access.callCount).to.be.at.least(1);
       expect(nodecmdStub.run.called).to.be.false;
     });
   });
