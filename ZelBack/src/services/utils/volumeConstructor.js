@@ -151,19 +151,48 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
   // eslint-disable-next-line no-restricted-syntax
   for (const mount of parsedMounts.allMounts) {
     let hostPath;
-    const { containerPath } = mount;
+    // eslint-disable-next-line prefer-destructuring
+    let containerPath = mount.containerPath;
 
     switch (mount.type) {
       case MountType.PRIMARY:
       case MountType.DIRECTORY:
-      case MountType.FILE:
         // Local mounts (current component)
         hostPath = constructLocalHostPath(identifier, mount.subdir);
         break;
 
+      case MountType.FILE: {
+        // For file mounts, we need to mount the parent directory to allow atomic writes
+        // Docker bind-mounted files cannot be replaced atomically (mv fails with "Device or resource busy")
+        // Solution: Mount parent directory containing the file
+
+        // Create subdirectory for the file: /apps/appid/appdata/filename/
+        const fileSubdir = mount.subdir; // This is the filename specified by user
+        hostPath = constructLocalHostPath(identifier, fileSubdir);
+
+        // Extract parent directory and filename from container path
+        const lastSlash = containerPath.lastIndexOf('/');
+        if (lastSlash === -1 || lastSlash === 0) {
+          throw new Error(`Invalid file mount container path: ${containerPath}. Must include parent directory.`);
+        }
+
+        const containerParent = containerPath.substring(0, lastSlash);
+        const containerFilename = containerPath.substring(lastSlash + 1);
+
+        // Verify filename matches
+        if (containerFilename !== fileSubdir) {
+          log.warn(`File mount: container filename '${containerFilename}' differs from specified '${fileSubdir}'. Using container path structure.`);
+        }
+
+        // Mount the host directory (containing the file) to the container parent directory
+        containerPath = containerParent;
+
+        log.info(`File mount adjusted: ${hostPath}/ -> ${containerPath}/ (file: ${containerFilename})`);
+        break;
+      }
+
       case MountType.COMPONENT_PRIMARY:
-      case MountType.COMPONENT_DIRECTORY:
-      case MountType.COMPONENT_FILE: {
+      case MountType.COMPONENT_DIRECTORY: {
         // Component reference mounts
         if (!fullAppSpecs) {
           throw new Error(
@@ -180,6 +209,44 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
         );
 
         hostPath = constructComponentHostPath(componentIdentifier, mount.subdir);
+        break;
+      }
+
+      case MountType.COMPONENT_FILE: {
+        // Component file reference mounts
+        if (!fullAppSpecs) {
+          throw new Error(
+            `Complete App Specification required for component file mount: ${mount.containerPath}`,
+          );
+        }
+
+        // eslint-disable-next-line no-case-declarations
+        const componentIdentifier = validateAndGetComponentIdentifier(
+          mount.componentIndex,
+          currentComponentIndex,
+          fullAppSpecs,
+          appName,
+        );
+
+        // For component file mounts, also mount parent directory
+        const fileSubdir = mount.subdir;
+        hostPath = constructComponentHostPath(componentIdentifier, fileSubdir);
+
+        const lastSlash = containerPath.lastIndexOf('/');
+        if (lastSlash === -1 || lastSlash === 0) {
+          throw new Error(`Invalid component file mount container path: ${containerPath}. Must include parent directory.`);
+        }
+
+        const containerParent = containerPath.substring(0, lastSlash);
+        const containerFilename = containerPath.substring(lastSlash + 1);
+
+        if (containerFilename !== fileSubdir) {
+          log.warn(`Component file mount: container filename '${containerFilename}' differs from specified '${fileSubdir}'.`);
+        }
+
+        containerPath = containerParent;
+
+        log.info(`Component file mount adjusted: ${hostPath}/ -> ${containerPath}/ (file: ${containerFilename})`);
         break;
       }
 

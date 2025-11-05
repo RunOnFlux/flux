@@ -343,15 +343,15 @@ function parseContainerData(containerData) {
  * under the component's appdata directory on the host filesystem.
  *
  * @param {object} parsedMounts - Result from parseContainerData
- * @returns {Array<{name: string, isFile: boolean}>} Array of paths to create
+ * @returns {Array<{name: string, isFile: boolean, containerPath: string}>} Array of paths to create
  *
  * @example
  * const parsed = parseContainerData("/data|m:logs:/var/log|f:config.yaml:/etc/app.yaml");
  * const paths = getRequiredLocalPaths(parsed);
  * // Returns: [
- * //   { name: 'appdata', isFile: false },
- * //   { name: 'logs', isFile: false },
- * //   { name: 'config.yaml', isFile: true }
+ * //   { name: 'appdata', isFile: false, containerPath: '/data' },
+ * //   { name: 'logs', isFile: false, containerPath: '/var/log' },
+ * //   { name: 'config.yaml', isFile: true, containerPath: '/etc/app.yaml' }
  * // ]
  * // Note: Component references (0:, c:, cf:) are excluded - they point to OTHER components
  *
@@ -368,6 +368,7 @@ function getRequiredLocalPaths(parsedMounts) {
       paths.push({
         name: mount.subdir,
         isFile: mount.isFile,
+        containerPath: mount.containerPath,
       });
     }
   }

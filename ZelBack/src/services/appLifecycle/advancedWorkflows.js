@@ -423,10 +423,15 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
 
       if (pathInfo.isFile) {
-        // Create empty file under appdata/ - app will initialize it on first run
-        // File is mounted so changes persist across restarts
+        // For file mounts, create a subdirectory and place the file inside
+        // This allows mounting the parent directory instead of the file itself
+        // which enables atomic writes (mv operations) that would otherwise fail
+
+        // Extract filename from container path
+        const containerFilename = pathInfo.containerPath.substring(pathInfo.containerPath.lastIndexOf('/') + 1);
+
         const createFileStatus = {
-          status: `Creating file: appdata/${pathInfo.name}...`,
+          status: `Creating file mount: appdata/${pathInfo.name}/${containerFilename}...`,
         };
         log.info(createFileStatus);
         if (res) {
@@ -434,14 +439,21 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res.flush) res.flush();
         }
 
-        const filePath = `${appsFolder + appId}/appdata/${pathInfo.name}`;
+        // Create subdirectory for the file
+        const fileDir = `${appsFolder + appId}/appdata/${pathInfo.name}`;
+        const execDir = `sudo mkdir -p ${fileDir}`;
+        // eslint-disable-next-line no-await-in-loop
+        await cmdAsync(execDir);
+
+        // Create empty file inside the subdirectory
+        const filePath = `${fileDir}/${containerFilename}`;
         const execFile = `sudo touch ${filePath}`;
         // eslint-disable-next-line no-await-in-loop
         await cmdAsync(execFile);
-        log.info(`Empty file created (app will initialize): appdata/${pathInfo.name}`);
+        log.info(`Empty file created (app will initialize): appdata/${pathInfo.name}/${containerFilename}`);
 
         const createFileStatus2 = {
-          status: `File created: appdata/${pathInfo.name}`,
+          status: `File mount created: appdata/${pathInfo.name}/${containerFilename}`,
         };
         log.info(createFileStatus2);
         if (res) {
@@ -3759,17 +3771,21 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
       log.warn(`Path missing, creating: ${fullPath}`);
 
       if (pathInfo.isFile) {
-        // Ensure parent directory exists first
-        const parentDir = `${appsFolder}${appId}/appdata`;
-        const execParentDir = `sudo mkdir -p ${parentDir}`;
-        // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(execParentDir);
+        // For file mounts, create subdirectory and file inside
+        // Extract filename from container path
+        const containerFilename = pathInfo.containerPath.substring(pathInfo.containerPath.lastIndexOf('/') + 1);
 
-        // Create empty file
-        const execFile = `sudo touch ${fullPath}`;
+        // Create subdirectory
+        const execDir = `sudo mkdir -p ${fullPath}`;
+        // eslint-disable-next-line no-await-in-loop
+        await cmdAsync(execDir);
+
+        // Create empty file inside subdirectory
+        const filePath = `${fullPath}/${containerFilename}`;
+        const execFile = `sudo touch ${filePath}`;
         // eslint-disable-next-line no-await-in-loop
         await cmdAsync(execFile);
-        log.info(`Created empty file: ${fullPath}`);
+        log.info(`Created empty file: ${filePath}`);
       } else {
         // Create directory
         const execDIR = `sudo mkdir -p ${fullPath}`;
@@ -3830,17 +3846,21 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
           log.warn(`Component reference path missing, creating: ${fullPath}`);
 
           if (mount.isFile) {
-            // Ensure parent directory exists first
-            const parentDir = `${appsFolder}${componentAppId}/appdata`;
-            const execParentDir = `sudo mkdir -p ${parentDir}`;
-            // eslint-disable-next-line no-await-in-loop
-            await cmdAsync(execParentDir);
+            // For component file mounts, create subdirectory and file inside
+            // Extract filename from container path
+            const containerFilename = mount.containerPath.substring(mount.containerPath.lastIndexOf('/') + 1);
 
-            // Create empty file
-            const execFile = `sudo touch ${fullPath}`;
+            // Create subdirectory
+            const execDir = `sudo mkdir -p ${fullPath}`;
+            // eslint-disable-next-line no-await-in-loop
+            await cmdAsync(execDir);
+
+            // Create empty file inside subdirectory
+            const filePath = `${fullPath}/${containerFilename}`;
+            const execFile = `sudo touch ${filePath}`;
             // eslint-disable-next-line no-await-in-loop
             await cmdAsync(execFile);
-            log.info(`Created empty file for component reference: ${fullPath}`);
+            log.info(`Created empty file for component reference: ${filePath}`);
           } else {
             // Create directory
             const execDIR = `sudo mkdir -p ${fullPath}`;

@@ -576,8 +576,8 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'config.yaml', isFile: true },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'config.yaml', isFile: true, containerPath: '/etc/config.yaml' },
       ]);
 
       // All paths exist - fs.access succeeds
@@ -634,8 +634,8 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'config.yaml', isFile: true },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'config.yaml', isFile: true, containerPath: '/etc/config.yaml' },
       ]);
 
       // appdata exists, config.yaml doesn't
@@ -706,8 +706,8 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'logs', isFile: false },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'logs', isFile: false, containerPath: '/var/log' },
       ]);
 
       // appdata exists, logs doesn't
@@ -786,10 +786,10 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'logs', isFile: false },
-        { name: 'config.yaml', isFile: true },
-        { name: 'cache', isFile: false },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'logs', isFile: false, containerPath: '/var/log' },
+        { name: 'config.yaml', isFile: true, containerPath: '/etc/config.yaml' },
+        { name: 'cache', isFile: false, containerPath: '/var/cache' },
       ]);
 
       // appdata exists, all others don't
@@ -865,8 +865,8 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'config.yaml', isFile: true },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'config.yaml', isFile: true, containerPath: '/etc/config.yaml' },
       ]);
 
       fsStub.promises.access.resolves();
@@ -960,7 +960,7 @@ describe('advancedWorkflows tests', () => {
 
       // getRequiredLocalPaths should filter out component references
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
         // Note: component references NOT included here
       ]);
 
