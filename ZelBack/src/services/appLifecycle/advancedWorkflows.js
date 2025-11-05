@@ -3585,11 +3585,13 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   log.info(`Ensuring ${requiredPaths.length} local path(s) exist for ${appId}`);
 
   // Create all required directories and files under appdata/
+  // eslint-disable-next-line no-restricted-syntax
   for (const pathInfo of requiredPaths) {
     const fullPath = `${appsFolder}${appId}/appdata${pathInfo.name === 'appdata' ? '' : `/${pathInfo.name}`}`;
 
     // Check if path exists
     try {
+      // eslint-disable-next-line no-await-in-loop
       await fs.access(fullPath);
       // Path exists, skip
       log.info(`Path already exists: ${fullPath}`);
@@ -3598,15 +3600,99 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
       log.warn(`Path missing, creating: ${fullPath}`);
 
       if (pathInfo.isFile) {
+        // Ensure parent directory exists first
+        const parentDir = `${appsFolder}${appId}/appdata`;
+        const execParentDir = `sudo mkdir -p ${parentDir}`;
+        // eslint-disable-next-line no-await-in-loop
+        await cmdAsync(execParentDir);
+
         // Create empty file
         const execFile = `sudo touch ${fullPath}`;
+        // eslint-disable-next-line no-await-in-loop
         await cmdAsync(execFile);
         log.info(`Created empty file: ${fullPath}`);
       } else {
         // Create directory
         const execDIR = `sudo mkdir -p ${fullPath}`;
+        // eslint-disable-next-line no-await-in-loop
         await cmdAsync(execDIR);
         log.info(`Created directory: ${fullPath}`);
+      }
+    }
+  }
+
+  // Also ensure component reference paths exist
+  // These are paths from OTHER components that this component is trying to mount
+  const componentReferenceMounts = parsedMounts.allMounts.filter((mount) => (
+    mount.type === mountParser.MountType.COMPONENT_PRIMARY
+    || mount.type === mountParser.MountType.COMPONENT_DIRECTORY
+    || mount.type === mountParser.MountType.COMPONENT_FILE
+  ));
+
+  if (componentReferenceMounts.length > 0) {
+    log.info(`Ensuring ${componentReferenceMounts.length} component reference path(s) exist for ${appId}`);
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const mount of componentReferenceMounts) {
+      try {
+        // Validate and get the component identifier
+        if (!fullAppSpecs) {
+          throw new Error(`Component reference mount requires full app specifications: ${mount.containerPath}`);
+        }
+
+        let componentIdentifier;
+        if (fullAppSpecs.version >= 4) {
+          if (mount.componentIndex < 0 || mount.componentIndex >= fullAppSpecs.compose.length) {
+            throw new Error(`Invalid component index: ${mount.componentIndex}`);
+          }
+          const componentName = fullAppSpecs.compose[mount.componentIndex].name;
+          componentIdentifier = `${componentName}_${appName}`;
+        } else {
+          componentIdentifier = appName;
+        }
+
+        const componentAppId = dockerService.getAppIdentifier(componentIdentifier);
+
+        // Construct the full path for the component reference
+        let fullPath;
+        if (mount.subdir === 'appdata') {
+          fullPath = `${appsFolder}${componentAppId}/appdata`;
+        } else {
+          fullPath = `${appsFolder}${componentAppId}/appdata/${mount.subdir}`;
+        }
+
+        // Check if path exists
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await fs.access(fullPath);
+          log.info(`Component reference path already exists: ${fullPath}`);
+        } catch (error) {
+          // Path doesn't exist, need to create it
+          log.warn(`Component reference path missing, creating: ${fullPath}`);
+
+          if (mount.isFile) {
+            // Ensure parent directory exists first
+            const parentDir = `${appsFolder}${componentAppId}/appdata`;
+            const execParentDir = `sudo mkdir -p ${parentDir}`;
+            // eslint-disable-next-line no-await-in-loop
+            await cmdAsync(execParentDir);
+
+            // Create empty file
+            const execFile = `sudo touch ${fullPath}`;
+            // eslint-disable-next-line no-await-in-loop
+            await cmdAsync(execFile);
+            log.info(`Created empty file for component reference: ${fullPath}`);
+          } else {
+            // Create directory
+            const execDIR = `sudo mkdir -p ${fullPath}`;
+            // eslint-disable-next-line no-await-in-loop
+            await cmdAsync(execDIR);
+            log.info(`Created directory for component reference: ${fullPath}`);
+          }
+        }
+      } catch (error) {
+        log.error(`Failed to ensure component reference path exists: ${error.message}`);
+        throw error;
       }
     }
   }
