@@ -257,6 +257,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
   }
 
   state.updateSyncthingRunning = true;
+  let syncthingInitializedSuccessfully = false;
 
   try {
     // Get list of all installed apps
@@ -285,6 +286,30 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     // Get current Syncthing configuration
     const allFoldersResp = await syncthingService.getConfigFolders();
     const allDevicesResp = await syncthingService.getConfigDevices();
+
+    // CRITICAL: Validate Syncthing configuration is loaded before proceeding
+    // On system restart, Syncthing API might be available but config not fully loaded
+    // This prevents data deletion during the race condition window
+    if (!allFoldersResp || !allFoldersResp.data || !Array.isArray(allFoldersResp.data)) {
+      if (state.syncthingAppsFirstRun) {
+        log.warn('syncthingAppsCore - Syncthing folder configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
+      } else {
+        log.error('syncthingAppsCore - Failed to get Syncthing folders configuration');
+      }
+      return;
+    }
+
+    if (!allDevicesResp || !allDevicesResp.data || !Array.isArray(allDevicesResp.data)) {
+      if (state.syncthingAppsFirstRun) {
+        log.warn('syncthingAppsCore - Syncthing device configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
+      } else {
+        log.error('syncthingAppsCore - Failed to get Syncthing devices configuration');
+      }
+      return;
+    }
+
+    // Mark that Syncthing is properly initialized - safe to clear first run flag
+    syncthingInitializedSuccessfully = true;
 
     // Initialize tracking arrays
     const devicesIds = [];
@@ -427,7 +452,11 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     log.error(error.stack);
   } finally {
     state.updateSyncthingRunning = false;
-    state.syncthingAppsFirstRun = false;
+    // Only clear first run flag if Syncthing was successfully initialized
+    // This ensures we don't proceed with app processing until Syncthing is fully ready
+    if (syncthingInitializedSuccessfully) {
+      state.syncthingAppsFirstRun = false;
+    }
   }
 }
 
