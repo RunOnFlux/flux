@@ -151,8 +151,7 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
   // eslint-disable-next-line no-restricted-syntax
   for (const mount of parsedMounts.allMounts) {
     let hostPath;
-    // eslint-disable-next-line prefer-destructuring
-    let containerPath = mount.containerPath;
+    const { containerPath } = mount;
 
     switch (mount.type) {
       case MountType.PRIMARY:
@@ -162,32 +161,19 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
         break;
 
       case MountType.FILE: {
-        // For file mounts, we need to mount the parent directory to allow atomic writes
-        // Docker bind-mounted files cannot be replaced atomically (mv fails with "Device or resource busy")
-        // Solution: Mount parent directory containing the file
+        // For file mounts, mount the file directly with proper permissions
+        // File will be created with 777 permissions to allow container user to write
+        // Note: Atomic renames (mv) may have limitations, but direct writes work
 
         // Create subdirectory for the file: /apps/appid/appdata/filename/
         const fileSubdir = mount.subdir; // This is the filename specified by user
-        hostPath = constructLocalHostPath(identifier, fileSubdir);
+        const fileDir = constructLocalHostPath(identifier, fileSubdir);
 
-        // Extract parent directory and filename from container path
-        const lastSlash = containerPath.lastIndexOf('/');
-        if (lastSlash === -1 || lastSlash === 0) {
-          throw new Error(`Invalid file mount container path: ${containerPath}. Must include parent directory.`);
-        }
+        // The actual file is inside the directory: /apps/appid/appdata/filename/filename
+        const containerFilename = containerPath.substring(containerPath.lastIndexOf('/') + 1);
+        hostPath = `${fileDir}/${containerFilename}`;
 
-        const containerParent = containerPath.substring(0, lastSlash);
-        const containerFilename = containerPath.substring(lastSlash + 1);
-
-        // Verify filename matches
-        if (containerFilename !== fileSubdir) {
-          log.warn(`File mount: container filename '${containerFilename}' differs from specified '${fileSubdir}'. Using container path structure.`);
-        }
-
-        // Mount the host directory (containing the file) to the container parent directory
-        containerPath = containerParent;
-
-        log.info(`File mount adjusted: ${hostPath}/ -> ${containerPath}/ (file: ${containerFilename})`);
+        log.info(`File mount: ${hostPath} -> ${containerPath}`);
         break;
       }
 
@@ -228,25 +214,15 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
           appName,
         );
 
-        // For component file mounts, also mount parent directory
+        // For component file mounts, mount the file directly
         const fileSubdir = mount.subdir;
-        hostPath = constructComponentHostPath(componentIdentifier, fileSubdir);
+        const fileDir = constructComponentHostPath(componentIdentifier, fileSubdir);
 
-        const lastSlash = containerPath.lastIndexOf('/');
-        if (lastSlash === -1 || lastSlash === 0) {
-          throw new Error(`Invalid component file mount container path: ${containerPath}. Must include parent directory.`);
-        }
+        // The actual file is inside the directory: /apps/appid/appdata/filename/filename
+        const containerFilename = containerPath.substring(containerPath.lastIndexOf('/') + 1);
+        hostPath = `${fileDir}/${containerFilename}`;
 
-        const containerParent = containerPath.substring(0, lastSlash);
-        const containerFilename = containerPath.substring(lastSlash + 1);
-
-        if (containerFilename !== fileSubdir) {
-          log.warn(`Component file mount: container filename '${containerFilename}' differs from specified '${fileSubdir}'.`);
-        }
-
-        containerPath = containerParent;
-
-        log.info(`Component file mount adjusted: ${hostPath}/ -> ${containerPath}/ (file: ${containerFilename})`);
+        log.info(`Component file mount: ${hostPath} -> ${containerPath}`);
         break;
       }
 

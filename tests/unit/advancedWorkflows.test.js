@@ -667,9 +667,10 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      expect(cmdAsyncStub.callCount).to.equal(1); // mkdir with chmod only (no touch)
-      // Should call mkdir with chmod to create writable directory
+      expect(cmdAsyncStub.callCount).to.equal(1); // Single command: mkdir + touch + chmod
+      // Should call mkdir, touch, and chmod to create writable file
       expect(cmdAsyncStub.firstCall.args[0]).to.include('mkdir -p');
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('touch');
       expect(cmdAsyncStub.firstCall.args[0]).to.include('chmod 777');
       expect(cmdAsyncStub.firstCall.args[0]).to.include('config.yaml');
     });
@@ -822,16 +823,19 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      // Should create: logs dir, config.yaml dir (with chmod), cache dir = 3 commands
+      // Should create: logs dir, config.yaml file (mkdir+touch+chmod), cache dir = 3 commands
       expect(cmdAsyncStub.callCount).to.equal(3);
 
       // Check that mkdir was called for all paths
       const mkdirCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('mkdir'));
-      expect(mkdirCalls.length).to.equal(3); // logs, config.yaml dir, and cache
+      expect(mkdirCalls.length).to.equal(3); // logs, config.yaml, and cache
 
-      // Check that chmod was called for file mount directory
+      // Check that touch and chmod were called for file mount
+      const touchCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('touch'));
+      expect(touchCalls.length).to.equal(1); // Only for config.yaml file
+
       const chmodCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('chmod 777'));
-      expect(chmodCalls.length).to.equal(1); // Only for config.yaml directory
+      expect(chmodCalls.length).to.equal(1); // Only for config.yaml file
     });
 
     it('should handle non-component apps correctly', async () => {
