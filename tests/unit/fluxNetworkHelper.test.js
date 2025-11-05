@@ -977,7 +977,7 @@ describe('fluxNetworkHelper tests', () => {
           pgpPublicKey: '',
           blockedPorts: [],
           blockedRepositories: [],
-        }
+        },
       };
     });
     afterEach(() => {

@@ -1698,6 +1698,19 @@ async function restartFluxOS(req, res) {
   res.json(response);
 }
 
+/**
+ * Helper function to safely set response status
+ * @param {Response} res HTTP response
+ * @param {number} status HTTP status code
+ * @param {string} message Status message
+ */
+function safeSetResponseStatus(res, status, message) {
+  if (res && typeof res.status === 'function') {
+    res.statusMessage = message;
+    res.status(status).end();
+  }
+}
+
 /*
 * @param {Request} req HTTP request
 * @param {Response} res HTTP response
@@ -1884,19 +1897,6 @@ async function streamChainPreparation(req, res) {
  * @param {Response} res HTTP response
  * @returns {Promise<void>}
  */
-
-/**
- * Helper function to safely set response status and message
- * @param {Response} res - Response object
- * @param {number} status - HTTP status code
- * @param {string} message - Status message
- */
-function safeSetResponseStatus(res, status, message) {
-  if (res && typeof res.status === 'function') {
-    res.statusMessage = message;
-    res.status(status).end();
-  }
-}
 
 async function streamChain(req, res) {
   if (streamChainDisabled) {

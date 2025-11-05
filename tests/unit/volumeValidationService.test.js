@@ -21,7 +21,7 @@ const utilFake = {
 
 // Module under test with proxyquire
 const volumeValidationService = proxyquire('../../ZelBack/src/services/volumeValidationService', {
-  'util': utilFake,
+  util: utilFake,
 });
 
 describe('volumeValidationService tests', () => {
@@ -417,7 +417,6 @@ describe('volumeValidationService tests', () => {
       sinon.assert.calledWith(mockCrontab.remove, mockJob1);
     });
   });
-
 
   describe('extractBaseAppName tests', () => {
     it('should extract app name from component name with underscore', () => {

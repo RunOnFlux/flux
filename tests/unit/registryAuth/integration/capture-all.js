@@ -55,15 +55,15 @@ class CaptureAll {
       });
 
       if (success) {
-        this.results.passed++;
+        this.results.passed += 1; // eslint-disable-line no-plusplus
         console.log(`\n✅ ${name} capture completed successfully (${duration}ms)`);
       } else {
-        this.results.failed++;
+        this.results.failed += 1; // eslint-disable-line no-plusplus
         console.log(`\n❌ ${name} capture failed (${duration}ms)`);
       }
     } catch (error) {
       const duration = Date.now() - startTime;
-      this.results.failed++;
+      this.results.failed += 1; // eslint-disable-line no-plusplus
 
       this.results.captures.push({
         name,
@@ -76,7 +76,7 @@ class CaptureAll {
       console.log(`   Error: ${error.message}`);
     }
 
-    this.results.total++;
+    this.results.total += 1; // eslint-disable-line no-plusplus
   }
 
   /**
@@ -131,11 +131,11 @@ class CaptureAll {
       'GOOGLE_PROJECT_ID',
     ];
 
-    const missing = allVars.filter(key => !process.env[key]);
+    const missing = allVars.filter((key) => !process.env[key]);
 
     if (missing.length > 0) {
       console.log('⚠️  Warning: Some environment variables are not set:');
-      missing.forEach(key => console.log(`   - ${key}`));
+      missing.forEach((key) => console.log(`   - ${key}`));
       console.log('\nCaptures requiring these variables will fail.');
       console.log('Set them in .env.test or as environment variables.');
       console.log('Or provide repoAuth strings as command-line arguments.\n');
@@ -155,13 +155,13 @@ class CaptureAll {
 
     // Run each capture script with optional repoAuth strings
     await this.runCapture('AWS ECR', new AWSECRCapture({
-      repoAuthString: this.repoAuthStrings['aws-ecr']
+      repoAuthString: this.repoAuthStrings['aws-ecr'],
     }));
     await this.runCapture('Azure ACR', new AzureACRCapture({
-      repoAuthString: this.repoAuthStrings['azure-acr']
+      repoAuthString: this.repoAuthStrings['azure-acr'],
     }));
     await this.runCapture('Google Artifact Registry', new GoogleGARCapture({
-      repoAuthString: this.repoAuthStrings['google-gar']
+      repoAuthString: this.repoAuthStrings['google-gar'],
     }));
 
     // Print summary
@@ -188,7 +188,7 @@ if (require.main === module) {
   const args = process.argv.slice(2);
   const repoAuthStrings = {};
 
-  args.forEach(arg => {
+  args.forEach((arg) => {
     if (arg.startsWith('aws-ecr://')) {
       repoAuthStrings['aws-ecr'] = arg;
     } else if (arg.startsWith('azure-acr://')) {

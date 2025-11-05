@@ -2,6 +2,7 @@
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/tests/unit/globalconfig`;
 
 const { expect } = require('chai');
+// eslint-disable-next-line no-unused-vars
 const path = require('path');
 
 describe('appConstants tests', () => {
@@ -47,6 +48,7 @@ describe('appConstants tests', () => {
       process.env.FLUXOS_PATH = '/custom/flux/path';
       process.env.HOME = '/home/user';
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.fluxDirPath).to.equal('/custom/flux/path');
@@ -56,6 +58,7 @@ describe('appConstants tests', () => {
       delete process.env.FLUXOS_PATH;
       process.env.HOME = '/home/testuser';
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.fluxDirPath).to.equal('/home/testuser/zelflux');
@@ -65,6 +68,7 @@ describe('appConstants tests', () => {
       process.env.FLUXOS_PATH = '/flux';
       process.env.FLUX_APPS_FOLDER = '/custom/apps/folder';
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.appsFolderPath).to.equal('/custom/apps/folder');
@@ -74,6 +78,7 @@ describe('appConstants tests', () => {
       process.env.FLUXOS_PATH = '/flux';
       delete process.env.FLUX_APPS_FOLDER;
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.appsFolderPath).to.equal('/flux/ZelApps');
@@ -83,6 +88,7 @@ describe('appConstants tests', () => {
       process.env.FLUXOS_PATH = '/flux';
       delete process.env.FLUX_APPS_FOLDER;
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.appsFolder).to.equal('/flux/ZelApps/');
@@ -93,6 +99,7 @@ describe('appConstants tests', () => {
       process.env.FLUXOS_PATH = '/opt/flux';
       delete process.env.FLUX_APPS_FOLDER;
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.fluxDirPath).to.equal('/opt/flux');
@@ -104,6 +111,7 @@ describe('appConstants tests', () => {
   describe('database collections tests', () => {
     beforeEach(() => {
       process.env.HOME = '/home/user';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
     });
 
@@ -139,6 +147,7 @@ describe('appConstants tests', () => {
   describe('supported architectures tests', () => {
     beforeEach(() => {
       process.env.HOME = '/home/user';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
     });
 
@@ -163,6 +172,7 @@ describe('appConstants tests', () => {
   describe('isArcane flag tests', () => {
     it('should be true when FLUXOS_PATH is set', () => {
       process.env.FLUXOS_PATH = '/arcane/path';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.isArcane).to.be.true;
@@ -171,6 +181,7 @@ describe('appConstants tests', () => {
     it('should be false when FLUXOS_PATH is not set', () => {
       delete process.env.FLUXOS_PATH;
       process.env.HOME = '/home/user';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.isArcane).to.be.false;
@@ -178,6 +189,7 @@ describe('appConstants tests', () => {
 
     it('should be false when FLUXOS_PATH is empty string', () => {
       process.env.FLUXOS_PATH = '';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.isArcane).to.be.false;
@@ -185,6 +197,7 @@ describe('appConstants tests', () => {
 
     it('should be true for any non-empty FLUXOS_PATH', () => {
       process.env.FLUXOS_PATH = 'x';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.isArcane).to.be.true;
@@ -194,6 +207,7 @@ describe('appConstants tests', () => {
   describe('appsThatMightBeUsingOldGatewayIpAssignment tests', () => {
     beforeEach(() => {
       process.env.HOME = '/home/user';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
     });
 
@@ -224,6 +238,7 @@ describe('appConstants tests', () => {
   describe('defaultNodeSpecs tests', () => {
     beforeEach(() => {
       process.env.HOME = '/home/user';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
     });
 
@@ -253,6 +268,7 @@ describe('appConstants tests', () => {
   describe('appsMonitoredTemplate tests', () => {
     beforeEach(() => {
       process.env.HOME = '/home/user';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
     });
 
@@ -268,6 +284,7 @@ describe('appConstants tests', () => {
   describe('module exports tests', () => {
     beforeEach(() => {
       process.env.HOME = '/home/user';
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
     });
 
@@ -309,6 +326,7 @@ describe('appConstants tests', () => {
       process.env.FLUXOS_PATH = '/mnt/data/flux/production';
       process.env.FLUX_APPS_FOLDER = '/var/apps/flux';
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.fluxDirPath).to.equal('/mnt/data/flux/production');
@@ -322,6 +340,7 @@ describe('appConstants tests', () => {
       delete process.env.FLUX_APPS_FOLDER;
       process.env.HOME = '/home/flux';
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.fluxDirPath).to.equal('/home/flux/zelflux');
@@ -334,6 +353,7 @@ describe('appConstants tests', () => {
       process.env.FLUXOS_PATH = '/opt/arcane';
       delete process.env.FLUX_APPS_FOLDER;
 
+      // eslint-disable-next-line global-require
       appConstants = require('../../ZelBack/src/services/utils/appConstants');
 
       expect(appConstants.fluxDirPath).to.equal('/opt/arcane');

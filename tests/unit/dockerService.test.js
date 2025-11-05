@@ -713,6 +713,7 @@ describe('dockerService tests', () => {
     const appName = 'fluxwebsite';
     // Use the same path that dockerService will compute at runtime
     const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
+    // eslint-disable-next-line no-unused-vars
     const appsFolder = `${fluxDirPath}/ZelApps/`;
     const baseNodeApp = {
       name: 'website',
@@ -739,6 +740,7 @@ describe('dockerService tests', () => {
       instances: 3,
     };
 
+    // eslint-disable-next-line no-unused-vars
     const baseExpectedConfig = {
       Image: 'runonflux/website',
       AttachStdin: true,
@@ -751,6 +753,7 @@ describe('dockerService tests', () => {
     beforeEach(() => {
       dockerStub = sinon.stub(Dockerode.prototype, 'createContainer').returns(Promise.resolve('created'));
       // Stub ensureMountPathsExist to prevent actual filesystem operations
+      // eslint-disable-next-line global-require
       const advancedWorkflows = require('../../ZelBack/src/services/appLifecycle/advancedWorkflows');
       advancedWorkflowsStub = sinon.stub(advancedWorkflows, 'ensureMountPathsExist').resolves();
     });

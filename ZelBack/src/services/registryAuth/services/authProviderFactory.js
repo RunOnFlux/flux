@@ -141,7 +141,7 @@ class AuthProviderFactory {
    * @param {string} appName - Application name for per-app provider caching isolation
    * @returns {RegistryAuthProvider|null} Created provider
    */
-  static createExplicitProvider(providerType, config, registryUrl = null, appName) {
+  static createExplicitProvider(providerType, config, appName, registryUrl = null) {
     const ProviderClass = this.providers.get(providerType.toLowerCase());
     if (!ProviderClass) {
       throw new Error(`Unknown provider type: ${providerType}`);
@@ -178,6 +178,7 @@ class AuthProviderFactory {
     }
 
     // Try each registered provider to see if it can handle this registry
+    // eslint-disable-next-line no-restricted-syntax
     for (const [name, ProviderClass] of this.providers) {
       try {
         const instance = new ProviderClass(authConfig, appName);
@@ -190,7 +191,7 @@ class AuthProviderFactory {
       } catch (error) {
         // If provider construction fails, try the next one
         log.debug(`Provider ${name} failed for ${registryUrl}: ${error.message}`);
-        continue;
+        continue; // eslint-disable-line no-continue
       }
     }
 
@@ -226,7 +227,7 @@ class AuthProviderFactory {
 
       // Check for required methods
       const requiredMethods = ['getCredentials', 'isValidFor', 'validateConfiguration'];
-      return requiredMethods.every(method => typeof testInstance[method] === 'function');
+      return requiredMethods.every((method) => typeof testInstance[method] === 'function');
     } catch (error) {
       return false;
     }
@@ -295,6 +296,7 @@ class AuthProviderFactory {
     if (providerName) {
       // Clear cache entries for specific provider
       // Note: FluxTTLCache extends Map, so we can iterate using entries()
+      // eslint-disable-next-line no-restricted-syntax
       for (const [key, provider] of fluxCaching.registryProviderCache.entries()) {
         if (provider.getProviderName() === providerName.toLowerCase()) {
           fluxCaching.registryProviderCache.delete(key);
@@ -319,6 +321,7 @@ class AuthProviderFactory {
 
     // Register AWS ECR provider if available
     try {
+      // eslint-disable-next-line global-require
       const { AwsEcrAuthProvider } = require('../providers/awsEcrAuthProvider');
       this.registerProvider('aws-ecr', AwsEcrAuthProvider);
     } catch (error) {
@@ -327,6 +330,7 @@ class AuthProviderFactory {
 
     // Register Google GAR provider if available
     try {
+      // eslint-disable-next-line global-require
       const { GoogleGarAuthProvider } = require('../providers/googleGarAuthProvider');
       this.registerProvider('google-gar', GoogleGarAuthProvider);
     } catch (error) {
@@ -335,6 +339,7 @@ class AuthProviderFactory {
 
     // Register Azure ACR provider if available
     try {
+      // eslint-disable-next-line global-require
       const { AzureAcrAuthProvider } = require('../providers/azureAcrAuthProvider');
       this.registerProvider('azure-acr', AzureAcrAuthProvider);
     } catch (error) {
@@ -366,7 +371,7 @@ class AuthProviderFactory {
     return {
       registeredProviders: this.getAvailableProviders(),
       cachedInstances: fluxCaching.registryProviderCache.size,
-      totalProviders: this.providers.size
+      totalProviders: this.providers.size,
     };
   }
 
@@ -383,7 +388,7 @@ class AuthProviderFactory {
       if (!ProviderClass) {
         return {
           valid: false,
-          error: `Unknown provider type: ${providerType}`
+          error: `Unknown provider type: ${providerType}`,
         };
       }
 
@@ -394,12 +399,12 @@ class AuthProviderFactory {
         valid: isValid,
         providerName: instance.getProviderName(),
         authType: instance.getAuthType(),
-        error: isValid ? null : 'Configuration validation failed'
+        error: isValid ? null : 'Configuration validation failed',
       };
     } catch (error) {
       return {
         valid: false,
-        error: error.message
+        error: error.message,
       };
     }
   }
@@ -410,6 +415,7 @@ AuthProviderFactory.registerProvider('basic', BasicAuthProvider);
 
 // Register AWS ECR provider if AWS SDK is available
 try {
+  // eslint-disable-next-line global-require
   const { AwsEcrAuthProvider } = require('../providers/awsEcrAuthProvider');
   AuthProviderFactory.registerProvider('aws-ecr', AwsEcrAuthProvider);
 } catch (error) {
@@ -419,6 +425,7 @@ try {
 
 // Register Google GAR provider if Google Auth Library is available
 try {
+  // eslint-disable-next-line global-require
   const { GoogleGarAuthProvider } = require('../providers/googleGarAuthProvider');
   AuthProviderFactory.registerProvider('google-gar', GoogleGarAuthProvider);
 } catch (error) {
@@ -428,6 +435,7 @@ try {
 
 // Register Azure ACR provider if Azure Identity library is available
 try {
+  // eslint-disable-next-line global-require
   const { AzureAcrAuthProvider } = require('../providers/azureAcrAuthProvider');
   AuthProviderFactory.registerProvider('azure-acr', AzureAcrAuthProvider);
 } catch (error) {

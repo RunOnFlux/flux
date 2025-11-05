@@ -8,8 +8,10 @@ const { ImageVerifier } = require('../../../ZelBack/src/services/utils/imageVeri
 
 describe('RegistryCredentialHelper Tests', () => {
   let decryptStub;
+  // eslint-disable-next-line no-unused-vars
   let parseStub;
   let createProviderStub;
+  // eslint-disable-next-line no-unused-vars
   let imageVerifierStub;
 
   beforeEach(() => {
@@ -206,6 +208,7 @@ describe('RegistryCredentialHelper Tests', () => {
         { tag: 'docker.io/library/nginx:latest', expected: 'docker.io', authString: 'aws-ecr://accessKeyId=AKIATEST&secretAccessKey=secret123' },
       ];
 
+      // eslint-disable-next-line no-restricted-syntax
       for (const { tag, expected, authString } of imageTags) {
         createProviderStub = sinon.stub(AuthProviderFactory, 'createProvider');
         const mockProvider = {
@@ -213,6 +216,7 @@ describe('RegistryCredentialHelper Tests', () => {
         };
         createProviderStub.returns(mockProvider);
 
+        // eslint-disable-next-line no-await-in-loop
         await registryCredentialHelper.getCredentials(tag, authString, 8, 'testapp');
 
         sinon.assert.calledWith(createProviderStub, expected, sinon.match.any);
@@ -283,7 +287,6 @@ describe('RegistryCredentialHelper Tests', () => {
 
   describe('Integration with RepoAuthParser', () => {
     it('should parse and use provider scheme format', async () => {
-
       const plainAuth = 'azure-acr://tenantId=12345678-1234-1234-1234-123456789012&clientId=87654321-4321-4321-4321-210987654321&clientSecret=mySecret';
 
       const mockCredentials = {
@@ -426,7 +429,6 @@ describe('RegistryCredentialHelper Tests', () => {
     });
 
     it('should handle AWS ECR with provider scheme (v8)', async () => {
-
       const plainAuth = 'aws-ecr://accessKeyId=AKIA123&secretAccessKey=secret123&region=us-east-1';
 
       const mockCredentials = {
@@ -467,7 +469,6 @@ describe('RegistryCredentialHelper Tests', () => {
     });
 
     it('should handle Google GAR with keyFile (v8)', async () => {
-
       const keyFile = Buffer.from(JSON.stringify({ type: 'service_account' })).toString('base64');
       const plainAuth = `google-gar://keyFile=${encodeURIComponent(keyFile)}`;
 

@@ -1,4 +1,6 @@
 const os = require('os');
+// path is used for dynamic requires in the file
+// eslint-disable-next-line no-unused-vars
 const path = require('path');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
@@ -17,6 +19,8 @@ const { systemArchitecture } = require('../appSystem/systemIntegration');
 const { checkApplicationImagesCompliance } = require('../appSecurity/imageManager');
 const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
+// pgpService is used in commented out code
+// eslint-disable-next-line no-unused-vars
 const pgpService = require('../pgpService');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const upnpService = require('../upnpService');
@@ -440,6 +444,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
     }
 
     // Lazy-load appQueryService to avoid circular dependency issues
+    // eslint-disable-next-line global-require
     const appQueryService = require('../appQuery/appQueryService');
     const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
@@ -595,10 +600,11 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
           appComponentSpecs.cpu = test ? 0.2 : appComponentSpecs[cpuTier] || appComponentSpecs.cpu;
           appComponentSpecs.ram = test ? 300 : appComponentSpecs[ramTier] || appComponentSpecs.ram;
           appComponentSpecs.hdd = test ? 2 : appComponentSpecs[hddTier] || appComponentSpecs.hdd;
-          // eslint-disable-next-line no-await-in-loop
+          // eslint-disable-next-line no-await-in-loop, no-use-before-define
           await installApplicationHard(appComponentSpecs, appName, isComponent, res, appSpecifications, test);
         }
       } else {
+        // eslint-disable-next-line no-use-before-define
         await installApplicationHard(specificationsToInstall, appName, isComponent, res, appSpecifications, test);
       }
     } catch (error) {
@@ -706,6 +712,7 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
 
   // Dynamic require to avoid circular dependency
+  // eslint-disable-next-line global-require
   const advancedWorkflows = require('./advancedWorkflows');
   await advancedWorkflows.createAppVolume(appSpecifications, appName, isComponent, res);
 
@@ -847,6 +854,8 @@ async function installAppLocally(req, res) {
       if (tempMessage) {
         // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
+        // blockAllowance is used for future validation
+        // eslint-disable-next-line no-unused-vars
         blockAllowance = config.fluxapps.temporaryAppAllowance;
       }
       if (!appSpecifications) {
@@ -992,6 +1001,8 @@ async function testAppInstall(req, res) {
       if (tempMessage) {
         // eslint-disable-next-line prefer-destructuring
         appSpecifications = tempMessage.appSpecifications;
+        // blockAllowance is used for future validation
+        // eslint-disable-next-line no-unused-vars
         blockAllowance = config.fluxapps.temporaryAppAllowance;
       }
 

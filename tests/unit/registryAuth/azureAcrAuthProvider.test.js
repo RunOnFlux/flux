@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+// eslint-disable-next-line import/no-unresolved
 const { ClientSecretCredential } = require('@azure/identity');
 const { AzureAcrAuthProvider } = require('../../../ZelBack/src/services/registryAuth/providers/azureAcrAuthProvider');
 const azureAcrFixture = require('./integration/fixtures/azure-acr-response.json');
@@ -57,7 +58,9 @@ describe('AzureAcrAuthProvider Tests', () => {
       ];
 
       validUrls.forEach((url) => {
-        expect(new AzureAcrAuthProvider({ tenantId: "X", clientId: "Y", clientSecret: "Z", registryName: "test" }).isValidFor(url)).to.be.true;
+        expect(new AzureAcrAuthProvider({
+          tenantId: 'X', clientId: 'Y', clientSecret: 'Z', registryName: 'test',
+        }).isValidFor(url)).to.be.true;
       });
     });
 
@@ -72,7 +75,9 @@ describe('AzureAcrAuthProvider Tests', () => {
       ];
 
       invalidUrls.forEach((url) => {
-        expect(new AzureAcrAuthProvider({ tenantId: "X", clientId: "Y", clientSecret: "Z", registryName: "test" }).isValidFor(url)).to.be.false;
+        expect(new AzureAcrAuthProvider({
+          tenantId: 'X', clientId: 'Y', clientSecret: 'Z', registryName: 'test',
+        }).isValidFor(url)).to.be.false;
       });
     });
   });

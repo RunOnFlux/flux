@@ -143,7 +143,7 @@ async function handleFirstRun(params) {
   }
 
   // Sync folder exists - check container status
-  log.info(`handleFirstRun - First run, sync folder exists - checking container status`);
+  log.info('handleFirstRun - First run, sync folder exists - checking container status');
   let containerRunning = false;
 
   try {
@@ -157,7 +157,7 @@ async function handleFirstRun(params) {
   const cache = { restarted: true };
 
   if (syncFolder.type === 'receiveonly') {
-    log.info(`handleFirstRun - Sync folder is receiveonly, updating cache`);
+    log.info('handleFirstRun - Sync folder is receiveonly, updating cache');
     cache.restarted = false;
     cache.numberOfExecutions = 1;
   } else if (!containerRunning && containerDataFlags.includes('r')) {
@@ -242,9 +242,9 @@ async function handleReceiveOnlyTransition(params) {
 
   if (syncStatus) {
     log.info(
-      `handleReceiveOnlyTransition - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% ` +
-      `(${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), ` +
-      `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`
+      `handleReceiveOnlyTransition - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% `
+      + `(${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), `
+      + `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`,
     );
 
     if (syncStatus.isSynced || cache.numberOfExecutions >= MAX_SYNC_WAIT_EXECUTIONS) {

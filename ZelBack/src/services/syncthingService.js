@@ -1602,7 +1602,7 @@ async function getDbRemoteNeed(req, res) {
  */
 async function getDbStatus(req, res) {
   try {
-    let folder = req?.params?.folder || req?.query?.folder;
+    const folder = req?.params?.folder || req?.query?.folder;
     let apiPath = '/rest/db/status';
     if (folder) {
       apiPath += `?folder=${folder}`;
@@ -2903,7 +2903,7 @@ async function getSyncthingHealthSummary(req, res) {
       response = messageHelper.createDataMessage(summary);
     } else {
       response = messageHelper.errUnauthorizedMessage();
-    }  
+    }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);

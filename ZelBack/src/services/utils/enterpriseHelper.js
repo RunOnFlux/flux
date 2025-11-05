@@ -242,7 +242,7 @@ function encryptWithAesSession(base64Encrypted, dataToEncrypt, base64AesKey) {
     const base64NonceCyphertextTag = nonceCyphertextTag.toString('base64');
     return base64NonceCyphertextTag;
   } catch (error) {
-    log.error(`Error encrypting data`);
+    log.error('Error encrypting data');
     throw error;
   }
 }

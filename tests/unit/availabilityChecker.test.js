@@ -1,11 +1,13 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+// eslint-disable-next-line no-unused-vars
 const axios = require('axios');
 const config = require('config');
 const availabilityChecker = require('../../ZelBack/src/services/appMonitoring/availabilityChecker');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const generalService = require('../../ZelBack/src/services/generalService');
 const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+// eslint-disable-next-line no-unused-vars
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const upnpService = require('../../ZelBack/src/services/upnpService');

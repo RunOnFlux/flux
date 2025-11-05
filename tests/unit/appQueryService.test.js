@@ -238,9 +238,15 @@ describe('appQueryService tests', () => {
   describe('listRunningApps', () => {
     it('should return running flux apps', async () => {
       const mockContainers = [
-        { Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [] },
-        { Names: ['/zel_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [] },
-        { Names: ['/other_app'], HostConfig: {}, NetworkSettings: {}, Mounts: [] },
+        {
+          Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
+        },
+        {
+          Names: ['/zel_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
+        },
+        {
+          Names: ['/other_app'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
+        },
       ];
       const expectedApps = [
         { Names: ['/flux_app1'] },
@@ -279,8 +285,12 @@ describe('appQueryService tests', () => {
 
     it('should return running apps with response passed', async () => {
       const mockContainers = [
-        { Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [] },
-        { Names: ['/zel_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [] },
+        {
+          Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
+        },
+        {
+          Names: ['/zel_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [],
+        },
       ];
       const expectedApps = [
         { Names: ['/flux_app1'] },
@@ -302,8 +312,12 @@ describe('appQueryService tests', () => {
   describe('listAllApps', () => {
     it('should return all flux apps including stopped ones', async () => {
       const mockContainers = [
-        { Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'running' },
-        { Names: ['/flux_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'exited' },
+        {
+          Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'running',
+        },
+        {
+          Names: ['/flux_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'exited',
+        },
       ];
       const expectedApps = [
         { Names: ['/flux_app1'], State: 'running' },
@@ -348,8 +362,12 @@ describe('appQueryService tests', () => {
 
     it('should return all apps with response passed', async () => {
       const mockContainers = [
-        { Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'running' },
-        { Names: ['/flux_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'exited' },
+        {
+          Names: ['/flux_app1'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'running',
+        },
+        {
+          Names: ['/flux_app2'], HostConfig: {}, NetworkSettings: {}, Mounts: [], State: 'exited',
+        },
       ];
       const expectedApps = [
         { Names: ['/flux_app1'], State: 'running' },

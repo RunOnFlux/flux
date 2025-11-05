@@ -286,6 +286,7 @@ async function restoreAppsPortsSupport() {
           if (!upnpOk) {
             log.warn(`REMOVAL REASON: UPNP port mapping failure - ${application.name} failed to map port ${port} via UPNP (portManager)`);
             // Import locally to avoid circular dependency
+            // eslint-disable-next-line global-require
             const appUninstaller = require('../appLifecycle/appUninstaller');
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(application.name, null, true, true, true).catch((error) => log.error(error)); // remove entire app
@@ -338,9 +339,10 @@ async function getAllUsedPorts() {
 async function isPortAvailable(port, excludeApp = null) {
   const usedPorts = await assignedPortsInstalledApps();
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const app of usedPorts) {
     if (excludeApp && app.name === excludeApp) {
-      continue; // Skip this app if it's the one being updated
+      continue; // eslint-disable-line no-continue
     }
     if (app.ports.includes(Number(port))) {
       return false;
@@ -359,6 +361,7 @@ async function isPortAvailable(port, excludeApp = null) {
  */
 async function findNextAvailablePort(startPort, endPort, excludeApp = null) {
   for (let port = startPort; port <= endPort; port += 1) {
+    // eslint-disable-next-line no-await-in-loop
     const available = await isPortAvailable(port, excludeApp);
     if (available) {
       return port;
@@ -512,6 +515,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
             // if we aren't already testing ports, we set it here, otherwise, just continue
             if (!originalPortFailed) {
               originalPortFailed = portToRetest;
+              // eslint-disable-next-line no-unused-vars
               nextTestingPort = portToRetest < 65535 ? portToRetest + 1 : portToRetest - 1;
             }
           }
@@ -613,6 +617,7 @@ async function callOtherNodeToKeepUpnpPortsOpen() {
     }
 
     // Import locally to avoid circular dependency
+    // eslint-disable-next-line global-require
     const appQueryService = require('../appQuery/appQueryService');
     const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {

@@ -2,6 +2,7 @@ const config = require('config');
 const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
+// eslint-disable-next-line no-unused-vars
 const pgpService = require('../pgpService');
 const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const imageVerifier = require('../utils/imageVerifier');
@@ -24,6 +25,7 @@ let cacheUserBlockedRepos = null;
  * @returns {{ttlMs: number, reason: string}}
  */
 function classifyVerificationError(error, errorMeta) {
+  // eslint-disable-next-line global-require
   const { FluxCacheManager } = require('../utils/cacheManager');
 
   // Use structured errorMeta if available (from imageVerifier)

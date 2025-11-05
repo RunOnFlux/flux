@@ -35,7 +35,7 @@ class RepoAuthParser {
         const config = this.parseProviderParams(params);
         return {
           type: provider,
-          ...config
+          ...config,
         };
       } catch (error) {
         throw new Error(`Invalid ${provider} authentication format: ${error.message}`);
@@ -71,7 +71,7 @@ class RepoAuthParser {
     return {
       type: 'basic',
       username: username.trim(),
-      password: password.trim() // Trim whitespace for consistency
+      password: password.trim(), // Trim whitespace for consistency
     };
   }
 
@@ -94,18 +94,19 @@ class RepoAuthParser {
       // We need RFC 3986 URI parsing where + is literal
       const pairs = params.split('&');
 
+      // eslint-disable-next-line no-restricted-syntax
       for (const pair of pairs) {
         const equalIndex = pair.indexOf('=');
 
         if (equalIndex === -1) {
-          continue; // Skip malformed pairs without =
+          continue; // eslint-disable-line no-continue
         }
 
         const key = pair.substring(0, equalIndex);
         const value = pair.substring(equalIndex + 1);
 
         if (key.trim() === '') {
-          continue; // Skip empty keys
+          continue; // eslint-disable-line no-continue
         }
 
         // decodeURIComponent handles standard percent-encoding (%XX)
@@ -155,6 +156,7 @@ class RepoAuthParser {
     // Build parameter string
     const searchParams = new URLSearchParams();
 
+    // eslint-disable-next-line no-restricted-syntax
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== null) {
         // Use searchParams which handles encoding properly

@@ -193,6 +193,7 @@ async function insertOneToDatabase(database, collection, value) {
   const result = await database.collection(collection).insertOne(value).catch((error) => {
     if (error.message && error.message.includes('duplicate key')) {
       // Log duplicate key errors for debugging instead of silently swallowing them
+      // eslint-disable-next-line no-underscore-dangle
       const docIdentifier = value.name || value._id || JSON.stringify(value).slice(0, 100);
       log.error(`Duplicate key error inserting into ${collection}: ${docIdentifier}`);
       log.error(`Full error: ${error.message}`);
@@ -584,6 +585,7 @@ async function isReindexAppsInformationRequired(
  * @param {string} localAppsInformationCol mongo collection name
  * @returns {Promise<Array<string>} Any installed app (by name) that need to be removed
  */
+// eslint-disable-next-line no-unused-vars
 async function syncAppsInformationCollection(
   appsDbCursor,
   globalDb,
@@ -649,6 +651,7 @@ async function validateAppsInformation() {
       appslocal: {
         database: appsLocalDbName,
         collections: {
+          // eslint-disable-next-line no-unused-vars
           appsInformation: localAppsInformationCol,
         },
       },
@@ -668,6 +671,7 @@ async function validateAppsInformation() {
 
   try {
     const appsGlobalDb = client.db(appsGlobalDbName);
+    // eslint-disable-next-line no-unused-vars
     const appsLocalDb = client.db(appsLocalDbName);
     const daemonDb = client.db(daemonDbName);
 
@@ -695,6 +699,7 @@ async function validateAppsInformation() {
 
     // Use the new registryManager reindexGlobalAppsInformation function
     // Import registryManager here to avoid circular dependency
+    // eslint-disable-next-line global-require
     const registryManager = require('./appDatabase/registryManager');
     await registryManager.reindexGlobalAppsInformation();
 

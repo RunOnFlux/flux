@@ -40,6 +40,7 @@ function parseMountFlags(segment) {
   const flags = [];
   let hasFlags = false;
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const flag of knownFlags) {
     if (segment.includes(flag)) {
       flags.push(flag);
@@ -133,13 +134,11 @@ function parseMountDefinition(mountDef, index) {
         throw new Error(`Invalid primary mount syntax: ${mountDef}`);
       }
       containerPath = parts[1];
-    } else {
+    } else if (parts.length === 1) {
       // Format: <path>  (e.g., /data)
-      if (parts.length === 1) {
-        containerPath = parts[0];
-      } else {
-        throw new Error(`Invalid primary mount syntax: ${mountDef}`);
-      }
+      containerPath = parts[0];
+    } else {
+      throw new Error(`Invalid primary mount syntax: ${mountDef}`);
     }
 
     validateMountPath(containerPath);
@@ -362,6 +361,7 @@ function parseContainerData(containerData) {
 function getRequiredLocalPaths(parsedMounts) {
   const paths = [];
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const mount of parsedMounts.allMounts) {
     // Only include local mounts (not component references)
     if (mount.type === MountType.PRIMARY || mount.type === MountType.DIRECTORY || mount.type === MountType.FILE) {

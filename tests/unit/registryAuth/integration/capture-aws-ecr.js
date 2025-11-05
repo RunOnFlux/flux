@@ -22,11 +22,14 @@
 
 const fs = require('fs');
 const path = require('path');
+// eslint-disable-next-line import/no-unresolved
 const { ECRClient, GetAuthorizationTokenCommand } = require('@aws-sdk/client-ecr');
+// eslint-disable-next-line import/extensions, import/no-unresolved
 const { RepoAuthParser } = require('../src/utils/repoAuthParser');
 
 // Load environment variables from .env.test if available
 try {
+  // eslint-disable-next-line import/no-extraneous-dependencies, global-require
   require('dotenv').config({ path: path.join(__dirname, '..', '.env.test') });
 } catch (e) {
   // dotenv not available, use system environment variables
@@ -72,7 +75,7 @@ class AWSECRCapture {
 
     // Fall back to environment variables
     const required = ['AWS_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'];
-    const missing = required.filter(key => !process.env[key]);
+    const missing = required.filter((key) => !process.env[key]);
 
     if (missing.length > 0) {
       console.error('❌ Missing required environment variables:', missing.join(', '));
@@ -139,7 +142,7 @@ class AWSECRCapture {
     const [username, password] = tokenString.split(':');
 
     // Create mock token with same structure but fake data
-    const mockPassword = 'MOCK_ECR_PASSWORD_' + 'X'.repeat(Math.min(password.length - 20, 1200));
+    const mockPassword = `MOCK_ECR_PASSWORD_${'X'.repeat(Math.min(password.length - 20, 1200))}`;
     const mockTokenString = `${username}:${mockPassword}`;
     const mockToken = Buffer.from(mockTokenString).toString('base64');
 
@@ -169,7 +172,7 @@ class AWSECRCapture {
       sanitizedFields: ['authorizationData[0].authorizationToken', 'authorizationData[0].expiresAt'],
       notes: 'Authorization token replaced with mock data of similar length. Expiry set to a random time between 1-7 days in the future.',
       originalTokenLength: password.length,
-      username: username,
+      username,
     };
 
     console.log('   ✓ Token sanitized');
@@ -234,7 +237,7 @@ class AWSECRCapture {
           console.log('\n📋 DECODED AUTHORIZATION TOKEN:');
           console.log('================================');
           console.log('Username:', username);
-          console.log('Password (first 50 chars):', password.substring(0, 50) + '...');
+          console.log('Password (first 50 chars):', `${password.substring(0, 50)}...`);
           console.log('Password length:', password.length, 'characters');
           console.log('Full password:', password);
         }
@@ -251,7 +254,7 @@ class AWSECRCapture {
 
       console.log('\n✨ Capture complete!');
       console.log('   You can now use this fixture in unit tests.');
-      console.log(`   Import: require('./integration/fixtures/aws-ecr-response.json')`);
+      console.log('   Import: require(\'./integration/fixtures/aws-ecr-response.json\')');
 
       return true;
     } catch (error) {
@@ -267,7 +270,7 @@ if (require.main === module) {
   const noSanitize = process.argv.includes('--no-sanitize');
 
   // Get repoAuth string from first positional argument (skip node, script name, and flags)
-  const args = process.argv.slice(2).filter(arg => !arg.startsWith('--'));
+  const args = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
   const repoAuthString = args[0] || null;
 
   const capture = new AWSECRCapture({ noSanitize, repoAuthString });

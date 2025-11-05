@@ -12,10 +12,7 @@ const { AuthProviderFactory } = require('./authProviderFactory');
 const { RepoAuthParser } = require('../utils/repoAuthParser');
 
 class RegistryAuthService {
-  constructor() {
-    // Utility service - no initialization required
-  }
-
+  // No initialization required for utility service
 
   /**
    * Extract and prepare credentials from FluxOS app specification
@@ -55,6 +52,7 @@ class RegistryAuthService {
    * @param {string} registryUrl - Registry URL to test
    * @returns {Promise<object>} Test results
    */
+  // eslint-disable-next-line class-methods-use-this
   async testAuthentication(authConfig, registryUrl) {
     try {
       const provider = AuthProviderFactory.createProvider(registryUrl, authConfig);
@@ -63,7 +61,7 @@ class RegistryAuthService {
         return {
           success: false,
           error: 'No suitable provider found for configuration',
-          provider: null
+          provider: null,
         };
       }
 
@@ -71,7 +69,7 @@ class RegistryAuthService {
         return {
           success: false,
           error: `Provider ${provider.getProviderName()} not valid for registry ${registryUrl}`,
-          provider: provider.getProviderName()
+          provider: provider.getProviderName(),
         };
       }
 
@@ -90,14 +88,13 @@ class RegistryAuthService {
         authType: provider.getAuthType(),
         config: provider.getSafeConfig ? provider.getSafeConfig() : {},
         connectionTest,
-        hasCredentials: Boolean(credentials)
+        hasCredentials: Boolean(credentials),
       };
-
     } catch (error) {
       return {
         success: false,
         error: error.message,
-        provider: null
+        provider: null,
       };
     }
   }
@@ -109,6 +106,7 @@ class RegistryAuthService {
    * @param {string} credentialString - Legacy "username:password" string
    * @returns {object} Modern credential object
    */
+  // eslint-disable-next-line class-methods-use-this
   parseLegacyCredentials(credentialString) {
     try {
       return RepoAuthParser.parse(credentialString);
@@ -118,12 +116,12 @@ class RegistryAuthService {
     }
   }
 
-
   /**
    * Get available authentication providers
    *
    * @returns {Array<string>} List of available provider names
    */
+  // eslint-disable-next-line class-methods-use-this
   getAvailableProviders() {
     return AuthProviderFactory.getAvailableProviders();
   }
@@ -133,6 +131,7 @@ class RegistryAuthService {
    *
    * @returns {object} Provider statistics
    */
+  // eslint-disable-next-line class-methods-use-this
   getProviderStats() {
     return AuthProviderFactory.getProviderStats();
   }
@@ -144,6 +143,7 @@ class RegistryAuthService {
    * @param {object} authConfig - Authentication configuration
    * @returns {object|null} Created provider or null
    */
+  // eslint-disable-next-line class-methods-use-this
   createProvider(registryUrl, authConfig) {
     try {
       return AuthProviderFactory.createProvider(registryUrl, authConfig);
@@ -160,6 +160,7 @@ class RegistryAuthService {
    * @param {string} name - Provider name
    * @param {class} providerClass - Provider class
    */
+  // eslint-disable-next-line class-methods-use-this
   registerProvider(name, providerClass) {
     AuthProviderFactory.registerProvider(name, providerClass);
   }
@@ -169,10 +170,10 @@ class RegistryAuthService {
    *
    * @param {string} providerName - Specific provider to clear, or all if not specified
    */
+  // eslint-disable-next-line class-methods-use-this
   clearProviderCache(providerName = null) {
     AuthProviderFactory.clearProviderCache(providerName);
   }
-
 
   /**
    * Utility method to determine if an image tag requires authentication
@@ -187,33 +188,41 @@ class RegistryAuthService {
     const publicRegistries = [
       'registry-1.docker.io',
       'docker.io',
-      'index.docker.io'
+      'index.docker.io',
     ];
 
     const privateRegistryPatterns = [
       /\.dkr\.ecr\.[^.]+\.amazonaws\.com$/, // AWS ECR
       /(^|\.)gcr\.io$/, // Google Container Registry
       /\.azurecr\.io$/, // Azure Container Registry
-      /\.pkg\.dev$/ // Google Artifact Registry
+      /\.pkg\.dev$/, // Google Artifact Registry
     ];
 
     const isPublicRegistry = publicRegistries.includes(registryUrl);
-    const isPrivateRegistry = privateRegistryPatterns.some(pattern => pattern.test(registryUrl));
+    const isPrivateRegistry = privateRegistryPatterns.some((pattern) => pattern.test(registryUrl));
+
+    let recommendation;
+    if (isPrivateRegistry) {
+      recommendation = 'Configure authentication';
+    } else if (isPublicRegistry) {
+      recommendation = 'Authentication optional';
+    } else {
+      recommendation = 'Unknown registry - authentication may be required';
+    }
 
     return {
       registryUrl,
       likelyRequiresAuth: isPrivateRegistry && !isPublicRegistry,
       isKnownPublic: isPublicRegistry,
       isKnownPrivate: isPrivateRegistry,
-      recommendation: isPrivateRegistry ? 'Configure authentication' :
-                    isPublicRegistry ? 'Authentication optional' :
-                    'Unknown registry - authentication may be required'
+      recommendation,
     };
   }
 
   /**
    * Extract registry URL from image tag
    */
+  // eslint-disable-next-line class-methods-use-this
   extractRegistryFromImageTag(imageTag) {
     if (!imageTag || typeof imageTag !== 'string') {
       return null;
@@ -234,7 +243,6 @@ class RegistryAuthService {
     return 'registry-1.docker.io';
   }
 
-
   /**
    * Get service status and configuration
    *
@@ -244,7 +252,7 @@ class RegistryAuthService {
     return {
       availableProviders: this.getAvailableProviders(),
       providerStats: this.getProviderStats(),
-      version: '1.0.0'
+      version: '1.0.0',
     };
   }
 
@@ -256,6 +264,7 @@ class RegistryAuthService {
    * @param {string} componentName - Component name to find
    * @returns {object|null} Component specification or null if not found
    */
+  // eslint-disable-next-line class-methods-use-this
   findComponent(appSpec, componentName) {
     if (!appSpec) {
       return null;
@@ -263,7 +272,7 @@ class RegistryAuthService {
 
     // For composed applications (v4+)
     if (appSpec.compose && Array.isArray(appSpec.compose)) {
-      return appSpec.compose.find(c => c.name === componentName) || null;
+      return appSpec.compose.find((c) => c.name === componentName) || null;
     }
 
     // For single-component apps (v1-v3) or direct component access
@@ -280,6 +289,7 @@ class RegistryAuthService {
    * @param {object} credentials - Parsed credentials object
    * @returns {boolean} True if credentials are valid
    */
+  // eslint-disable-next-line class-methods-use-this
   validateCredentials(credentials) {
     if (!credentials || typeof credentials !== 'object') {
       return false;
@@ -292,8 +302,8 @@ class RegistryAuthService {
 
     // For provider-specific credentials, validate based on type
     if (credentials.type === 'aws-ecr') {
-      return !!(credentials.region &&
-                (credentials.accessKeyId || process.env.AWS_ACCESS_KEY_ID));
+      return !!(credentials.region
+                && (credentials.accessKeyId || process.env.AWS_ACCESS_KEY_ID));
     }
 
     // For object-based credentials without explicit type, check for common fields
@@ -306,5 +316,5 @@ const registryAuthService = new RegistryAuthService();
 
 module.exports = {
   RegistryAuthService,
-  registryAuthService // Singleton instance
+  registryAuthService, // Singleton instance
 };

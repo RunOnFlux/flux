@@ -2,6 +2,7 @@
 const path = require('node:path');
 const config = require('config');
 const dbHelper = require('../dbHelper');
+// eslint-disable-next-line no-unused-vars
 const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
@@ -10,6 +11,7 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const {
   MONITOR_INTERVAL_MS,
+  // eslint-disable-next-line no-unused-vars
   ERROR_RETRY_DELAY_MS,
   SYNC_STATE_LOG_INTERVAL_MS,
 } = require('./syncthingMonitorConstants');
@@ -115,7 +117,7 @@ async function processContainerData(params) {
       state.syncthingDevicesIDCache,
       devicesConfiguration,
       devicesIds,
-      allDevicesResp
+      allDevicesResp,
     );
 
     // Create base folder configuration
@@ -226,8 +228,8 @@ async function logSyncState(foldersConfiguration) {
         ? ` (${status.inSyncBytes}/${status.globalBytes} bytes)`
         : '';
       log.info(
-        `syncthingAppsCore - Folder ${status.id} (${status.type}): ` +
-        `${status.syncPercentage.toFixed(2)}% synced, state: ${status.state}${bytesInfo}`
+        `syncthingAppsCore - Folder ${status.id} (${status.type}): `
+        + `${status.syncPercentage.toFixed(2)}% synced, state: ${status.state}${bytesInfo}`,
       );
     }
   });
@@ -244,6 +246,7 @@ async function logSyncState(foldersConfiguration) {
  * @param {Function} removeAppLocallyFn - Remove app function
  * @returns {Promise<void>}
  */
+// eslint-disable-next-line no-unused-vars
 async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDockerStopFn, appDockerRestartFn, appDeleteDataInMountPointFn, removeAppLocallyFn) {
   // Sync global state before checking
   getGlobalStateFn();
@@ -348,10 +351,10 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
 
     // Remove unused folders and devices (parallelized for better performance)
     const nonUsedFolders = allFoldersResp.data.filter(
-      (syncthingFolder) => !folderIds.includes(syncthingFolder.id)
+      (syncthingFolder) => !folderIds.includes(syncthingFolder.id),
     );
     const nonUsedDevices = allDevicesResp.data.filter(
-      (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== myDeviceId
+      (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== myDeviceId,
     );
 
     // Parallelize cleanup operations
@@ -392,11 +395,13 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
           log.warn(`Failed to check errors for folder ${folder.id}: ${error.message}`);
         }
         return null;
-      })
+      }),
     );
 
     // Process folder errors sequentially (app removal requires sequential processing)
+    // eslint-disable-next-line no-restricted-syntax
     for (const errorInfo of folderErrorChecks) {
+      // eslint-disable-next-line no-continue
       if (!errorInfo) continue;
 
       const { folder, error } = errorInfo;
@@ -458,7 +463,7 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDockerStopFn
         appDockerStopFn,
         appDockerRestartFn,
         appDeleteDataInMountPointFn,
-        removeAppLocallyFn
+        removeAppLocallyFn,
       );
     } catch (error) {
       log.error(`syncthingApps - Unexpected error in monitoring loop: ${error.message}`);

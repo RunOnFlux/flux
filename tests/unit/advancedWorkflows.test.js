@@ -82,6 +82,7 @@ describe('advancedWorkflows tests', () => {
 
   describe('addToRestoreProgress and removeFromRestoreProgress tests', () => {
     beforeEach(() => {
+      // eslint-disable-next-line global-require
       const globalState = require('../../ZelBack/src/services/utils/globalState');
       globalState.restoreInProgress = [];
     });
@@ -89,6 +90,7 @@ describe('advancedWorkflows tests', () => {
     it('should add app to restore progress', () => {
       advancedWorkflows.addToRestoreProgress('TestApp');
 
+      // eslint-disable-next-line global-require
       const globalState = require('../../ZelBack/src/services/utils/globalState');
       expect(globalState.restoreInProgress).to.include('TestApp');
     });
@@ -97,6 +99,7 @@ describe('advancedWorkflows tests', () => {
       advancedWorkflows.addToRestoreProgress('TestApp');
       advancedWorkflows.removeFromRestoreProgress('TestApp');
 
+      // eslint-disable-next-line global-require
       const globalState = require('../../ZelBack/src/services/utils/globalState');
       expect(globalState.restoreInProgress).to.not.include('TestApp');
     });
@@ -105,6 +108,7 @@ describe('advancedWorkflows tests', () => {
       advancedWorkflows.addToRestoreProgress('TestApp');
       advancedWorkflows.addToRestoreProgress('TestApp');
 
+      // eslint-disable-next-line global-require
       const globalState = require('../../ZelBack/src/services/utils/globalState');
       const count = globalState.restoreInProgress.filter((app) => app === 'TestApp').length;
       expect(count).to.equal(1);
@@ -118,6 +122,7 @@ describe('advancedWorkflows tests', () => {
     let verificationHelper;
 
     beforeEach(() => {
+      // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
       globalState.removalInProgress = false;
       globalState.installationInProgress = false;
@@ -125,6 +130,7 @@ describe('advancedWorkflows tests', () => {
       globalState.hardRedeployInProgress = false;
       globalState.restoreInProgress = [];
 
+      // eslint-disable-next-line global-require
       verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 
       req = {
@@ -229,6 +235,7 @@ describe('advancedWorkflows tests', () => {
     let res;
 
     beforeEach(() => {
+      // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
       globalState.removalInProgress = false;
       globalState.installationInProgress = false;
@@ -342,6 +349,7 @@ describe('advancedWorkflows tests', () => {
     let res;
 
     beforeEach(() => {
+      // eslint-disable-next-line global-require
       globalState = require('../../ZelBack/src/services/utils/globalState');
       globalState.removalInProgress = false;
       globalState.installationInProgress = false;
@@ -474,6 +482,7 @@ describe('advancedWorkflows tests', () => {
     let proxyquire;
 
     beforeEach(() => {
+      // eslint-disable-next-line global-require
       proxyquire = require('proxyquire').noCallThru();
 
       // Create stubs
@@ -502,6 +511,7 @@ describe('advancedWorkflows tests', () => {
           if (fn === nodecmdStub.run) {
             return sinon.stub().resolves('');
           }
+          // eslint-disable-next-line global-require
           return require('util').promisify(fn);
         }),
       };
@@ -534,13 +544,21 @@ describe('advancedWorkflows tests', () => {
       dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
 
       mountParserStub.parseContainerData.returns({
-        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        primary: {
+          type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+        },
         additional: [
-          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+          {
+            type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true,
+          },
         ],
         allMounts: [
-          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
-          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+          {
+            type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+          },
+          {
+            type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true,
+          },
         ],
       });
 
@@ -583,13 +601,21 @@ describe('advancedWorkflows tests', () => {
       dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
 
       mountParserStub.parseContainerData.returns({
-        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        primary: {
+          type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+        },
         additional: [
-          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+          {
+            type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true,
+          },
         ],
         allMounts: [
-          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
-          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+          {
+            type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+          },
+          {
+            type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true,
+          },
         ],
       });
 
@@ -614,6 +640,7 @@ describe('advancedWorkflows tests', () => {
             if (fn === nodecmdStub.run) {
               return cmdAsyncStub;
             }
+            // eslint-disable-next-line global-require
             return require('util').promisify(fn);
           }),
         },
@@ -643,13 +670,21 @@ describe('advancedWorkflows tests', () => {
       dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
 
       mountParserStub.parseContainerData.returns({
-        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        primary: {
+          type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+        },
         additional: [
-          { type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false },
+          {
+            type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false,
+          },
         ],
         allMounts: [
-          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
-          { type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false },
+          {
+            type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+          },
+          {
+            type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false,
+          },
         ],
       });
 
@@ -674,6 +709,7 @@ describe('advancedWorkflows tests', () => {
             if (fn === nodecmdStub.run) {
               return cmdAsyncStub;
             }
+            // eslint-disable-next-line global-require
             return require('util').promisify(fn);
           }),
         },
@@ -702,17 +738,33 @@ describe('advancedWorkflows tests', () => {
       dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
 
       mountParserStub.parseContainerData.returns({
-        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        primary: {
+          type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+        },
         additional: [
-          { type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false },
-          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
-          { type: 'directory', subdir: 'cache', containerPath: '/var/cache', flags: [], isFile: false },
+          {
+            type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false,
+          },
+          {
+            type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true,
+          },
+          {
+            type: 'directory', subdir: 'cache', containerPath: '/var/cache', flags: [], isFile: false,
+          },
         ],
         allMounts: [
-          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
-          { type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false },
-          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
-          { type: 'directory', subdir: 'cache', containerPath: '/var/cache', flags: [], isFile: false },
+          {
+            type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+          },
+          {
+            type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false,
+          },
+          {
+            type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true,
+          },
+          {
+            type: 'directory', subdir: 'cache', containerPath: '/var/cache', flags: [], isFile: false,
+          },
         ],
       });
 
@@ -741,6 +793,7 @@ describe('advancedWorkflows tests', () => {
             if (fn === nodecmdStub.run) {
               return cmdAsyncStub;
             }
+            // eslint-disable-next-line global-require
             return require('util').promisify(fn);
           }),
         },
@@ -775,13 +828,21 @@ describe('advancedWorkflows tests', () => {
       dockerServiceStub.getAppIdentifier.returns('fluxtestapp');
 
       mountParserStub.parseContainerData.returns({
-        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        primary: {
+          type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+        },
         additional: [
-          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+          {
+            type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true,
+          },
         ],
         allMounts: [
-          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
-          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+          {
+            type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+          },
+          {
+            type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true,
+          },
         ],
       });
 
@@ -850,13 +911,21 @@ describe('advancedWorkflows tests', () => {
       dockerServiceStub.getAppIdentifier.returns('fluxbackup_testapp');
 
       mountParserStub.parseContainerData.returns({
-        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        primary: {
+          type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+        },
         additional: [
-          { type: 'component_primary', componentIndex: 0, subdir: 'appdata', containerPath: '/database', flags: [], isFile: false },
+          {
+            type: 'component_primary', componentIndex: 0, subdir: 'appdata', containerPath: '/database', flags: [], isFile: false,
+          },
         ],
         allMounts: [
-          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
-          { type: 'component_primary', componentIndex: 0, subdir: 'appdata', containerPath: '/database', flags: [], isFile: false },
+          {
+            type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false,
+          },
+          {
+            type: 'component_primary', componentIndex: 0, subdir: 'appdata', containerPath: '/database', flags: [], isFile: false,
+          },
         ],
       });
 

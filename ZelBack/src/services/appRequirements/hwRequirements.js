@@ -6,7 +6,7 @@ const benchmarkService = require('../benchmarkService');
 const log = require('../../lib/log');
 
 // Node specifications (shared state)
-let nodeSpecs = {
+const nodeSpecs = {
   cpuCores: 0,
   ram: 0,
   ssdStorage: 0,
@@ -83,8 +83,11 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
       ram = appSpecifications[ramTier] || appSpecifications.ram;
       hdd = appSpecifications[hddTier] || appSpecifications.hdd;
     } else {
+      // eslint-disable-next-line prefer-destructuring
       cpu = appSpecifications.cpu;
+      // eslint-disable-next-line prefer-destructuring
       ram = appSpecifications.ram;
+      // eslint-disable-next-line prefer-destructuring
       hdd = appSpecifications.hdd;
     }
   } else {
@@ -102,69 +105,6 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
   }
 
   return { cpu, ram, hdd };
-}
-
-/**
- * To check app requirements of HW for a node
- * @param {object} appSpecs App specifications.
- * @returns {boolean} True if all checks passed.
- */
-async function checkAppHWRequirements(appSpecs) {
-  // appSpecs has hdd, cpu and ram assigned to correct tier
-  const tier = await generalService.nodeTier();
-  const resourcesLocked = await appsResources();
-
-  if (resourcesLocked.status !== 'success') {
-    throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
-  }
-
-  const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
-  const specs = await getNodeSpecs();
-  const totalSpaceOnNode = specs.ssdStorage;
-  if (totalSpaceOnNode === 0) {
-    throw new Error('Insufficient space on Flux Node to spawn an application');
-  }
-  const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
-  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
-  const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
-  // bigger or equal so we have the 1 gb free...
-  if (appHWrequirements.hdd > availableSpaceForApps) {
-    throw new Error('Insufficient space on Flux Node to spawn an application');
-  }
-
-  const totalCpuOnNode = specs.cpuCores * 10;
-  const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
-  const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
-  const adjustedAppCpu = appHWrequirements.cpu * 10;
-  const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
-  if (adjustedAppCpu > availableCpuForApps) {
-    throw new Error('Insufficient CPU power on Flux Node to spawn an application');
-  }
-
-  const totalRamOnNode = specs.ram;
-  const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
-  const ramLockedByApps = resourcesLocked.data.appsRamLocked;
-  const availableRamForApps = useableRamOnNode - ramLockedByApps;
-  if (appHWrequirements.ram > availableRamForApps) {
-    throw new Error('Insufficient RAM on Flux Node to spawn an application');
-  }
-
-  return true;
-}
-
-/**
- * To check app requirements to include HDD space, CPU power, RAM and GEO for a node
- * @param {object} appSpecs App specifications.
- * @returns {boolean} True if all checks passed.
- */
-async function checkAppRequirements(appSpecs) {
-  // appSpecs has hdd, cpu and ram assigned to correct tier
-  await checkAppHWRequirements(appSpecs);
-  // check geolocation
-  checkAppStaticIpRequirements(appSpecs);
-  await checkAppNodesRequirements(appSpecs);
-  checkAppGeolocationRequirements(appSpecs);
-  return true;
 }
 
 /**
@@ -411,8 +351,72 @@ function checkComposeHWParameters(appSpecsComposed) {
  */
 async function appsResources() {
   // Import locally to avoid circular dependency
+  // eslint-disable-next-line global-require
   const resourceQueryService = require('../appQuery/resourceQueryService');
   return resourceQueryService.appsResources();
+}
+
+/**
+ * To check app requirements of HW for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppHWRequirements(appSpecs) {
+  // appSpecs has hdd, cpu and ram assigned to correct tier
+  const tier = await generalService.nodeTier();
+  const resourcesLocked = await appsResources();
+
+  if (resourcesLocked.status !== 'success') {
+    throw new Error('Unable to obtain locked system resources by Flux Apps. Aborting.');
+  }
+
+  const appHWrequirements = totalAppHWRequirements(appSpecs, tier);
+  const specs = await getNodeSpecs();
+  const totalSpaceOnNode = specs.ssdStorage;
+  if (totalSpaceOnNode === 0) {
+    throw new Error('Insufficient space on Flux Node to spawn an application');
+  }
+  const useableSpaceOnNode = totalSpaceOnNode * 0.95 - config.lockedSystemResources.hdd - config.lockedSystemResources.extrahdd;
+  const hddLockedByApps = resourcesLocked.data.appsHddLocked;
+  const availableSpaceForApps = useableSpaceOnNode - hddLockedByApps;
+  // bigger or equal so we have the 1 gb free...
+  if (appHWrequirements.hdd > availableSpaceForApps) {
+    throw new Error('Insufficient space on Flux Node to spawn an application');
+  }
+
+  const totalCpuOnNode = specs.cpuCores * 10;
+  const useableCpuOnNode = totalCpuOnNode - config.lockedSystemResources.cpu;
+  const cpuLockedByApps = resourcesLocked.data.appsCpusLocked * 10;
+  const adjustedAppCpu = appHWrequirements.cpu * 10;
+  const availableCpuForApps = useableCpuOnNode - cpuLockedByApps;
+  if (adjustedAppCpu > availableCpuForApps) {
+    throw new Error('Insufficient CPU power on Flux Node to spawn an application');
+  }
+
+  const totalRamOnNode = specs.ram;
+  const useableRamOnNode = totalRamOnNode - config.lockedSystemResources.ram;
+  const ramLockedByApps = resourcesLocked.data.appsRamLocked;
+  const availableRamForApps = useableRamOnNode - ramLockedByApps;
+  if (appHWrequirements.ram > availableRamForApps) {
+    throw new Error('Insufficient RAM on Flux Node to spawn an application');
+  }
+
+  return true;
+}
+
+/**
+ * To check app requirements to include HDD space, CPU power, RAM and GEO for a node
+ * @param {object} appSpecs App specifications.
+ * @returns {boolean} True if all checks passed.
+ */
+async function checkAppRequirements(appSpecs) {
+  // appSpecs has hdd, cpu and ram assigned to correct tier
+  await checkAppHWRequirements(appSpecs);
+  // check geolocation
+  checkAppStaticIpRequirements(appSpecs);
+  await checkAppNodesRequirements(appSpecs);
+  checkAppGeolocationRequirements(appSpecs);
+  return true;
 }
 
 module.exports = {

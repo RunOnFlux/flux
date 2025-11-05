@@ -218,8 +218,12 @@ describe('resourceQueryService tests', () => {
           name: 'App1',
           version: 4,
           compose: [
-            { name: 'Component1', cpu: 1, ram: 2000, hdd: 20 },
-            { name: 'Component2', cpu: 2, ram: 4000, hdd: 30 },
+            {
+              name: 'Component1', cpu: 1, ram: 2000, hdd: 20,
+            },
+            {
+              name: 'Component2', cpu: 2, ram: 4000, hdd: 30,
+            },
           ],
         },
       ];
@@ -399,8 +403,12 @@ describe('resourceQueryService tests', () => {
           name: 'App1',
           version: 4,
           compose: [
-            { name: 'Component1', cpu: 1, ram: 2000, hdd: 10 },
-            { name: 'Component2', cpu: 1, ram: 2000, hdd: 10 },
+            {
+              name: 'Component1', cpu: 1, ram: 2000, hdd: 10,
+            },
+            {
+              name: 'Component2', cpu: 1, ram: 2000, hdd: 10,
+            },
           ],
         },
       ];

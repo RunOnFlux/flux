@@ -6,6 +6,7 @@
  * AWS credentials and environment variable/IAM role authentication.
  */
 
+// eslint-disable-next-line import/no-unresolved
 const { ECRClient, DescribeRepositoriesCommand, GetAuthorizationTokenCommand } = require('@aws-sdk/client-ecr');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
@@ -24,16 +25,15 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
    */
   initializeClient() {
     try {
-
       const clientConfig = {
-        region: this.ecrRegion
+        region: this.ecrRegion,
       };
 
       // Use explicit credentials if provided
       if (this.config.accessKeyId && this.config.secretAccessKey) {
         clientConfig.credentials = {
           accessKeyId: this.config.accessKeyId,
-          secretAccessKey: this.config.secretAccessKey
+          secretAccessKey: this.config.secretAccessKey,
         };
       }
 
@@ -44,7 +44,6 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
       }
 
       this.ecrClient = new ECRClient(clientConfig);
-
     } catch (error) {
       const wrappedError = new Error(`Failed to initialize AWS ECR client: ${error.message}`);
       this.recordError(wrappedError);
@@ -131,14 +130,13 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
           proxyEndpoint: authData.proxyEndpoint,
           region: this.ecrRegion,
           registryIds: this.config.registryIds || null,
-          expiresAt: expiryTime  // Override the null tokenExpiry with actual expiry
-        }
+          expiresAt: expiryTime, // Override the null tokenExpiry with actual expiry
+        },
       );
 
       this.cacheCredentials(credentials, expiryTime);
 
       return credentials;
-
     } catch (error) {
       const detailedError = new Error(`AWS ECR authentication failed: ${error.message}`);
       this.recordError(detailedError);
@@ -153,6 +151,7 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
    * @param {string} registryUrl - Registry URL to check
    * @returns {boolean} True if this is an AWS ECR registry
    */
+  // eslint-disable-next-line class-methods-use-this
   isValidFor(registryUrl) {
     if (!registryUrl || typeof registryUrl !== 'string') {
       return false;
@@ -193,6 +192,7 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
    *
    * @returns {string} Authentication type
    */
+  // eslint-disable-next-line class-methods-use-this
   getAuthType() {
     return 'bearer';
   }
@@ -229,7 +229,7 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
 
     return new AwsEcrAuthProvider({
       ...config,
-      region
+      region,
     });
   }
 
@@ -247,7 +247,7 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
       registryIds: this.config.registryIds || null,
       authType: this.getAuthType(),
       tokenCached: this.isTokenValid(),
-      tokenExpiresIn: this.getTimeUntilExpiry()
+      tokenExpiresIn: this.getTimeUntilExpiry(),
     };
   }
 
@@ -280,8 +280,8 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
         explicit: Boolean(this.config.accessKeyId && this.config.secretAccessKey),
         environment: Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY),
         profile: Boolean(process.env.AWS_PROFILE),
-        hasRole: Boolean(process.env.AWS_ROLE_ARN || process.env.ECS_CONTAINER_METADATA_URI)
-      }
+        hasRole: Boolean(process.env.AWS_ROLE_ARN || process.env.ECS_CONTAINER_METADATA_URI),
+      },
     };
   }
 
@@ -298,12 +298,11 @@ class AwsEcrAuthProvider extends RegistryAuthProvider {
 
     try {
       const command = new DescribeRepositoriesCommand({
-        maxResults: 1 // Minimal request
+        maxResults: 1, // Minimal request
       });
 
       await this.ecrClient.send(command);
       return true;
-
     } catch (error) {
       this.recordError(error);
       return false;

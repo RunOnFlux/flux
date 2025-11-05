@@ -206,13 +206,14 @@ async function getContainerStorage(appName) {
       const mountsToCount = [];
 
       // For each mount, check if it's a child of another mount
+      // eslint-disable-next-line no-restricted-syntax
       for (const mount of allMounts) {
         const source = mount.Source;
         const isNested = allMounts.some((otherMount) => {
           if (otherMount === mount) return false; // Skip self
           const otherSource = otherMount.Source;
           // Check if this mount is a child of another mount
-          return source.startsWith(otherSource + '/');
+          return source.startsWith(`${otherSource}/`);
         });
 
         if (!isNested) {

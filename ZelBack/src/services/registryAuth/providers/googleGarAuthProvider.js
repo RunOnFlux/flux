@@ -6,6 +6,7 @@
  * to generate short-lived tokens for enhanced security over static JSON keys.
  */
 
+// eslint-disable-next-line import/no-unresolved
 const { JWT } = require('google-auth-library');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
@@ -38,7 +39,6 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
         key: this.config.privateKey,
         scopes: ['https://www.googleapis.com/auth/cloud-platform'],
       });
-
     } catch (error) {
       const wrappedError = new Error(`Failed to initialize Google GAR client: ${error.message}`);
       // Only record error if provider name is set (avoid error in tests)
@@ -65,7 +65,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
       // Validate credential type
       if (serviceAccount.type !== 'service_account') {
         throw new Error(
-          `Invalid credential type: "${serviceAccount.type}". Only service_account credentials are supported.`
+          `Invalid credential type: "${serviceAccount.type}". Only service_account credentials are supported.`,
         );
       }
 
@@ -81,10 +81,9 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
       // Store extracted credentials in config
       this.config.privateKey = serviceAccount.private_key;
       this.config.clientEmail = serviceAccount.client_email;
-
     } catch (error) {
-      if (error.message.includes('Invalid credential type') ||
-        error.message.includes('must contain')) {
+      if (error.message.includes('Invalid credential type')
+        || error.message.includes('must contain')) {
         throw error;
       }
       throw new Error(`Failed to parse service account JSON: ${error.message}`);
@@ -151,14 +150,13 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
         'bearer',
         {
           clientEmail: this.config.clientEmail,
-          expiresAt: expiryTime
-        }
+          expiresAt: expiryTime,
+        },
       );
 
       this.cacheCredentials(credentials, expiryTime);
 
       return credentials;
-
     } catch (error) {
       const detailedError = new Error(`Google GAR authentication failed: ${error.message}`);
       this.recordError(detailedError);
@@ -173,6 +171,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
    * @param {string} registryUrl - Registry URL to check
    * @returns {boolean} True if this is a Google GAR registry
    */
+  // eslint-disable-next-line class-methods-use-this
   isValidFor(registryUrl) {
     if (!registryUrl || typeof registryUrl !== 'string') {
       return false;
@@ -219,6 +218,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
    *
    * @returns {string} Authentication type
    */
+  // eslint-disable-next-line class-methods-use-this
   getAuthType() {
     return 'bearer';
   }
@@ -251,7 +251,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
 
     return new GoogleGarAuthProvider({
       ...config,
-      region
+      region,
     });
   }
 
@@ -267,7 +267,7 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
       hasPrivateKey: Boolean(this.config.privateKey),
       authType: this.getAuthType(),
       tokenCached: this.isTokenValid(),
-      tokenExpiresIn: this.getTimeUntilExpiry()
+      tokenExpiresIn: this.getTimeUntilExpiry(),
     };
   }
 
@@ -298,8 +298,8 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
       configurationValid: this.validateConfiguration(),
       credentialSources: {
         hasPrivateKey: Boolean(this.config.privateKey),
-        hasClientEmail: Boolean(this.config.clientEmail)
-      }
+        hasClientEmail: Boolean(this.config.clientEmail),
+      },
     };
   }
 
@@ -318,7 +318,6 @@ class GoogleGarAuthProvider extends RegistryAuthProvider {
       // Test by attempting to get an access token
       const tokens = await this.jwtClient.getAccessToken();
       return Boolean(tokens.token);
-
     } catch (error) {
       this.recordError(error);
       return false;

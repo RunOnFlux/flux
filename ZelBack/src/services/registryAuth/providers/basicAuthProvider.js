@@ -38,8 +38,8 @@ class BasicAuthProvider extends RegistryAuthProvider {
       'basic',
       {
         // Basic auth credentials don't expire
-        persistent: true
-      }
+        persistent: true,
+      },
     );
 
     return credentials;
@@ -52,6 +52,7 @@ class BasicAuthProvider extends RegistryAuthProvider {
    * @param {string} registryUrl - Registry URL to check
    * @returns {boolean} Always true (fallback provider)
    */
+  // eslint-disable-next-line class-methods-use-this, no-unused-vars
   isValidFor(registryUrl) {
     // Basic auth is a fallback that works with any registry
     return true;
@@ -63,12 +64,12 @@ class BasicAuthProvider extends RegistryAuthProvider {
    * @returns {boolean} True if both username and password are provided
    */
   validateConfiguration() {
-    return !!(this.username &&
-              this.password &&
-              typeof this.username === 'string' &&
-              typeof this.password === 'string' &&
-              this.username.trim().length > 0 &&
-              this.password.trim().length > 0);
+    return !!(this.username
+              && this.password
+              && typeof this.username === 'string'
+              && typeof this.password === 'string'
+              && this.username.trim().length > 0
+              && this.password.trim().length > 0);
   }
 
   /**
@@ -76,6 +77,7 @@ class BasicAuthProvider extends RegistryAuthProvider {
    *
    * @returns {string} Authentication type
    */
+  // eslint-disable-next-line class-methods-use-this
   getAuthType() {
     return 'basic';
   }
@@ -125,7 +127,7 @@ class BasicAuthProvider extends RegistryAuthProvider {
 
     return new BasicAuthProvider({
       username: username.trim(),
-      password: password.trim()
+      password: password.trim(),
     }, appName);
   }
 
@@ -161,7 +163,7 @@ class BasicAuthProvider extends RegistryAuthProvider {
       provider: this.getProviderName(),
       username: this.username,
       hasPassword: !!this.password,
-      authType: this.getAuthType()
+      authType: this.getAuthType(),
     };
   }
 

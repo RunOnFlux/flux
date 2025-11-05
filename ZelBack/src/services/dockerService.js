@@ -15,6 +15,7 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 // ToDo: Fix all the string concatenation in this file and use path.join()
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+// eslint-disable-next-line no-unused-vars
 const appsFolder = `${appsFolderPath}/`;
 
 const docker = new Docker();
@@ -756,7 +757,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   // Note: Components can only reference components with lower indices (ordering restriction)
 
   // Import mount parsing utilities
+  // eslint-disable-next-line global-require
   const mountParser = require('./utils/mountParser');
+  // eslint-disable-next-line global-require
   const volumeConstructor = require('./utils/volumeConstructor');
 
   // Parse containerData using new enhanced parser
@@ -1318,6 +1321,7 @@ async function removeFluxAppDockerNetwork(appname) {
  * @returns {object} response
  */
 async function forceRemoveFluxAppDockerNetwork(appname) {
+  // eslint-disable-next-line no-shadow, global-require
   const log = require('../lib/log');
   const fluxAppNetworkName = `fluxDockerNetwork_${appname}`;
   const network = docker.getNetwork(fluxAppNetworkName);
@@ -1337,8 +1341,10 @@ async function forceRemoveFluxAppDockerNetwork(appname) {
       log.info(`Force disconnecting ${containerIds.length} container(s) from network ${fluxAppNetworkName}`);
 
       // Disconnect each container
+      // eslint-disable-next-line no-restricted-syntax
       for (const containerId of containerIds) {
         try {
+          // eslint-disable-next-line no-await-in-loop
           await network.disconnect({ Container: containerId, Force: true });
           log.info(`Disconnected container ${containerId} from network ${fluxAppNetworkName}`);
         } catch (error) {

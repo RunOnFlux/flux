@@ -83,8 +83,8 @@ async function getCredentials(repotag, repoauth, specVersion, appName) {
 
   if (!provider) {
     throw new Error(
-      `Failed to create authentication provider for type: ${authConfig.type}. ` +
-      `Registry: ${registryUrl}. Ensure the provider is registered and configuration is valid.`
+      `Failed to create authentication provider for type: ${authConfig.type}. `
+      + `Registry: ${registryUrl}. Ensure the provider is registered and configuration is valid.`,
     );
   }
 
@@ -92,6 +92,7 @@ async function getCredentials(repotag, repoauth, specVersion, appName) {
   // AWS ECR: 12-hour cache
   // Azure ACR: 3-hour cache
   // Google GAR: 1-hour cache
+  // eslint-disable-next-line no-return-await
   return await provider.getCredentials();
 }
 

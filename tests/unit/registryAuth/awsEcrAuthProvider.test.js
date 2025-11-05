@@ -1,5 +1,6 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
+// eslint-disable-next-line import/no-unresolved
 const { ECRClient, GetAuthorizationTokenCommand } = require('@aws-sdk/client-ecr');
 const { AwsEcrAuthProvider } = require('../../../ZelBack/src/services/registryAuth/providers/awsEcrAuthProvider');
 
@@ -25,7 +26,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should create provider with valid accessKeyId and secretAccessKey', () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -38,7 +39,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should create provider with sessionToken', () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
         sessionToken: 'FwoGZXIvYXdzEBEaD...',
@@ -51,7 +52,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should extract region from registry URL', () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.eu-west-2.amazonaws.com',
-        region: "eu-west-2",
+        region: 'eu-west-2',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -83,7 +84,7 @@ describe('AwsEcrAuthProvider Tests', () => {
       ];
 
       validUrls.forEach((url) => {
-        expect(new AwsEcrAuthProvider({ region: "us-east-1", accessKeyId: "X", secretAccessKey: "Y" }).isValidFor(url)).to.be.true;
+        expect(new AwsEcrAuthProvider({ region: 'us-east-1', accessKeyId: 'X', secretAccessKey: 'Y' }).isValidFor(url)).to.be.true;
       });
     });
 
@@ -98,7 +99,7 @@ describe('AwsEcrAuthProvider Tests', () => {
       ];
 
       invalidUrls.forEach((url) => {
-        expect(new AwsEcrAuthProvider({ region: "us-east-1", accessKeyId: "X", secretAccessKey: "Y" }).isValidFor(url)).to.be.false;
+        expect(new AwsEcrAuthProvider({ region: 'us-east-1', accessKeyId: 'X', secretAccessKey: 'Y' }).isValidFor(url)).to.be.false;
       });
     });
   });
@@ -107,7 +108,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should validate correct configuration', () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -119,7 +120,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should throw error when accessKeyId is missing', () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
 
@@ -130,7 +131,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should throw error when secretAccessKey is missing', () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
       };
 
@@ -155,10 +156,10 @@ describe('AwsEcrAuthProvider Tests', () => {
       // AWS SDK returns expiresAt as a Date object, not a string
       const fixtureWithDateObjects = {
         ...awsEcrFixture.apiResponse,
-        authorizationData: awsEcrFixture.apiResponse.authorizationData.map(authData => ({
+        authorizationData: awsEcrFixture.apiResponse.authorizationData.map((authData) => ({
           ...authData,
-          expiresAt: new Date(authData.expiresAt)
-        }))
+          expiresAt: new Date(authData.expiresAt),
+        })),
       };
       sendStub = sinon.stub(ECRClient.prototype, 'send').resolves(fixtureWithDateObjects);
     });
@@ -166,7 +167,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should successfully get credentials from AWS ECR', async () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -194,7 +195,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should parse base64 authorization token correctly', async () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -214,7 +215,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should set expiry time from API response', async () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -230,7 +231,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should include metadata fields from AWS response', async () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
         sessionToken: 'FwoGZXIvYXdzEBEaD...',
@@ -256,10 +257,10 @@ describe('AwsEcrAuthProvider Tests', () => {
       // AWS SDK returns expiresAt as a Date object
       const fixtureWithDateObjects = {
         ...awsEcrFixture.apiResponse,
-        authorizationData: awsEcrFixture.apiResponse.authorizationData.map(authData => ({
+        authorizationData: awsEcrFixture.apiResponse.authorizationData.map((authData) => ({
           ...authData,
-          expiresAt: new Date(authData.expiresAt)
-        }))
+          expiresAt: new Date(authData.expiresAt),
+        })),
       };
       sendStub = sinon.stub(ECRClient.prototype, 'send').resolves(fixtureWithDateObjects);
     });
@@ -267,7 +268,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should cache credentials and not make redundant API calls', async () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -301,7 +302,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -331,7 +332,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -361,7 +362,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -389,7 +390,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -412,7 +413,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -435,7 +436,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -462,7 +463,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -489,7 +490,7 @@ describe('AwsEcrAuthProvider Tests', () => {
 
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
       };
@@ -538,10 +539,10 @@ describe('AwsEcrAuthProvider Tests', () => {
       // AWS SDK returns expiresAt as a Date object
       const fixtureWithDateObjects = {
         ...awsEcrFixture.apiResponse,
-        authorizationData: awsEcrFixture.apiResponse.authorizationData.map(authData => ({
+        authorizationData: awsEcrFixture.apiResponse.authorizationData.map((authData) => ({
           ...authData,
-          expiresAt: new Date(authData.expiresAt)
-        }))
+          expiresAt: new Date(authData.expiresAt),
+        })),
       };
       sendStub = sinon.stub(ECRClient.prototype, 'send').resolves(fixtureWithDateObjects);
     });
@@ -549,7 +550,7 @@ describe('AwsEcrAuthProvider Tests', () => {
     it('should pass sessionToken to AWS SDK when provided', async () => {
       const config = {
         registryUrl: '123456789012.dkr.ecr.us-east-1.amazonaws.com',
-        region: "us-east-1",
+        region: 'us-east-1',
         accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
         secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
         sessionToken: 'FwoGZXIvYXdzEBEaD...',

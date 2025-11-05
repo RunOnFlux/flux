@@ -29,6 +29,7 @@ async function getDeviceID(fluxIP, retries = 0) {
   } catch (error) {
     if (retries > 0) {
       log.warn(`Failed to get device ID from ${fluxIP}, retrying... (${retries} attempts left)`);
+      // eslint-disable-next-line no-promise-executor-return
       await new Promise((resolve) => setTimeout(resolve, 1000));
       return getDeviceID(fluxIP, retries - 1);
     }
@@ -108,7 +109,7 @@ async function buildDeviceConfiguration(
   deviceCache,
   devicesConfiguration,
   devicesIds,
-  allDevicesResp
+  allDevicesResp,
 ) {
   const devices = [{ deviceID: myDeviceId }];
 
@@ -136,7 +137,9 @@ async function buildDeviceConfiguration(
   const resolvedDevices = await Promise.all(devicePromises);
 
   // Process resolved devices
+  // eslint-disable-next-line no-restricted-syntax
   for (const deviceInfo of resolvedDevices) {
+    // eslint-disable-next-line no-continue
     if (!deviceInfo) continue;
 
     const { deviceID, name, addresses } = deviceInfo;
@@ -259,10 +262,10 @@ function folderNeedsUpdate(existingFolder, newFolder) {
   }
 
   return (
-    existingFolder.maxConflicts !== SYNCTHING_MAX_CONFLICTS ||
-    existingFolder.paused ||
-    existingFolder.type !== newFolder.type ||
-    JSON.stringify(existingFolder.devices) !== JSON.stringify(newFolder.devices)
+    existingFolder.maxConflicts !== SYNCTHING_MAX_CONFLICTS
+    || existingFolder.paused
+    || existingFolder.type !== newFolder.type
+    || JSON.stringify(existingFolder.devices) !== JSON.stringify(newFolder.devices)
   );
 }
 

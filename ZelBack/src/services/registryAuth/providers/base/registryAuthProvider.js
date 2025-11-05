@@ -6,9 +6,11 @@
  * subclasses to implement provider-specific authentication logic.
  */
 
+// eslint-disable-next-line no-unused-vars
 const config = require('../../../../../config/default');
 
 class RegistryAuthProvider {
+  // eslint-disable-next-line no-shadow
   constructor(config = {}, appName = null) {
     this.config = config;
     this.appName = appName;
@@ -16,6 +18,7 @@ class RegistryAuthProvider {
     this.tokenExpiry = null;
     this.lastError = null;
     this.registeredName = null; // Will be set by factory during creation
+    // eslint-disable-next-line no-underscore-dangle
     this._refreshPromise = null; // Used to prevent concurrent token refreshes
   }
 
@@ -38,6 +41,7 @@ class RegistryAuthProvider {
    * @returns {boolean} True if this provider can handle the registry
    * @abstract
    */
+  // eslint-disable-next-line no-unused-vars
   isValidFor(registryUrl) {
     throw new Error(`${this.constructor.name} must implement isValidFor() method`);
   }
@@ -71,6 +75,7 @@ class RegistryAuthProvider {
    *
    * @returns {string} Authentication type
    */
+  // eslint-disable-next-line class-methods-use-this
   getAuthType() {
     return 'bearer'; // Most modern registries use bearer tokens
   }
@@ -93,9 +98,9 @@ class RegistryAuthProvider {
    * Check if cached token is still valid
    */
   isTokenValid() {
-    return !!(this.tokenCache &&
-              this.tokenExpiry &&
-              Date.now() < this.tokenExpiry);
+    return !!(this.tokenCache
+              && this.tokenExpiry
+              && Date.now() < this.tokenExpiry);
   }
 
   /**
@@ -105,6 +110,7 @@ class RegistryAuthProvider {
     this.tokenCache = null;
     this.tokenExpiry = null;
     this.lastError = null;
+    // eslint-disable-next-line no-underscore-dangle
     this._refreshPromise = null;
   }
 
@@ -157,17 +163,22 @@ class RegistryAuthProvider {
 
     // If a refresh is already in progress, return the existing promise
     // This prevents multiple concurrent refresh operations (race condition)
+    // eslint-disable-next-line no-underscore-dangle
     if (this._refreshPromise) {
+      // eslint-disable-next-line no-underscore-dangle
       return this._refreshPromise;
     }
 
     // Start a new refresh and store the promise
+    // eslint-disable-next-line no-underscore-dangle
     this._refreshPromise = this.refreshCredentials()
       .finally(() => {
         // Clear the promise when done (success or failure)
+        // eslint-disable-next-line no-underscore-dangle
         this._refreshPromise = null;
       });
 
+    // eslint-disable-next-line no-underscore-dangle
     return this._refreshPromise;
   }
 
@@ -180,7 +191,7 @@ class RegistryAuthProvider {
     this.lastError = {
       message: error.message || error,
       timestamp: Date.now(),
-      provider: this.getProviderName()
+      provider: this.getProviderName(),
     };
   }
 
@@ -209,7 +220,7 @@ class RegistryAuthProvider {
       type: type || this.getAuthType(),
       provider: this.getProviderName(),
       expiresAt: this.tokenExpiry,
-      ...metadata
+      ...metadata,
     };
   }
 

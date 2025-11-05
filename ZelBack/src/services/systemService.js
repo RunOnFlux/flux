@@ -521,8 +521,7 @@ async function monitorSyncthingPackage() {
           return { data: { data: {} } };
         });
 
-      const minSyncthingVersion =
-        data.syncthing || config.minimumSyncthingAllowedVersion;
+      const minSyncthingVersion = data.syncthing || config.minimumSyncthingAllowedVersion;
 
       const currentSyncthingVersion = await getPackageVersion('syncthing');
 
@@ -561,7 +560,7 @@ async function monitorSyncthingPackage() {
         log.info('Syncthing upgraded, restarting to load new binary...');
         await syncthingService.systemRestart(null, null).catch(() => { });
       }
-    }
+    };
 
     await versionChecker();
 
@@ -687,6 +686,7 @@ async function monitorSystem() {
     // Debian 12 = 1.219
     setImmediate(() => ensurePackageVersion('netcat-openbsd', '1.187'));
     setImmediate(() => monitorSyncthingPackage());
+    // eslint-disable-next-line no-use-before-define
     setImmediate(() => ensureChronyd());
   } catch (error) {
     log.error(error);

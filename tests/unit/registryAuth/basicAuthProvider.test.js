@@ -227,6 +227,7 @@ describe('BasicAuthProvider Tests', () => {
 
       // Call getCredentials many times - should never fail or refresh
       for (let i = 0; i < 100; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
         const credentials = await provider.getCredentials();
         expect(credentials.username).to.equal('myuser');
         expect(credentials.password).to.equal('mypassword');

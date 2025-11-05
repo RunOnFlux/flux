@@ -891,6 +891,7 @@ describe('imageVerifier tests', () => {
 
   describe('errorMeta tests', () => {
     let axiosInstanceStub;
+    // eslint-disable-next-line no-unused-vars
     let axiosGetStub;
 
     beforeEach(() => {

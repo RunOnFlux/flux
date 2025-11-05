@@ -8,6 +8,7 @@ describe('appProgressManager tests', () => {
   beforeEach(() => {
     // Clear module cache to reset state
     delete require.cache[require.resolve('../../ZelBack/src/services/utils/appProgressManager')];
+    // eslint-disable-next-line global-require
     appProgressManager = require('../../ZelBack/src/services/utils/appProgressManager');
     sinon.stub(log, 'info');
   });

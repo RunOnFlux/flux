@@ -98,8 +98,12 @@ describe('hwRequirements tests', () => {
         name: 'testapp',
         version: 4,
         compose: [
-          { name: 'component1', cpu: 0.5, ram: 500, hdd: 5 },
-          { name: 'component2', cpu: 0.5, ram: 500, hdd: 5 },
+          {
+            name: 'component1', cpu: 0.5, ram: 500, hdd: 5,
+          },
+          {
+            name: 'component2', cpu: 0.5, ram: 500, hdd: 5,
+          },
         ],
       };
 

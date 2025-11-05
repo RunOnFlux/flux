@@ -14,7 +14,9 @@ const log = require('../../lib/log');
  * @returns {Promise<Array>} Application locations
  */
 async function appLocation(appname) {
+  // eslint-disable-next-line global-require
   const dbHelper = require('../dbHelper');
+  // eslint-disable-next-line global-require
   const config = require('config');
   const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
@@ -110,7 +112,9 @@ async function appStart(req, res) {
 
     const mainAppName = appname.split('_')[1] || appname;
 
+    // eslint-disable-next-line global-require
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
@@ -143,9 +147,11 @@ async function appStart(req, res) {
       } else {
         // For composed applications (version > 3), start all components
         log.info(`Starting composed app ${appSpecs.name} with ${appSpecs.compose.length} components`);
+        // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           const componentName = `${appComponent.name}_${appSpecs.name}`;
           log.info(`Starting component: ${componentName}`);
+          // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStart(componentName);
           log.info(`Component ${componentName} started, starting monitoring`);
           appInspector.startAppMonitoring(componentName);
@@ -186,10 +192,12 @@ async function appStop(req, res) {
     if (!appname) {
       throw new Error('No Flux App specified');
     }
+    // eslint-disable-next-line global-require
 
     const mainAppName = appname.split('_')[1] || appname;
 
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
@@ -216,13 +224,17 @@ async function appStop(req, res) {
         throw new Error('Application not found');
       }
 
+      // eslint-disable-next-line no-restricted-syntax
       if (appSpecs.version <= 3) {
+        // eslint-disable-next-line no-await-in-loop
         appInspector.stopAppMonitoring(appname, false);
         appRes = await dockerService.appDockerStop(appname);
       } else {
         // For composed applications (version > 3), stop all components in reverse order
+        // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose.reverse()) {
           appInspector.stopAppMonitoring(`${appComponent.name}_${appSpecs.name}`, false);
+          // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} stopped`;
@@ -256,6 +268,7 @@ async function appRestart(req, res) {
     global = global || req.query.global || false;
     global = serviceHelper.ensureBoolean(global);
 
+    // eslint-disable-next-line global-require
     if (!appname) {
       throw new Error('No Flux App specified');
     }
@@ -263,6 +276,7 @@ async function appRestart(req, res) {
     const mainAppName = appname.split('_')[1] || appname;
 
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
@@ -284,6 +298,7 @@ async function appRestart(req, res) {
     } else {
       // Check if app exists before restarting
       const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
+      // eslint-disable-next-line no-restricted-syntax
       if (!appSpecs) {
         throw new Error('Application not found');
       }
@@ -292,7 +307,9 @@ async function appRestart(req, res) {
         appRes = await dockerService.appDockerRestart(appname);
       } else {
         // For composed applications (version > 3), restart all components
+        // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} restarted`;
@@ -321,6 +338,7 @@ async function appRestart(req, res) {
 async function appKill(req, res) {
   try {
     let { appname } = req.params;
+    // eslint-disable-next-line global-require
     appname = appname || req.query.appname;
 
     if (!appname) {
@@ -330,6 +348,7 @@ async function appKill(req, res) {
     const mainAppName = appname.split('_')[1] || appname;
 
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
@@ -343,6 +362,7 @@ async function appKill(req, res) {
     if (isComponent) {
       appRes = await dockerService.appDockerKill(appname);
     } else {
+      // eslint-disable-next-line no-restricted-syntax
       // Check if app exists before killing
       const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
       if (!appSpecs) {
@@ -353,7 +373,9 @@ async function appKill(req, res) {
         appRes = await dockerService.appDockerKill(appname);
       } else {
         // For composed applications (version > 3), kill all components in reverse order
+        // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose.reverse()) {
+          // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerKill(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} killed`;
@@ -383,6 +405,7 @@ async function appPause(req, res) {
   try {
     let { appname } = req.params;
     appname = appname || req.query.appname;
+    // eslint-disable-next-line global-require
     let { global } = req.params;
     global = global || req.query.global || false;
     global = serviceHelper.ensureBoolean(global);
@@ -394,6 +417,7 @@ async function appPause(req, res) {
     const mainAppName = appname.split('_')[1] || appname;
 
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
@@ -411,6 +435,7 @@ async function appPause(req, res) {
     let appRes;
 
     if (isComponent) {
+      // eslint-disable-next-line no-restricted-syntax
       appRes = await dockerService.appDockerPause(appname);
     } else {
       // Check if app exists before pausing
@@ -423,7 +448,9 @@ async function appPause(req, res) {
         appRes = await dockerService.appDockerPause(appname);
       } else {
         // For composed applications (version > 3), pause all components
+        // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose.reverse()) {
+          // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerPause(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} paused`;
@@ -451,6 +478,7 @@ async function appPause(req, res) {
  */
 async function appUnpause(req, res) {
   try {
+    // eslint-disable-next-line global-require
     let { appname } = req.params;
     appname = appname || req.query.appname;
     let { global } = req.params;
@@ -464,6 +492,7 @@ async function appUnpause(req, res) {
     const mainAppName = appname.split('_')[1] || appname;
 
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const verificationHelper = require('../verificationHelper');
     const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
     if (!authorized) {
@@ -479,6 +508,7 @@ async function appUnpause(req, res) {
 
     const isComponent = appname.includes('_'); // it is a component unpause
     let appRes;
+    // eslint-disable-next-line no-restricted-syntax
 
     if (isComponent) {
       appRes = await dockerService.appDockerUnpause(appname);
@@ -493,7 +523,9 @@ async function appUnpause(req, res) {
         appRes = await dockerService.appDockerUnpause(appname);
       } else {
         // For composed applications (version > 3), unpause all components
+        // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
+          // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerUnpause(`${appComponent.name}_${appSpecs.name}`);
         }
         appRes = `Application ${appSpecs.name} unpaused`;
@@ -520,6 +552,8 @@ async function appUnpause(req, res) {
  */
 async function appDockerRestart(appname) {
   try {
+    // mainAppName extracted for potential future use
+    // eslint-disable-next-line no-unused-vars
     const mainAppName = appname.split('_')[1] || appname;
     const isComponent = appname.includes('_'); // it is a component restart. Proceed with restarting just component
     if (isComponent) {

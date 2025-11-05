@@ -14,6 +14,7 @@ const verificationHelper = require('../verificationHelper');
 const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const generalService = require('../generalService');
+// eslint-disable-next-line no-unused-vars
 const upnpService = require('../upnpService');
 const {
   localAppsInformation,
@@ -45,11 +46,12 @@ const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'Z
 const appsFolder = `${appsFolderPath}/`;
 
 // We need to avoid circular dependency, so we'll implement getInstalledAppsForDocker locally
+// eslint-disable-next-line no-unused-vars
 function getInstalledAppsForDocker() {
   try {
     return dockerService.dockerListContainers({
       all: true,
-      filters: { name: [config.fluxapps.appNamePrefix] }
+      filters: { name: [config.fluxapps.appNamePrefix] },
     });
   } catch (error) {
     log.error('Error getting installed apps:', error);
@@ -108,6 +110,7 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
   // we may not have the application in global apps. This can happen when we receive the message
   // after the app has already expired AND we need to get message right before our message.
   // Thus using messages system that is accurate
+  // eslint-disable-next-line no-shadow, global-require
   const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 
   const db = dbHelper.databaseConnection();
@@ -178,6 +181,7 @@ async function getPreviousAppSpecifications(specifications, verificationTimestam
 
 // Global state management - using globalState module instead of local variables
 // These are now managed through the globalState module
+// eslint-disable-next-line no-unused-vars
 let dosMountMessage = '';
 
 /**
@@ -220,7 +224,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
   });
 
   // Dynamic require to avoid circular dependency
+  // eslint-disable-next-line global-require
   const hwRequirements = require('../appRequirements/hwRequirements');
+  // eslint-disable-next-line global-require
   const resourceQueryService = require('../appQuery/resourceQueryService');
   const nodeSpecs = await hwRequirements.getNodeSpecs();
   const totalSpaceOnNode = nodeSpecs.ssdStorage;
@@ -396,6 +402,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
 
     // Parse containerData to get all required local paths
+    // eslint-disable-next-line global-require
     const mountParser = require('../utils/mountParser');
     let parsedMounts;
     try {
@@ -409,6 +416,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     log.info(`Creating ${requiredPaths.length} local path(s) for ${appId}`);
 
     // Create all required directories and files under appdata/
+    // eslint-disable-next-line no-restricted-syntax
     for (const pathInfo of requiredPaths) {
       // Skip appdata itself as it's already created above
       if (pathInfo.name === 'appdata') {
@@ -451,9 +459,9 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           res.write(serviceHelper.ensureString(createDirStatus));
           if (res.flush) res.flush();
         }
-        const execDIR = `sudo mkdir -p ${appsFolder + appId}/appdata/${pathInfo.name}`;
+        const execSubDIR = `sudo mkdir -p ${appsFolder + appId}/appdata/${pathInfo.name}`;
         // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(execDIR);
+        await cmdAsync(execSubDIR);
         const createDirStatus2 = {
           status: `Directory created: appdata/${pathInfo.name}`,
         };
@@ -488,6 +496,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     await cmdAsync(execPERMdata);
 
     // Set permissions for all created paths under appdata/
+    // eslint-disable-next-line no-restricted-syntax
     for (const pathInfo of requiredPaths) {
       // Skip appdata itself as it's already handled above
       if (pathInfo.name === 'appdata') {
@@ -602,7 +611,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
     // Unmount the volume if it's mounted
     const execUnmount = `sudo umount ${appsFolder + appId}`;
-    await cmdAsync(execUnmount).catch((e) => {
+    // eslint-disable-next-line no-unused-vars
+    await cmdAsync(execUnmount).catch((_e) => {
       log.warn('Volume not mounted or already unmounted during cleanup');
     });
     let execRemoveAlloc = `sudo rm -rf ${useThisVolume.mount}/${appId}FLUXFSVOL`;
@@ -808,6 +818,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
 
+    // eslint-disable-next-line global-require
     const appInstaller = require('./appInstaller');
     if (specificationsToInstall.version >= 4) { // version is undefined for component
       // eslint-disable-next-line no-restricted-syntax
@@ -826,6 +837,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       // Restore syncthing cache for apps with syncthing data to prevent data deletion
       // This is necessary because cache might be lost (service restart) or corrupted (firstEncounterSkipped flag)
       // During soft redeploy, data is preserved, so we mark apps as already synced
+      // eslint-disable-next-line no-restricted-syntax
       for (const appComponentSpecs of specificationsToInstall.compose) {
         const hasSyncthingData = appComponentSpecs.containerData && (appComponentSpecs.containerData.includes('g:') || appComponentSpecs.containerData.includes('r:'));
         if (hasSyncthingData) {
@@ -882,6 +894,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
       res.write(serviceHelper.ensureString(removeStatus));
       if (res.flush) res.flush();
     }
+    // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
     appUninstaller.removeAppLocally(appSpecs.name, res, true);
   }
@@ -896,6 +909,7 @@ async function softRegisterAppLocally(appSpecs, componentSpecs, res) {
  */
 async function softUninstallComposedApp(appSpecifications, appName, res) {
   // Dynamic require to avoid circular dependency
+  // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
 
   // Uninstall all components in reverse order
@@ -918,6 +932,7 @@ async function softUninstallComposedApp(appSpecifications, appName, res) {
  */
 async function softUninstallSingleComponent(appSpecifications, appName, appComponent, appId, res) {
   // Dynamic require to avoid circular dependency
+  // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
 
   const componentSpecifications = appSpecifications.compose.find((component) => component.name === appComponent);
@@ -934,6 +949,7 @@ async function softUninstallSingleComponent(appSpecifications, appName, appCompo
  */
 async function softUninstallSimpleApp(appSpecifications, appName, appId, res) {
   // Dynamic require to avoid circular dependency
+  // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
 
   await appUninstaller.softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring);
@@ -1100,6 +1116,7 @@ async function softRedeploy(appSpecs, res) {
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
+    // eslint-disable-next-line global-require
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register
@@ -1111,6 +1128,7 @@ async function softRedeploy(appSpecs, res) {
     log.error(error);
     log.warn(`REMOVAL REASON: Soft redeploy failure - ${appSpecs.name} failed during soft redeploy: ${error.message} (softRedeploy)`);
     globalState.softRedeployInProgress = false;
+    // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
     await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, true);
     log.info(`Cleanup completed for ${appSpecs.name} after soft redeploy failure`);
@@ -1123,6 +1141,7 @@ async function softRedeploy(appSpecs, res) {
  * @param {object} res - Response object
  */
 async function hardRedeploy(appSpecs, res) {
+  // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
   try {
     if (globalState.removalInProgress) {
@@ -1172,6 +1191,7 @@ async function hardRedeploy(appSpecs, res) {
     }
     await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000); // wait for delay mins
     // verify requirements
+    // eslint-disable-next-line global-require
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register
@@ -1194,7 +1214,9 @@ async function hardRedeploy(appSpecs, res) {
  * @param {object} res - Response object
  */
 async function softRedeployComponent(appName, componentName, res) {
+  // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
+  // eslint-disable-next-line global-require
   const appInstaller = require('./appInstaller');
 
   try {
@@ -1301,7 +1323,9 @@ async function softRedeployComponent(appName, componentName, res) {
  * @param {object} res - Response object
  */
 async function hardRedeployComponent(appName, componentName, res) {
+  // eslint-disable-next-line global-require
   const appUninstaller = require('./appUninstaller');
+  // eslint-disable-next-line global-require
   const appInstaller = require('./appInstaller');
 
   try {
@@ -1508,6 +1532,7 @@ async function redeployAPI(req, res) {
     }
     if (global) {
       // Dynamic require to avoid circular dependency
+      // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
       appController.executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, force); // do not wait
       const hardOrSoft = force ? 'hard' : 'soft';
@@ -1517,6 +1542,7 @@ async function redeployAPI(req, res) {
     }
 
     // Dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const registryManager = require('../appDatabase/registryManager');
     const specifications = await registryManager.getApplicationSpecifications(appname);
     if (!specifications) {
@@ -1572,6 +1598,7 @@ async function verifyAppUpdateParameters(req, res) {
       const appSpecFormatted = specificationFormatter(decryptedSpecs);
 
       // Dynamic require to avoid circular dependency
+      // eslint-disable-next-line global-require
       const appRequirements = require('../appRequirements/appValidator');
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await appRequirements.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -1580,6 +1607,7 @@ async function verifyAppUpdateParameters(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
+            // eslint-disable-next-line global-require
             const appSecurity = require('../appSecurity/imageManager');
             // eslint-disable-next-line no-await-in-loop
             await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
@@ -1589,6 +1617,7 @@ async function verifyAppUpdateParameters(req, res) {
 
       // Validate update compatibility with previous version
       const timestamp = Date.now();
+      // eslint-disable-next-line no-use-before-define
       await validateApplicationUpdateCompatibility(appSpecFormatted, timestamp);
 
       if (isEnterprise) {
@@ -1639,6 +1668,7 @@ async function stopSyncthingApp(appComponentName, res) {
     const identifier = appComponentName;
     const appId = dockerService.getAppIdentifier(identifier);
     const folder = `${appsFolder + appId}`;
+    // eslint-disable-next-line global-require
     const syncthingService = require('../syncthingService');
     const allSyncthingFolders = await syncthingService.getConfigFolders();
     if (allSyncthingFolders.status === 'error') {
@@ -1692,7 +1722,9 @@ async function stopSyncthingApp(appComponentName, res) {
  */
 async function appDockerStart(appname) {
   try {
+    // eslint-disable-next-line global-require
     const { startAppMonitoring } = require('../appManagement/appInspector');
+    // eslint-disable-next-line global-require
     const registryManager = require('../appDatabase/registryManager');
 
     const mainAppName = appname.split('_')[1] || appname;
@@ -1729,6 +1761,7 @@ async function appDockerStart(appname) {
  */
 async function appDockerStop(appname) {
   try {
+    // eslint-disable-next-line global-require
     const registryManager = require('../appDatabase/registryManager');
 
     const mainAppName = appname.split('_')[1] || appname;
@@ -1764,8 +1797,11 @@ async function appDockerStop(appname) {
  * @returns {Promise<void>}
  */
 async function appDockerRestart(appname) {
+  // eslint-disable-next-line global-require
   try {
+    // eslint-disable-next-line global-require
     const { startAppMonitoring } = require('../appManagement/appInspector');
+    // eslint-disable-next-line global-require
     const registryManager = require('../appDatabase/registryManager');
 
     const mainAppName = appname.split('_')[1] || appname;
@@ -1832,6 +1868,7 @@ async function appendBackupTask(req, res) {
     if (authorized === true) {
       globalState.backupInProgress.push(appname);
       // Check if app using syncthing, stop syncthing for all component that using it
+      // eslint-disable-next-line global-require
       const registryManager = require('../appDatabase/registryManager');
       const appDetails = await registryManager.getApplicationGlobalSpecifications(appname);
       // eslint-disable-next-line no-restricted-syntax
@@ -1846,6 +1883,7 @@ async function appendBackupTask(req, res) {
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
       await serviceHelper.delay(5 * 1000);
+      // eslint-disable-next-line global-require
       const IOUtils = require('../IOUtils');
       // eslint-disable-next-line no-restricted-syntax
       for (const component of backup) {
@@ -1951,6 +1989,7 @@ async function appendRestoreTask(req, res) {
     if (authorized === true) {
       const componentItem = restore.map((restoreItem) => restoreItem);
       globalState.restoreInProgress.push(appname);
+      // eslint-disable-next-line global-require
       const registryManager = require('../appDatabase/registryManager');
       const appDetails = await registryManager.getApplicationGlobalSpecifications(appname);
       // eslint-disable-next-line no-restricted-syntax
@@ -1964,6 +2003,7 @@ async function appendRestoreTask(req, res) {
       await sendChunk(res, 'Stopping application...\n');
       await appDockerStop(appname);
       await serviceHelper.delay(5 * 1000);
+      // eslint-disable-next-line global-require
       const IOUtils = require('../IOUtils');
       // eslint-disable-next-line no-restricted-syntax
       for (const component of restore) {
@@ -2020,8 +2060,10 @@ async function appendRestoreTask(req, res) {
           }
           const syncthingAux = appDetails.compose.find((comp) => comp.name === component.component && (comp.containerData.includes('g:') || comp.containerData.includes('r:')));
           if (syncthingAux) {
+            // eslint-disable-next-line global-require
             const identifier = `${component.component}_${appname}`;
             const appId = dockerService.getAppIdentifier(identifier);
+            // eslint-disable-next-line global-require
             const { receiveOnlySyncthingAppsCache } = require('../utils/appCaches');
             const cache = {
               restarted: true,
@@ -2037,6 +2079,7 @@ async function appendRestoreTask(req, res) {
       await appDockerStart(appname);
       if (syncthing) {
         await sendChunk(res, 'Redeploying other instances...\n');
+        // eslint-disable-next-line global-require
         const appController = require('../appManagement/appController');
         appController.executeAppGlobalCommand(appname, 'redeploy', req.headers.zelidauth, true);
         await serviceHelper.delay(1 * 60 * 1000);
@@ -2226,9 +2269,9 @@ async function validateApplicationUpdateCompatibility(specifications, verificati
   // Only allow version changes to version 8 (current latest supported version)
   if (appSpecs.version !== specifications.version && specifications.version !== 8) {
     throw new Error(
-      `Application update rejected: Version changes are only allowed when updating to version 8 (current latest supported version). ` +
-      `Current version: ${appSpecs.version}, Attempted version: ${specifications.version}. ` +
-      `To update this application, please use version 8 specifications.`
+      'Application update rejected: Version changes are only allowed when updating to version 8 (current latest supported version). '
+      + `Current version: ${appSpecs.version}, Attempted version: ${specifications.version}. `
+      + 'To update this application, please use version 8 specifications.',
     );
   }
   if (specifications.version >= 4) {
@@ -2237,9 +2280,9 @@ async function validateApplicationUpdateCompatibility(specifications, verificati
       // Component count must remain constant
       if (specifications.compose.length !== appSpecs.compose.length) {
         throw new Error(
-          `Application update rejected: Cannot change the number of components for "${specifications.name}". ` +
-          `Previous version has ${appSpecs.compose.length} component(s), new version has ${specifications.compose.length}. ` +
-          `Component count must remain constant for v4+ applications.`
+          `Application update rejected: Cannot change the number of components for "${specifications.name}". `
+          + `Previous version has ${appSpecs.compose.length} component(s), new version has ${specifications.compose.length}. `
+          + 'Component count must remain constant for v4+ applications.',
         );
       }
 
@@ -2250,9 +2293,9 @@ async function validateApplicationUpdateCompatibility(specifications, verificati
           const oldNames = appSpecs.compose.map((c) => c.name).join(', ');
           const newNames = specifications.compose.map((c) => c.name).join(', ');
           throw new Error(
-            `Application update rejected: Component "${appComponent.name}" not found in new specification for "${specifications.name}". ` +
-            `Component names must remain constant. Previous components: [${oldNames}], New components: [${newNames}]. ` +
-            `Note: Docker image tags (repotag) can be changed, but component names cannot.`
+            `Application update rejected: Component "${appComponent.name}" not found in new specification for "${specifications.name}". `
+            + `Component names must remain constant. Previous components: [${oldNames}], New components: [${newNames}]. `
+            + 'Note: Docker image tags (repotag) can be changed, but component names cannot.',
           );
         }
         // v4+ allows for changes of repotag (Docker image tags)
@@ -2262,18 +2305,18 @@ async function validateApplicationUpdateCompatibility(specifications, verificati
     }
   } else if (appSpecs.version >= 4) {
     throw new Error(
-      `Application update rejected: Cannot downgrade "${specifications.name}" from v4+ to v${specifications.version}. ` +
-      `Version rollbacks from v4+ specifications to older versions (v1-3) are not permitted. ` +
-      `Current version: v${appSpecs.version}, Attempted version: v${specifications.version}.`
+      `Application update rejected: Cannot downgrade "${specifications.name}" from v4+ to v${specifications.version}. `
+      + 'Version rollbacks from v4+ specifications to older versions (v1-3) are not permitted. '
+      + `Current version: v${appSpecs.version}, Attempted version: v${specifications.version}.`,
     );
   } else { // Both update and current app are v1-3
     // v1-3 specifications do not allow repotag changes
     // eslint-disable-next-line no-lonely-if
     if (appSpecs.repotag !== specifications.repotag) {
       throw new Error(
-        `Application update rejected: Cannot change Docker image repository/tag for v1-3 application "${specifications.name}". ` +
-        `Previous repotag: "${appSpecs.repotag}", New repotag: "${specifications.repotag}". ` +
-        `Repository tag changes are only allowed for v4+ applications. Consider upgrading to v4+ specification format.`
+        `Application update rejected: Cannot change Docker image repository/tag for v1-3 application "${specifications.name}". `
+        + `Previous repotag: "${appSpecs.repotag}", New repotag: "${specifications.repotag}". `
+        + 'Repository tag changes are only allowed for v4+ applications. Consider upgrading to v4+ specification format.',
       );
     }
   }
@@ -2378,9 +2421,11 @@ async function updateAppGlobalyApi(req, res) {
       if (!authorized) {
         const errMessage = messageHelper.errUnauthorizedMessage();
         res.json(errMessage);
+        // eslint-disable-next-line global-require
         return;
       }
       // Dynamic require to avoid circular dependency
+      // eslint-disable-next-line global-require
       const { outgoingPeers, incomingPeers } = require('../utils/establishedConnections');
       // first check if this node is available for application update
       if (outgoingPeers.length < config.fluxapps.minOutgoing) {
@@ -2434,6 +2479,7 @@ async function updateAppGlobalyApi(req, res) {
       const appSpecFormatted = specificationFormatter(appSpecDecrypted);
 
       // Dynamic require to avoid circular dependency
+      // eslint-disable-next-line global-require
       const appRequirements = require('../appRequirements/appValidator');
       // parameters are now proper format and assigned. Check for their validity, if they are within limits, have propper ports, repotag exists, string lengths, specs are ok
       await appRequirements.verifyAppSpecifications(appSpecFormatted, daemonHeight, true);
@@ -2442,6 +2488,7 @@ async function updateAppGlobalyApi(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecFormatted.compose) {
           if (appComponent.secrets) {
+            // eslint-disable-next-line global-require
             const appSecurity = require('../appSecurity/imageManager');
             // eslint-disable-next-line no-await-in-loop
             await appSecurity.checkAppSecrets(appSpecFormatted.name, appComponent, appSpecFormatted.owner, false);
@@ -2476,6 +2523,7 @@ async function updateAppGlobalyApi(req, res) {
         ? specificationFormatter(appSpecification)
         : appSpecFormatted;
 
+      // eslint-disable-next-line global-require
       const appMessaging = require('../appMessaging/messageVerifier');
       // here signature is checked against PREVIOUS app owner
       await appMessaging.verifyAppMessageUpdateSignature(messageType, typeVersion, toVerify, timestamp, signature, appOwner, daemonHeight);
@@ -2504,6 +2552,7 @@ async function updateAppGlobalyApi(req, res) {
         signature,
         arcaneSender: isArcane,
       };
+      // eslint-disable-next-line global-require
       const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
       await fluxCommunicationMessagesSender.broadcastTemporaryAppMessage(temporaryAppMessage);
       // above takes 2-3 seconds
@@ -2560,7 +2609,9 @@ async function checkAndRemoveApplicationInstance() {
     }
     const appsInstalled = installedAppsRes.data;
     // lazy load to avoid circular dependency
+    // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
+    // eslint-disable-next-line global-require
     const registryManager = require('../appDatabase/registryManager');
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of appsInstalled) {
@@ -2710,7 +2761,9 @@ async function reinstallOldApplications() {
             }
             log.warn('Updating from old application version, doing hard redeploy...');
             log.warn(`REMOVAL REASON: App version upgrade - ${appSpecifications.name} upgrading from v${installedApp.version} to v${appSpecifications.version}`);
+            // eslint-disable-next-line global-require
             const appUninstaller = require('./appUninstaller');
+            // eslint-disable-next-line global-require
             const appInstaller = require('./appInstaller');
             // eslint-disable-next-line no-await-in-loop
             await appUninstaller.removeAppLocally(appSpecifications.name, null, true, false);
@@ -2797,7 +2850,9 @@ async function reinstallOldApplications() {
             }
 
             // Dynamic require to avoid circular dependency
+            // eslint-disable-next-line global-require
             const appUninstaller = require('./appUninstaller');
+            // eslint-disable-next-line global-require
             const appInstaller = require('./appInstaller');
 
             if (appSpecifications.hdd === installedApp.hdd) {
@@ -2841,7 +2896,9 @@ async function reinstallOldApplications() {
             }
 
             // Dynamic require to avoid circular dependency
+            // eslint-disable-next-line global-require
             const appUninstaller = require('./appUninstaller');
+            // eslint-disable-next-line global-require
             const appInstaller = require('./appInstaller');
 
             try {
@@ -2956,6 +3013,7 @@ async function reinstallOldApplications() {
             } catch (error) {
               log.error(error);
               log.warn(`REMOVAL REASON: Redeployment error - ${appSpecifications.name} failed during redeployment: ${error.message}`);
+              // eslint-disable-next-line no-await-in-loop
               await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true); // remove entire app
               log.info(`Cleanup completed for ${appSpecifications.name} after redeployment failure`);
             }
@@ -3001,8 +3059,11 @@ async function forceAppRemovals() {
     }
 
     // Import services to match original business logic where everything was in the same file
+    // eslint-disable-next-line global-require
     const appQueryService = require('../appQuery/appQueryService');
+    // eslint-disable-next-line global-require
     const registryManager = require('../appDatabase/registryManager');
+    // eslint-disable-next-line global-require
     const appUninstaller = require('./appUninstaller');
 
     // Get current node's IP for checking app locations
@@ -3098,6 +3159,7 @@ async function forceAppRemovals() {
  */
 async function masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https) {
   try {
+    // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = true;
     // do not run if installationInProgress or removalInProgress or softRedeployInProgress or hardRedeployInProgress
     if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress) {
@@ -3286,6 +3348,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
           // eslint-disable-next-line no-await-in-loop
           let myIP;
           try {
+            // eslint-disable-next-line no-await-in-loop
             myIP = await fluxNetworkHelper.getMyFluxIPandPort();
           } catch (error) {
             log.error(`masterSlaveApps: Failed to get my IP for app:${installedApp.name}, error: ${error.message}`);
@@ -3312,6 +3375,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 // This handles the case where folder is synced but cache was cleared/lost
                 if (!isReady) {
                   try {
+                    // eslint-disable-next-line global-require
                     const syncthingService = require('../syncthingService');
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
@@ -3333,11 +3397,14 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
                 if (!isReady) {
                   log.info(`masterSlaveApps: app:${installedApp.name} is not ready yet (syncthing not synced), skipping primary selection for this cycle`);
+                  // eslint-disable-next-line global-require
                   // eslint-disable-next-line no-continue
                   continue;
                 }
                 // eslint-disable-next-line no-await-in-loop
+                // eslint-disable-next-line global-require
                 const registryManager = require('../appDatabase/registryManager');
+                // eslint-disable-next-line no-await-in-loop
                 const runningAppList = await registryManager.appLocation(installedApp.name);
                 runningAppList.sort((a, b) => {
                   if (!a.runningSince && b.runningSince) {
@@ -3443,6 +3510,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 // Fallback: If not in cache or not ready, check if syncthing folder is already in sendreceive mode
                 if (!isReady) {
                   try {
+                    // eslint-disable-next-line global-require
                     const syncthingService = require('../syncthingService');
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
@@ -3477,6 +3545,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
   } catch (error) {
     log.error(`masterSlaveApps: ${error}`);
   } finally {
+    // eslint-disable-next-line no-param-reassign
     globalStateParam.masterSlaveAppsRunning = false;
     await serviceHelper.delay(30 * 1000);
     masterSlaveApps(globalStateParam, installedApps, listRunningApps, receiveOnlySyncthingAppsCache, backupInProgressParam, restoreInProgressParam, https);
@@ -3485,11 +3554,13 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
 /**
  * Get from another peer the list of apps installing errors or just for a specific application name
+ // eslint-disable-next-line global-require
  * @returns {Promise<void>}
  */
 async function getPeerAppsInstallingErrorMessages() {
   try {
     // Import outgoingPeers dynamically to avoid circular dependency
+    // eslint-disable-next-line global-require
     const { outgoingPeers } = require('../utils/establishedConnections');
 
     if (!outgoingPeers || outgoingPeers.length === 0) {
@@ -3570,6 +3641,7 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   const appId = dockerService.getAppIdentifier(identifier);
 
   // Parse containerData to get required paths
+  // eslint-disable-next-line global-require
   const mountParser = require('../utils/mountParser');
   // eslint-disable-next-line global-require
   const fs = require('fs').promises;

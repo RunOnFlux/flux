@@ -16,6 +16,7 @@ const { appsFolder } = require('./appConstants');
  * @returns {string} App identifier with flux prefix
  */
 function getAppIdentifier(identifier) {
+  // eslint-disable-next-line global-require
   const dockerService = require('../dockerService');
   return dockerService.getAppIdentifier(identifier);
 }
@@ -73,8 +74,8 @@ function validateAndGetComponentIdentifier(componentIndex, currentIndex, fullApp
     // Enforce ordering: can only reference previous components
     if (currentIndex !== undefined && currentIndex <= componentIndex) {
       throw new Error(
-        `Component ${currentIndex} cannot reference component ${componentIndex}. ` +
-        'Components can only reference components with lower indices.'
+        `Component ${currentIndex} cannot reference component ${componentIndex}. `
+        + 'Components can only reference components with lower indices.',
       );
     }
 
@@ -139,7 +140,7 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
   let currentComponentIndex;
   if (fullAppSpecs && fullAppSpecs.version >= 4 && appSpecifications) {
     currentComponentIndex = fullAppSpecs.compose.findIndex(
-      (comp) => comp.name === appSpecifications.name
+      (comp) => comp.name === appSpecifications.name,
     );
     if (currentComponentIndex === -1) {
       log.warn(`Could not find current component ${appSpecifications.name} in compose specs`);
@@ -147,9 +148,10 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
   }
 
   // Process all mounts
+  // eslint-disable-next-line no-restricted-syntax
   for (const mount of parsedMounts.allMounts) {
     let hostPath;
-    const containerPath = mount.containerPath;
+    const { containerPath } = mount;
 
     switch (mount.type) {
       case MountType.PRIMARY:
@@ -161,23 +163,25 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
 
       case MountType.COMPONENT_PRIMARY:
       case MountType.COMPONENT_DIRECTORY:
-      case MountType.COMPONENT_FILE:
+      case MountType.COMPONENT_FILE: {
         // Component reference mounts
         if (!fullAppSpecs) {
           throw new Error(
-            `Complete App Specification required for component reference mount: ${mount.containerPath}`
+            `Complete App Specification required for component reference mount: ${mount.containerPath}`,
           );
         }
 
+        // eslint-disable-next-line no-case-declarations
         const componentIdentifier = validateAndGetComponentIdentifier(
           mount.componentIndex,
           currentComponentIndex,
           fullAppSpecs,
-          appName
+          appName,
         );
 
         hostPath = constructComponentHostPath(componentIdentifier, mount.subdir);
         break;
+      }
 
       default:
         throw new Error(`Unknown mount type: ${mount.type}`);
@@ -240,6 +244,7 @@ function hasMountFlag(parsedMounts, flag) {
 function getSyncthingMounts(parsedMounts) {
   const syncthingMounts = [];
 
+  // eslint-disable-next-line no-restricted-syntax
   for (const mount of parsedMounts.allMounts) {
     // Check if mount has 'r', 'g', or 's' flag
     if (mount.flags && (mount.flags.includes('r') || mount.flags.includes('g') || mount.flags.includes('s'))) {
@@ -254,16 +259,17 @@ function getSyncthingMounts(parsedMounts) {
  * Validate mount configuration
  * @param {object} parsedMounts - Parsed mount data
  * @param {object} fullAppSpecs - Full application specifications
- * @param {object} appSpecifications - Current component specifications
+ * @param {object} appSpecifications - Current component specifications (reserved for future use)
  * @throws {Error} If validation fails
  */
+// eslint-disable-next-line no-unused-vars
 function validateMountConfiguration(parsedMounts, fullAppSpecs, appSpecifications) {
   // Check that component references exist
+  // eslint-disable-next-line no-restricted-syntax
   for (const mount of parsedMounts.additional) {
-    if (mount.type === MountType.COMPONENT_PRIMARY ||
-        mount.type === MountType.COMPONENT_DIRECTORY ||
-        mount.type === MountType.COMPONENT_FILE) {
-
+    if (mount.type === MountType.COMPONENT_PRIMARY
+        || mount.type === MountType.COMPONENT_DIRECTORY
+        || mount.type === MountType.COMPONENT_FILE) {
       if (!fullAppSpecs) {
         throw new Error('Component references require full application specifications');
       }
@@ -278,6 +284,7 @@ function validateMountConfiguration(parsedMounts, fullAppSpecs, appSpecification
 
   // Warn if using files for syncthing (might not work as expected)
   const syncthingMounts = getSyncthingMounts(parsedMounts);
+  // eslint-disable-next-line no-restricted-syntax
   for (const mount of syncthingMounts) {
     if (mount.isFile) {
       log.warn(`Syncthing enabled on file mount: ${mount.containerPath}. This may not work as expected.`);

@@ -4,6 +4,7 @@ const config = require('config');
 const { ObjectId } = require('mongodb');
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+// eslint-disable-next-line no-unused-vars
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 

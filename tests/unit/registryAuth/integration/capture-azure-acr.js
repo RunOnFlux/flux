@@ -23,11 +23,14 @@
 
 const fs = require('fs');
 const path = require('path');
+// eslint-disable-next-line import/no-unresolved
 const { ClientSecretCredential } = require('@azure/identity');
+// eslint-disable-next-line import/extensions, import/no-unresolved
 const { RepoAuthParser } = require('../src/utils/repoAuthParser');
 
 // Load environment variables from .env.test if available
 try {
+  // eslint-disable-next-line import/no-extraneous-dependencies, global-require
   require('dotenv').config({ path: path.join(__dirname, '..', '.env.test') });
 } catch (e) {
   // dotenv not available, use system environment variables
@@ -75,7 +78,7 @@ class AzureACRCapture {
 
     // Fall back to environment variables
     const required = ['AZURE_TENANT_ID', 'AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_REGISTRY_NAME'];
-    const missing = required.filter(key => !process.env[key]);
+    const missing = required.filter((key) => !process.env[key]);
 
     if (missing.length > 0) {
       console.error('❌ Missing required environment variables:', missing.join(', '));
@@ -104,13 +107,13 @@ class AzureACRCapture {
     const credential = new ClientSecretCredential(
       this.config.tenantId,
       this.config.clientId,
-      this.config.clientSecret
+      this.config.clientSecret,
     );
 
     try {
       const startTime = Date.now();
       const tokenResponse = await credential.getToken([
-        'https://management.azure.com/.default'
+        'https://management.azure.com/.default',
       ]);
       const duration = Date.now() - startTime;
 
@@ -132,7 +135,7 @@ class AzureACRCapture {
     console.log('🔒 Sanitizing response data...');
 
     // Create mock token with same length characteristics
-    const mockToken = 'MOCK_AZURE_ACCESS_TOKEN_' + 'X'.repeat(Math.min(response.token.length - 30, 1500));
+    const mockToken = `MOCK_AZURE_ACCESS_TOKEN_${'X'.repeat(Math.min(response.token.length - 30, 1500))}`;
 
     // Set expiry to a random time in the future (between 1-7 days)
     const now = Date.now();
@@ -211,7 +214,7 @@ class AzureACRCapture {
         // Display decoded token details
         console.log('\n📋 TOKEN DETAILS:');
         console.log('==================================');
-        console.log('Access Token (first 100 chars):', realResponse.token.substring(0, 100) + '...');
+        console.log('Access Token (first 100 chars):', `${realResponse.token.substring(0, 100)}...`);
         console.log('Token length:', realResponse.token.length, 'characters');
         console.log('Full token:', realResponse.token);
         console.log('Expires on:', new Date(realResponse.expiresOnTimestamp).toISOString());
@@ -228,7 +231,7 @@ class AzureACRCapture {
 
       console.log('\n✨ Capture complete!');
       console.log('   You can now use this fixture in unit tests.');
-      console.log(`   Import: require('./integration/fixtures/azure-acr-response.json')`);
+      console.log('   Import: require(\'./integration/fixtures/azure-acr-response.json\')');
 
       return true;
     } catch (error) {
@@ -244,7 +247,7 @@ if (require.main === module) {
   const noSanitize = process.argv.includes('--no-sanitize');
 
   // Get repoAuth string from first positional argument (skip node, script name, and flags)
-  const args = process.argv.slice(2).filter(arg => !arg.startsWith('--'));
+  const args = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
   const repoAuthString = args[0] || null;
 
   const capture = new AzureACRCapture({ noSanitize, repoAuthString });

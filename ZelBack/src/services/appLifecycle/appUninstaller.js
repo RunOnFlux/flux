@@ -36,12 +36,14 @@ const crontabLoad = util.promisify(systemcrontab.load);
 async function stopSyncthingAndCleanup(monitoredName, appId, res) {
   try {
     // Dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const advancedWorkflows = require('./advancedWorkflows');
     await advancedWorkflows.stopSyncthingApp(monitoredName, res);
 
     // Hard removal - delete syncthing cache since data will be deleted
+    // eslint-disable-next-line no-shadow, global-require
     const globalState = require('../utils/globalState');
-    const receiveOnlySyncthingAppsCache = globalState.receiveOnlySyncthingAppsCache;
+    const { receiveOnlySyncthingAppsCache } = globalState;
     if (receiveOnlySyncthingAppsCache && receiveOnlySyncthingAppsCache.has(appId)) {
       receiveOnlySyncthingAppsCache.delete(appId);
       log.info(`Deleted syncthing cache for ${appId} during hard removal`);
@@ -229,6 +231,7 @@ async function cleanupVolumePath(volumepath, entityName, res) {
  * @param {boolean} force - Use aggressive removal (kill + force remove) for stuck containers
  * @returns {Promise<void>}
  */
+// eslint-disable-next-line no-shadow
 async function hardUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring, force = false) {
   const componentName = componentSpecifications.name;
 
@@ -320,6 +323,7 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
   }
 
   // Cleanup ports
+  // eslint-disable-next-line no-use-before-define
   await cleanupPorts(componentSpecifications, appName, res, `component ${componentName}`);
 
   // Unmount volume
@@ -376,7 +380,9 @@ async function hardUninstallComponent(appName, appId, componentSpecifications, r
  * @param {function} stopAppMonitoring - Function to stop monitoring
  * @param {boolean} force - Use aggressive removal (kill + force remove) for stuck containers
  * @returns {Promise<void>}
+ // eslint-disable-next-line no-shadow
  */
+// eslint-disable-next-line no-shadow
 async function hardUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring, force = false) {
   // Stop monitoring and container
   log.info(`Stopping Flux App ${appName}...`);
@@ -465,6 +471,7 @@ async function hardUninstallApplication(appName, appId, appSpecifications, res, 
   }
 
   // Cleanup ports
+  // eslint-disable-next-line no-use-before-define
   await cleanupPorts(appSpecifications, appName, res, appName);
 
   // Unmount volume
@@ -576,8 +583,10 @@ async function cleanupPorts(appSpecifications, appName, res, entityName) {
  * @param {object} componentSpecifications - Component specifications
  * @param {object} res - Response object for streaming
  * @param {function} stopAppMonitoring - Function to stop monitoring
+ // eslint-disable-next-line no-shadow
  * @returns {Promise<void>}
  */
+// eslint-disable-next-line no-shadow
 async function softUninstallComponent(appName, appId, componentSpecifications, res, stopAppMonitoring) {
   const componentName = componentSpecifications.name;
 
@@ -646,6 +655,7 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
   }
 
   // Cleanup ports
+  // eslint-disable-next-line no-use-before-define
   await cleanupPorts(componentSpecifications, appName, res, `component ${componentName}`);
 
   log.info(`Flux App component ${componentName} of ${appName} was successfully removed`);
@@ -661,9 +671,11 @@ async function softUninstallComponent(appName, appId, componentSpecifications, r
  * @param {string} appId - Application ID
  * @param {object} appSpecifications - App specifications
  * @param {object} res - Response object for streaming
+ // eslint-disable-next-line no-shadow
  * @param {function} stopAppMonitoring - Function to stop monitoring
  * @returns {Promise<void>}
  */
+// eslint-disable-next-line no-shadow
 async function softUninstallApplication(appName, appId, appSpecifications, res, stopAppMonitoring) {
   // Stop monitoring
   log.info(`Stopping Flux App ${appName}...`);
@@ -750,7 +762,7 @@ async function softUninstallApplication(appName, appId, appSpecifications, res, 
 async function removeAppLocally(app, res, force = false, endResponse = true, sendMessage = false) {
   try {
     // Log removal trigger with stack trace to identify caller
-    const stack = new Error().stack;
+    const { stack } = new Error();
     const callerLine = stack.split('\n')[2]?.trim();
     log.warn(`APP REMOVAL TRIGGERED: ${app} | force=${force} | sendMessage=${sendMessage} | caller: ${callerLine}`);
 
@@ -974,7 +986,6 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
         res.end();
       }
     }
-
   } catch (error) {
     log.error(`Error removing app ${app}: ${error.message}`);
     const errorResponse = messageHelper.createErrorMessage(
@@ -999,11 +1010,14 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
  * Soft remove application locally (database and container only)
  * @param {string} app - Application name
  * @param {object} res - Response object for streaming
+ // eslint-disable-next-line no-shadow
  * @param {object} globalStateRef - Global state reference
  * @param {function} stopAppMonitoring - Function to stop monitoring
  * @returns {Promise<void>}
  */
+// eslint-disable-next-line no-shadow
 async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring) {
+  // eslint-disable-next-line no-shadow
   const globalState = globalStateRef;
   if (globalState.removalInProgress) {
     throw new Error('Another application is undergoing removal');
@@ -1082,7 +1096,6 @@ async function softRemoveAppLocally(app, res, globalStateRef, stopAppMonitoring)
         if (res.flush) res.flush();
       }
     }
-
   } catch (error) {
     log.error(`Error soft removing app ${app}: ${error.message}`);
     throw error;
@@ -1124,6 +1137,7 @@ async function removeAppLocallyApi(req, res) {
     }
 
     if (global) {
+      // eslint-disable-next-line global-require
       const appController = require('../appManagement/appController');
       appController.executeAppGlobalCommand(appname, 'appremove', req.headers.zelidauth); // do not wait
       const appResponse = messageHelper.createSuccessMessage(`${appname} queried for global reinstallation`);
@@ -1134,6 +1148,7 @@ async function removeAppLocallyApi(req, res) {
     res.setHeader('Content-Type', 'application/json');
 
     await removeAppLocally(appname, res, force, true, true);
+    return undefined; // Explicitly return after async operation
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(

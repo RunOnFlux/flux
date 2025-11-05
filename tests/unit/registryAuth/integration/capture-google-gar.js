@@ -22,11 +22,14 @@
 
 const fs = require('fs');
 const path = require('path');
+// eslint-disable-next-line import/no-unresolved
 const { JWT } = require('google-auth-library');
+// eslint-disable-next-line import/extensions, import/no-unresolved
 const { RepoAuthParser } = require('../src/utils/repoAuthParser');
 
 // Load environment variables from .env.test if available
 try {
+  // eslint-disable-next-line import/no-extraneous-dependencies, global-require
   require('dotenv').config({ path: path.join(__dirname, '..', '.env.test') });
 } catch (e) {
   // dotenv not available, use system environment variables
@@ -94,7 +97,7 @@ class GoogleGARCapture {
 
     // Fall back to environment variables
     const required = ['GOOGLE_CLIENT_EMAIL', 'GOOGLE_PRIVATE_KEY', 'GOOGLE_PROJECT_ID'];
-    const missing = required.filter(key => !process.env[key]);
+    const missing = required.filter((key) => !process.env[key]);
 
     if (missing.length > 0) {
       console.error('❌ Missing required environment variables:', missing.join(', '));
@@ -151,7 +154,7 @@ class GoogleGARCapture {
     console.log('🔒 Sanitizing response data...');
 
     // Create mock token with same length characteristics
-    const mockToken = 'ya29.MOCK_GOOGLE_ACCESS_TOKEN_' + 'X'.repeat(Math.min(response.token.length - 40, 500));
+    const mockToken = `ya29.MOCK_GOOGLE_ACCESS_TOKEN_${'X'.repeat(Math.min(response.token.length - 40, 500))}`;
 
     // Set expiry to a random time in the future (between 1-7 days)
     const now = Date.now();
@@ -237,7 +240,7 @@ class GoogleGARCapture {
         // Display decoded token details
         console.log('\n📋 TOKEN DETAILS:');
         console.log('==================================');
-        console.log('Access Token (first 100 chars):', realResponse.token.substring(0, 100) + '...');
+        console.log('Access Token (first 100 chars):', `${realResponse.token.substring(0, 100)}...`);
         console.log('Token length:', realResponse.token.length, 'characters');
         console.log('Full token:', realResponse.token);
         console.log('Token type:', realResponse.credentials.token_type);
@@ -255,7 +258,7 @@ class GoogleGARCapture {
 
       console.log('\n✨ Capture complete!');
       console.log('   You can now use this fixture in unit tests.');
-      console.log(`   Import: require('./integration/fixtures/google-gar-response.json')`);
+      console.log('   Import: require(\'./integration/fixtures/google-gar-response.json\')');
 
       return true;
     } catch (error) {
@@ -271,7 +274,7 @@ if (require.main === module) {
   const noSanitize = process.argv.includes('--no-sanitize');
 
   // Get repoAuth string from first positional argument (skip node, script name, and flags)
-  const args = process.argv.slice(2).filter(arg => !arg.startsWith('--'));
+  const args = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
   const repoAuthString = args[0] || null;
 
   const capture = new GoogleGARCapture({ noSanitize, repoAuthString });

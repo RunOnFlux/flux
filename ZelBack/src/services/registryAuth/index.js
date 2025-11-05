@@ -35,5 +35,5 @@ module.exports = {
   AzureAcrAuthProvider,
 
   // Utility for parsing repoauth strings
-  RepoAuthParser
+  RepoAuthParser,
 };

@@ -10,6 +10,7 @@
  * This matches the authentication pattern used by AWS ECR and Google GAR providers.
  */
 
+// eslint-disable-next-line import/no-unresolved
 const { ClientSecretCredential } = require('@azure/identity');
 const { RegistryAuthProvider } = require('./base/registryAuthProvider');
 
@@ -20,8 +21,8 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
 
     // Extract registry name from config if provided
     // Config can have: registryName (explicit) or registry (URL to parse)
-    this.registryName = config.registryName ||
-                        (config.registry ? this.constructor.extractRegistryNameFromUrl(config.registry) : null);
+    this.registryName = config.registryName
+                        || (config.registry ? this.constructor.extractRegistryNameFromUrl(config.registry) : null);
 
     // Initialize Azure credential client
     this.initializeClient();
@@ -40,9 +41,8 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
       this.azureCredential = new ClientSecretCredential(
         this.config.tenantId,
         this.config.clientId,
-        this.config.clientSecret
+        this.config.clientSecret,
       );
-
     } catch (error) {
       const wrappedError = new Error(`Failed to initialize Azure ACR client: ${error.message}`);
       // Only record error if provider name is set (avoid error in tests)
@@ -91,16 +91,16 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
     const params = new URLSearchParams({
       grant_type: 'access_token',
       service: `${this.registryName}.azurecr.io`,
-      access_token: aadAccessToken
+      access_token: aadAccessToken,
     });
 
     try {
       const response = await fetch(exchangeUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: params.toString()
+        body: params.toString(),
       });
 
       if (!response.ok) {
@@ -115,7 +115,6 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
       }
 
       return data.refresh_token;
-
     } catch (error) {
       throw new Error(`Failed to exchange AAD token for ACR refresh token: ${error.message}`);
     }
@@ -136,17 +135,17 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
     const params = new URLSearchParams({
       grant_type: 'refresh_token',
       service: `${this.registryName}.azurecr.io`,
-      scope: scope,
-      refresh_token: refreshToken
+      scope,
+      refresh_token: refreshToken,
     });
 
     try {
       const response = await fetch(tokenUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: params.toString()
+        body: params.toString(),
       });
 
       if (!response.ok) {
@@ -183,9 +182,8 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
       return {
         access_token: data.access_token,
         expiresAt: expiryTime,
-        expiresInSeconds: expiresInSeconds
+        expiresInSeconds,
       };
-
     } catch (error) {
       throw new Error(`Failed to exchange refresh token for ACR access token: ${error.message}`);
     }
@@ -211,7 +209,7 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
       // Step 1: Get Azure AD access token with correct scope for container registry
       // This is the CORRECT scope - not management.azure.com!
       const tokenResponse = await this.azureCredential.getToken([
-        'https://containerregistry.azure.net/.default'
+        'https://containerregistry.azure.net/.default',
       ]);
 
       if (!tokenResponse || !tokenResponse.token) {
@@ -236,14 +234,13 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
           registryName: this.registryName,
           expiresAt: accessTokenData.expiresAt,
           tokenType: 'short-lived-access',
-          expiresInSeconds: accessTokenData.expiresInSeconds
-        }
+          expiresInSeconds: accessTokenData.expiresInSeconds,
+        },
       );
 
       this.cacheCredentials(credentials, accessTokenData.expiresAt);
 
       return credentials;
-
     } catch (error) {
       const detailedError = new Error(`Azure ACR authentication failed: ${error.message}`);
       this.recordError(detailedError);
@@ -319,6 +316,7 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
    *
    * @returns {string} Authentication type
    */
+  // eslint-disable-next-line class-methods-use-this
   getAuthType() {
     return 'bearer';
   }
@@ -351,7 +349,7 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
 
     return new AzureAcrAuthProvider({
       ...config,
-      registryName
+      registryName,
     });
   }
 
@@ -369,7 +367,7 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
       registryName: this.registryName,
       authType: this.getAuthType(),
       tokenCached: this.isTokenValid(),
-      tokenExpiresIn: this.getTimeUntilExpiry()
+      tokenExpiresIn: this.getTimeUntilExpiry(),
     };
   }
 
@@ -403,8 +401,8 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
       credentialSources: {
         hasClientId: Boolean(this.config.clientId),
         hasClientSecret: Boolean(this.config.clientSecret),
-        hasTenantId: Boolean(this.config.tenantId)
-      }
+        hasTenantId: Boolean(this.config.tenantId),
+      },
     };
   }
 
@@ -422,10 +420,9 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
     try {
       // Test by attempting to get an access token with correct scope
       const tokenResponse = await this.azureCredential.getToken([
-        'https://containerregistry.azure.net/.default'
+        'https://containerregistry.azure.net/.default',
       ]);
       return Boolean(tokenResponse && tokenResponse.token);
-
     } catch (error) {
       this.recordError(error);
       return false;
@@ -457,20 +454,20 @@ class AzureAcrAuthProvider extends RegistryAuthProvider {
     const endpoints = {
       public: {
         containerRegistryScope: 'https://containerregistry.azure.net/.default',
-        authority: 'https://login.microsoftonline.com'
+        authority: 'https://login.microsoftonline.com',
       },
       government: {
         containerRegistryScope: 'https://containerregistry.azure.us/.default',
-        authority: 'https://login.microsoftonline.us'
+        authority: 'https://login.microsoftonline.us',
       },
       china: {
         containerRegistryScope: 'https://containerregistry.azure.cn/.default',
-        authority: 'https://login.chinacloudapi.cn'
+        authority: 'https://login.chinacloudapi.cn',
       },
       germany: {
         containerRegistryScope: 'https://containerregistry.cloudapi.de/.default',
-        authority: 'https://login.microsoftonline.de'
-      }
+        authority: 'https://login.microsoftonline.de',
+      },
     };
 
     return endpoints[cloud] || endpoints.public;

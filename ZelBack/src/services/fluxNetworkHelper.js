@@ -724,6 +724,7 @@ async function ipChangesOverLimit() {
       if (ipChangeData.count >= 2) {
         // eslint-disable-next-line global-require
         const appQueryService = require('./appQuery/appQueryService');
+        // eslint-disable-next-line global-require
         const appUninstaller = require('./appLifecycle/appUninstaller');
         let apps = await appQueryService.installedApps();
         if (apps.status === 'success' && apps.data.length > 0) {
@@ -810,8 +811,11 @@ async function adjustExternalIP(ip) {
       }
       // eslint-disable-next-line global-require
       const appQueryService = require('./appQuery/appQueryService');
+      // eslint-disable-next-line global-require
       const registryManager = require('./appDatabase/registryManager');
+      // eslint-disable-next-line global-require
       const appUninstaller = require('./appLifecycle/appUninstaller');
+      // eslint-disable-next-line global-require
       const appController = require('./appManagement/appController');
       let apps = await appQueryService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
@@ -1096,7 +1100,7 @@ async function checkDeterministicNodesCollisions() {
             // Other node is confirmed offline after grace period - take over the collateral
             log.info(`Other node at ${askingIP}:${askingIpPort} confirmed offline. Creating confirmation transaction to take over collateral...`);
             const daemonResult = await daemonServiceWalletRpcs.createConfirmationTransaction();
-             log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
+            log.info(`node was confirmed on a different machine ip - createConfirmationTransaction: ${JSON.stringify(daemonResult)}`);
             // Clear any previous DOS state related to this collision
             if (getDosMessage() && getDosMessage().includes('is confirmed and reachable on flux network')) {
               log.info('Clearing previous collision DOS state - this node has successfully taken over the collateral');

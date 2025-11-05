@@ -10,6 +10,7 @@ const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const imageManager = require('../appSecurity/imageManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
+// eslint-disable-next-line no-unused-vars
 const { supportedArchitectures } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
@@ -583,6 +584,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.port < minPort || appSpecifications.port > maxPort) {
       throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${minPort}-${maxPort}`);
     }
+    // eslint-disable-next-line global-require
     const iBP = require('../fluxNetworkHelper').isPortBanned(appSpecifications.port);
     if (iBP) {
       throw new Error(`Assigned port ${appSpecifications.port} is not allowed for Flux Apps`);
@@ -597,6 +599,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       if (port < minPort || port > maxPort) {
         throw new Error(`Assigned port ${port} is not within Flux Apps range ${minPort}-${maxPort}`);
       }
+      // eslint-disable-next-line global-require
       const iBP = require('../fluxNetworkHelper').isPortBanned(port);
       if (iBP) {
         throw new Error(`Assigned port ${port} is not allowed for Flux Apps`);
@@ -701,6 +704,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         if (port < minPort || port > maxPort) {
           throw new Error(`Assigned port ${port} is not within Flux Apps range ${minPort}-${maxPort}`);
         }
+        // eslint-disable-next-line global-require
         const iBP = require('../fluxNetworkHelper').isPortBanned(port);
         if (iBP) {
           throw new Error(`Assigned port ${port} is not allowed for Flux Apps`);
@@ -1248,8 +1252,7 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
         // and only selected nodes have the private keys to decrypt it.
         // For v8+, repoauth is plain text (already decrypted from enterprise blob),
         // so we can and should verify the repository.
-        const skipVerification =
-          appSpecifications.version === 7 && appComponent.repoauth;
+        const skipVerification = appSpecifications.version === 7 && appComponent.repoauth;
 
         // fail open
         if (skipVerification) return true;
@@ -1388,6 +1391,7 @@ async function verifyAppUpdateParameters(req, res) {
       // Validate update compatibility with previous version
       const timestamp = Date.now();
       // Dynamic require to avoid circular dependency
+      // eslint-disable-next-line global-require
       const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
       await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, timestamp);
 
@@ -1562,7 +1566,6 @@ async function registerAppGlobalyApi(req, res) {
         return;
       }
       throw new Error('Unable to register application on the network. Try again later.');
-
     } catch (error) {
       log.warn(error);
       const errorResponse = messageHelper.createErrorMessage(

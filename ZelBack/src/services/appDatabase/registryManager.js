@@ -437,6 +437,7 @@ async function getApplicationSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
+    // eslint-disable-next-line no-use-before-define
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
@@ -1161,6 +1162,7 @@ async function expireGlobalApplications() {
 
     // get list of locally installed apps.
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const appQueryService = require('../appQuery/appQueryService');
     const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
@@ -1203,6 +1205,7 @@ async function expireGlobalApplications() {
 
     // remove appsToRemoveNames apps from locally running
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const appUninstaller = require('../appLifecycle/appUninstaller');
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
@@ -1446,17 +1449,20 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
  */
 async function registerAppGlobalyApi(req, res) {
   // Import dependencies needed for this function
+  // eslint-disable-next-line global-require
   const generalService = require('../generalService');
-  const serviceHelper = require('../serviceHelper');
-  const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
-  const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+  // eslint-disable-next-line global-require
   const appUtilities = require('../utils/appUtilities');
+  // eslint-disable-next-line global-require
   const appValidator = require('../appRequirements/appValidator');
+  // eslint-disable-next-line global-require
   const imageManager = require('../appSecurity/imageManager');
+  // eslint-disable-next-line global-require
   const messageVerifier = require('../appMessaging/messageVerifier');
+  // eslint-disable-next-line global-require
   const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+  // eslint-disable-next-line global-require
   const { outgoingPeers, incomingPeers } = require('../utils/establishedConnections');
-  const config = require('config');
 
   const isArcane = Boolean(process.env.FLUXOS_PATH);
 

@@ -48,6 +48,7 @@ async function startMonitoringOfApps(appSpecsToMonitor, appsMonitored, installed
  * @param {Function} installedAppsFn - Function to get installed apps
  * @returns {Promise<object>} Result of monitoring stop
  */
+// eslint-disable-next-line default-param-last
 async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false, appsMonitored, installedAppsFn) {
   try {
     let apps = appSpecsToMonitor;
@@ -100,32 +101,31 @@ async function startAppMonitoringAPI(req, res, appsMonitored, installedAppsFn) {
       await startMonitoringOfApps(null, appsMonitored, installedAppsFn);
       const monitoringResponse = messageHelper.createSuccessMessage('Application monitoring started for all apps');
       return res ? res.json(monitoringResponse) : monitoringResponse;
-    } else {
-      const mainAppName = appname.split('_')[1] || appname;
-      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        return res ? res.json(errMessage) : errMessage;
-      }
-      const installedAppsRes = await installedAppsFn(mainAppName);
-      if (installedAppsRes.status !== 'success') {
-        throw new Error('Failed to get installed Apps');
-      }
-      const apps = installedAppsRes.data;
-      const appSpecs = apps[0];
-      if (!appSpecs) {
-        throw new Error(`Application ${mainAppName} is not installed`);
-      }
-      if (mainAppName === appname) {
-        await stopMonitoringOfApps(null, false, appsMonitored, installedAppsFn);
-        await startMonitoringOfApps([appSpecs], appsMonitored, installedAppsFn);
-      } else { // component based or <= 3
-        appInspector.stopAppMonitoring(appname, false, appsMonitored);
-        appInspector.startAppMonitoring(appname, appsMonitored);
-      }
-      const monitoringResponse = messageHelper.createSuccessMessage(`Application monitoring started for ${appSpecs.name}`);
-      return res ? res.json(monitoringResponse) : monitoringResponse;
     }
+    const mainAppName = appname.split('_')[1] || appname;
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+    const installedAppsRes = await installedAppsFn(mainAppName);
+    if (installedAppsRes.status !== 'success') {
+      throw new Error('Failed to get installed Apps');
+    }
+    const apps = installedAppsRes.data;
+    const appSpecs = apps[0];
+    if (!appSpecs) {
+      throw new Error(`Application ${mainAppName} is not installed`);
+    }
+    if (mainAppName === appname) {
+      await stopMonitoringOfApps(null, false, appsMonitored, installedAppsFn);
+      await startMonitoringOfApps([appSpecs], appsMonitored, installedAppsFn);
+    } else { // component based or <= 3
+      appInspector.stopAppMonitoring(appname, false, appsMonitored);
+      appInspector.startAppMonitoring(appname, appsMonitored);
+    }
+    const monitoringResponse = messageHelper.createSuccessMessage(`Application monitoring started for ${appSpecs.name}`);
+    return res ? res.json(monitoringResponse) : monitoringResponse;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(
@@ -169,37 +169,36 @@ async function stopAppMonitoringAPI(req, res, appsMonitored, installedAppsFn) {
       }
       const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
       return res ? res.json(monitoringResponse) : monitoringResponse;
-    } else {
-      const mainAppName = appname.split('_')[1] || appname;
-      const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
-      if (!authorized) {
-        const errMessage = messageHelper.errUnauthorizedMessage();
-        return res ? res.json(errMessage) : errMessage;
-      }
-      let successMessage = '';
-      if (mainAppName === appname) {
-        // get appSpecs
-        const installedAppsRes = await installedAppsFn(mainAppName);
-        if (installedAppsRes.status !== 'success') {
-          throw new Error('Failed to get installed Apps');
-        }
-        const apps = installedAppsRes.data;
-        const appSpecs = apps[0];
-        if (!appSpecs) {
-          throw new Error(`Application ${mainAppName} is not installed`);
-        }
-        await stopMonitoringOfApps([appSpecs], deletedata, appsMonitored, installedAppsFn);
-      } else { // component based or <= 3
-        appInspector.stopAppMonitoring(appname, deletedata, appsMonitored);
-      }
-      if (deletedata) {
-        successMessage = `Application monitoring stopped and monitoring data deleted for ${appname}.`;
-      } else {
-        successMessage = `Application monitoring stopped for ${appname}. Existing monitoring data maintained.`;
-      }
-      const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
-      return res ? res.json(monitoringResponse) : monitoringResponse;
     }
+    const mainAppName = appname.split('_')[1] || appname;
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+    let successMessage = '';
+    if (mainAppName === appname) {
+      // get appSpecs
+      const installedAppsRes = await installedAppsFn(mainAppName);
+      if (installedAppsRes.status !== 'success') {
+        throw new Error('Failed to get installed Apps');
+      }
+      const apps = installedAppsRes.data;
+      const appSpecs = apps[0];
+      if (!appSpecs) {
+        throw new Error(`Application ${mainAppName} is not installed`);
+      }
+      await stopMonitoringOfApps([appSpecs], deletedata, appsMonitored, installedAppsFn);
+    } else { // component based or <= 3
+      appInspector.stopAppMonitoring(appname, deletedata, appsMonitored);
+    }
+    if (deletedata) {
+      successMessage = `Application monitoring stopped and monitoring data deleted for ${appname}.`;
+    } else {
+      successMessage = `Application monitoring stopped for ${appname}. Existing monitoring data maintained.`;
+    }
+    const monitoringResponse = messageHelper.createSuccessMessage(successMessage);
+    return res ? res.json(monitoringResponse) : monitoringResponse;
   } catch (error) {
     log.error(error);
     const errorResponse = messageHelper.createErrorMessage(

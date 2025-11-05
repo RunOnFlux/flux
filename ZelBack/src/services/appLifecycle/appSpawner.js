@@ -27,7 +27,9 @@ let appUninstaller; // Will be initialized to avoid circular dependency
  * @param {object} deps - Dependencies object
  */
 function initialize(deps) {
+  // eslint-disable-next-line prefer-destructuring
   appInstaller = deps.appInstaller;
+  // eslint-disable-next-line prefer-destructuring
   appUninstaller = deps.appUninstaller;
 }
 
@@ -78,6 +80,7 @@ async function trySpawningGlobalApplication() {
       await registryManager.expireGlobalApplications();
       globalState.firstExecutionAfterItsSynced = false;
       // Dynamic require to avoid circular dependency
+      // eslint-disable-next-line global-require
       const advancedWorkflows = require('./advancedWorkflows');
       await advancedWorkflows.getPeerAppsInstallingErrorMessages();
     }
@@ -118,6 +121,7 @@ async function trySpawningGlobalApplication() {
     }
 
     // get all the applications list names missing instances
+    // eslint-disable-next-line global-require
     const { globalAppsInformation } = require('../utils/appConstants');
     const pipeline = [
       {
@@ -259,7 +263,7 @@ async function trySpawningGlobalApplication() {
     if (installingAppErrorsList.find((app) => !app.expireAt && app.hash === appHash)) {
       globalState.spawnErrorsLongerAppCache.set(appHash, '');
       throw new Error(`trySpawningGlobalApplication - App ${appToRun} is marked as having errors on app installing errors locations.`);
-    }*/
+    } */
 
     runningAppList = await registryManager.appLocation(appToRun);
 
@@ -286,6 +290,7 @@ async function trySpawningGlobalApplication() {
 
     // eslint-disable-next-line no-restricted-syntax
     const dbopen = dbHelper.databaseConnection();
+    // eslint-disable-next-line global-require
     const { localAppsInformation } = require('../utils/appConstants');
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {}; // all
@@ -524,6 +529,7 @@ async function trySpawningGlobalApplication() {
     // store it in local database first
     await registryManager.storeAppInstallingMessage(newAppInstallingMessage);
     // broadcast messages about running apps to all peers
+    // eslint-disable-next-line global-require
     const fluxCommMessagesSender = require('../fluxCommunicationMessagesSender');
     await fluxCommMessagesSender.broadcastMessageToOutgoing(newAppInstallingMessage);
     await serviceHelper.delay(500);

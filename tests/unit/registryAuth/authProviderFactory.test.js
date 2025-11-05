@@ -1,3 +1,4 @@
+/* eslint-disable max-classes-per-file */
 const { expect } = require('chai');
 const sinon = require('sinon');
 const { AuthProviderFactory } = require('../../../ZelBack/src/services/registryAuth/services/authProviderFactory');
@@ -31,10 +32,14 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return { username: 'custom', password: 'custom' };
         }
@@ -52,10 +57,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -86,10 +93,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -109,10 +118,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -131,10 +142,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -507,10 +520,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -525,6 +540,7 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
@@ -536,10 +552,12 @@ describe('AuthProviderFactory Tests', () => {
 
     it('should reject class missing isValidFor', () => {
       class InvalidProvider {
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -555,6 +573,7 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -635,10 +654,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -661,10 +682,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -724,10 +747,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }
@@ -786,10 +811,12 @@ describe('AuthProviderFactory Tests', () => {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         validateConfiguration() {
           return true;
         }
 
+        // eslint-disable-next-line class-methods-use-this
         async getCredentials() {
           return {};
         }

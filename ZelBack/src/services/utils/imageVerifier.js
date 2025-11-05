@@ -249,7 +249,7 @@ class ImageVerifier {
       // we have certainty that the image parts that we have are correct
       // Docker Hub uses 'library' namespace for official images, but other registries don't use default namespaces
       // this would be better to lookup against dockerhub library (only 150 odd images to pull via api)
-      const isDockerHub = this.provider === ImageVerifier.defaultDockerRegistry
+      const isDockerHub = this.provider === ImageVerifier.defaultDockerRegistry;
       const defaultNamespace = isDockerHub ? 'library' : '';
 
       this.namespace = namespace || defaultNamespace;
@@ -269,12 +269,14 @@ class ImageVerifier {
    * @param {object} authDetails Parsed www-authenticate header.
    */
   async #handleAuth(authDetails) {
-    const { scheme, realm, service, scope } = authDetails;
+    const {
+      scheme, realm, service, scope,
+    } = authDetails;
 
     // For Basic auth (AWS ECR), use credentials directly without token exchange
     if (scheme === 'Basic') {
       if (!this.credentials) {
-        this.#lookupErrorDetail = `Basic authentication required but no credentials provided`;
+        this.#lookupErrorDetail = 'Basic authentication required but no credentials provided';
         return;
       }
 
@@ -354,6 +356,7 @@ class ImageVerifier {
       this.#lookupErrorMeta = {
         httpStatus,
         errorCode: null,
+        // eslint-disable-next-line no-nested-ternary
         errorType: httpStatus === 429 ? 'rate_limit' : (httpStatus >= 500 ? 'server_error' : 'http_error'),
       };
       return { data: null };
@@ -523,7 +526,7 @@ class ImageVerifier {
     if (credentials && typeof credentials === 'object' && credentials.username && credentials.password) {
       this.credentials = {
         username: credentials.username,
-        password: credentials.password
+        password: credentials.password,
       };
       return;
     }

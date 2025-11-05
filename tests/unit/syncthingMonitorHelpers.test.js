@@ -126,7 +126,7 @@ describe('syncthingMonitorHelpers tests', () => {
         'test-id',
         'test-label',
         '/path/to/folder',
-        devices
+        devices,
       );
 
       expect(result).to.deep.include({
@@ -148,7 +148,7 @@ describe('syncthingMonitorHelpers tests', () => {
         'test-label',
         '/path/to/folder',
         devices,
-        'receiveonly'
+        'receiveonly',
       );
 
       expect(result.type).to.equal('receiveonly');
@@ -163,22 +163,34 @@ describe('syncthingMonitorHelpers tests', () => {
     });
 
     it('should return true if maxConflicts differs', () => {
-      const existing = { maxConflicts: 5, paused: false, type: 'sendreceive', devices: [] };
-      const newFolder = { maxConflicts: 0, paused: false, type: 'sendreceive', devices: [] };
+      const existing = {
+        maxConflicts: 5, paused: false, type: 'sendreceive', devices: [],
+      };
+      const newFolder = {
+        maxConflicts: 0, paused: false, type: 'sendreceive', devices: [],
+      };
       const result = helpers.folderNeedsUpdate(existing, newFolder);
       expect(result).to.be.true;
     });
 
     it('should return true if paused status differs', () => {
-      const existing = { maxConflicts: 0, paused: true, type: 'sendreceive', devices: [] };
-      const newFolder = { maxConflicts: 0, paused: false, type: 'sendreceive', devices: [] };
+      const existing = {
+        maxConflicts: 0, paused: true, type: 'sendreceive', devices: [],
+      };
+      const newFolder = {
+        maxConflicts: 0, paused: false, type: 'sendreceive', devices: [],
+      };
       const result = helpers.folderNeedsUpdate(existing, newFolder);
       expect(result).to.be.true;
     });
 
     it('should return true if type differs', () => {
-      const existing = { maxConflicts: 0, paused: false, type: 'receiveonly', devices: [] };
-      const newFolder = { maxConflicts: 0, paused: false, type: 'sendreceive', devices: [] };
+      const existing = {
+        maxConflicts: 0, paused: false, type: 'receiveonly', devices: [],
+      };
+      const newFolder = {
+        maxConflicts: 0, paused: false, type: 'sendreceive', devices: [],
+      };
       const result = helpers.folderNeedsUpdate(existing, newFolder);
       expect(result).to.be.true;
     });

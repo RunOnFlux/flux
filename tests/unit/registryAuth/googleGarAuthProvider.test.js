@@ -1,5 +1,7 @@
+/* eslint-disable func-names */
 const { expect } = require('chai');
 const sinon = require('sinon');
+// eslint-disable-next-line import/no-unresolved
 const { JWT } = require('google-auth-library');
 const { GoogleGarAuthProvider } = require('../../../ZelBack/src/services/registryAuth/providers/googleGarAuthProvider');
 
@@ -21,9 +23,7 @@ describe('GoogleGarAuthProvider Tests', () => {
   });
 
   describe('Constructor and Configuration', () => {
-    
-
-it('should create provider with keyFile (base64-encoded)', () => {
+    it('should create provider with keyFile (base64-encoded)', () => {
       const keyFileContent = {
         type: 'service_account',
         project_id: 'my-project-123',
@@ -105,7 +105,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
       ];
 
       validUrls.forEach((url) => {
-        expect(new GoogleGarAuthProvider({ privateKey: "X", clientEmail: "Y" }).isValidFor(url)).to.be.true;
+        expect(new GoogleGarAuthProvider({ privateKey: 'X', clientEmail: 'Y' }).isValidFor(url)).to.be.true;
       });
     });
 
@@ -120,7 +120,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
       ];
 
       invalidUrls.forEach((url) => {
-        expect(new GoogleGarAuthProvider({ privateKey: "X", clientEmail: "Y" }).isValidFor(url)).to.be.false;
+        expect(new GoogleGarAuthProvider({ privateKey: 'X', clientEmail: 'Y' }).isValidFor(url)).to.be.false;
       });
     });
   });
@@ -223,7 +223,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
   describe('getCredentials() - Happy Path', () => {
     beforeEach(() => {
       // Stub JWT.getAccessToken to return fixture data and set credentials as side effect
-      getAccessTokenStub = sinon.stub(JWT.prototype, 'getAccessToken').callsFake(function() {
+      getAccessTokenStub = sinon.stub(JWT.prototype, 'getAccessToken').callsFake(function () {
         // Set credentials on the JWT instance (side effect of real getAccessToken)
         this.credentials = googleGarFixture.apiResponse.credentials;
         return Promise.resolve(googleGarFixture.apiResponse);
@@ -344,7 +344,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
   describe('Token Caching', () => {
     beforeEach(() => {
       // Stub with callsFake to set credentials as side effect
-      getAccessTokenStub = sinon.stub(JWT.prototype, 'getAccessToken').callsFake(function() {
+      getAccessTokenStub = sinon.stub(JWT.prototype, 'getAccessToken').callsFake(function () {
         this.credentials = googleGarFixture.apiResponse.credentials;
         return Promise.resolve(googleGarFixture.apiResponse);
       });
@@ -386,7 +386,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
           expiry_date: soonExpiry,
         },
       };
-      getAccessTokenStub.callsFake(function() {
+      getAccessTokenStub.callsFake(function () {
         this.credentials = modifiedResponse.credentials;
         return Promise.resolve(modifiedResponse);
       });
@@ -424,7 +424,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
           expiry_date: pastExpiry,
         },
       };
-      getAccessTokenStub.callsFake(function() {
+      getAccessTokenStub.callsFake(function () {
         this.credentials = modifiedResponse.credentials;
         return Promise.resolve(modifiedResponse);
       });
@@ -462,7 +462,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
           expiry_date: futureExpiry,
         },
       };
-      getAccessTokenStub.callsFake(function() {
+      getAccessTokenStub.callsFake(function () {
         this.credentials = modifiedResponse.credentials;
         return Promise.resolve(modifiedResponse);
       });
@@ -581,7 +581,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
     });
 
     it('should handle malformed API response - missing credentials', async () => {
-      getAccessTokenStub = sinon.stub(JWT.prototype, 'getAccessToken').callsFake(function() {
+      getAccessTokenStub = sinon.stub(JWT.prototype, 'getAccessToken').callsFake(function () {
         // Explicitly unset credentials to simulate missing credentials
         this.credentials = undefined;
         return Promise.resolve({
@@ -612,7 +612,7 @@ it('should create provider with keyFile (base64-encoded)', () => {
     });
 
     it('should handle missing expiry_date in response', async () => {
-      getAccessTokenStub = sinon.stub(JWT.prototype, 'getAccessToken').callsFake(function() {
+      getAccessTokenStub = sinon.stub(JWT.prototype, 'getAccessToken').callsFake(function () {
         // Set credentials but without expiry_date
         this.credentials = {
           access_token: 'some_token',
