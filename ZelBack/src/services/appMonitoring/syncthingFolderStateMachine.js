@@ -5,6 +5,7 @@ const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
+const { appsFolder } = require('../utils/appConstants');
 const {
   MAX_SYNC_WAIT_EXECUTIONS,
   LEADER_ELECTION_MIN_EXECUTIONS,
@@ -16,6 +17,27 @@ const {
 const { sortRunningAppList } = require('./syncthingMonitorHelpers');
 
 const cmdAsync = util.promisify(nodecmd.run);
+
+/**
+ * Fix permissions on appdata for containers
+ * Critical for synced data that may have wrong ownership
+ * @param {string} appId - App ID
+ * @returns {Promise<void>}
+ */
+async function fixAppdataPermissions(appId) {
+  try {
+    const appdataPath = `${appsFolder}${appId}/appdata`;
+
+    // Recursively set 777 permissions on appdata to allow any container user to write
+    // This ensures containers running as any UID/GID can access their data
+    const fixPermissions = `sudo chmod -R 777 ${appdataPath}`;
+    await cmdAsync(fixPermissions);
+    log.info(`fixAppdataPermissions - Fixed permissions on ${appdataPath}`);
+  } catch (error) {
+    log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
+    // Continue anyway - container might still work
+  }
+}
 
 /**
  * Ensures mount paths exist and starts the container
@@ -59,19 +81,7 @@ async function ensureMountPathsAndStartContainer(appId) {
 
     // Fix permissions on appdata directory to ensure container can write
     // This is critical after Syncthing syncs data from peers - synced files may have wrong permissions
-    try {
-      const appsFolder = '/ZelApps/';
-      const appdataPath = `${appsFolder}${appId}/appdata`;
-
-      // Recursively set 777 permissions on appdata to allow any container user to write
-      // This ensures containers running as any UID/GID can access their data
-      const fixPermissions = `sudo chmod -R 777 ${appdataPath}`;
-      await cmdAsync(fixPermissions);
-      log.info(`ensureMountPathsAndStartContainer - Fixed permissions on ${appdataPath}`);
-    } catch (error) {
-      log.warn(`ensureMountPathsAndStartContainer - Could not fix permissions: ${error.message}`);
-      // Continue anyway - container might still work
-    }
+    await fixAppdataPermissions(appId);
 
     // Start the container
     await dockerService.appDockerStart(appId);
@@ -296,6 +306,8 @@ async function handleReceiveOnlyTransition(params) {
     syncthingFolder.type = 'sendreceive';
 
     if (containerDataFlags.includes('r')) {
+      // Fix permissions before restarting - ensures correct ownership
+      await fixAppdataPermissions(appId);
       log.info(`handleReceiveOnlyTransition - starting ${appId}`);
       await appDockerRestartFn(appId);
     }
@@ -325,6 +337,8 @@ async function handleReceiveOnlyTransition(params) {
 
       syncthingFolder.type = 'sendreceive';
       if (containerDataFlags.includes('r')) {
+        // Fix permissions before restarting - critical for synced data
+        await fixAppdataPermissions(appId);
         log.info(`handleReceiveOnlyTransition - starting ${appId}`);
         await appDockerRestartFn(appId);
       }
@@ -344,6 +358,8 @@ async function handleReceiveOnlyTransition(params) {
       syncthingFolder.type = 'sendreceive';
 
       if (containerDataFlags.includes('r')) {
+        // Fix permissions before restarting - critical for synced data
+        await fixAppdataPermissions(appId);
         log.info(`handleReceiveOnlyTransition - starting ${appId}`);
         await appDockerRestartFn(appId);
       }
@@ -394,9 +410,14 @@ async function handleNewApp(params) {
 async function ensureContainerRunning(appId, containerDataFlags) {
   try {
     const containerInspect = await dockerService.dockerContainerInspect(appId);
+
+    // Fix permissions regardless of container state
+    // This ensures synced data from peers has correct permissions
+    await fixAppdataPermissions(appId);
+
     if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
       log.info(`ensureContainerRunning - ${appId} is not running, starting it`);
-      await ensureMountPathsAndStartContainer(appId);
+      await dockerService.appDockerStart(appId);
     }
   } catch (error) {
     log.error(`ensureContainerRunning - Error checking/starting ${appId}: ${error.message}`);
