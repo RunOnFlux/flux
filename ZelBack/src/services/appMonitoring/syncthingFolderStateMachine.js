@@ -1,4 +1,6 @@
 // Syncthing Folder State Machine - Manages folder sync transitions
+const util = require('util');
+const nodecmd = require('node-cmd');
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const syncthingService = require('../syncthingService');
@@ -12,6 +14,8 @@ const {
   CLOCK_SKEW_TOLERANCE_MS,
 } = require('./syncthingMonitorConstants');
 const { sortRunningAppList } = require('./syncthingMonitorHelpers');
+
+const cmdAsync = util.promisify(nodecmd.run);
 
 /**
  * Ensures mount paths exist and starts the container
@@ -51,6 +55,22 @@ async function ensureMountPathsAndStartContainer(appId) {
     } else if (appSpecs.containerData) {
       // For non-component apps
       await advancedWorkflows.ensureMountPathsExist(appSpecs, mainAppName, false, null);
+    }
+
+    // Fix permissions on appdata directory to ensure container can write
+    // This is critical after Syncthing syncs data from peers - synced files may have wrong permissions
+    try {
+      const appsFolder = '/ZelApps/';
+      const appdataPath = `${appsFolder}${appId}/appdata`;
+
+      // Recursively set 777 permissions on appdata to allow any container user to write
+      // This ensures containers running as any UID/GID can access their data
+      const fixPermissions = `sudo chmod -R 777 ${appdataPath}`;
+      await cmdAsync(fixPermissions);
+      log.info(`ensureMountPathsAndStartContainer - Fixed permissions on ${appdataPath}`);
+    } catch (error) {
+      log.warn(`ensureMountPathsAndStartContainer - Could not fix permissions: ${error.message}`);
+      // Continue anyway - container might still work
     }
 
     // Start the container
