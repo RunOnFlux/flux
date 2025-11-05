@@ -6,6 +6,7 @@ const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const syncthingService = require('../syncthingService');
+const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const {
   MONITOR_INTERVAL_MS,
@@ -262,6 +263,9 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
       return;
     }
 
+    // Decrypt enterprise apps (version 8 with encrypted content)
+    appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data);
+
     // Get required IDs and configurations
     const myDeviceId = await syncthingService.getDeviceId();
     if (!myDeviceId) {
@@ -396,18 +400,8 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
       if (!errorInfo) continue;
 
       const { folder, error } = errorInfo;
-      log.error(`syncthingAppsCore - Errors detected on syncthing folderId:${folder.id} - app is going to be uninstalled`);
+      log.error(`syncthingAppsCore - Errors detected on syncthing folderId:${folder.id}`);
       log.error(error);
-
-      let appName = folder.id;
-      if (appName.includes('_')) {
-        appName = appName.split('_')[1];
-      }
-
-      // eslint-disable-next-line no-await-in-loop
-      await removeAppLocallyFn(appName, null, true, false, true);
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(ERROR_RETRY_DELAY_MS);
     }
 
     // Log sync state every 5 minutes

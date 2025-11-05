@@ -1201,6 +1201,9 @@ module.exports = (app) => {
   app.get('/apps/redeploy/:appname?/:force?/:global?', (req, res) => {
     advancedWorkflows.redeployAPI(req, res);
   });
+  app.get('/apps/redeploycomponent/:appname?/:component?/:force?', (req, res) => {
+    advancedWorkflows.redeployComponentAPI(req, res);
+  });
   app.get('/apps/reconstructhashes', (req, res) => {
     registryManager.reconstructAppMessagesHashCollectionAPI(req, res);
   });

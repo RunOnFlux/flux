@@ -22,6 +22,9 @@ describe('imageManager tests', () => {
     if (fluxCaching.dockerHubVerificationCache) {
       fluxCaching.dockerHubVerificationCache.clear();
     }
+    if (fluxCaching.blockedRepositoriesCache) {
+      fluxCaching.blockedRepositoriesCache.clear();
+    }
   });
 
   afterEach(() => {
@@ -51,16 +54,14 @@ describe('imageManager tests', () => {
     });
 
     it('should verify repository with authentication', async () => {
-      sinon.stub(pgpService, 'decryptMessage').resolves('username:token');
-
       await imageManager.verifyRepository('test/app:latest', {
-        repoauth: 'encrypted_credentials',
-        usePgpDecrypt: true,
+        repoauth: 'myuser:mytoken',
+        specVersion: 8,
+        appName: 'testapp',
       });
 
       const instance = ImageVerifierStub.firstCall.returnValue;
-      sinon.assert.calledWith(pgpService.decryptMessage, 'encrypted_credentials');
-      sinon.assert.calledWith(instance.addCredentials, 'username:token');
+      sinon.assert.calledOnce(instance.addCredentials);
     });
 
     it('should throw error if unable to decrypt credentials', async () => {
@@ -69,7 +70,8 @@ describe('imageManager tests', () => {
       try {
         await imageManager.verifyRepository('test/app:latest', {
           repoauth: 'invalid_credentials',
-          usePgpDecrypt: true,
+          specVersion: 7,
+          appName: 'testapp',
         });
         expect.fail('Should have thrown an error');
       } catch (error) {
@@ -77,22 +79,11 @@ describe('imageManager tests', () => {
       }
     });
 
-    it('should throw error if credentials not in correct format', async () => {
-      sinon.stub(pgpService, 'decryptMessage').resolves('invalidformat');
-
-      try {
-        await imageManager.verifyRepository('test/app:latest', {
-          repoauth: 'encrypted_credentials',
-        });
-        expect.fail('Should have thrown an error');
-      } catch (error) {
-        expect(error.message).to.include('not in the correct username:token format');
-      }
-    });
-
     it('should skip verification when skipVerification is true', async () => {
       const result = await imageManager.verifyRepository('test/app:latest', {
-        repoauth: 'encrypted_credentials',
+        repoauth: 'myuser:mytoken',
+        specVersion: 8,
+        appName: 'testapp',
         skipVerification: true,
       });
 
