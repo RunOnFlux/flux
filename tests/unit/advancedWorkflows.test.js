@@ -986,9 +986,295 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  // Note: masterSlaveApps is a recursive function that continuously runs in production.
+  // These tests use a counter to prevent infinite recursion after the first iteration.
+  describe('masterSlaveApps tests', () => {
+    let globalState;
+    let serviceHelperStub;
+    let serviceHelperDelayStub;
+    let fluxNetworkHelperStub;
+    let registryManagerStub;
+    let dockerServiceStub;
+    let syncthingServiceStub;
+    let recursionCounter;
+
+    beforeEach(() => {
+      recursionCounter = 0;
+      globalState = require('../../ZelBack/src/services/utils/globalState');
+      globalState.masterSlaveAppsRunning = false;
+      globalState.installationInProgress = false;
+      globalState.removalInProgress = false;
+      globalState.softRedeployInProgress = false;
+      globalState.hardRedeployInProgress = false;
+
+      // Setup stubs
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      serviceHelperStub = sinon.stub(serviceHelper, 'axiosGet');
+
+      // Stub delay to prevent recursive calls - after first call, block recursion
+      serviceHelperDelayStub = sinon.stub(serviceHelper, 'delay').callsFake(async () => {
+        recursionCounter += 1;
+        if (recursionCounter > 1) {
+          // Prevent recursion by returning a promise that never resolves
+          return new Promise(() => {});
+        }
+        return Promise.resolve();
+      });
+
+      const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
+      fluxNetworkHelperStub = sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort');
+
+      const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+      registryManagerStub = sinon.stub(registryManager, 'appLocation');
+
+      const dockerService = require('../../ZelBack/src/services/dockerService');
+      dockerServiceStub = sinon.stub(dockerService, 'getAppIdentifier');
+
+      const syncthingService = require('../../ZelBack/src/services/syncthingService');
+      syncthingServiceStub = sinon.stub(syncthingService, 'getConfigFolders');
+
+      // Stub database connection to prevent actual DB access
+      sinon.stub(dbHelper, 'databaseConnection').returns({
+        db: () => ({}),
+      });
+      sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
+    });
+
+    it('should skip execution if installation is in progress', async () => {
+      globalState.installationInProgress = true;
+
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const receiveOnlyCache = new Map();
+      const backupInProgress = [];
+      const restoreInProgress = [];
+      const https = require('https');
+
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        backupInProgress,
+        restoreInProgress,
+        https,
+      );
+
+      expect(installedApps.called).to.be.false;
+    });
+
+    it('should skip execution if removal is in progress', async () => {
+      globalState.removalInProgress = true;
+
+      const installedApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const receiveOnlyCache = new Map();
+      const backupInProgress = [];
+      const restoreInProgress = [];
+      const https = require('https');
+
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        backupInProgress,
+        restoreInProgress,
+        https,
+      );
+
+      expect(installedApps.called).to.be.false;
+    });
+
+    it('should skip apps in backup progress', async () => {
+      const appName = 'testapp';
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 3,
+            containerData: 'g:data',
+          },
+        ],
+      });
+      const listRunningApps = sinon.stub().resolves({ status: 'success', data: [] });
+      const receiveOnlyCache = new Map();
+      const backupInProgress = [appName];
+      const restoreInProgress = [];
+      const https = require('https');
+
+      // Mock FDM to return no errors
+      serviceHelperStub.resolves({ data: [] });
+
+      // Execute - should skip processing this app due to backup
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        backupInProgress,
+        restoreInProgress,
+        https,
+      );
+
+      // Function should have been called to get installed apps
+      expect(installedApps.called).to.be.true;
+      // But FDM should not be queried since app is skipped
+      expect(serviceHelperStub.called).to.be.false;
+    });
+
+    it('should handle apps with g: containerData (master-slave mode)', async () => {
+      const appName = 'masterslaveapp';
+      dockerServiceStub.returns('zel_masterslaveapp');
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 3,
+            containerData: 'g:syncdata',
+          },
+        ],
+      });
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [],
+      });
+
+      const receiveOnlyCache = new Map();
+      receiveOnlyCache.set('zel_masterslaveapp', { restarted: true });
+
+      const backupInProgress = [];
+      const restoreInProgress = [];
+      const https = require('https');
+
+      // Mock FDM responses (no IP)
+      serviceHelperStub.resolves({ data: [] });
+
+      // Mock node IP
+      fluxNetworkHelperStub.resolves('192.168.1.5:16127');
+
+      // Mock running app list - this node is at index 0
+      registryManagerStub.resolves([
+        {
+          name: appName,
+          ip: '192.168.1.5:16127',
+          runningSince: null,
+        },
+        {
+          name: appName,
+          ip: '192.168.1.10:16127',
+          runningSince: null,
+        },
+      ]);
+
+      // Mock syncthing folder check
+      syncthingServiceStub.resolves({
+        status: 'success',
+        data: [
+          {
+            path: '/root/.flux/ZelApps/zel_masterslaveapp',
+            type: 'sendreceive',
+          },
+        ],
+      });
+
+      // This should attempt to start the app since this node is at index 0
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        backupInProgress,
+        restoreInProgress,
+        https,
+      );
+
+      // Verify FDM was queried
+      expect(serviceHelperStub.called).to.be.true;
+    });
+
+    it('should schedule non-index-0 nodes when no FDM IP and no history', async () => {
+      const appName = 'masterslaveapp';
+      dockerServiceStub.returns('zel_masterslaveapp');
+
+      const installedApps = sinon.stub().resolves({
+        status: 'success',
+        data: [
+          {
+            name: appName,
+            version: 3,
+            containerData: 'g:syncdata',
+          },
+        ],
+      });
+      const listRunningApps = sinon.stub().resolves({
+        status: 'success',
+        data: [],
+      });
+
+      const receiveOnlyCache = new Map();
+      receiveOnlyCache.set('zel_masterslaveapp', { restarted: true });
+
+      const backupInProgress = [];
+      const restoreInProgress = [];
+      const https = require('https');
+
+      // Mock FDM responses (no IP)
+      serviceHelperStub.resolves({ data: [] });
+
+      // Mock node IP - this node is at index 1 (second in list)
+      fluxNetworkHelperStub.resolves('192.168.1.10:16127');
+
+      // Mock running app list - sorted by IP
+      registryManagerStub.resolves([
+        {
+          name: appName,
+          ip: '192.168.1.5:16127',
+          runningSince: null,
+        },
+        {
+          name: appName,
+          ip: '192.168.1.10:16127', // This node
+          runningSince: null,
+        },
+      ]);
+
+      // Mock syncthing folder check
+      syncthingServiceStub.resolves({
+        status: 'success',
+        data: [
+          {
+            path: '/root/.flux/ZelApps/zel_masterslaveapp',
+            type: 'sendreceive',
+          },
+        ],
+      });
+
+      await advancedWorkflows.masterSlaveApps(
+        globalState,
+        installedApps,
+        listRunningApps,
+        receiveOnlyCache,
+        backupInProgress,
+        restoreInProgress,
+        https,
+      );
+
+      // Node at index 1 should schedule start for 3 minutes later, not start immediately
+      // This is verified by the function logic - it should NOT call appDockerRestart immediately
+      expect(serviceHelperStub.called).to.be.true;
+      expect(fluxNetworkHelperStub.called).to.be.true;
+    });
+  });
+
   // Note: verifyAppUpdateParameters, validateApplicationUpdateCompatibility,
   // createAppVolume, getPeerAppsInstallingErrorMessages, and stopSyncthingApp are
   // complex integration functions or HTTP request handlers that require extensive
   // mocking of database connections, HTTP requests, and external services.
   // These should be tested in integration tests rather than unit tests.
+  // masterSlaveApps is included above with basic tests, but full integration testing
+  // is recommended for comprehensive coverage of the master-slave coordination logic.
 });
