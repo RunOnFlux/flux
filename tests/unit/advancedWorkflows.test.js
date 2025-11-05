@@ -667,12 +667,11 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      expect(cmdAsyncStub.callCount).to.equal(2); // mkdir parent dir + touch file
-      // Should call mkdir to ensure parent directory exists
+      expect(cmdAsyncStub.callCount).to.equal(1); // mkdir with chmod only (no touch)
+      // Should call mkdir with chmod to create writable directory
       expect(cmdAsyncStub.firstCall.args[0]).to.include('mkdir -p');
-      // Should call touch to create file
-      expect(cmdAsyncStub.secondCall.args[0]).to.include('touch');
-      expect(cmdAsyncStub.secondCall.args[0]).to.include('config.yaml');
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('chmod 777');
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('config.yaml');
     });
 
     it('should create missing directory', async () => {
@@ -823,16 +822,16 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      // Should create: logs dir, parent dir for file, config.yaml file (touch), cache dir = 4 commands
-      expect(cmdAsyncStub.callCount).to.equal(4);
+      // Should create: logs dir, config.yaml dir (with chmod), cache dir = 3 commands
+      expect(cmdAsyncStub.callCount).to.equal(3);
 
-      // Check that mkdir was called for directories (logs, cache, and parent dir for config.yaml)
+      // Check that mkdir was called for all paths
       const mkdirCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('mkdir'));
-      expect(mkdirCalls.length).to.equal(3); // logs, parent dir, and cache
+      expect(mkdirCalls.length).to.equal(3); // logs, config.yaml dir, and cache
 
-      // Check that touch was called for file
-      const touchCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('touch'));
-      expect(touchCalls.length).to.equal(1);
+      // Check that chmod was called for file mount directory
+      const chmodCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('chmod 777'));
+      expect(chmodCalls.length).to.equal(1); // Only for config.yaml directory
     });
 
     it('should handle non-component apps correctly', async () => {
