@@ -464,6 +464,433 @@ describe('advancedWorkflows tests', () => {
     });
   });
 
+  describe('ensureMountPathsExist tests', () => {
+    let dockerServiceStub;
+    let fsStub;
+    let nodecmdStub;
+    let mountParserStub;
+    let logStub;
+    let utilStub;
+    let proxyquire;
+
+    beforeEach(() => {
+      proxyquire = require('proxyquire').noCallThru();
+
+      // Create stubs
+      dockerServiceStub = {
+        getAppIdentifier: sinon.stub(),
+      };
+
+      fsStub = {
+        access: sinon.stub(),
+        promises: {
+          access: sinon.stub(),
+        },
+      };
+
+      // Mock node-cmd module
+      nodecmdStub = {
+        run: sinon.stub().callsFake((cmd, callback) => {
+          // Call callback immediately to simulate async completion
+          if (callback) callback(null, '', '');
+        }),
+      };
+
+      // Mock util.promisify to return our stub
+      utilStub = {
+        promisify: sinon.stub().callsFake((fn) => {
+          if (fn === nodecmdStub.run) {
+            return sinon.stub().resolves('');
+          }
+          return require('util').promisify(fn);
+        }),
+      };
+
+      mountParserStub = {
+        parseContainerData: sinon.stub(),
+        getRequiredLocalPaths: sinon.stub(),
+      };
+
+      logStub = {
+        info: sinon.stub(),
+        warn: sinon.stub(),
+        error: sinon.stub(),
+      };
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should skip creating paths that already exist', async () => {
+      // Setup
+      const appSpecifications = {
+        name: 'webserver',
+        containerData: '/data|f:config.yaml:/etc/config.yaml',
+      };
+      const appName = 'testapp';
+      const isComponent = true;
+
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+
+      mountParserStub.parseContainerData.returns({
+        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        additional: [
+          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+        ],
+        allMounts: [
+          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+        ],
+      });
+
+      mountParserStub.getRequiredLocalPaths.returns([
+        { name: 'appdata', isFile: false },
+        { name: 'config.yaml', isFile: true },
+      ]);
+
+      // All paths exist - fs.access succeeds
+      fsStub.promises.access.resolves();
+
+      const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+        '../dockerService': dockerServiceStub,
+        '../utils/mountParser': mountParserStub,
+        'node-cmd': nodecmdStub,
+        util: utilStub,
+        '../../lib/log': logStub,
+        fs: fsStub,
+      });
+
+      // Execute
+      await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
+
+      // Verify
+      expect(mountParserStub.parseContainerData.calledOnce).to.be.true;
+      expect(mountParserStub.getRequiredLocalPaths.calledOnce).to.be.true;
+      expect(fsStub.promises.access.callCount).to.equal(2); // Called for both paths
+      expect(nodecmdStub.run.called).to.be.false; // No creation needed
+    });
+
+    it('should create missing file with proper ownership', async () => {
+      // Setup
+      const appSpecifications = {
+        name: 'webserver',
+        containerData: '/data|f:config.yaml:/etc/config.yaml',
+      };
+      const appName = 'testapp';
+      const isComponent = true;
+
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+
+      mountParserStub.parseContainerData.returns({
+        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        additional: [
+          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+        ],
+        allMounts: [
+          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+        ],
+      });
+
+      mountParserStub.getRequiredLocalPaths.returns([
+        { name: 'appdata', isFile: false },
+        { name: 'config.yaml', isFile: true },
+      ]);
+
+      // appdata exists, config.yaml doesn't
+      fsStub.promises.access.onFirstCall().resolves(); // appdata exists
+      fsStub.promises.access.onSecondCall().rejects(new Error('ENOENT')); // config.yaml doesn't exist
+
+      const cmdAsyncStub = sinon.stub().resolves('');
+
+      const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+        '../dockerService': dockerServiceStub,
+        '../utils/mountParser': mountParserStub,
+        'node-cmd': nodecmdStub,
+        util: {
+          ...utilStub,
+          promisify: sinon.stub().callsFake((fn) => {
+            if (fn === nodecmdStub.run) {
+              return cmdAsyncStub;
+            }
+            return require('util').promisify(fn);
+          }),
+        },
+        '../../lib/log': logStub,
+        fs: fsStub,
+      });
+
+      // Execute
+      await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
+
+      // Verify
+      expect(cmdAsyncStub.calledTwice).to.be.true;
+      // First call should be touch to create file
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('touch');
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('config.yaml');
+      // Second call should be chown
+      expect(cmdAsyncStub.secondCall.args[0]).to.include('chown 100:101');
+      expect(cmdAsyncStub.secondCall.args[0]).to.include('config.yaml');
+    });
+
+    it('should create missing directory', async () => {
+      // Setup
+      const appSpecifications = {
+        name: 'webserver',
+        containerData: '/data|m:logs:/var/log',
+      };
+      const appName = 'testapp';
+      const isComponent = true;
+
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+
+      mountParserStub.parseContainerData.returns({
+        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        additional: [
+          { type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false },
+        ],
+        allMounts: [
+          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+          { type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false },
+        ],
+      });
+
+      mountParserStub.getRequiredLocalPaths.returns([
+        { name: 'appdata', isFile: false },
+        { name: 'logs', isFile: false },
+      ]);
+
+      // appdata exists, logs doesn't
+      fsStub.promises.access.onFirstCall().resolves(); // appdata exists
+      fsStub.promises.access.onSecondCall().rejects(new Error('ENOENT')); // logs doesn't exist
+
+      const cmdAsyncStub = sinon.stub().resolves('');
+
+      const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+        '../dockerService': dockerServiceStub,
+        '../utils/mountParser': mountParserStub,
+        'node-cmd': nodecmdStub,
+        util: {
+          ...utilStub,
+          promisify: sinon.stub().callsFake((fn) => {
+            if (fn === nodecmdStub.run) {
+              return cmdAsyncStub;
+            }
+            return require('util').promisify(fn);
+          }),
+        },
+        '../../lib/log': logStub,
+        fs: fsStub,
+      });
+
+      // Execute
+      await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
+
+      // Verify
+      expect(cmdAsyncStub.calledOnce).to.be.true;
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('mkdir -p');
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('logs');
+    });
+
+    it('should create multiple missing files and directories', async () => {
+      // Setup
+      const appSpecifications = {
+        name: 'webserver',
+        containerData: '/data|m:logs:/var/log|f:config.yaml:/etc/config.yaml|m:cache:/var/cache',
+      };
+      const appName = 'testapp';
+      const isComponent = true;
+
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+
+      mountParserStub.parseContainerData.returns({
+        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        additional: [
+          { type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false },
+          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+          { type: 'directory', subdir: 'cache', containerPath: '/var/cache', flags: [], isFile: false },
+        ],
+        allMounts: [
+          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+          { type: 'directory', subdir: 'logs', containerPath: '/var/log', flags: [], isFile: false },
+          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+          { type: 'directory', subdir: 'cache', containerPath: '/var/cache', flags: [], isFile: false },
+        ],
+      });
+
+      mountParserStub.getRequiredLocalPaths.returns([
+        { name: 'appdata', isFile: false },
+        { name: 'logs', isFile: false },
+        { name: 'config.yaml', isFile: true },
+        { name: 'cache', isFile: false },
+      ]);
+
+      // appdata exists, all others don't
+      fsStub.promises.access.onCall(0).resolves(); // appdata exists
+      fsStub.promises.access.onCall(1).rejects(new Error('ENOENT')); // logs
+      fsStub.promises.access.onCall(2).rejects(new Error('ENOENT')); // config.yaml
+      fsStub.promises.access.onCall(3).rejects(new Error('ENOENT')); // cache
+
+      const cmdAsyncStub = sinon.stub().resolves('');
+
+      const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+        '../dockerService': dockerServiceStub,
+        '../utils/mountParser': mountParserStub,
+        'node-cmd': nodecmdStub,
+        util: {
+          ...utilStub,
+          promisify: sinon.stub().callsFake((fn) => {
+            if (fn === nodecmdStub.run) {
+              return cmdAsyncStub;
+            }
+            return require('util').promisify(fn);
+          }),
+        },
+        '../../lib/log': logStub,
+        fs: fsStub,
+      });
+
+      // Execute
+      await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
+
+      // Verify
+      // Should create: logs dir, config.yaml file (touch + chown), cache dir = 4 commands
+      expect(cmdAsyncStub.callCount).to.equal(4);
+
+      // Check that mkdir was called for directories
+      const mkdirCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('mkdir'));
+      expect(mkdirCalls.length).to.equal(2); // logs and cache
+
+      // Check that touch and chown were called for file
+      const touchCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('touch'));
+      expect(touchCalls.length).to.equal(1);
+      const chownCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('chown'));
+      expect(chownCalls.length).to.equal(1);
+    });
+
+    it('should handle non-component apps correctly', async () => {
+      // Setup
+      const appSpecifications = {
+        containerData: '/data|f:config.yaml:/etc/config.yaml',
+      };
+      const appName = 'testapp';
+      const isComponent = false;
+
+      dockerServiceStub.getAppIdentifier.returns('fluxtestapp');
+
+      mountParserStub.parseContainerData.returns({
+        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        additional: [
+          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+        ],
+        allMounts: [
+          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+          { type: 'file', subdir: 'config.yaml', containerPath: '/etc/config.yaml', flags: [], isFile: true },
+        ],
+      });
+
+      mountParserStub.getRequiredLocalPaths.returns([
+        { name: 'appdata', isFile: false },
+        { name: 'config.yaml', isFile: true },
+      ]);
+
+      fsStub.promises.access.resolves();
+
+      const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+        '../dockerService': dockerServiceStub,
+        '../utils/mountParser': mountParserStub,
+        'node-cmd': nodecmdStub,
+        util: utilStub,
+        '../../lib/log': logStub,
+        fs: fsStub,
+      });
+
+      // Execute
+      await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
+
+      // Verify identifier is constructed correctly for non-component app
+      expect(dockerServiceStub.getAppIdentifier.calledWith('testapp')).to.be.true;
+    });
+
+    it('should throw error when containerData parsing fails', async () => {
+      // Setup
+      const appSpecifications = {
+        name: 'webserver',
+        containerData: 'invalid:syntax:extra',
+      };
+      const appName = 'testapp';
+      const isComponent = true;
+
+      dockerServiceStub.getAppIdentifier.returns('fluxwebserver_testapp');
+      mountParserStub.parseContainerData.throws(new Error('Invalid containerData syntax'));
+
+      const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+        '../dockerService': dockerServiceStub,
+        '../utils/mountParser': mountParserStub,
+        'node-cmd': nodecmdStub,
+        util: utilStub,
+        '../../lib/log': logStub,
+        fs: fsStub,
+      });
+
+      // Execute and verify
+      try {
+        await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error.message).to.include('Invalid containerData syntax');
+      }
+    });
+
+    it('should handle component references correctly (not create them)', async () => {
+      // Setup - component references should NOT be created, only local paths
+      const appSpecifications = {
+        name: 'backup',
+        containerData: '/data|0:/database',
+      };
+      const appName = 'testapp';
+      const isComponent = true;
+
+      dockerServiceStub.getAppIdentifier.returns('fluxbackup_testapp');
+
+      mountParserStub.parseContainerData.returns({
+        primary: { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+        additional: [
+          { type: 'component_primary', componentIndex: 0, subdir: 'appdata', containerPath: '/database', flags: [], isFile: false },
+        ],
+        allMounts: [
+          { type: 'primary', subdir: 'appdata', containerPath: '/data', flags: [], isFile: false },
+          { type: 'component_primary', componentIndex: 0, subdir: 'appdata', containerPath: '/database', flags: [], isFile: false },
+        ],
+      });
+
+      // getRequiredLocalPaths should filter out component references
+      mountParserStub.getRequiredLocalPaths.returns([
+        { name: 'appdata', isFile: false },
+        // Note: component references NOT included here
+      ]);
+
+      fsStub.promises.access.resolves();
+
+      const advancedWorkflowsProxied = proxyquire('../../ZelBack/src/services/appLifecycle/advancedWorkflows', {
+        '../dockerService': dockerServiceStub,
+        '../utils/mountParser': mountParserStub,
+        'node-cmd': nodecmdStub,
+        util: utilStub,
+        '../../lib/log': logStub,
+        fs: fsStub,
+      });
+
+      // Execute
+      await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
+
+      // Verify - should only check appdata, not the component reference
+      expect(fsStub.promises.access.calledOnce).to.be.true;
+      expect(nodecmdStub.run.called).to.be.false;
+    });
+  });
+
   // Note: verifyAppUpdateParameters, validateApplicationUpdateCompatibility,
   // createAppVolume, getPeerAppsInstallingErrorMessages, and stopSyncthingApp are
   // complex integration functions or HTTP request handlers that require extensive
