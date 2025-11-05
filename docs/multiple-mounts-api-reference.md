@@ -811,8 +811,6 @@ async function getContainerStorage(appName) {
 
       if (!isNested) {
         mountsToCount.push(mount);
-      } else {
-        log.info(`Skipping nested mount to avoid double-counting: ${source}`);
       }
     }
 
