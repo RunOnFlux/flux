@@ -745,51 +745,56 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     }
   }
   // containerData can have flags eg. s (s:/data) for synthing enabled container data
-  // multiple data volumes can be attached, if containerData is contains more paths of |
-  // next path should be attaching volumes of other app components, eg 0:/mydata where component X is attaching volume of first component to /mydata path
-  // experimental feature
-  // only component of higher number can use volumes of previous components. Eg. 2nd component can't use volume of 3rd component but can use volume of 1st component.
-  // that limitation comes down to how we are creating volumes, assigning them and starting applications
-  // todo v7 adjust this limitations in future revisions, switcher to docker volumes.
-  // tbd v7 potential issues of hard redeploys of components
-  const containerData = appSpecifications.containerData.split('|')[0].split(':')[1] || appSpecifications.containerData.split('|')[0];
-  const dataPaths = appSpecifications.containerData.split('|');
-  const outsideVolumesToAttach = [];
-  for (let i = 1; i < dataPaths.length; i += 1) {
-    const splittedPath = dataPaths[i].split(':');
-    const pathFlags = splittedPath[0];
-    const actualPath = splittedPath[1];
-    if (pathFlags && actualPath && pathFlags.replace(/[^0-9]/g, '')) {
-      const comopnentToUse = pathFlags.replace(/[^0-9]/g, '')[0]; // take first number character representing the component number to attach to
-      outsideVolumesToAttach.push({
-        component: Number(comopnentToUse),
-        path: actualPath,
-      });
-    }
+  // multiple data volumes can be attached, if containerData contains more paths separated by |
+  // Syntax supports:
+  //   - Primary mount: [flags]:<path>  (e.g., r:/data)
+  //   - Component ref: <number>:<path>  (e.g., 0:/shared)
+  //   - Directory mount: m:<subdir>:<path>  (e.g., m:logs:/var/log)
+  //   - File mount: f:<filename>:<path>  (e.g., f:config.yaml:/etc/config.yaml)
+  //   - Component dir: c:<number>:<subdir>:<path>  (e.g., c:0:backups:/backups)
+  //   - Component file: cf:<number>:<filename>:<path>  (e.g., cf:0:cert.pem:/etc/ssl/cert.pem)
+  // Note: Components can only reference components with lower indices (ordering restriction)
+
+  // Import mount parsing utilities
+  const mountParser = require('./utils/mountParser');
+  const volumeConstructor = require('./utils/volumeConstructor');
+
+  // Parse containerData using new enhanced parser
+  let parsedMounts;
+  try {
+    parsedMounts = mountParser.parseContainerData(appSpecifications.containerData);
+    log.info(`Parsed ${parsedMounts.allMounts.length} mount(s) for ${identifier}`);
+  } catch (error) {
+    log.error(`Failed to parse containerData for ${identifier}: ${error.message}`);
+    throw error;
   }
-  let restartPolicy = 'unless-stopped';
-  if (appSpecifications.containerData.includes('g:')) {
-    restartPolicy = 'no';
+
+  // Validate mount configuration
+  try {
+    volumeConstructor.validateMountConfiguration(parsedMounts, fullAppSpecs, appSpecifications);
+  } catch (error) {
+    log.error(`Mount configuration validation failed for ${identifier}: ${error.message}`);
+    throw error;
   }
-  if (outsideVolumesToAttach.length && !fullAppSpecs) {
-    throw new Error(`Complete App Specification was not supplied but additional volumes requested for ${appName}`);
+
+  // Determine restart policy based on flags
+  const restartPolicy = volumeConstructor.getRestartPolicy(parsedMounts.primary.flags);
+
+  // Construct Docker bind mounts
+  let constructedVolumes;
+  try {
+    constructedVolumes = volumeConstructor.constructVolumes(
+      parsedMounts,
+      identifier,
+      appName,
+      fullAppSpecs,
+      appSpecifications,
+    );
+    log.info(`Constructed ${constructedVolumes.length} volume bind(s) for ${identifier}`);
+  } catch (error) {
+    log.error(`Failed to construct volumes for ${identifier}: ${error.message}`);
+    throw error;
   }
-  const constructedVolumes = [`${appsFolder + getAppIdentifier(identifier)}/appdata:${containerData}`];
-  outsideVolumesToAttach.forEach((volToAttach) => {
-    if (fullAppSpecs.version >= 4) {
-      const myIndex = fullAppSpecs.compose.findIndex((component) => component.name === appSpecifications.name);
-      if (myIndex >= volToAttach.component) {
-        const atCompIdentifier = `${fullAppSpecs.compose[volToAttach.component].name}_${appName}`;
-        const vol = `${appsFolder + getAppIdentifier(atCompIdentifier)}/appdata:${volToAttach.path}`;
-        constructedVolumes.push(vol);
-      } else {
-        log.error(`Additional volume ${outsideVolumesToAttach.path} can't be mounted to component ${outsideVolumesToAttach.component}`);
-      }
-    } else if (volToAttach.component === 0) { // not a compose specs
-      const vol = `${appsFolder + getAppIdentifier(identifier)}/appdata:${volToAttach.path}`;
-      constructedVolumes.push(vol);
-    }
-  });
   const envParams = appSpecifications.environmentParameters || appSpecifications.enviromentParameters;
   if (appSpecifications.secrets) {
     const decodedEnvParams = await pgpService.decryptMessage(appSpecifications.secrets);
@@ -885,7 +890,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
-      Binds: constructedVolumes,
+      Mounts: constructedVolumes, // Using modern Mount objects instead of legacy Binds
       Ulimits: [
         {
           Name: 'nofile',
@@ -977,6 +982,17 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
       }
     }
+  }
+
+  // Ensure all required mount paths (files and directories) exist before creating container
+  // This prevents Docker mount errors when files have been deleted or don't exist yet
+  try {
+    // eslint-disable-next-line global-require
+    const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
+    await advancedWorkflows.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
+  } catch (error) {
+    log.error(`Failed to ensure mount paths exist for ${identifier}: ${error.message}`);
+    throw error;
   }
 
   const app = await docker.createContainer(options).catch((error) => {
