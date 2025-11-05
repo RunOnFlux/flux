@@ -3361,14 +3361,58 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   return 0;
                 });
                 const index = runningAppList.findIndex((x) => x.ip.split(':')[0] === myIP.split(':')[0]);
+
+                // Helper function to check if any lower-index nodes are running the app
+                const checkLowerIndexNodesRunning = async () => {
+                  if (index <= 0) return false; // Index 0 or not found, no lower nodes to check
+
+                  const { CancelToken } = axios;
+                  const timeout = 10 * 1000;
+
+                  // Check all nodes with lower index
+                  for (let i = 0; i < index; i += 1) {
+                    const nodeToCheck = runningAppList[i];
+                    if (!nodeToCheck) continue;
+
+                    const ipToCheck = nodeToCheck.ip.split(':')[0];
+                    const portToCheck = nodeToCheck.ip.split(':')[1] || '16127';
+                    const source = CancelToken.source();
+                    let isResolved = false;
+
+                    setTimeout(() => {
+                      if (!isResolved) {
+                        source.cancel('Operation canceled by timeout.');
+                      }
+                    }, timeout);
+
+                    try {
+                      // eslint-disable-next-line no-await-in-loop
+                      const response = await axios.get(`http://${ipToCheck}:${portToCheck}/apps/listrunningapps`, { timeout, cancelToken: source.token });
+                      isResolved = true;
+                      const appsRunning = response.data.data;
+                      if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
+                        log.info(`masterSlaveApps: app:${installedApp.name} is running on lower-index node (index ${i}) at ${ipToCheck}, will not start`);
+                        return true;
+                      }
+                    } catch (error) {
+                      isResolved = true;
+                      log.info(`masterSlaveApps: Failed to check lower-index node ${i} at ${ipToCheck} for app:${installedApp.name}, error: ${error.message}`);
+                      // Continue checking other nodes
+                    }
+                  }
+                  return false;
+                };
+
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
+                  // Index 0: Start immediately if no history
                   appDockerRestart(installedApp.name);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
+                  // There was a previous master (not me), and it's no longer on FDM
                   const { CancelToken } = axios;
                   const source = CancelToken.source();
                   let isResolved = false;
-                  const timeout = 5 * 1000; // 5 seconds
+                  const timeout = 10 * 1000; // 10 seconds
                   setTimeout(() => {
                     if (!isResolved) {
                       source.cancel('Operation canceled by the user.');
@@ -3394,7 +3438,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   if (previousMasterStillRunning) {
                     return;
                   }
-                  // if it was running before on this node was removed from fdm, app was stopped or node rebooted, we will only start the app on a different node
+                  // Previous master is not running, determine next primary
                   if (index === 0) {
                     appDockerRestart(installedApp.name);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
@@ -3412,19 +3456,38 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       timetoStartApp += index * 3 * 60 * 1000;
                     }
                     if (timetoStartApp <= Date.now()) {
-                      appDockerRestart(installedApp.name);
-                      log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                      // Time to start, but check if lower-index nodes are running
+                      // eslint-disable-next-line no-await-in-loop
+                      const lowerNodeRunning = await checkLowerIndexNodesRunning();
+                      if (!lowerNodeRunning) {
+                        appDockerRestart(installedApp.name);
+                        log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
+                      }
                     } else {
                       log.info(`masterSlaveApps: will start docker app:${installedApp.name} at ${timetoStartApp.toString()}`);
                       timeTostartNewMasterApp.set(identifier, timetoStartApp);
                     }
                   }
                 } else if (timeTostartNewMasterApp.has(identifier) && timeTostartNewMasterApp.get(identifier) <= Date.now()) {
-                  appDockerRestart(installedApp.name);
-                  log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                  // Scheduled start time has arrived, check if lower-index nodes are running
+                  // eslint-disable-next-line no-await-in-loop
+                  const lowerNodeRunning = await checkLowerIndexNodesRunning();
+                  if (!lowerNodeRunning) {
+                    appDockerRestart(installedApp.name);
+                    log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
+                    timeTostartNewMasterApp.delete(identifier);
+                  } else {
+                    log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - lower-index node is already running`);
+                    timeTostartNewMasterApp.delete(identifier);
+                  }
+                } else if (index > 0 && !mastersRunningGSyncthingApps.has(identifier) && !timeTostartNewMasterApp.has(identifier)) {
+                  // Non-primary node with no history - schedule start based on index
+                  const timetoStartApp = Date.now() + (index * 3 * 60 * 1000);
+                  log.info(`masterSlaveApps: scheduling app:${installedApp.name} index: ${index} to start at ${timetoStartApp.toString()}`);
+                  timeTostartNewMasterApp.set(identifier, timetoStartApp);
                 } else {
-                  appDockerRestart(installedApp.name);
-                  log.info(`masterSlaveApps: no previous information about primary, starting docker app:${installedApp.name}`);
+                  // All other cases: don't start
+                  log.info(`masterSlaveApps: not starting app:${installedApp.name} index: ${index} - conditions not met for primary selection`);
                 }
               }
             } else {
