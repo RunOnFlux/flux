@@ -1792,6 +1792,7 @@ async function appDockerStop(appname) {
 
 /**
  * Helper function to restart app docker containers
+ * Ensures mount paths exist before restarting (important after Syncthing cleanup)
  * @param {string} appname - App name
  * @returns {Promise<void>}
  */
@@ -1806,6 +1807,19 @@ async function appDockerRestart(appname) {
     const mainAppName = appname.split('_')[1] || appname;
     const isComponent = appname.includes('_');
     if (isComponent) {
+      // For component apps, fetch full specifications to ensure mount paths exist
+      const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
+      if (!appSpecs) {
+        throw new Error('Application not found');
+      }
+      // Find the specific component
+      const componentName = appname.split('_')[0];
+      const componentSpec = appSpecs.compose.find((comp) => comp.name === componentName);
+      if (componentSpec && componentSpec.containerData) {
+        // Ensure mount paths exist before restarting (handles Syncthing cleanup)
+        // eslint-disable-next-line no-use-before-define
+        await ensureMountPathsExist(componentSpec, mainAppName, true, appSpecs);
+      }
       await dockerService.appDockerRestart(appname);
       startAppMonitoring(appname);
     } else {
@@ -1814,11 +1828,22 @@ async function appDockerRestart(appname) {
         throw new Error('Application not found');
       }
       if (appSpecs.version <= 3) {
+        // Ensure mount paths exist before restarting (handles Syncthing cleanup)
+        if (appSpecs.containerData) {
+          // eslint-disable-next-line no-use-before-define
+          await ensureMountPathsExist(appSpecs, mainAppName, false, null);
+        }
         await dockerService.appDockerRestart(appname);
         startAppMonitoring(appname);
       } else {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
+          // Ensure mount paths exist before restarting (handles Syncthing cleanup)
+          // eslint-disable-next-line no-await-in-loop
+          if (appComponent.containerData) {
+            // eslint-disable-next-line no-await-in-loop, no-use-before-define
+            await ensureMountPathsExist(appComponent, appSpecs.name, true, appSpecs);
+          }
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
           startAppMonitoring(`${appComponent.name}_${appSpecs.name}`);
