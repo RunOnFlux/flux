@@ -625,13 +625,10 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      expect(cmdAsyncStub.calledTwice).to.be.true;
-      // First call should be touch to create file
+      expect(cmdAsyncStub.calledOnce).to.be.true;
+      // Should call touch to create file
       expect(cmdAsyncStub.firstCall.args[0]).to.include('touch');
       expect(cmdAsyncStub.firstCall.args[0]).to.include('config.yaml');
-      // Second call should be chown
-      expect(cmdAsyncStub.secondCall.args[0]).to.include('chown 100:101');
-      expect(cmdAsyncStub.secondCall.args[0]).to.include('config.yaml');
     });
 
     it('should create missing directory', async () => {
@@ -755,18 +752,16 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      // Should create: logs dir, config.yaml file (touch + chown), cache dir = 4 commands
-      expect(cmdAsyncStub.callCount).to.equal(4);
+      // Should create: logs dir, config.yaml file (touch), cache dir = 3 commands
+      expect(cmdAsyncStub.callCount).to.equal(3);
 
       // Check that mkdir was called for directories
       const mkdirCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('mkdir'));
       expect(mkdirCalls.length).to.equal(2); // logs and cache
 
-      // Check that touch and chown were called for file
+      // Check that touch was called for file
       const touchCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('touch'));
       expect(touchCalls.length).to.equal(1);
-      const chownCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('chown'));
-      expect(chownCalls.length).to.equal(1);
     });
 
     it('should handle non-component apps correctly', async () => {

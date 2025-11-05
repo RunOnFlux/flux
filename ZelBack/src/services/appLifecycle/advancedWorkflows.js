@@ -431,8 +431,6 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         const execFile = `sudo touch ${filePath}`;
         // eslint-disable-next-line no-await-in-loop
         await cmdAsync(execFile);
-        // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(`sudo chown 100:101 ${filePath}`);
         log.info(`Empty file created (app will initialize): appdata/${pathInfo.name}`);
 
         const createFileStatus2 = {
@@ -3603,7 +3601,6 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
         // Create empty file
         const execFile = `sudo touch ${fullPath}`;
         await cmdAsync(execFile);
-        await cmdAsync(`sudo chown 100:101 ${fullPath}`);
         log.info(`Created empty file: ${fullPath}`);
       } else {
         // Create directory
