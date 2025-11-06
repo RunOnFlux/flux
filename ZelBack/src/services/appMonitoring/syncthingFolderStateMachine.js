@@ -411,12 +411,10 @@ async function ensureContainerRunning(appId, containerDataFlags) {
   try {
     const containerInspect = await dockerService.dockerContainerInspect(appId);
 
-    // Fix permissions regardless of container state
-    // This ensures synced data from peers has correct permissions
-    await fixAppdataPermissions(appId);
-
     if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
       log.info(`ensureContainerRunning - ${appId} is not running, starting it`);
+      // Fix permissions before starting to ensure container can access synced data
+      await fixAppdataPermissions(appId);
       await dockerService.appDockerStart(appId);
     }
   } catch (error) {
