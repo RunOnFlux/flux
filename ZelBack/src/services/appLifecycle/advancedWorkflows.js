@@ -502,14 +502,14 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     const execPERMdata = `sudo chmod 777 ${appsFolder + appId}/appdata`;
     await cmdAsync(execPERMdata);
 
-    // Set permissions for all created paths under appdata/
+    // Set permissions for all created paths (appdata and additional mounts at same level)
     // eslint-disable-next-line no-restricted-syntax
     for (const pathInfo of requiredPaths) {
       // Skip appdata itself as it's already handled above
       if (pathInfo.name === 'appdata') {
         continue; // eslint-disable-line no-continue
       }
-      const execPERMpath = `sudo chmod 777 ${appsFolder + appId}/appdata/${pathInfo.name}`;
+      const execPERMpath = `sudo chmod 777 ${appsFolder + appId}/${pathInfo.name}`;
       // eslint-disable-next-line no-await-in-loop
       await cmdAsync(execPERMpath);
     }
@@ -1775,20 +1775,23 @@ async function changeSyncthingFolderType(folderId, folderType) {
 
 /**
  * Helper function to apply permissions fix on persistent container data
+ * Fixes permissions on appdata and all additional mount points
  * @param {string} appId - Application ID
  * @returns {Promise<boolean>} - true if successful, false otherwise
  */
 async function applyPermissionsFix(appId) {
   try {
-    const appDataPath = `${appsFolder}${appId}/appdata`;
+    // Fix permissions on entire app directory to cover appdata and all additional mounts
+    const appPath = `${appsFolder}${appId}`;
 
     log.info(`Applying permissions fix for app: ${appId}`);
 
-    // Apply 777 permissions to appdata directory recursively
-    const execPERM = `sudo chmod -R 777 ${appDataPath}`;
+    // Apply 777 permissions to entire app directory recursively
+    // This covers both appdata (primary mount) and all additional mounts at the same level
+    const execPERM = `sudo chmod -R 777 ${appPath}`;
     await cmdAsync(execPERM);
 
-    log.info(`Successfully applied permissions fix for app: ${appId}`);
+    log.info(`Successfully applied permissions fix for app: ${appId} (includes appdata and all mount points)`);
     return true;
   } catch (error) {
     log.error(`Error applying permissions fix for ${appId}: ${error.message}`);

@@ -20,20 +20,24 @@ const { sortRunningAppList } = require('./syncthingMonitorHelpers');
 const cmdAsync = util.promisify(nodecmd.run);
 
 /**
- * Fix permissions on appdata for containers
+ * Fix permissions on all mount directories for containers
  * Critical for synced data that may have wrong ownership
+ * Fixes permissions on appdata and all additional mount points
  * @param {string} appId - App ID
  * @returns {Promise<void>}
  */
 async function fixAppdataPermissions(appId) {
   try {
-    const appdataPath = `${appsFolder}${appId}/appdata`;
+    // Fix permissions on entire app directory to cover appdata and all additional mounts
+    // (appdata, logs, config, file mounts, etc.)
+    const appPath = `${appsFolder}${appId}`;
 
-    // Recursively set 777 permissions on appdata to allow any container user to write
+    // Recursively set 777 permissions to allow any container user to write
     // This ensures containers running as any UID/GID can access their data
-    const fixPermissions = `sudo chmod -R 777 ${appdataPath}`;
+    // Covers both appdata (primary mount) and all additional mounts at the same level
+    const fixPermissions = `sudo chmod -R 777 ${appPath}`;
     await cmdAsync(fixPermissions);
-    log.info(`fixAppdataPermissions - Fixed permissions on ${appdataPath}`);
+    log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
   } catch (error) {
     log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
     // Continue anyway - container might still work
