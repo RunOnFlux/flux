@@ -3326,7 +3326,6 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         log.warn('masterSlaveApps: Syncthing is not available or not healthy, skipping this cycle');
         return;
       }
-      log.info('masterSlaveApps: Syncthing health check passed');
     } catch (syncthingError) {
       log.warn(`masterSlaveApps: Failed to check syncthing health: ${syncthingError.message}, skipping this cycle`);
       return;
