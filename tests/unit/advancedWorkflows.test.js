@@ -667,9 +667,8 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      expect(cmdAsyncStub.callCount).to.equal(1); // Single command: mkdir + touch + chmod
-      // Should call mkdir, touch, and chmod to create writable file
-      expect(cmdAsyncStub.firstCall.args[0]).to.include('mkdir -p');
+      expect(cmdAsyncStub.callCount).to.equal(1); // Single command: touch + chmod
+      // Should call touch and chmod to create writable file directly (no mkdir for files)
       expect(cmdAsyncStub.firstCall.args[0]).to.include('touch');
       expect(cmdAsyncStub.firstCall.args[0]).to.include('chmod 777');
       expect(cmdAsyncStub.firstCall.args[0]).to.include('config.yaml');
@@ -823,12 +822,12 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      // Should create: logs dir, config.yaml file (mkdir+touch+chmod), cache dir = 3 commands
+      // Should create: logs dir, config.yaml file (touch+chmod), cache dir = 3 commands
       expect(cmdAsyncStub.callCount).to.equal(3);
 
-      // Check that mkdir was called for all paths
+      // Check that mkdir was called for directories only (not for file)
       const mkdirCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('mkdir'));
-      expect(mkdirCalls.length).to.equal(3); // logs, config.yaml, and cache
+      expect(mkdirCalls.length).to.equal(2); // logs and cache (NOT config.yaml - files created directly)
 
       // Check that touch and chmod were called for file mount
       const touchCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('touch'));
