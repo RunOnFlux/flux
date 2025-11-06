@@ -1723,6 +1723,80 @@ async function stopSyncthingApp(appComponentName, res) {
 }
 
 /**
+ * Helper function to change syncthing folder type
+ * @param {string} folderId - Syncthing folder ID (e.g., appId)
+ * @param {string} folderType - 'receiveonly' or 'sendreceive'
+ * @returns {Promise<boolean>} - true if successful, false otherwise
+ */
+async function changeSyncthingFolderType(folderId, folderType) {
+  try {
+    // eslint-disable-next-line global-require
+    const syncthingService = require('../syncthingService');
+
+    log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
+
+    // Get current folder configuration
+    const foldersResponse = await syncthingService.getConfigFolders();
+    if (foldersResponse.status !== 'success') {
+      log.error(`Failed to get syncthing folders: ${JSON.stringify(foldersResponse)}`);
+      return false;
+    }
+
+    // Find the folder by path
+    const folderPath = appsFolder + folderId;
+    const folder = foldersResponse.data.find((f) => f.path === folderPath);
+
+    if (!folder) {
+      log.error(`Syncthing folder not found for path: ${folderPath}`);
+      return false;
+    }
+
+    // Check if already in desired mode
+    if (folder.type === folderType) {
+      log.info(`Syncthing folder ${folderId} is already in ${folderType} mode`);
+      return true;
+    }
+
+    // Update folder type using PATCH
+    const patchData = { type: folderType };
+    const updateResponse = await syncthingService.adjustConfigFolders('patch', patchData, folder.id);
+
+    if (updateResponse.status === 'success') {
+      log.info(`Successfully changed syncthing folder ${folderId} to ${folderType} mode`);
+      return true;
+    }
+    log.error(`Failed to change syncthing folder type: ${JSON.stringify(updateResponse)}`);
+    return false;
+  } catch (error) {
+    log.error(`Error changing syncthing folder type for ${folderId}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Helper function to apply permissions fix on persistent container data
+ * @param {string} appId - Application ID
+ * @returns {Promise<boolean>} - true if successful, false otherwise
+ */
+async function applyPermissionsFix(appId) {
+  try {
+    const appDataPath = `${appsFolder}${appId}/appdata`;
+
+    log.info(`Applying permissions fix for app: ${appId}`);
+
+    // Apply 777 permissions to appdata directory recursively
+    const execPERM = `sudo chmod -R 777 ${appDataPath}`;
+    await cmdAsync(execPERM);
+
+    log.info(`Successfully applied permissions fix for app: ${appId}`);
+    return true;
+  } catch (error) {
+    log.error(`Error applying permissions fix for ${appId}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * Helper function to start app docker containers
  * @param {string} appname - App name
  * @returns {Promise<void>}
@@ -1860,6 +1934,51 @@ async function appDockerRestart(appname) {
     }
   } catch (error) {
     log.error(error);
+  }
+}
+
+/**
+ * Helper function to restart app with permissions fix workflow for new primary
+ * This is specifically for g: mode apps becoming primary
+ * @param {string} appname - App name
+ * @param {string} appId - Application ID for syncthing folder
+ * @returns {Promise<void>}
+ */
+async function appDockerRestartWithPermissionsFix(appname, appId) {
+  try {
+    log.info(`Starting app ${appname} with permissions fix workflow (new primary)`);
+
+    // Step 1: Move syncthing folder to receiveonly
+    log.info(`Step 1: Moving syncthing folder to receiveonly for ${appname}`);
+    const toReceiveOnly = await changeSyncthingFolderType(appId, 'receiveonly');
+    if (!toReceiveOnly) {
+      log.warn(`Failed to change syncthing folder to receiveonly for ${appname}, continuing anyway...`);
+    }
+
+    // Step 2: Apply permissions fix on persistent container data
+    log.info(`Step 2: Applying permissions fix for ${appname}`);
+    const permissionsApplied = await applyPermissionsFix(appId);
+    if (!permissionsApplied) {
+      log.error(`Failed to apply permissions fix for ${appname}, aborting container start`);
+      return;
+    }
+
+    // Step 3: Move syncthing folder back to sendreceive
+    log.info(`Step 3: Moving syncthing folder to sendreceive for ${appname}`);
+    const toSendReceive = await changeSyncthingFolderType(appId, 'sendreceive');
+    if (!toSendReceive) {
+      log.error(`Failed to change syncthing folder to sendreceive for ${appname}, aborting container start - cannot become primary without sendreceive mode`);
+      return;
+    }
+
+    // Step 4: Start the container
+    log.info(`Step 4: Starting container for ${appname}`);
+    await appDockerRestart(appname);
+
+    log.info(`Successfully completed permissions fix workflow for ${appname}`);
+  } catch (error) {
+    log.error(`Error in appDockerRestartWithPermissionsFix for ${appname}: ${error.message}`);
+    // Do not start the app if there was an error in the workflow
   }
 }
 
@@ -3504,7 +3623,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                   // Index 0: Start immediately if no history
-                  appDockerRestart(installedApp.name);
+                  appDockerRestartWithPermissionsFix(installedApp.name, appId);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
                   // There was a previous master (not me), and it's no longer on FDM
@@ -3539,7 +3658,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
-                    appDockerRestart(installedApp.name);
+                    appDockerRestartWithPermissionsFix(installedApp.name, appId);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier).split(':')[0]);
@@ -3559,7 +3678,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       // eslint-disable-next-line no-await-in-loop
                       const lowerNodeRunning = await checkLowerIndexNodesRunning();
                       if (!lowerNodeRunning) {
-                        appDockerRestart(installedApp.name);
+                        appDockerRestartWithPermissionsFix(installedApp.name, appId);
                         log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                       }
                     } else {
@@ -3572,7 +3691,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const lowerNodeRunning = await checkLowerIndexNodesRunning();
                   if (!lowerNodeRunning) {
-                    appDockerRestart(installedApp.name);
+                    appDockerRestartWithPermissionsFix(installedApp.name, appId);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     timeTostartNewMasterApp.delete(identifier);
                   } else {
@@ -3626,7 +3745,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (isReady) {
-                  appDockerRestart(installedApp.name);
+                  appDockerRestartWithPermissionsFix(installedApp.name, appId);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
                 } else {
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
