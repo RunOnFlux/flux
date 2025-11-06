@@ -12,6 +12,24 @@ describe('mountParser tests', () => {
       expect(result.additional).to.have.lengthOf(0);
     });
 
+    it('should parse paths containing flag characters (r, g, s) without treating them as flags', () => {
+      // Test common paths that contain 'r', 'g', 's' characters
+      const testCases = [
+        '/var/lib/mysql',  // contains 'r' in 'var'
+        '/usr/share/nginx', // contains 'r' in 'usr', 's' in 'usr' and 'share', 'g' in 'nginx'
+        '/storage/data',    // contains 's', 'r', 'g' in 'storage'
+      ];
+
+      testCases.forEach((path) => {
+        const result = mountParser.parseContainerData(path);
+        expect(result.primary.type).to.equal('primary');
+        expect(result.primary.containerPath).to.equal(path);
+        expect(result.primary.subdir).to.equal('appdata');
+        expect(result.primary.flags).to.deep.equal([]);
+        expect(result.additional).to.have.lengthOf(0);
+      });
+    });
+
     it('should parse primary mount with r flag', () => {
       const result = mountParser.parseContainerData('r:/data');
       expect(result.primary.type).to.equal('primary');

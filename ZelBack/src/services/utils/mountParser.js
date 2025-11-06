@@ -40,11 +40,15 @@ function parseMountFlags(segment) {
   const flags = [];
   let hasFlags = false;
 
-  // eslint-disable-next-line no-restricted-syntax
-  for (const flag of knownFlags) {
-    if (segment.includes(flag)) {
-      flags.push(flag);
-      hasFlags = true;
+  // Only consider it as having flags if segment doesn't start with /
+  // Paths like /var, /usr, /nginx should not be treated as flag segments
+  if (!segment.startsWith('/')) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const flag of knownFlags) {
+      if (segment.includes(flag)) {
+        flags.push(flag);
+        hasFlags = true;
+      }
     }
   }
 
