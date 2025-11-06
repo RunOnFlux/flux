@@ -289,12 +289,12 @@ async function handleSkippedAppSecondEncounter(params) {
 async function checkIfPeersAreSynced(folderId) {
   try {
     // Get all Syncthing folders
-    const foldersResponse = await syncthingService.getSystemConfig({}, null);
-    if (!foldersResponse || foldersResponse.status !== 'success') {
+    const configResponse = await syncthingService.getConfig({}, null);
+    if (!configResponse || configResponse.status !== 'success') {
       return false;
     }
 
-    const folder = foldersResponse.data.folders?.find((f) => f.id === folderId);
+    const folder = configResponse.data.folders?.find((f) => f.id === folderId);
     if (!folder) {
       return false;
     }
@@ -419,9 +419,9 @@ async function handleReceiveOnlyTransition(params) {
       syncPercentage: syncStatus.syncPercentage,
       timestamp: Date.now(),
     });
-    // Keep only last 10 statuses to avoid memory bloat
-    if (cache.syncHistory.length > 10) {
-      cache.syncHistory = cache.syncHistory.slice(-10);
+    // Keep only last 15 statuses to avoid memory bloat (need at least 10 for stall detection)
+    if (cache.syncHistory.length > 15) {
+      cache.syncHistory = cache.syncHistory.slice(-15);
     }
 
     log.info(

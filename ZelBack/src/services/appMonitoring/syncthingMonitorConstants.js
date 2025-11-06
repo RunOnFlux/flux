@@ -13,7 +13,7 @@ const SYNCTHING_MAX_CONFLICTS = 0;
 
 // Sync monitoring
 const MAX_SYNC_WAIT_EXECUTIONS = 1440; // ~12 hours at 30s intervals (for large mounts)
-const STALLED_SYNC_CHECK_COUNT = 5; // Number of checks with no progress before considering sync stalled
+const STALLED_SYNC_CHECK_COUNT = 10; // Number of checks with no progress before considering sync stalled (~5 minutes)
 const CLOCK_SKEW_TOLERANCE_MS = 5000; // 5 seconds tolerance for timestamp comparison
 const LEADER_ELECTION_MIN_EXECUTIONS = 2;
 const LEADER_ELECTION_EXECUTIONS_PER_INDEX = 10;
