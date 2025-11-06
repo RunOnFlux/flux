@@ -303,11 +303,13 @@ async function handleReceiveOnlyTransition(params) {
 
   if (isLeader) {
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
+
+    // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
+    await fixAppdataPermissions(appId);
+
     syncthingFolder.type = 'sendreceive';
 
     if (containerDataFlags.includes('r')) {
-      // Fix permissions before restarting - ensures correct ownership
-      await fixAppdataPermissions(appId);
       log.info(`handleReceiveOnlyTransition - starting ${appId}`);
       await appDockerRestartFn(appId);
     }
@@ -335,10 +337,11 @@ async function handleReceiveOnlyTransition(params) {
         log.warn(`handleReceiveOnlyTransition - ${appId} reached max wait time (${MAX_SYNC_WAIT_EXECUTIONS} executions), forcing start`);
       }
 
+      // Fix permissions before changing to sendreceive - critical for synced data
+      await fixAppdataPermissions(appId);
+
       syncthingFolder.type = 'sendreceive';
       if (containerDataFlags.includes('r')) {
-        // Fix permissions before restarting - critical for synced data
-        await fixAppdataPermissions(appId);
         log.info(`handleReceiveOnlyTransition - starting ${appId}`);
         await appDockerRestartFn(appId);
       }
@@ -355,11 +358,13 @@ async function handleReceiveOnlyTransition(params) {
 
     if (cache.numberOfExecutions >= numberOfExecutionsRequired) {
       log.info(`handleReceiveOnlyTransition - ${appId} reached required executions, switching to sendreceive`);
+
+      // Fix permissions before changing to sendreceive - critical for synced data
+      await fixAppdataPermissions(appId);
+
       syncthingFolder.type = 'sendreceive';
 
       if (containerDataFlags.includes('r')) {
-        // Fix permissions before restarting - critical for synced data
-        await fixAppdataPermissions(appId);
         log.info(`handleReceiveOnlyTransition - starting ${appId}`);
         await appDockerRestartFn(appId);
       }
@@ -413,8 +418,6 @@ async function ensureContainerRunning(appId, containerDataFlags) {
 
     if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
       log.info(`ensureContainerRunning - ${appId} is not running, starting it`);
-      // Fix permissions before starting to ensure container can access synced data
-      await fixAppdataPermissions(appId);
       await dockerService.appDockerStart(appId);
     }
   } catch (error) {
