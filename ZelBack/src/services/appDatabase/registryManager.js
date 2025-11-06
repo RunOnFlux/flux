@@ -1123,8 +1123,11 @@ async function expireGlobalApplications() {
     };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appsToExpire = [];
-    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
     results.forEach((appSpecs) => {
+      // Determine default expire based on whether app was registered after PON fork
+      const defaultExpire = appSpecs.height >= config.fluxapps.daemonPONFork
+        ? config.fluxapps.blocksLasting * 4
+        : config.fluxapps.blocksLasting;
       const expireIn = appSpecs.expire || defaultExpire;
       let actualExpirationHeight = appSpecs.height + expireIn;
 
@@ -1179,6 +1182,10 @@ async function expireGlobalApplications() {
       } else if (app.height === 0) {
         // do nothing, forever lasting local app
       } else {
+        // Determine default expire based on whether app was registered after PON fork
+        const defaultExpire = app.height >= config.fluxapps.daemonPONFork
+          ? config.fluxapps.blocksLasting * 4
+          : config.fluxapps.blocksLasting;
         const expireIn = app.expire || defaultExpire;
         let actualExpirationHeight = app.height + expireIn;
 

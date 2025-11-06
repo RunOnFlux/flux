@@ -565,8 +565,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
             let appPrice = await appPricePerMonth(specifications, height, appPrices);
-            // eslint-disable-next-line no-shadow
-            const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
+            // Use defaultExpire from outer scope which accounts for PON fork
             const expireIn = specifications.expire || defaultExpire;
             // app prices are ceiled to highest 0.01
             const multiplier = expireIn / defaultExpire;
@@ -639,15 +638,20 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
             // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
             let appPrice = await appPricePerMonth(specifications, height, appPrices);
             let previousSpecsPrice = await appPricePerMonth(previousSpecs, messageInfo.height || height, appPrices);
-            // eslint-disable-next-line no-shadow
-            const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-            const currentExpireIn = specifications.expire || defaultExpire;
-            const previousExpireIn = previousSpecs.expire || defaultExpire;
+            // Calculate default expire for current and previous apps based on their registration heights
+            const defaultExpireCurrent = height >= config.fluxapps.daemonPONFork
+              ? config.fluxapps.blocksLasting * 4
+              : config.fluxapps.blocksLasting;
+            const defaultExpirePrevious = (messageInfo.height || height) >= config.fluxapps.daemonPONFork
+              ? config.fluxapps.blocksLasting * 4
+              : config.fluxapps.blocksLasting;
+            const currentExpireIn = specifications.expire || defaultExpireCurrent;
+            const previousExpireIn = previousSpecs.expire || defaultExpirePrevious;
             // app prices are ceiled to highest 0.01
-            const multiplierCurrent = currentExpireIn / defaultExpire;
+            const multiplierCurrent = currentExpireIn / defaultExpireCurrent;
             appPrice *= multiplierCurrent;
             appPrice = Math.ceil(appPrice * 100) / 100;
-            const multiplierPrevious = previousExpireIn / defaultExpire;
+            const multiplierPrevious = previousExpireIn / defaultExpirePrevious;
             previousSpecsPrice *= multiplierPrevious;
             previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
             // what is the height difference
