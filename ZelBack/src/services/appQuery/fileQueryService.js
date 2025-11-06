@@ -26,7 +26,8 @@ async function getAppsFolder(req, res) {
       let filepath;
       const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
       if (appVolumePath.length > 0) {
-        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+        // Browse at appid level to show appdata and all other mount points
+        filepath = `${appVolumePath[0].mount}/${folder}`;
       } else {
         throw new Error('Application volume not found');
       }

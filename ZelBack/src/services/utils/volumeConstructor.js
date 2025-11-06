@@ -23,7 +23,7 @@ function getAppIdentifier(identifier) {
 
 /**
  * Construct host path for a local mount (current component)
- * All paths are under appdata/
+ * Primary mount goes to appdata/, additional mounts are at same level as appdata/
  * @param {string} identifier - App/component identifier
  * @param {string} subdir - Subdirectory or filename (or 'appdata' for primary)
  * @returns {string} Full host path
@@ -34,13 +34,13 @@ function constructLocalHostPath(identifier, subdir) {
   if (subdir === 'appdata') {
     return `${appsFolder}${appId}/appdata`;
   }
-  // All other mounts are under appdata/
-  return `${appsFolder}${appId}/appdata/${subdir}`;
+  // All other mounts are at same level as appdata/
+  return `${appsFolder}${appId}/${subdir}`;
 }
 
 /**
  * Construct host path for a component mount (another component)
- * All paths are under appdata/
+ * Primary mount goes to appdata/, additional mounts are at same level as appdata/
  * @param {string} componentIdentifier - Other component's identifier
  * @param {string} subdir - Subdirectory or filename (or 'appdata' for primary)
  * @returns {string} Full host path
@@ -51,8 +51,8 @@ function constructComponentHostPath(componentIdentifier, subdir) {
   if (subdir === 'appdata') {
     return `${appsFolder}${appId}/appdata`;
   }
-  // All other mounts are under appdata/
-  return `${appsFolder}${appId}/appdata/${subdir}`;
+  // All other mounts are at same level as appdata/
+  return `${appsFolder}${appId}/${subdir}`;
 }
 
 /**
@@ -112,7 +112,7 @@ function validateAndGetComponentIdentifier(componentIndex, currentIndex, fullApp
  * const volumes = constructVolumes(parsed, "web_myapp", "myapp", null, null);
  * // Result: [
  * //   { Source: '/apps/fluxweb_myapp/appdata', Target: '/data' },
- * //   { Source: '/apps/fluxweb_myapp/appdata/logs', Target: '/var/log' }
+ * //   { Source: '/apps/fluxweb_myapp/logs', Target: '/var/log' }
  * // ]
  *
  * // Component reference
@@ -165,11 +165,11 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
         // File will be created with 777 permissions to allow container user to write
         // Note: Atomic renames (mv) may have limitations, but direct writes work
 
-        // Create subdirectory for the file: /apps/appid/appdata/filename/
+        // Create subdirectory for the file: /apps/appid/filename/
         const fileSubdir = mount.subdir; // This is the filename specified by user
         const fileDir = constructLocalHostPath(identifier, fileSubdir);
 
-        // The actual file is inside the directory: /apps/appid/appdata/filename/filename
+        // The actual file is inside the directory: /apps/appid/filename/filename
         const containerFilename = containerPath.substring(containerPath.lastIndexOf('/') + 1);
         hostPath = `${fileDir}/${containerFilename}`;
 
@@ -218,7 +218,7 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
         const fileSubdir = mount.subdir;
         const fileDir = constructComponentHostPath(componentIdentifier, fileSubdir);
 
-        // The actual file is inside the directory: /apps/appid/appdata/filename/filename
+        // The actual file is inside the directory: /apps/appid/filename/filename
         const containerFilename = containerPath.substring(containerPath.lastIndexOf('/') + 1);
         hostPath = `${fileDir}/${containerFilename}`;
 

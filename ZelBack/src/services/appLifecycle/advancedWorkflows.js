@@ -414,7 +414,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     const requiredPaths = mountParser.getRequiredLocalPaths(parsedMounts);
     log.info(`Creating ${requiredPaths.length} local path(s) for ${appId}`);
 
-    // Create all required directories and files under appdata/
+    // Create all required directories and files (appdata and additional mounts at same level)
     // eslint-disable-next-line no-restricted-syntax
     for (const pathInfo of requiredPaths) {
       // Skip appdata itself as it's already created above
@@ -431,7 +431,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
         const containerFilename = pathInfo.containerPath.substring(pathInfo.containerPath.lastIndexOf('/') + 1);
 
         const createFileStatus = {
-          status: `Creating file mount: appdata/${pathInfo.name}/${containerFilename}...`,
+          status: `Creating file mount: ${pathInfo.name}/${containerFilename}...`,
         };
         log.info(createFileStatus);
         if (res) {
@@ -439,17 +439,17 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res.flush) res.flush();
         }
 
-        // Create subdirectory and file with 777 permissions
-        const fileDir = `${appsFolder + appId}/appdata/${pathInfo.name}`;
+        // Create subdirectory and file with 777 permissions at same level as appdata
+        const fileDir = `${appsFolder + appId}/${pathInfo.name}`;
         const filePath = `${fileDir}/${containerFilename}`;
         const execCommands = `sudo mkdir -p ${fileDir} && sudo touch ${filePath} && sudo chmod 777 ${filePath}`;
         // eslint-disable-next-line no-await-in-loop
         await cmdAsync(execCommands);
 
-        log.info(`File mount created with 777 permissions: appdata/${pathInfo.name}/${containerFilename}`);
+        log.info(`File mount created with 777 permissions: ${pathInfo.name}/${containerFilename}`);
 
         const createFileStatus2 = {
-          status: `File mount created: appdata/${pathInfo.name}/${containerFilename}`,
+          status: `File mount created: ${pathInfo.name}/${containerFilename}`,
         };
         log.info(createFileStatus2);
         if (res) {
@@ -457,20 +457,20 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res.flush) res.flush();
         }
       } else {
-        // Create a directory under appdata/
+        // Create a directory at same level as appdata
         const createDirStatus = {
-          status: `Creating directory: appdata/${pathInfo.name}...`,
+          status: `Creating directory: ${pathInfo.name}...`,
         };
         log.info(createDirStatus);
         if (res) {
           res.write(serviceHelper.ensureString(createDirStatus));
           if (res.flush) res.flush();
         }
-        const execSubDIR = `sudo mkdir -p ${appsFolder + appId}/appdata/${pathInfo.name}`;
+        const execSubDIR = `sudo mkdir -p ${appsFolder + appId}/${pathInfo.name}`;
         // eslint-disable-next-line no-await-in-loop
         await cmdAsync(execSubDIR);
         const createDirStatus2 = {
-          status: `Directory created: appdata/${pathInfo.name}`,
+          status: `Directory created: ${pathInfo.name}`,
         };
         log.info(createDirStatus2);
         if (res) {
@@ -3884,10 +3884,10 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   const requiredPaths = mountParser.getRequiredLocalPaths(parsedMounts);
   log.info(`Ensuring ${requiredPaths.length} local path(s) exist for ${appId}`);
 
-  // Create all required directories and files under appdata/
+  // Create all required directories and files (appdata and additional mounts at same level)
   // eslint-disable-next-line no-restricted-syntax
   for (const pathInfo of requiredPaths) {
-    const fullPath = `${appsFolder}${appId}/appdata${pathInfo.name === 'appdata' ? '' : `/${pathInfo.name}`}`;
+    const fullPath = `${appsFolder}${appId}/${pathInfo.name}`;
 
     // Check if path exists
     try {
@@ -3958,7 +3958,7 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
         if (mount.subdir === 'appdata') {
           fullPath = `${appsFolder}${componentAppId}/appdata`;
         } else {
-          fullPath = `${appsFolder}${componentAppId}/appdata/${mount.subdir}`;
+          fullPath = `${appsFolder}${componentAppId}/${mount.subdir}`;
         }
 
         // Check if path exists

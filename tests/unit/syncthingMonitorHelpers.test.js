@@ -100,22 +100,22 @@ describe('syncthingMonitorHelpers tests', () => {
   });
 
   describe('getContainerFolderPath', () => {
-    it('should return empty string for first container', () => {
+    it('should return /appdata for first container (primary mount)', () => {
       const containersData = ['/data', 'r:/config'];
       const result = helpers.getContainerFolderPath(containersData, 0);
-      expect(result).to.equal('');
+      expect(result).to.equal('/appdata');
     });
 
-    it('should return correct path for subsequent containers', () => {
+    it('should return path at same level as appdata for subsequent containers', () => {
       const containersData = ['/data', 'r:/data/config'];
       const result = helpers.getContainerFolderPath(containersData, 1);
-      expect(result).to.equal('/appdata/config');
+      expect(result).to.equal('/config');
     });
 
     it('should handle multiple nested paths', () => {
       const containersData = ['/app', 'r:/app/data/sub'];
       const result = helpers.getContainerFolderPath(containersData, 1);
-      expect(result).to.equal('/appdata/data/sub');
+      expect(result).to.equal('/data/sub');
     });
   });
 
