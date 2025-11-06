@@ -8,6 +8,7 @@ const serviceHelper = require('../serviceHelper');
 const { appsFolder } = require('../utils/appConstants');
 const {
   MAX_SYNC_WAIT_EXECUTIONS,
+  STALLED_SYNC_CHECK_COUNT,
   LEADER_ELECTION_MIN_EXECUTIONS,
   LEADER_ELECTION_EXECUTIONS_PER_INDEX,
   SYNC_COMPLETE_PERCENTAGE,
@@ -281,6 +282,90 @@ async function handleSkippedAppSecondEncounter(params) {
 }
 
 /**
+ * Check if any remote peers have this folder in sendreceive mode and fully synced
+ * @param {string} folderId - Syncthing folder ID
+ * @returns {Promise<boolean>} True if at least one peer has folder in sendreceive and synced
+ */
+async function checkIfPeersAreSynced(folderId) {
+  try {
+    // Get all Syncthing folders
+    const foldersResponse = await syncthingService.getSystemConfig({}, null);
+    if (!foldersResponse || foldersResponse.status !== 'success') {
+      return false;
+    }
+
+    const folder = foldersResponse.data.folders?.find((f) => f.id === folderId);
+    if (!folder) {
+      return false;
+    }
+
+    // Check if folder exists in sendreceive on at least one device
+    if (folder.type === 'sendreceive') {
+      // We ourselves are in sendreceive, peers must be synced
+      return true;
+    }
+
+    // Check remote devices for this folder
+    const { devices = [] } = folder;
+    if (devices.length === 0) {
+      return false;
+    }
+
+    // Get device completion status for each remote device
+    // eslint-disable-next-line no-restricted-syntax
+    for (const device of devices) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const completionResponse = await syncthingService.getDbCompletion({
+          query: { folder: folderId, device: device.deviceID },
+        }, null);
+
+        if (completionResponse?.status === 'success' && completionResponse.data) {
+          const { completion = 0 } = completionResponse.data;
+          // If any device has 100% completion, it means they have all the data
+          if (completion === 100) {
+            log.info(`checkIfPeersAreSynced - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}%`);
+            return true;
+          }
+        }
+      } catch (deviceError) {
+        log.warn(`checkIfPeersAreSynced - Error checking device ${device.deviceID}: ${deviceError.message}`);
+      }
+    }
+
+    return false;
+  } catch (error) {
+    log.error(`checkIfPeersAreSynced - Error checking peers for ${folderId}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Check if sync is stalled (no progress for STALLED_SYNC_CHECK_COUNT checks)
+ * @param {Array} syncHistory - Array of recent sync statuses
+ * @returns {boolean} True if sync appears stalled
+ */
+function isSyncStalled(syncHistory) {
+  if (!syncHistory || syncHistory.length < STALLED_SYNC_CHECK_COUNT) {
+    return false;
+  }
+
+  // Get last N statuses
+  const recentStatuses = syncHistory.slice(-STALLED_SYNC_CHECK_COUNT);
+
+  // Check if inSyncBytes hasn't changed
+  const firstBytes = recentStatuses[0].inSyncBytes;
+  const allSameBytes = recentStatuses.every((status) => status.inSyncBytes === firstBytes);
+
+  if (allSameBytes) {
+    log.warn(`isSyncStalled - Detected stalled sync: ${firstBytes} bytes unchanged for ${STALLED_SYNC_CHECK_COUNT} checks`);
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Handle receive-only to send-receive transition
  * @param {Object} params - Parameters
  * @returns {Promise<Object>} Updated folder config and cache
@@ -324,11 +409,55 @@ async function handleReceiveOnlyTransition(params) {
   cache.numberOfExecutions = (cache.numberOfExecutions || 0) + 1;
 
   if (syncStatus) {
+    // Track sync history for stall detection
+    if (!cache.syncHistory) {
+      cache.syncHistory = [];
+    }
+    cache.syncHistory.push({
+      inSyncBytes: syncStatus.inSyncBytes,
+      globalBytes: syncStatus.globalBytes,
+      syncPercentage: syncStatus.syncPercentage,
+      timestamp: Date.now(),
+    });
+    // Keep only last 10 statuses to avoid memory bloat
+    if (cache.syncHistory.length > 10) {
+      cache.syncHistory = cache.syncHistory.slice(-10);
+    }
+
     log.info(
       `handleReceiveOnlyTransition - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% `
       + `(${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), `
       + `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`,
     );
+
+    // Check for stalled sync - if no progress and peers are synced, restart
+    if (isSyncStalled(cache.syncHistory)) {
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync appears stalled, checking if peers are available...`);
+      const peersAreSynced = await checkIfPeersAreSynced(appId);
+
+      if (peersAreSynced) {
+        log.warn(
+          `handleReceiveOnlyTransition - ${appId} sync stalled but peers are synced. `
+          + 'Wiping local data and restarting sync to recover...',
+        );
+
+        // Wipe data and restart sync (similar to handleNewApp)
+        const { appDockerStopFn, appDeleteDataInMountPointFn } = params;
+        await appDockerStopFn(appId);
+        await serviceHelper.delay(OPERATION_DELAY_MS);
+        await appDeleteDataInMountPointFn(appId);
+        await serviceHelper.delay(OPERATION_DELAY_MS);
+
+        // Reset cache to start fresh
+        cache.numberOfExecutions = 1;
+        cache.syncHistory = [];
+        delete cache.previousGlobalBytes;
+
+        log.info(`handleReceiveOnlyTransition - ${appId} data wiped, sync restarted`);
+        return { syncthingFolder, cache };
+      }
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled but no synced peers found, continuing to wait...`);
+    }
 
     if (syncStatus.isSynced || cache.numberOfExecutions >= MAX_SYNC_WAIT_EXECUTIONS) {
       if (syncStatus.isSynced) {
@@ -495,6 +624,8 @@ async function manageFolderSyncState(params) {
       myIP,
       containerDataFlags,
       appDockerRestartFn,
+      appDockerStopFn,
+      appDeleteDataInMountPointFn,
       syncthingFolder,
     });
     return result;
