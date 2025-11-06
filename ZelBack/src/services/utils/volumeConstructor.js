@@ -165,13 +165,9 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
         // File will be created with 777 permissions to allow container user to write
         // Note: Atomic renames (mv) may have limitations, but direct writes work
 
-        // Create subdirectory for the file: /apps/appid/filename/
-        const fileSubdir = mount.subdir; // This is the filename specified by user
-        const fileDir = constructLocalHostPath(identifier, fileSubdir);
-
-        // The actual file is inside the directory: /apps/appid/filename/filename
-        const containerFilename = containerPath.substring(containerPath.lastIndexOf('/') + 1);
-        hostPath = `${fileDir}/${containerFilename}`;
+        // Mount file directly at appid level: /apps/appid/filename
+        const filename = mount.subdir; // This is the filename specified by user
+        hostPath = constructLocalHostPath(identifier, filename);
 
         log.info(`File mount: ${hostPath} -> ${containerPath}`);
         break;
@@ -214,13 +210,9 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
           appName,
         );
 
-        // For component file mounts, mount the file directly
-        const fileSubdir = mount.subdir;
-        const fileDir = constructComponentHostPath(componentIdentifier, fileSubdir);
-
-        // The actual file is inside the directory: /apps/appid/filename/filename
-        const containerFilename = containerPath.substring(containerPath.lastIndexOf('/') + 1);
-        hostPath = `${fileDir}/${containerFilename}`;
+        // For component file mounts, mount the file directly at appid level
+        const filename = mount.subdir;
+        hostPath = constructComponentHostPath(componentIdentifier, filename);
 
         log.info(`Component file mount: ${hostPath} -> ${containerPath}`);
         break;
