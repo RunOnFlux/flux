@@ -31,7 +31,8 @@ async function createAppsFolder(req, res) {
       let filepath;
       const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
       if (appVolumePath.length > 0) {
-        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+        // Use appid level to access appdata and all other mount points
+        filepath = `${appVolumePath[0].mount}/${folder}`;
       } else {
         throw new Error('Application volume not found');
       }
@@ -85,8 +86,9 @@ async function renameAppsObject(req, res) {
       let newfullpath;
       const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
       if (appVolumePath.length > 0) {
-        oldfullpath = `${appVolumePath[0].mount}/appdata/${oldpath}`;
-        newfullpath = `${appVolumePath[0].mount}/appdata/${newname}`;
+        // Use appid level to access appdata and all other mount points
+        oldfullpath = `${appVolumePath[0].mount}/${oldpath}`;
+        newfullpath = `${appVolumePath[0].mount}/${newname}`;
       } else {
         throw new Error('Application volume not found');
       }
@@ -94,7 +96,7 @@ async function renameAppsObject(req, res) {
       fileURIArray.pop();
       if (fileURIArray.length > 0) {
         const renamingFolder = fileURIArray.join('/');
-        newfullpath = `${appVolumePath[0].mount}/appdata/${renamingFolder}/${newname}`;
+        newfullpath = `${appVolumePath[0].mount}/${renamingFolder}/${newname}`;
       }
       const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
       await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
@@ -144,7 +146,8 @@ async function removeAppsObject(req, res) {
       let filepath;
       const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
       if (appVolumePath.length > 0) {
-        filepath = `${appVolumePath[0].mount}/appdata/${object}`;
+        // Use appid level to access appdata and all other mount points
+        filepath = `${appVolumePath[0].mount}/${object}`;
       } else {
         throw new Error('Application volume not found');
       }
@@ -197,7 +200,8 @@ async function downloadAppsFolder(req, res) {
       let folderpath;
       const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
       if (appVolumePath.length > 0) {
-        folderpath = `${appVolumePath[0].mount}/appdata/${folder}`;
+        // Use appid level to access appdata and all other mount points
+        folderpath = `${appVolumePath[0].mount}/${folder}`;
       } else {
         throw new Error('Application volume not found');
       }
@@ -268,7 +272,8 @@ async function downloadAppsFile(req, res) {
       let filepath;
       const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
       if (appVolumePath.length > 0) {
-        filepath = `${appVolumePath[0].mount}/appdata/${file}`;
+        // Use appid level to access appdata and all other mount points
+        filepath = `${appVolumePath[0].mount}/${file}`;
       } else {
         throw new Error('Application volume not found');
       }

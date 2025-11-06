@@ -2805,7 +2805,7 @@ async function collectSyncthingMetrics() {
         metrics.errors.system = errorsResponse.data.errors;
         if (metrics.errors.system.length > 0) {
           metrics.overall.healthy = false;
-          metrics.overall.issues.push(`${metrics.errors.system.length} system error(s) detected`);
+          metrics.overall.issues.push(`${metrics.errors.system.length}`);
         }
       }
     } catch (error) {

@@ -23,7 +23,7 @@ function getAppIdentifier(identifier) {
 
 /**
  * Construct host path for a local mount (current component)
- * All paths are under appdata/
+ * Primary mount goes to appdata/, additional mounts are at same level as appdata/
  * @param {string} identifier - App/component identifier
  * @param {string} subdir - Subdirectory or filename (or 'appdata' for primary)
  * @returns {string} Full host path
@@ -34,13 +34,13 @@ function constructLocalHostPath(identifier, subdir) {
   if (subdir === 'appdata') {
     return `${appsFolder}${appId}/appdata`;
   }
-  // All other mounts are under appdata/
-  return `${appsFolder}${appId}/appdata/${subdir}`;
+  // All other mounts are at same level as appdata/
+  return `${appsFolder}${appId}/${subdir}`;
 }
 
 /**
  * Construct host path for a component mount (another component)
- * All paths are under appdata/
+ * Primary mount goes to appdata/, additional mounts are at same level as appdata/
  * @param {string} componentIdentifier - Other component's identifier
  * @param {string} subdir - Subdirectory or filename (or 'appdata' for primary)
  * @returns {string} Full host path
@@ -51,8 +51,8 @@ function constructComponentHostPath(componentIdentifier, subdir) {
   if (subdir === 'appdata') {
     return `${appsFolder}${appId}/appdata`;
   }
-  // All other mounts are under appdata/
-  return `${appsFolder}${appId}/appdata/${subdir}`;
+  // All other mounts are at same level as appdata/
+  return `${appsFolder}${appId}/${subdir}`;
 }
 
 /**
@@ -112,7 +112,7 @@ function validateAndGetComponentIdentifier(componentIndex, currentIndex, fullApp
  * const volumes = constructVolumes(parsed, "web_myapp", "myapp", null, null);
  * // Result: [
  * //   { Source: '/apps/fluxweb_myapp/appdata', Target: '/data' },
- * //   { Source: '/apps/fluxweb_myapp/appdata/logs', Target: '/var/log' }
+ * //   { Source: '/apps/fluxweb_myapp/logs', Target: '/var/log' }
  * // ]
  *
  * // Component reference
@@ -156,14 +156,25 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
     switch (mount.type) {
       case MountType.PRIMARY:
       case MountType.DIRECTORY:
-      case MountType.FILE:
         // Local mounts (current component)
         hostPath = constructLocalHostPath(identifier, mount.subdir);
         break;
 
+      case MountType.FILE: {
+        // For file mounts, mount the file directly with proper permissions
+        // File will be created with 777 permissions to allow container user to write
+        // Note: Atomic renames (mv) may have limitations, but direct writes work
+
+        // Mount file directly at appid level: /apps/appid/filename
+        const filename = mount.subdir; // This is the filename specified by user
+        hostPath = constructLocalHostPath(identifier, filename);
+
+        log.info(`File mount: ${hostPath} -> ${containerPath}`);
+        break;
+      }
+
       case MountType.COMPONENT_PRIMARY:
-      case MountType.COMPONENT_DIRECTORY:
-      case MountType.COMPONENT_FILE: {
+      case MountType.COMPONENT_DIRECTORY: {
         // Component reference mounts
         if (!fullAppSpecs) {
           throw new Error(
@@ -180,6 +191,30 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
         );
 
         hostPath = constructComponentHostPath(componentIdentifier, mount.subdir);
+        break;
+      }
+
+      case MountType.COMPONENT_FILE: {
+        // Component file reference mounts
+        if (!fullAppSpecs) {
+          throw new Error(
+            `Complete App Specification required for component file mount: ${mount.containerPath}`,
+          );
+        }
+
+        // eslint-disable-next-line no-case-declarations
+        const componentIdentifier = validateAndGetComponentIdentifier(
+          mount.componentIndex,
+          currentComponentIndex,
+          fullAppSpecs,
+          appName,
+        );
+
+        // For component file mounts, mount the file directly at appid level
+        const filename = mount.subdir;
+        hostPath = constructComponentHostPath(componentIdentifier, filename);
+
+        log.info(`Component file mount: ${hostPath} -> ${containerPath}`);
         break;
       }
 

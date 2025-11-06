@@ -414,7 +414,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     const requiredPaths = mountParser.getRequiredLocalPaths(parsedMounts);
     log.info(`Creating ${requiredPaths.length} local path(s) for ${appId}`);
 
-    // Create all required directories and files under appdata/
+    // Create all required directories and files (appdata and additional mounts at same level)
     // eslint-disable-next-line no-restricted-syntax
     for (const pathInfo of requiredPaths) {
       // Skip appdata itself as it's already created above
@@ -423,10 +423,12 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
 
       if (pathInfo.isFile) {
-        // Create empty file under appdata/ - app will initialize it on first run
-        // File is mounted so changes persist across restarts
+        // For file mounts, create file directly with 777 permissions
+        // This allows any container user to write to the file
+        // File will be bind-mounted directly to the container
+
         const createFileStatus = {
-          status: `Creating file: appdata/${pathInfo.name}...`,
+          status: `Creating file mount: ${pathInfo.name}...`,
         };
         log.info(createFileStatus);
         if (res) {
@@ -434,14 +436,16 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res.flush) res.flush();
         }
 
-        const filePath = `${appsFolder + appId}/appdata/${pathInfo.name}`;
-        const execFile = `sudo touch ${filePath}`;
+        // Create file directly at same level as appdata with 777 permissions
+        const filePath = `${appsFolder + appId}/${pathInfo.name}`;
+        const execCommands = `sudo touch ${filePath} && sudo chmod 777 ${filePath}`;
         // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(execFile);
-        log.info(`Empty file created (app will initialize): appdata/${pathInfo.name}`);
+        await cmdAsync(execCommands);
+
+        log.info(`File mount created with 777 permissions: ${pathInfo.name}`);
 
         const createFileStatus2 = {
-          status: `File created: appdata/${pathInfo.name}`,
+          status: `File mount created: ${pathInfo.name}`,
         };
         log.info(createFileStatus2);
         if (res) {
@@ -449,20 +453,20 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
           if (res.flush) res.flush();
         }
       } else {
-        // Create a directory under appdata/
+        // Create a directory at same level as appdata
         const createDirStatus = {
-          status: `Creating directory: appdata/${pathInfo.name}...`,
+          status: `Creating directory: ${pathInfo.name}...`,
         };
         log.info(createDirStatus);
         if (res) {
           res.write(serviceHelper.ensureString(createDirStatus));
           if (res.flush) res.flush();
         }
-        const execSubDIR = `sudo mkdir -p ${appsFolder + appId}/appdata/${pathInfo.name}`;
+        const execSubDIR = `sudo mkdir -p ${appsFolder + appId}/${pathInfo.name}`;
         // eslint-disable-next-line no-await-in-loop
         await cmdAsync(execSubDIR);
         const createDirStatus2 = {
-          status: `Directory created: appdata/${pathInfo.name}`,
+          status: `Directory created: ${pathInfo.name}`,
         };
         log.info(createDirStatus2);
         if (res) {
@@ -494,14 +498,14 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     const execPERMdata = `sudo chmod 777 ${appsFolder + appId}/appdata`;
     await cmdAsync(execPERMdata);
 
-    // Set permissions for all created paths under appdata/
+    // Set permissions for all created paths (appdata and additional mounts at same level)
     // eslint-disable-next-line no-restricted-syntax
     for (const pathInfo of requiredPaths) {
       // Skip appdata itself as it's already handled above
       if (pathInfo.name === 'appdata') {
         continue; // eslint-disable-line no-continue
       }
-      const execPERMpath = `sudo chmod 777 ${appsFolder + appId}/appdata/${pathInfo.name}`;
+      const execPERMpath = `sudo chmod 777 ${appsFolder + appId}/${pathInfo.name}`;
       // eslint-disable-next-line no-await-in-loop
       await cmdAsync(execPERMpath);
     }
@@ -1715,6 +1719,84 @@ async function stopSyncthingApp(appComponentName, res) {
 }
 
 /**
+ * Helper function to change syncthing folder type
+ * @param {string} folderId - Syncthing folder ID (e.g., appId)
+ * @param {string} folderType - 'receiveonly' or 'sendreceive'
+ * @returns {Promise<boolean>} - true if successful, false otherwise
+ */
+async function changeSyncthingFolderType(folderId, folderType) {
+  try {
+    // eslint-disable-next-line global-require
+    const syncthingService = require('../syncthingService');
+
+    log.info(`Changing syncthing folder ${folderId} to ${folderType} mode`);
+
+    // Get current folder configuration
+    const foldersResponse = await syncthingService.getConfigFolders();
+    if (foldersResponse.status !== 'success') {
+      log.error(`Failed to get syncthing folders: ${JSON.stringify(foldersResponse)}`);
+      return false;
+    }
+
+    // Find the folder by path
+    // Syncthing syncs the entire appId folder (includes all subdirectories)
+    const folderPath = `${appsFolder}${folderId}`;
+    const folder = foldersResponse.data.find((f) => f.path === folderPath);
+
+    if (!folder) {
+      log.error(`Syncthing folder not found for path: ${folderPath}`);
+      return false;
+    }
+
+    // Check if already in desired mode
+    if (folder.type === folderType) {
+      log.info(`Syncthing folder ${folderId} is already in ${folderType} mode`);
+      return true;
+    }
+
+    // Update folder type using PATCH
+    const patchData = { type: folderType };
+    const updateResponse = await syncthingService.adjustConfigFolders('patch', patchData, folder.id);
+
+    if (updateResponse.status === 'success') {
+      log.info(`Successfully changed syncthing folder ${folderId} to ${folderType} mode`);
+      return true;
+    }
+    log.error(`Failed to change syncthing folder type: ${JSON.stringify(updateResponse)}`);
+    return false;
+  } catch (error) {
+    log.error(`Error changing syncthing folder type for ${folderId}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Helper function to apply permissions fix on persistent container data
+ * Fixes permissions on appdata and all additional mount points
+ * @param {string} appId - Application ID
+ * @returns {Promise<boolean>} - true if successful, false otherwise
+ */
+async function applyPermissionsFix(appId) {
+  try {
+    // Fix permissions on entire app directory to cover appdata and all additional mounts
+    const appPath = `${appsFolder}${appId}`;
+
+    log.info(`Applying permissions fix for app: ${appId}`);
+
+    // Apply 777 permissions to entire app directory recursively
+    // This covers both appdata (primary mount) and all additional mounts at the same level
+    const execPERM = `sudo chmod -R 777 ${appPath}`;
+    await cmdAsync(execPERM);
+
+    log.info(`Successfully applied permissions fix for app: ${appId} (includes appdata and all mount points)`);
+    return true;
+  } catch (error) {
+    log.error(`Error applying permissions fix for ${appId}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
  * Helper function to start app docker containers
  * @param {string} appname - App name
  * @returns {Promise<void>}
@@ -1852,6 +1934,51 @@ async function appDockerRestart(appname) {
     }
   } catch (error) {
     log.error(error);
+  }
+}
+
+/**
+ * Helper function to restart app with permissions fix workflow for new primary
+ * This is specifically for g: mode apps becoming primary
+ * @param {string} appname - App name
+ * @param {string} appId - Application ID for syncthing folder
+ * @returns {Promise<void>}
+ */
+async function appDockerRestartWithPermissionsFix(appname, appId) {
+  try {
+    log.info(`Starting app ${appname} with permissions fix workflow (new primary)`);
+
+    // Step 1: Move syncthing folder to receiveonly
+    log.info(`Step 1: Moving syncthing folder to receiveonly for ${appname}`);
+    const toReceiveOnly = await changeSyncthingFolderType(appId, 'receiveonly');
+    if (!toReceiveOnly) {
+      log.warn(`Failed to change syncthing folder to receiveonly for ${appname}, continuing anyway...`);
+    }
+
+    // Step 2: Apply permissions fix on persistent container data
+    log.info(`Step 2: Applying permissions fix for ${appname}`);
+    const permissionsApplied = await applyPermissionsFix(appId);
+    if (!permissionsApplied) {
+      log.error(`Failed to apply permissions fix for ${appname}, aborting container start`);
+      return;
+    }
+
+    // Step 3: Move syncthing folder back to sendreceive
+    log.info(`Step 3: Moving syncthing folder to sendreceive for ${appname}`);
+    const toSendReceive = await changeSyncthingFolderType(appId, 'sendreceive');
+    if (!toSendReceive) {
+      log.error(`Failed to change syncthing folder to sendreceive for ${appname}, aborting container start - cannot become primary without sendreceive mode`);
+      return;
+    }
+
+    // Step 4: Start the container
+    log.info(`Step 4: Starting container for ${appname}`);
+    await appDockerRestart(appname);
+
+    log.info(`Successfully completed permissions fix workflow for ${appname}`);
+  } catch (error) {
+    log.error(`Error in appDockerRestartWithPermissionsFix for ${appname}: ${error.message}`);
+    // Do not start the app if there was an error in the workflow
   }
 }
 
@@ -3189,6 +3316,20 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress) {
       return;
     }
+
+    // Check if syncthing is loaded and working before processing
+    try {
+      // eslint-disable-next-line global-require
+      const syncthingService = require('../syncthingService');
+      const syncthingHealth = await syncthingService.getHealth();
+      if (syncthingHealth.status !== 'success' || !syncthingHealth.data || syncthingHealth.data.status !== 'OK') {
+        log.warn('masterSlaveApps: Syncthing is not available or not healthy, skipping this cycle');
+        return;
+      }
+    } catch (syncthingError) {
+      log.warn(`masterSlaveApps: Failed to check syncthing health: ${syncthingError.message}, skipping this cycle`);
+      return;
+    }
     // get list of all installed apps
     const appsInstalled = await installedApps();
     // eslint-disable-next-line no-await-in-loop
@@ -3404,6 +3545,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
                     if (allSyncthingFolders.status === 'success') {
+                      // Syncthing syncs the entire appId folder (includes all subdirectories)
                       const folder = `${appsFolder}${appId}`;
                       // eslint-disable-next-line no-restricted-syntax
                       for (const syncthingFolder of allSyncthingFolders.data) {
@@ -3496,7 +3638,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
 
                 if (index === 0 && !mastersRunningGSyncthingApps.has(identifier)) {
                   // Index 0: Start immediately if no history
-                  appDockerRestart(installedApp.name);
+                  appDockerRestartWithPermissionsFix(installedApp.name, appId);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                 } else if (!timeTostartNewMasterApp.has(identifier) && mastersRunningGSyncthingApps.has(identifier) && mastersRunningGSyncthingApps.get(identifier) !== myIP) {
                   // There was a previous master (not me), and it's no longer on FDM
@@ -3531,7 +3673,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   }
                   // Previous master is not running, determine next primary
                   if (index === 0) {
-                    appDockerRestart(installedApp.name);
+                    appDockerRestartWithPermissionsFix(installedApp.name, appId);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                   } else {
                     const previousMasterIndex = runningAppList.findIndex((x) => x.ip.split(':')[0] === mastersRunningGSyncthingApps.get(identifier).split(':')[0]);
@@ -3551,7 +3693,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       // eslint-disable-next-line no-await-in-loop
                       const lowerNodeRunning = await checkLowerIndexNodesRunning();
                       if (!lowerNodeRunning) {
-                        appDockerRestart(installedApp.name);
+                        appDockerRestartWithPermissionsFix(installedApp.name, appId);
                         log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index}`);
                       }
                     } else {
@@ -3564,7 +3706,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                   // eslint-disable-next-line no-await-in-loop
                   const lowerNodeRunning = await checkLowerIndexNodesRunning();
                   if (!lowerNodeRunning) {
-                    appDockerRestart(installedApp.name);
+                    appDockerRestartWithPermissionsFix(installedApp.name, appId);
                     log.info(`masterSlaveApps: starting docker app:${installedApp.name} index: ${index} that was scheduled to start at ${timeTostartNewMasterApp.get(identifier).toString()}`);
                     timeTostartNewMasterApp.delete(identifier);
                   } else {
@@ -3602,6 +3744,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
                     if (allSyncthingFolders.status === 'success') {
+                      // Syncthing syncs the entire appId folder (includes all subdirectories)
                       const folder = `${appsFolder}${appId}`;
                       // eslint-disable-next-line no-restricted-syntax
                       for (const syncthingFolder of allSyncthingFolders.data) {
@@ -3618,7 +3761,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                 }
 
                 if (isReady) {
-                  appDockerRestart(installedApp.name);
+                  appDockerRestartWithPermissionsFix(installedApp.name, appId);
                   log.info(`masterSlaveApps: starting docker app:${installedApp.name}`);
                 } else {
                   log.info(`masterSlaveApps: app:${installedApp.name} is registered as primary on FDM but not ready yet (syncthing not synced), skipping start for this cycle`);
@@ -3743,10 +3886,10 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
   const requiredPaths = mountParser.getRequiredLocalPaths(parsedMounts);
   log.info(`Ensuring ${requiredPaths.length} local path(s) exist for ${appId}`);
 
-  // Create all required directories and files under appdata/
+  // Create all required directories and files (appdata and additional mounts at same level)
   // eslint-disable-next-line no-restricted-syntax
   for (const pathInfo of requiredPaths) {
-    const fullPath = `${appsFolder}${appId}/appdata${pathInfo.name === 'appdata' ? '' : `/${pathInfo.name}`}`;
+    const fullPath = `${appsFolder}${appId}/${pathInfo.name}`;
 
     // Check if path exists
     try {
@@ -3759,17 +3902,12 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
       log.warn(`Path missing, creating: ${fullPath}`);
 
       if (pathInfo.isFile) {
-        // Ensure parent directory exists first
-        const parentDir = `${appsFolder}${appId}/appdata`;
-        const execParentDir = `sudo mkdir -p ${parentDir}`;
+        // For file mounts, create file directly with 777 permissions
+        const execCommands = `sudo touch ${fullPath} && sudo chmod 777 ${fullPath}`;
         // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(execParentDir);
+        await cmdAsync(execCommands);
 
-        // Create empty file
-        const execFile = `sudo touch ${fullPath}`;
-        // eslint-disable-next-line no-await-in-loop
-        await cmdAsync(execFile);
-        log.info(`Created empty file: ${fullPath}`);
+        log.info(`Created file mount with 777 permissions: ${fullPath}`);
       } else {
         // Create directory
         const execDIR = `sudo mkdir -p ${fullPath}`;
@@ -3817,7 +3955,7 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
         if (mount.subdir === 'appdata') {
           fullPath = `${appsFolder}${componentAppId}/appdata`;
         } else {
-          fullPath = `${appsFolder}${componentAppId}/appdata/${mount.subdir}`;
+          fullPath = `${appsFolder}${componentAppId}/${mount.subdir}`;
         }
 
         // Check if path exists
@@ -3830,17 +3968,12 @@ async function ensureMountPathsExist(appSpecifications, appName, isComponent, fu
           log.warn(`Component reference path missing, creating: ${fullPath}`);
 
           if (mount.isFile) {
-            // Ensure parent directory exists first
-            const parentDir = `${appsFolder}${componentAppId}/appdata`;
-            const execParentDir = `sudo mkdir -p ${parentDir}`;
+            // For component file mounts, create file directly with 777 permissions
+            const execCommands = `sudo touch ${fullPath} && sudo chmod 777 ${fullPath}`;
             // eslint-disable-next-line no-await-in-loop
-            await cmdAsync(execParentDir);
+            await cmdAsync(execCommands);
 
-            // Create empty file
-            const execFile = `sudo touch ${fullPath}`;
-            // eslint-disable-next-line no-await-in-loop
-            await cmdAsync(execFile);
-            log.info(`Created empty file for component reference: ${fullPath}`);
+            log.info(`Created file mount with 777 permissions for component reference: ${fullPath}`);
           } else {
             // Create directory
             const execDIR = `sudo mkdir -p ${fullPath}`;

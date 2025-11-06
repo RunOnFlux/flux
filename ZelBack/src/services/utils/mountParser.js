@@ -40,11 +40,15 @@ function parseMountFlags(segment) {
   const flags = [];
   let hasFlags = false;
 
-  // eslint-disable-next-line no-restricted-syntax
-  for (const flag of knownFlags) {
-    if (segment.includes(flag)) {
-      flags.push(flag);
-      hasFlags = true;
+  // Only consider it as having flags if segment doesn't start with /
+  // Paths like /var, /usr, /nginx should not be treated as flag segments
+  if (!segment.startsWith('/')) {
+    // eslint-disable-next-line no-restricted-syntax
+    for (const flag of knownFlags) {
+      if (segment.includes(flag)) {
+        flags.push(flag);
+        hasFlags = true;
+      }
     }
   }
 
@@ -343,15 +347,15 @@ function parseContainerData(containerData) {
  * under the component's appdata directory on the host filesystem.
  *
  * @param {object} parsedMounts - Result from parseContainerData
- * @returns {Array<{name: string, isFile: boolean}>} Array of paths to create
+ * @returns {Array<{name: string, isFile: boolean, containerPath: string}>} Array of paths to create
  *
  * @example
  * const parsed = parseContainerData("/data|m:logs:/var/log|f:config.yaml:/etc/app.yaml");
  * const paths = getRequiredLocalPaths(parsed);
  * // Returns: [
- * //   { name: 'appdata', isFile: false },
- * //   { name: 'logs', isFile: false },
- * //   { name: 'config.yaml', isFile: true }
+ * //   { name: 'appdata', isFile: false, containerPath: '/data' },
+ * //   { name: 'logs', isFile: false, containerPath: '/var/log' },
+ * //   { name: 'config.yaml', isFile: true, containerPath: '/etc/app.yaml' }
  * // ]
  * // Note: Component references (0:, c:, cf:) are excluded - they point to OTHER components
  *
@@ -368,6 +372,7 @@ function getRequiredLocalPaths(parsedMounts) {
       paths.push({
         name: mount.subdir,
         isFile: mount.isFile,
+        containerPath: mount.containerPath,
       });
     }
   }

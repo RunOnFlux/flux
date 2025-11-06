@@ -576,8 +576,8 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'config.yaml', isFile: true },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'config.yaml', isFile: true, containerPath: '/etc/config.yaml' },
       ]);
 
       // All paths exist - fs.access succeeds
@@ -634,8 +634,8 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'config.yaml', isFile: true },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'config.yaml', isFile: true, containerPath: '/etc/config.yaml' },
       ]);
 
       // appdata exists, config.yaml doesn't
@@ -667,12 +667,11 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      expect(cmdAsyncStub.callCount).to.equal(2); // mkdir parent dir + touch file
-      // Should call mkdir to ensure parent directory exists
-      expect(cmdAsyncStub.firstCall.args[0]).to.include('mkdir -p');
-      // Should call touch to create file
-      expect(cmdAsyncStub.secondCall.args[0]).to.include('touch');
-      expect(cmdAsyncStub.secondCall.args[0]).to.include('config.yaml');
+      expect(cmdAsyncStub.callCount).to.equal(1); // Single command: touch + chmod
+      // Should call touch and chmod to create writable file directly (no mkdir for files)
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('touch');
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('chmod 777');
+      expect(cmdAsyncStub.firstCall.args[0]).to.include('config.yaml');
     });
 
     it('should create missing directory', async () => {
@@ -706,8 +705,8 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'logs', isFile: false },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'logs', isFile: false, containerPath: '/var/log' },
       ]);
 
       // appdata exists, logs doesn't
@@ -786,10 +785,10 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'logs', isFile: false },
-        { name: 'config.yaml', isFile: true },
-        { name: 'cache', isFile: false },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'logs', isFile: false, containerPath: '/var/log' },
+        { name: 'config.yaml', isFile: true, containerPath: '/etc/config.yaml' },
+        { name: 'cache', isFile: false, containerPath: '/var/cache' },
       ]);
 
       // appdata exists, all others don't
@@ -823,16 +822,19 @@ describe('advancedWorkflows tests', () => {
       await advancedWorkflowsProxied.ensureMountPathsExist(appSpecifications, appName, isComponent, null);
 
       // Verify
-      // Should create: logs dir, parent dir for file, config.yaml file (touch), cache dir = 4 commands
-      expect(cmdAsyncStub.callCount).to.equal(4);
+      // Should create: logs dir, config.yaml file (touch+chmod), cache dir = 3 commands
+      expect(cmdAsyncStub.callCount).to.equal(3);
 
-      // Check that mkdir was called for directories (logs, cache, and parent dir for config.yaml)
+      // Check that mkdir was called for directories only (not for file)
       const mkdirCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('mkdir'));
-      expect(mkdirCalls.length).to.equal(3); // logs, parent dir, and cache
+      expect(mkdirCalls.length).to.equal(2); // logs and cache (NOT config.yaml - files created directly)
 
-      // Check that touch was called for file
+      // Check that touch and chmod were called for file mount
       const touchCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('touch'));
-      expect(touchCalls.length).to.equal(1);
+      expect(touchCalls.length).to.equal(1); // Only for config.yaml file
+
+      const chmodCalls = cmdAsyncStub.getCalls().filter((call) => call.args[0].includes('chmod 777'));
+      expect(chmodCalls.length).to.equal(1); // Only for config.yaml file
     });
 
     it('should handle non-component apps correctly', async () => {
@@ -865,8 +867,8 @@ describe('advancedWorkflows tests', () => {
       });
 
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
-        { name: 'config.yaml', isFile: true },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
+        { name: 'config.yaml', isFile: true, containerPath: '/etc/config.yaml' },
       ]);
 
       fsStub.promises.access.resolves();
@@ -960,7 +962,7 @@ describe('advancedWorkflows tests', () => {
 
       // getRequiredLocalPaths should filter out component references
       mountParserStub.getRequiredLocalPaths.returns([
-        { name: 'appdata', isFile: false },
+        { name: 'appdata', isFile: false, containerPath: '/data' },
         // Note: component references NOT included here
       ]);
 
