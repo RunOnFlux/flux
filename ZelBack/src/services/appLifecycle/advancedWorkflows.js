@@ -1739,7 +1739,8 @@ async function changeSyncthingFolderType(folderId, folderType) {
     }
 
     // Find the folder by path
-    const folderPath = appsFolder + folderId;
+    // Syncthing syncs the entire appId folder (includes all subdirectories)
+    const folderPath = `${appsFolder}${folderId}`;
     const folder = foldersResponse.data.find((f) => f.path === folderPath);
 
     if (!folder) {
@@ -3544,6 +3545,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
                     if (allSyncthingFolders.status === 'success') {
+                      // Syncthing syncs the entire appId folder (includes all subdirectories)
                       const folder = `${appsFolder}${appId}`;
                       // eslint-disable-next-line no-restricted-syntax
                       for (const syncthingFolder of allSyncthingFolders.data) {
@@ -3742,6 +3744,7 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     // eslint-disable-next-line no-await-in-loop
                     const allSyncthingFolders = await syncthingService.getConfigFolders();
                     if (allSyncthingFolders.status === 'success') {
+                      // Syncthing syncs the entire appId folder (includes all subdirectories)
                       const folder = `${appsFolder}${appId}`;
                       // eslint-disable-next-line no-restricted-syntax
                       for (const syncthingFolder of allSyncthingFolders.data) {
