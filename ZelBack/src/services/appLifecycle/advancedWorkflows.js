@@ -3316,6 +3316,21 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
     if (globalStateParam.installationInProgress || globalStateParam.removalInProgress || globalStateParam.softRedeployInProgress || globalStateParam.hardRedeployInProgress) {
       return;
     }
+
+    // Check if syncthing is loaded and working before processing
+    try {
+      // eslint-disable-next-line global-require
+      const syncthingService = require('../syncthingService');
+      const syncthingHealth = await syncthingService.getHealth();
+      if (syncthingHealth.status !== 'success' || !syncthingHealth.data || syncthingHealth.data.status !== 'OK') {
+        log.warn('masterSlaveApps: Syncthing is not available or not healthy, skipping this cycle');
+        return;
+      }
+      log.info('masterSlaveApps: Syncthing health check passed');
+    } catch (syncthingError) {
+      log.warn(`masterSlaveApps: Failed to check syncthing health: ${syncthingError.message}, skipping this cycle`);
+      return;
+    }
     // get list of all installed apps
     const appsInstalled = await installedApps();
     // eslint-disable-next-line no-await-in-loop
