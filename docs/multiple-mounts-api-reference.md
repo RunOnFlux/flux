@@ -149,22 +149,22 @@ parseContainerData("/backup|0:/db-data");
 #### Example 10: Component directory mount (specific subdirectory from another component)
 ```javascript
 // Component 0: { name: "web", containerData: "/data|m:logs:/var/log" }
-//   Creates: /apps/fluxweb_APPNAME/appdata/logs/
+//   Creates: /apps/fluxweb_APPNAME/logs/ (sibling of appdata)
 
 // Component 1: { name: "analyzer", containerData: "/app|c:0:logs:/app/logs" }
 //   Mounts Component 0's logs subdirectory:
-//   - /apps/fluxweb_APPNAME/appdata/logs/ -> /app/logs
+//   - /apps/fluxweb_APPNAME/logs/ -> /app/logs
 parseContainerData("/app|c:0:logs:/app/logs");
 ```
 
 #### Example 11: Component file mount (specific file from another component)
 ```javascript
 // Component 0: { name: "config", containerData: "/data|f:shared.conf:/etc/shared.conf" }
-//   Creates: /apps/fluxconfig_APPNAME/appdata/shared.conf
+//   Creates: /apps/fluxconfig_APPNAME/shared.conf (sibling of appdata)
 
 // Component 1: { name: "worker", containerData: "/app|cf:0:shared.conf:/etc/app.conf" }
 //   Mounts Component 0's shared.conf file:
-//   - /apps/fluxconfig_APPNAME/appdata/shared.conf -> /etc/app.conf
+//   - /apps/fluxconfig_APPNAME/shared.conf -> /etc/app.conf
 parseContainerData("/app|cf:0:shared.conf:/etc/app.conf");
 ```
 
@@ -187,12 +187,12 @@ parseContainerData("r:/usr/share/nginx/html|m:logs:/var/log/nginx|m:cache:/var/c
 // Component 0: { name: "postgres", containerData: "r:/var/lib/postgresql/data|f:postgresql.conf:/etc/postgresql.conf" }
 //   Creates:
 //     /apps/fluxpostgres_APPNAME/appdata/
-//     /apps/fluxpostgres_APPNAME/appdata/postgresql.conf
+//     /apps/fluxpostgres_APPNAME/postgresql.conf (sibling of appdata)
 
 // Component 1: { name: "pgbackup", containerData: "/backup|0:/database|m:archives:/var/backups" }
 //   Mounts:
 //     /apps/fluxpostgres_APPNAME/appdata/ -> /database (can read DB files)
-//     /apps/fluxpgbackup_APPNAME/appdata/archives/ -> /var/backups (stores backups)
+//     /apps/fluxpgbackup_APPNAME/archives/ -> /var/backups (stores backups, sibling of appdata)
 parseContainerData("/backup|0:/database|m:archives:/var/backups");
 ```
 
@@ -200,13 +200,13 @@ parseContainerData("/backup|0:/database|m:archives:/var/backups");
 ```javascript
 // Component 0: { name: "certs", containerData: "/certs|f:ssl-cert.pem:/cert.pem|f:ssl-key.pem:/key.pem" }
 //   Creates:
-//     /apps/fluxcerts_APPNAME/appdata/ssl-cert.pem (empty)
-//     /apps/fluxcerts_APPNAME/appdata/ssl-key.pem (empty)
+//     /apps/fluxcerts_APPNAME/ssl-cert.pem (empty, sibling of appdata)
+//     /apps/fluxcerts_APPNAME/ssl-key.pem (empty, sibling of appdata)
 
 // Component 1: { name: "api", containerData: "/app|cf:0:ssl-cert.pem:/etc/ssl/cert.pem|cf:0:ssl-key.pem:/etc/ssl/key.pem" }
 //   Mounts Component 0's certificate files:
-//     /apps/fluxcerts_APPNAME/appdata/ssl-cert.pem -> /etc/ssl/cert.pem
-//     /apps/fluxcerts_APPNAME/appdata/ssl-key.pem -> /etc/ssl/key.pem
+//     /apps/fluxcerts_APPNAME/ssl-cert.pem -> /etc/ssl/cert.pem
+//     /apps/fluxcerts_APPNAME/ssl-key.pem -> /etc/ssl/key.pem
 
 // Component 2: { name: "web", containerData: "r:/www|cf:0:ssl-cert.pem:/etc/ssl/cert.pem|cf:0:ssl-key.pem:/etc/ssl/key.pem" }
 //   All services share the same SSL certificates from Component 0
@@ -216,15 +216,15 @@ parseContainerData("r:/www|cf:0:ssl-cert.pem:/etc/ssl/cert.pem|cf:0:ssl-key.pem:
 #### Example 15: Log aggregation system
 ```javascript
 // Component 0: { name: "app1", containerData: "/data|m:logs:/var/log/app" }
-//   Creates: /apps/fluxapp1_APPNAME/appdata/logs/
+//   Creates: /apps/fluxapp1_APPNAME/logs/ (sibling of appdata)
 
 // Component 1: { name: "app2", containerData: "/data|m:logs:/var/log/app" }
-//   Creates: /apps/fluxapp2_APPNAME/appdata/logs/
+//   Creates: /apps/fluxapp2_APPNAME/logs/ (sibling of appdata)
 
 // Component 2: { name: "logcollector", containerData: "/collector|c:0:logs:/logs/app1|c:1:logs:/logs/app2" }
 //   Aggregates logs from multiple components:
-//     /apps/fluxapp1_APPNAME/appdata/logs/ -> /logs/app1
-//     /apps/fluxapp2_APPNAME/appdata/logs/ -> /logs/app2
+//     /apps/fluxapp1_APPNAME/logs/ -> /logs/app1
+//     /apps/fluxapp2_APPNAME/logs/ -> /logs/app2
 parseContainerData("/collector|c:0:logs:/logs/app1|c:1:logs:/logs/app2");
 ```
 
@@ -344,7 +344,7 @@ const parsed5 = parseContainerData("/analyzer|c:0:logs:/app/logs");
 const volumes5 = constructVolumes(parsed5, "analyzer_logsys", "logsys", fullSpecs5, fullSpecs5.compose[1]);
 // Result: [
 //   { Source: '/apps/fluxanalyzer_logsys/appdata', Target: '/analyzer' },
-//   { Source: '/apps/fluxapp_logsys/appdata/logs', Target: '/app/logs' }  ← Component 0's logs dir
+//   { Source: '/apps/fluxapp_logsys/logs', Target: '/app/logs' }  ← Component 0's logs dir
 // ]
 ```
 
@@ -362,7 +362,7 @@ const parsed6 = parseContainerData("r:/www|cf:0:ssl.pem:/etc/ssl/cert.pem");
 const volumes6 = constructVolumes(parsed6, "web_certapp", "certapp", fullSpecs6, fullSpecs6.compose[1]);
 // Result: [
 //   { Source: '/apps/fluxweb_certapp/appdata', Target: '/www' },
-//   { Source: '/apps/fluxcerts_certapp/appdata/ssl.pem/cert.pem', Target: '/etc/ssl/cert.pem' }  ← Component 0's file
+//   { Source: '/apps/fluxcerts_certapp/ssl.pem', Target: '/etc/ssl/cert.pem' }  ← Component 0's file
 // ]
 ```
 
@@ -394,7 +394,7 @@ const parsed7a = parseContainerData("r:/var/lib/postgresql/data|f:postgresql.con
 const volumes7a = constructVolumes(parsed7a, "database_webapp", "webapp", fullSpecs7, fullSpecs7.compose[0]);
 // Result: [
 //   { Source: '/apps/fluxdatabase_webapp/appdata', Target: '/var/lib/postgresql/data' },
-//   { Source: '/apps/fluxdatabase_webapp/appdata/postgresql.conf/postgresql.conf', Target: '/etc/postgresql.conf' }
+//   { Source: '/apps/fluxdatabase_webapp/postgresql.conf', Target: '/etc/postgresql.conf' }
 // ]
 
 // Component 1 (app) volumes:
@@ -404,7 +404,7 @@ const volumes7b = constructVolumes(parsed7b, "app_webapp", "webapp", fullSpecs7,
 //   { Source: '/apps/fluxapp_webapp/appdata', Target: '/app' },
 //   { Source: '/apps/fluxdatabase_webapp/appdata', Target: '/database' },              ← DB access
 //   { Source: '/apps/fluxapp_webapp/appdata/uploads', Target: '/app/uploads' },
-//   { Source: '/apps/fluxapp_webapp/appdata/app.conf/app.conf', Target: '/etc/app.conf' }
+//   { Source: '/apps/fluxapp_webapp/app.conf', Target: '/etc/app.conf' }
 // ]
 
 // Component 2 (nginx) volumes:
@@ -413,8 +413,8 @@ const volumes7c = constructVolumes(parsed7c, "nginx_webapp", "webapp", fullSpecs
 // Result: [
 //   { Source: '/apps/fluxnginx_webapp/appdata', Target: '/usr/share/nginx/html' },
 //   { Source: '/apps/fluxapp_webapp/appdata/uploads', Target: '/www/uploads' },       ← Serve app uploads
-//   { Source: '/apps/fluxnginx_webapp/appdata/logs', Target: '/var/log/nginx' },
-//   { Source: '/apps/fluxnginx_webapp/appdata/nginx.conf/nginx.conf', Target: '/etc/nginx/nginx.conf' }
+//   { Source: '/apps/fluxnginx_webapp/logs', Target: '/var/log/nginx' },
+//   { Source: '/apps/fluxnginx_webapp/nginx.conf', Target: '/etc/nginx/nginx.conf' }
 // ]
 ```
 
@@ -444,9 +444,9 @@ const parsed8a = parseContainerData("/config|f:shared.json:/config.json|f:cert.p
 const volumes8a = constructVolumes(parsed8a, "config_microservices", "microservices", fullSpecs8, fullSpecs8.compose[0]);
 // Result: [
 //   { Source: '/apps/fluxconfig_microservices/appdata', Target: '/config' },
-//   { Source: '/apps/fluxconfig_microservices/appdata/shared.json/config.json', Target: '/config.json' },
-//   { Source: '/apps/fluxconfig_microservices/appdata/cert.pem/cert.pem', Target: '/cert.pem' },
-//   { Source: '/apps/fluxconfig_microservices/appdata/key.pem/key.pem', Target: '/key.pem' }
+//   { Source: '/apps/fluxconfig_microservices/shared.json', Target: '/config.json' },
+//   { Source: '/apps/fluxconfig_microservices/cert.pem', Target: '/cert.pem' },
+//   { Source: '/apps/fluxconfig_microservices/key.pem', Target: '/key.pem' }
 // ]
 
 // Component 1 & 2 (services) - all read from Component 0's files
@@ -454,9 +454,9 @@ const parsed8b = parseContainerData("/app|cf:0:shared.json:/etc/config.json|cf:0
 const volumes8b = constructVolumes(parsed8b, "service1_microservices", "microservices", fullSpecs8, fullSpecs8.compose[1]);
 // Result: [
 //   { Source: '/apps/fluxservice1_microservices/appdata', Target: '/app' },
-//   { Source: '/apps/fluxconfig_microservices/appdata/shared.json/config.json', Target: '/etc/config.json' },  ← Shared
-//   { Source: '/apps/fluxconfig_microservices/appdata/cert.pem/cert.pem', Target: '/etc/ssl/cert.pem' },    ← Shared
-//   { Source: '/apps/fluxconfig_microservices/appdata/key.pem/key.pem', Target: '/etc/ssl/key.pem' }       ← Shared
+//   { Source: '/apps/fluxconfig_microservices/shared.json', Target: '/etc/config.json' },  ← Shared
+//   { Source: '/apps/fluxconfig_microservices/cert.pem', Target: '/etc/ssl/cert.pem' },    ← Shared
+//   { Source: '/apps/fluxconfig_microservices/key.pem', Target: '/etc/ssl/key.pem' }       ← Shared
 // ]
 // Service2 gets identical mounts from Component 0
 ```
@@ -553,8 +553,8 @@ const paths2 = getRequiredLocalPaths(parsed2);
 // ]
 // Will create:
 //   /apps/fluxCOMPONENT_APPNAME/appdata/
-//   /apps/fluxCOMPONENT_APPNAME/appdata/logs/
-//   /apps/fluxCOMPONENT_APPNAME/appdata/cache/
+//   /apps/fluxCOMPONENT_APPNAME/logs/ (sibling of appdata)
+//   /apps/fluxCOMPONENT_APPNAME/cache/ (sibling of appdata)
 ```
 
 #### Example 3: Primary + file mounts
@@ -568,10 +568,8 @@ const paths3 = getRequiredLocalPaths(parsed3);
 // ]
 // Will create:
 //   /apps/fluxCOMPONENT_APPNAME/appdata/
-//   /apps/fluxCOMPONENT_APPNAME/appdata/config.yaml/ (subdirectory)
-//   /apps/fluxCOMPONENT_APPNAME/appdata/config.yaml/app.yaml (empty file with 777 perms)
-//   /apps/fluxCOMPONENT_APPNAME/appdata/cert.pem/ (subdirectory)
-//   /apps/fluxCOMPONENT_APPNAME/appdata/cert.pem/cert.pem (empty file with 777 perms)
+//   /apps/fluxCOMPONENT_APPNAME/config.yaml (empty file with 777 perms, sibling of appdata)
+//   /apps/fluxCOMPONENT_APPNAME/cert.pem (empty file with 777 perms, sibling of appdata)
 ```
 
 #### Example 4: Mixed local mounts (directories and files)
@@ -601,10 +599,9 @@ const parsed6 = parseContainerData("r:/www|m:logs:/var/log/nginx|m:cache:/var/ca
 const paths6 = getRequiredLocalPaths(parsed6);
 // Returns: [
 //   { name: 'appdata', isFile: false },  → /apps/fluxweb_app/appdata/
-//   { name: 'logs', isFile: false },     → /apps/fluxweb_app/appdata/logs/
-//   { name: 'cache', isFile: false },    → /apps/fluxweb_app/appdata/cache/
-//   { name: 'nginx.conf', isFile: true } → /apps/fluxweb_app/appdata/nginx.conf/ (subdir)
-//                                        → /apps/fluxweb_app/appdata/nginx.conf/nginx.conf (file)
+//   { name: 'logs', isFile: false },     → /apps/fluxweb_app/logs/ (sibling of appdata)
+//   { name: 'cache', isFile: false },    → /apps/fluxweb_app/cache/ (sibling of appdata)
+//   { name: 'nginx.conf', isFile: true } → /apps/fluxweb_app/nginx.conf (empty file, sibling of appdata)
 // ]
 ```
 

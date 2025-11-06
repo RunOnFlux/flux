@@ -295,19 +295,19 @@ containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
       name: "database",
       containerData: "r:/var/lib/db|f:db.conf:/etc/db.conf"
       // Creates: /apps/fluxdatabase_webapp/appdata/
-      //          /apps/fluxdatabase_webapp/appdata/db.conf
+      //          /apps/fluxdatabase_webapp/db.conf (sibling of appdata)
     },
     {
       name: "api",
       containerData: "/app|0:/database|f:api.conf:/etc/api.conf"
       // Mounts: /apps/fluxdatabase_webapp/appdata -> /database
-      // Creates: /apps/fluxapi_webapp/appdata/api.conf
+      // Creates: /apps/fluxapi_webapp/api.conf (sibling of appdata)
     },
     {
       name: "frontend",
       containerData: "r:/usr/share/nginx/html|cf:1:api.conf:/etc/api-endpoint.conf|m:cache:/var/cache"
-      // Mounts: /apps/fluxapi_webapp/appdata/api.conf -> /etc/api-endpoint.conf
-      // Creates: /apps/fluxfrontend_webapp/appdata/cache/
+      // Mounts: /apps/fluxapi_webapp/api.conf -> /etc/api-endpoint.conf
+      // Creates: /apps/fluxfrontend_webapp/cache/ (sibling of appdata)
     }
   ]
 }
