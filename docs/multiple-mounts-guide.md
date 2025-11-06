@@ -29,18 +29,18 @@ Each component in a Flux application has its own directory on the host system:
 ```
 /apps/                                    # Base apps folder
   └── fluxCOMPONENT_APPNAME/              # Component directory (with "flux" prefix)
-      └── appdata/                        # Primary data directory
-          ├── (primary mount content)     # Files/dirs for primary mount
-          ├── logs/                       # Additional directory mount (m:)
-          ├── cache/                      # Another directory mount (m:)
-          ├── config.yaml                 # File mount (f:)
-          └── cert.pem                    # Another file mount (f:)
+      ├── appdata/                        # Primary data directory
+      │   └── (primary mount content)     # Files/dirs for primary mount
+      ├── logs/                           # Additional directory mount (m:) - same level as appdata
+      ├── cache/                          # Another directory mount (m:) - same level as appdata
+      ├── config.yaml                     # File mount (f:) - same level as appdata
+      └── cert.pem                        # Another file mount (f:) - same level as appdata
 ```
 
 **Key Points:**
-- All paths are **relative to the component's appdata directory** on the host
-- The `appdata` directory is the **root** for all mounts
-- Additional mounts (m:, f:) create subdirectories and files **inside** appdata
+- Primary mount uses the **`appdata/` directory**
+- Additional mounts (m:, f:) are created at the **SAME LEVEL** as `appdata/`, not inside it
+- All subdirectories/files are siblings of `appdata/` under the component folder
 - Paths are **NOT relative to the container** - they're host filesystem paths
 
 ### Example Path Mapping
@@ -50,8 +50,8 @@ For a component named `web` in an app named `myapp`:
 | Mount Definition | Host Path (Source) | Container Path (Target) | What Gets Created |
 |-----------------|-------------------|---------------------|-------------------|
 | `r:/data` | `/apps/fluxweb_myapp/appdata` | `/data` | Directory `appdata/` |
-| `m:logs:/var/log` | `/apps/fluxweb_myapp/appdata/logs` | `/var/log` | Directory `appdata/logs/` |
-| `f:config.yaml:/etc/app.yaml` | `/apps/fluxweb_myapp/appdata/config.yaml` | `/etc/app.yaml` | Empty file `appdata/config.yaml` |
+| `m:logs:/var/log` | `/apps/fluxweb_myapp/logs` | `/var/log` | Directory `logs/` (sibling of appdata) |
+| `f:config.yaml:/etc/app.yaml` | `/apps/fluxweb_myapp/config.yaml` | `/etc/app.yaml` | Empty file `config.yaml` (sibling of appdata) |
 
 ---
 
@@ -89,32 +89,32 @@ containerData: "g:/data"
 
 **Syntax:** `m:<subdirectory>:<container_path>`
 
-**Host Path:** `/apps/fluxCOMPONENT_APPNAME/appdata/<subdirectory>`
+**Host Path:** `/apps/fluxCOMPONENT_APPNAME/<subdirectory>` (same level as appdata)
 
 **What Happens:**
-1. Directory `<subdirectory>` is created inside `appdata/`
+1. Directory `<subdirectory>` is created at the same level as `appdata/`
 2. Mounted to `<container_path>` in the container
 
 **Examples:**
 ```javascript
 // Mount additional logs directory
 containerData: "/data|m:logs:/var/log"
-// Host: /apps/fluxweb_myapp/appdata/logs -> Container: /var/log
+// Host: /apps/fluxweb_myapp/logs -> Container: /var/log
 
 // Multiple directory mounts
 containerData: "/data|m:logs:/var/log|m:cache:/var/cache"
-// Host: /apps/fluxweb_myapp/appdata/logs -> Container: /var/log
-// Host: /apps/fluxweb_myapp/appdata/cache -> Container: /var/cache
+// Host: /apps/fluxweb_myapp/logs -> Container: /var/log
+// Host: /apps/fluxweb_myapp/cache -> Container: /var/cache
 ```
 
 ### 3. File Mount
 
 **Syntax:** `f:<filename>:<container_path>`
 
-**Host Path:** `/apps/fluxCOMPONENT_APPNAME/appdata/<filename>`
+**Host Path:** `/apps/fluxCOMPONENT_APPNAME/<filename>` (same level as appdata)
 
 **What Happens:**
-1. **Empty file** `<filename>` is created inside `appdata/`
+1. **Empty file** `<filename>` is created at the same level as `appdata/`
 2. Mounted to `<container_path>` in the container
 3. Application initializes file content on first run
 
@@ -122,18 +122,18 @@ containerData: "/data|m:logs:/var/log|m:cache:/var/cache"
 ```javascript
 // Mount configuration file
 containerData: "/data|f:config.yaml:/etc/app/config.yaml"
-// Host: /apps/fluxweb_myapp/appdata/config.yaml (empty)
+// Host: /apps/fluxweb_myapp/config.yaml (empty)
 // Container: /etc/app/config.yaml
 // App will write its default config on first run
 
 // Mount SSL certificates
 containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
-// Host: /apps/fluxweb_myapp/appdata/cert.pem (empty)
-// Host: /apps/fluxweb_myapp/appdata/key.pem (empty)
+// Host: /apps/fluxweb_myapp/cert.pem (empty)
+// Host: /apps/fluxweb_myapp/key.pem (empty)
 // Container: /etc/ssl/cert.pem and /etc/ssl/key.pem
 ```
 
-**Important:** Files are created as **empty files**. The application running in the container must initialize them with content on first run. This allows persistent configuration and data files.
+**Important:** Files are created as **empty files** at the component level. The application running in the container must initialize them with content on first run. This allows persistent configuration and data files.
 
 ### 4. Component Primary Mount
 
@@ -169,7 +169,7 @@ containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
 
 **Syntax:** `c:<component_index>:<subdirectory>:<container_path>`
 
-**Host Path:** `/apps/fluxCOMPONENT_APPNAME/appdata/<subdirectory>` (from another component)
+**Host Path:** `/apps/fluxCOMPONENT_APPNAME/<subdirectory>` (from another component)
 
 **What Happens:**
 1. References **specific subdirectory** from component at `<component_index>`
@@ -181,14 +181,14 @@ containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
 {
   name: "web",
   containerData: "/data|m:logs:/var/log"
-  // Creates: /apps/fluxweb_myapp/appdata/logs
+  // Creates: /apps/fluxweb_myapp/logs (sibling of appdata)
 }
 
 // Component 1:
 {
   name: "loganalyzer",
   containerData: "/analyzer|c:0:logs:/app/logs"
-  // Mounts: /apps/fluxweb_myapp/appdata/logs -> Container: /app/logs
+  // Mounts: /apps/fluxweb_myapp/logs -> Container: /app/logs
   // Can analyze Component 0's logs
 }
 ```
@@ -197,7 +197,7 @@ containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
 
 **Syntax:** `cf:<component_index>:<filename>:<container_path>`
 
-**Host Path:** `/apps/fluxCOMPONENT_APPNAME/appdata/<filename>` (from another component)
+**Host Path:** `/apps/fluxCOMPONENT_APPNAME/<filename>` (from another component)
 
 **What Happens:**
 1. References **specific file** from component at `<component_index>`
@@ -209,14 +209,14 @@ containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
 {
   name: "config-manager",
   containerData: "/data|f:shared.conf:/etc/shared.conf"
-  // Creates: /apps/fluxconfig-manager_myapp/appdata/shared.conf
+  // Creates: /apps/fluxconfig-manager_myapp/shared.conf (sibling of appdata)
 }
 
 // Component 1:
 {
   name: "worker",
   containerData: "/app|cf:0:shared.conf:/etc/app.conf"
-  // Mounts: /apps/fluxconfig-manager_myapp/appdata/shared.conf
+  // Mounts: /apps/fluxconfig-manager_myapp/shared.conf
   //      -> Container: /etc/app.conf
   // Reads Component 0's configuration
 }
@@ -240,12 +240,12 @@ containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
 **File System:**
 ```
 /apps/fluxnginx_myapp/
-  └── appdata/
-      ├── (website files)        # Primary mount content
-      ├── logs/                  # Nginx logs directory
-      │   ├── access.log
-      │   └── error.log
-      └── nginx.conf             # Nginx configuration file
+  ├── appdata/                   # Primary mount content
+  │   └── (website files)        # Website files
+  ├── logs/                      # Nginx logs directory (sibling of appdata)
+  │   ├── access.log
+  │   └── error.log
+  └── nginx.conf                 # Nginx configuration file (sibling of appdata)
 ```
 
 **Container Mounts:**
@@ -267,10 +267,10 @@ containerData: "/data|f:cert.pem:/etc/ssl/cert.pem|f:key.pem:/etc/ssl/key.pem"
 **File System:**
 ```
 /apps/fluxpostgres_myapp/
-  └── appdata/
-      ├── (database files)       # Primary mount content
-      ├── postgresql.conf        # Main config (empty initially)
-      └── pg_hba.conf           # Auth config (empty initially)
+  ├── appdata/                   # Primary mount content
+  │   └── (database files)       # Database files
+  ├── postgresql.conf            # Main config (empty initially, sibling of appdata)
+  └── pg_hba.conf                # Auth config (empty initially, sibling of appdata)
 ```
 
 **Container Mounts:**
@@ -476,15 +476,18 @@ containerData: "/data|m:logs:/var/log|m:application-logs:/var/log2"
 // ✅ Different subdirectory names
 ```
 
-### 4. Syncthing Flags Apply to Entire Appdata
+### 4. Syncthing Flags Apply to Entire Component Folder
 
-**Important:** Syncthing flags (`r:`, `g:`, `s:`) in the primary mount apply to the **entire appdata folder**, not individual mounts.
+**Important:** Syncthing flags (`r:`, `g:`, `s:`) in the primary mount apply to the **entire component folder**, not just appdata or individual mounts.
 
 ```javascript
-// This setting replicates the ENTIRE appdata folder:
+// This setting replicates the ENTIRE component folder:
 containerData: "r:/data|m:logs:/var/log|f:config.yaml:/etc/app.yaml"
-// Everything under /apps/fluxcomponent_app/appdata/ is replicated,
-// including logs/ and config.yaml
+// Everything under /apps/fluxcomponent_app/ is replicated:
+//   - appdata/ (primary mount)
+//   - logs/ (additional directory)
+//   - config.yaml (file mount)
+// All subdirectories and files at the component level are synced
 ```
 
 ### 5. File Mounts are Initially Empty
@@ -493,7 +496,7 @@ Files created with `f:` syntax are **empty** when first created:
 
 ```javascript
 containerData: "f:config.yaml:/etc/app/config.yaml"
-// /apps/fluxcomponent_app/appdata/config.yaml is created as EMPTY file
+// /apps/fluxcomponent_app/config.yaml is created as EMPTY file (sibling of appdata)
 // Application must detect and create default config on first run
 ```
 
@@ -524,27 +527,27 @@ containerData: "/data|m:logs:/var/log|m:cache:/var/cache|f:config.yaml:/etc/app.
 The actual host paths are:
 ```
 /apps/fluxcomponent_app/appdata/           ← Primary mount
-/apps/fluxcomponent_app/appdata/logs/      ← Nested inside primary
-/apps/fluxcomponent_app/appdata/cache/     ← Nested inside primary
-/apps/fluxcomponent_app/appdata/config.yaml ← Nested inside primary
+/apps/fluxcomponent_app/logs/              ← Sibling mount (same level as appdata)
+/apps/fluxcomponent_app/cache/             ← Sibling mount (same level as appdata)
+/apps/fluxcomponent_app/config.yaml        ← Sibling mount (same level as appdata)
 ```
 
 ### Usage Calculation Process
 
 1. **Docker Inspect:** Flux queries all container mounts
-2. **Nested Detection:** Identifies mounts that are subdirectories of other mounts
-3. **Skip Nested:** Nested mounts are **skipped** to avoid double-counting
-4. **Calculate Once:** Only the parent directory is measured using `du -sb`
+2. **Independent Mounts:** All mounts at component level are independent (siblings)
+3. **Sum All Mounts:** Each mount is measured individually using `du -sb`
+4. **Total Usage:** Sum of all mount sizes
 
 **Example:**
 ```
 Mount List from Docker:
-  ✓ /apps/fluxcomponent_app/appdata          → COUNTED (50 GB)
-  ✗ /apps/fluxcomponent_app/appdata/logs     → SKIPPED (nested)
-  ✗ /apps/fluxcomponent_app/appdata/cache    → SKIPPED (nested)
-  ✗ /apps/fluxcomponent_app/appdata/config.yaml → SKIPPED (nested)
+  ✓ /apps/fluxcomponent_app/appdata          → COUNTED (40 GB)
+  ✓ /apps/fluxcomponent_app/logs             → COUNTED (8 GB)
+  ✓ /apps/fluxcomponent_app/cache            → COUNTED (2 GB)
+  ✓ /apps/fluxcomponent_app/config.yaml      → COUNTED (1 MB)
 
-Total Usage: 50 GB (includes everything in appdata)
+Total Usage: 50 GB (sum of all mount points)
 ```
 
 ### Why This Matters
@@ -555,9 +558,9 @@ Total Usage: 50 GB (includes everything in appdata)
 - Actual disk space usage is accurately reported
 
 **Storage Limits:**
-- Component storage limit applies to **entire appdata folder**
-- Includes all subdirectories and files
-- Prevents gaming the system with multiple mounts
+- Component storage limit applies to **sum of all mounts**
+- Each mount point is counted individually
+- Total must stay within allocated limit
 
 ### Example Calculation
 
@@ -572,20 +575,21 @@ Total Usage: 50 GB (includes everything in appdata)
 
 **Disk Usage:**
 ```
-/apps/fluxmyapp_app/appdata/
-  ├── database/        (8 GB)
-  ├── uploads/         (1 GB)
-  ├── logs/           (500 MB)
-  ├── cache/          (200 MB)
-  └── config          (1 MB)
+/apps/fluxmyapp_app/
+  ├── appdata/             (8.5 GB)
+  │   ├── database/        (8 GB)
+  │   └── uploads/         (500 MB)
+  ├── logs/                (500 MB)
+  ├── cache/               (200 MB)
+  └── config               (1 MB)
 
-Total: 9.7 GB (within 10 GB limit) ✅
+Total: 9.2 GB (within 10 GB limit) ✅
 ```
 
 **Reported Metrics:**
-- Single `du -sb` command on `/apps/fluxmyapp_app/appdata`
-- Returns: 9.7 GB
-- Nested mounts not double-counted
+- Separate `du -sb` command for each mount point
+- Sum of all mount sizes: 8.5 GB + 500 MB + 200 MB + 1 MB = 9.2 GB
+- All mounts counted independently
 
 ---
 
@@ -646,27 +650,33 @@ if (fs.statSync('/etc/app/config.yaml').size === 0) {
    containerData: "r:/data|m:logs:/var/log"  // ✅ Correct
    ```
 
-2. **Flags apply to entire appdata:** All subdirectories/files are synced
+2. **Flags apply to entire component folder:** All subdirectories/files are synced
    ```javascript
-   // This syncs everything under appdata/, including logs/
+   // This syncs the entire /apps/fluxapp/ folder:
+   // - appdata/ (primary mount)
+   // - logs/ (additional directory)
+   // Everything at the component level is replicated
    containerData: "r:/data|m:logs:/var/log"
    ```
 
-3. **File mounts and Syncthing:** Check logs for warnings about file-level sync issues
+3. **Syncthing syncs component root:** The entire component folder is synced, including all mount points
 
 ### Issue: Storage Usage Seems Wrong
 
 **Symptom:** Reported storage doesn't match expectations.
 
 **Understanding:**
-- Only **parent directories** are counted
-- Nested mounts are **excluded** from calculation
-- Total usage is measured once for entire `appdata/`
+- All **mount points** are counted individually
+- Mounts are siblings at component level (not nested)
+- Total usage is sum of all mount sizes
 
 **Check:**
 ```bash
-# Manually check storage (on Flux node)
+# Manually check storage for each mount (on Flux node)
 sudo du -sh /apps/fluxCOMPONENT_APPNAME/appdata
+sudo du -sh /apps/fluxCOMPONENT_APPNAME/logs
+sudo du -sh /apps/fluxCOMPONENT_APPNAME/cache
+# Sum all mount points for total usage
 ```
 
 ### Issue: Component Reference Not Working
@@ -705,15 +715,16 @@ sudo du -sh /apps/fluxCOMPONENT_APPNAME/appdata
 
 ### Key Takeaways
 
-1. **All paths are relative to component's `appdata/` directory on the host**
-2. **File mounts create empty files** - apps must initialize them
-3. **Components can only reference earlier components** (lower indices)
-4. **Syncthing flags replicate the entire appdata folder**
-5. **Usage metrics automatically prevent double-counting** nested mounts
-6. **Each mount type serves a specific purpose:**
-   - Primary: Main data directory
-   - Directory (m:): Additional data organization
-   - File (f:): Persistent configuration files
+1. **Primary mount uses `appdata/` directory; additional mounts are siblings**
+2. **Additional mounts (m:, f:) are at the SAME LEVEL as appdata**, not inside it
+3. **File mounts create empty files** - apps must initialize them
+4. **Components can only reference earlier components** (lower indices)
+5. **Syncthing flags replicate the entire component folder** (all subdirectories and files)
+6. **Usage metrics count each mount independently** - sum of all mount sizes
+7. **Each mount type serves a specific purpose:**
+   - Primary: Main data directory (`appdata/`)
+   - Directory (m:): Additional data organization (sibling of `appdata/`)
+   - File (f:): Persistent configuration files (sibling of `appdata/`)
    - Component refs (0:, c:, cf:): Share data between components
 
 ### Best Practices
@@ -737,6 +748,11 @@ If you encounter issues:
 
 ---
 
-**Document Version:** 1.0
-**Feature Branch:** feature/multiplemounts
-**Last Updated:** 2025-11-04
+**Document Version:** 2.0
+**Feature Branch:** fix/filemounts
+**Last Updated:** 2025-11-06
+**Key Changes in v2.0:**
+- Mount structure changed: Additional mounts now siblings of `appdata/`, not nested inside
+- File mounts now at component level, not in subdirectories
+- Syncthing syncs entire component folder, not individual mount points
+- Storage calculation counts all mounts individually
