@@ -998,6 +998,8 @@ describe('advancedWorkflows tests', () => {
     let registryManagerStub;
     let dockerServiceStub;
     let syncthingServiceStub;
+    let syncthingServiceHealthStub;
+    let decryptEnterpriseAppsStub;
     let recursionCounter;
 
     beforeEach(() => {
@@ -1034,6 +1036,14 @@ describe('advancedWorkflows tests', () => {
 
       const syncthingService = require('../../ZelBack/src/services/syncthingService');
       syncthingServiceStub = sinon.stub(syncthingService, 'getConfigFolders');
+      syncthingServiceHealthStub = sinon.stub(syncthingService, 'getHealth').resolves({
+        status: 'success',
+        data: { status: 'OK' },
+      });
+
+      // Stub decryptEnterpriseApps to return apps as-is
+      const appQueryService = require('../../ZelBack/src/services/appQuery/appQueryService');
+      decryptEnterpriseAppsStub = sinon.stub(appQueryService, 'decryptEnterpriseApps').callsFake((apps) => Promise.resolve(apps));
 
       // Stub database connection to prevent actual DB access
       sinon.stub(dbHelper, 'databaseConnection').returns({
