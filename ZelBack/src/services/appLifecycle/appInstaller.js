@@ -335,9 +335,10 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
+ * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
  * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -682,16 +683,16 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
-    if (!test) {
-      const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
-      log.info(removeStatus);
-      if (res) {
-        res.write(serviceHelper.ensureString(removeStatus));
-        if (res.flush) res.flush();
-      }
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, false);
-      log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
+
+    const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
+    log.info(removeStatus);
+    if (res) {
+      res.write(serviceHelper.ensureString(removeStatus));
+      if (res.flush) res.flush();
     }
+    await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, sendRemovalMessage);
+    log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
+
     return false;
   }
   return true;
