@@ -97,7 +97,7 @@ function validateSubdirOrFilename(name) {
   }
 
   // Reserved names
-  const reserved = ['appdata', '.', '..'];
+  const reserved = ['appdata', 'backup', '.', '..'];
   if (reserved.includes(name)) {
     throw new Error(`Subdirectory/filename cannot be a reserved name: ${reserved.join(', ')}`);
   }

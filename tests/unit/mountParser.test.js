@@ -134,9 +134,15 @@ describe('mountParser tests', () => {
       }).to.throw('cannot contain "/" or ".."');
     });
 
-    it('should reject reserved subdirectory name', () => {
+    it('should reject reserved subdirectory name appdata', () => {
       expect(() => {
         mountParser.parseContainerData('/data|m:appdata:/var/log');
+      }).to.throw('reserved name');
+    });
+
+    it('should reject reserved subdirectory name backup', () => {
+      expect(() => {
+        mountParser.parseContainerData('/data|m:backup:/var/log');
       }).to.throw('reserved name');
     });
 
