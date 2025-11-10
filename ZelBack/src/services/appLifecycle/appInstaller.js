@@ -956,18 +956,28 @@ async function installAppLocally(req, res) {
 /**
  * Check application requirements - validates hardware, static IP, nodes, and geolocation requirements
  * @param {object} appSpecs - Application specifications to check
+ * @param {boolean} skipGeolocation - Whether to skip geolocation checks (useful for testing)
+ * @param {boolean} skipStaticIp - Whether to skip static IP checks (useful for testing)
+ * @param {boolean} skipHardware - Whether to skip hardware and nodes checks (useful for testing)
  * @returns {Promise<boolean>} True if requirements are met
  */
-async function checkAppRequirements(appSpecs) {
+async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStaticIp = false, skipHardware = false) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
-  await hwRequirements.checkAppHWRequirements(appSpecs);
-  // check geolocation
+  if (!skipHardware) {
+    await hwRequirements.checkAppHWRequirements(appSpecs);
+  }
 
-  hwRequirements.checkAppStaticIpRequirements(appSpecs);
+  if (!skipStaticIp) {
+    hwRequirements.checkAppStaticIpRequirements(appSpecs);
+  }
 
-  await hwRequirements.checkAppNodesRequirements(appSpecs);
+  if (!skipHardware) {
+    await hwRequirements.checkAppNodesRequirements(appSpecs);
+  }
 
-  hwRequirements.checkAppGeolocationRequirements(appSpecs);
+  if (!skipGeolocation) {
+    hwRequirements.checkAppGeolocationRequirements(appSpecs);
+  }
 
   return true;
 }
@@ -1040,7 +1050,8 @@ async function testAppInstall(req, res) {
       }
 
       // Test installation - similar to regular install but with test flag
-      await checkAppRequirements(appSpecifications);
+      // Skip all requirement checks for test installations (geolocation, static IP, hardware, nodes)
+      await checkAppRequirements(appSpecifications, true, true, true);
 
       res.setHeader('Content-Type', 'application/json');
 
