@@ -363,6 +363,18 @@ async function getAppFiatAndFluxPrice(req, res) {
           actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
         }
       }
+
+      // Apply subscription duration discount
+      const subscriptionMonths = expireIn / defaultExpire;
+      if (subscriptionMonths >= 9) {
+        actualPriceToPay *= 0.88; // 12% discount
+      } else if (subscriptionMonths >= 6) {
+        actualPriceToPay *= 0.94; // 6% discount
+      } else if (subscriptionMonths >= 3) {
+        actualPriceToPay *= 0.97; // 3% discount
+      }
+      actualPriceToPay = Number(actualPriceToPay).toFixed(2);
+
       let fiatRates;
       let fluxUSDRate;
       if (myShortCache.has('fluxRates')) {
