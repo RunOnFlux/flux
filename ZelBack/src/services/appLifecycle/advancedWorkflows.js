@@ -100,6 +100,121 @@ async function getStrictApplicationSpecifications(appName) {
 }
 
 /**
+ * Check and remove enterprise apps (v8+) running on non-arcaneOS nodes.
+ * This function runs once at startup to clean up incompatible apps.
+ * @returns {Promise<void>} Completion status
+ */
+async function checkAndRemoveEnterpriseAppsOnNonArcane() {
+  try {
+    // Skip if running on arcaneOS
+    if (isArcane) {
+      log.info('Running on arcaneOS - skipping enterprise app compatibility check');
+      return;
+    }
+
+    log.info('Checking for enterprise apps on non-arcaneOS node...');
+
+    // Get installed apps from local database
+    const installedAppsRes = await getInstalledAppsFromDb();
+    if (installedAppsRes.status !== 'success') {
+      log.error('Failed to get installed apps for enterprise check');
+      return;
+    }
+
+    const installedApps = installedAppsRes.data;
+    if (!installedApps || installedApps.length === 0) {
+      log.info('No apps installed - enterprise check complete');
+      return;
+    }
+
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const installedApp of installedApps) {
+      try {
+        // Get current global app specifications
+        // eslint-disable-next-line no-await-in-loop
+        const globalSpecs = await getStrictApplicationSpecifications(installedApp.name);
+
+        if (!globalSpecs) {
+          log.warn(`No global specifications found for ${installedApp.name}`);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        // Check if app is version 8+ and enterprise
+        const isEnterprise = Boolean(globalSpecs.version >= 8 && globalSpecs.enterprise);
+
+        if (isEnterprise) {
+          log.warn(`Found enterprise app ${installedApp.name} (v${globalSpecs.version}) on non-arcaneOS node - searching for non-enterprise version`);
+
+          // Query permanent app messages to find the last non-enterprise version
+          const query = {
+            'appSpecifications.name': installedApp.name,
+            type: { $in: ['fluxappregister', 'fluxappupdate'] },
+          };
+          const projection = {
+            projection: {
+              _id: 0,
+              appSpecifications: 1,
+              hash: 1,
+              height: 1,
+            },
+          };
+
+          // eslint-disable-next-line no-await-in-loop
+          const permanentMessages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+
+          if (!permanentMessages || permanentMessages.length === 0) {
+            log.error(`No permanent messages found for ${installedApp.name}`);
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
+          // Find the last message that is NOT enterprise (reverse search)
+          let lastNonEnterpriseMessage = null;
+          for (let i = permanentMessages.length - 1; i >= 0; i -= 1) {
+            const message = permanentMessages[i];
+            const specs = message.appSpecifications;
+            const msgIsEnterprise = Boolean(specs.version >= 8 && specs.enterprise);
+
+            if (!msgIsEnterprise) {
+              lastNonEnterpriseMessage = message;
+              break;
+            }
+          }
+
+          if (!lastNonEnterpriseMessage) {
+            log.warn(`No non-enterprise version found for ${installedApp.name} - will remove without replacement specs`);
+          } else {
+            log.info(`Found non-enterprise version for ${installedApp.name} at height ${lastNonEnterpriseMessage.height}`);
+          }
+
+          // Remove the app from the node with force and broadcast to peers
+          log.warn(`REMOVAL REASON: Enterprise app v${globalSpecs.version} detected at startup on non-arcaneOS node - ${installedApp.name}`);
+
+          // eslint-disable-next-line global-require
+          const appUninstaller = require('./appUninstaller');
+
+          // eslint-disable-next-line no-await-in-loop
+          await appUninstaller.removeAppLocally(installedApp.name, null, true, true, true);
+
+          log.info(`Successfully removed enterprise app ${installedApp.name} and notified peers`);
+        }
+      } catch (error) {
+        log.error(`Error processing app ${installedApp.name} for enterprise check:`, error);
+        // Continue with next app even if this one fails
+      }
+    }
+
+    log.info('Enterprise app compatibility check completed');
+  } catch (error) {
+    log.error('Error in checkAndRemoveEnterpriseAppsOnNonArcane:', error);
+  }
+}
+
+/**
  * To get previous app specifications.
  * @param {object} specifications App sepcifications.
  * @param {object} verificationTimestamp Message timestamp
@@ -2941,6 +3056,38 @@ async function reinstallOldApplications() {
               appSpecifications.version >= 8 && appSpecifications.enterprise,
             );
 
+            // Check if system is running arcaneOS for enterprise apps
+            if (isEnterprise && !isArcane) {
+              log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS. Removing application and informing peers.`);
+              log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
+
+              // Send removal message to peers
+              // eslint-disable-next-line no-await-in-loop
+              const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+              if (ip) {
+                const broadcastedAt = Date.now();
+                const appRemovedMessage = {
+                  type: 'fluxappremoved',
+                  version: 1,
+                  appName: appSpecifications.name,
+                  ip,
+                  broadcastedAt,
+                };
+                log.info('Broadcasting appremoved message to the network');
+                // eslint-disable-next-line global-require
+                const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+                // eslint-disable-next-line no-await-in-loop
+                await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
+                // eslint-disable-next-line no-await-in-loop
+                await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+              }
+              // Skip installation and continue to next app
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+
             const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
 
             if (isEnterprise) {
@@ -3110,6 +3257,38 @@ async function reinstallOldApplications() {
               const isEnterprise = Boolean(
                 appSpecifications.version >= 8 && appSpecifications.enterprise,
               );
+
+              // Check if system is running arcaneOS for enterprise apps
+              if (isEnterprise && !isArcane) {
+                log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS. Removing application and informing peers.`);
+                log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
+
+                // Send removal message to peers
+                // eslint-disable-next-line no-await-in-loop
+                const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+                if (ip) {
+                  const broadcastedAt = Date.now();
+                  const appRemovedMessage = {
+                    type: 'fluxappremoved',
+                    version: 1,
+                    appName: appSpecifications.name,
+                    ip,
+                    broadcastedAt,
+                  };
+                  log.info('Broadcasting appremoved message to the network');
+                  // eslint-disable-next-line global-require
+                  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+                  // eslint-disable-next-line no-await-in-loop
+                  await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                  // eslint-disable-next-line no-await-in-loop
+                  await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+                }
+                // Skip installation and continue to next app
+                // eslint-disable-next-line no-continue
+                continue;
+              }
 
               const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
 
@@ -4020,6 +4199,7 @@ module.exports = {
   setInstallationInProgressTrue,
   checkAndRemoveApplicationInstance,
   reinstallOldApplications,
+  checkAndRemoveEnterpriseAppsOnNonArcane,
   forceAppRemovals,
   masterSlaveApps,
   getPeerAppsInstallingErrorMessages,

@@ -1219,7 +1219,7 @@ async function expireGlobalApplications() {
       log.warn(`Application ${appName} is expired, removing`);
       log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (registryManager)`);
       // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(appName, null, false, true, true);
+      await appUninstaller.removeAppLocally(appName, null, true, false, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
     }
