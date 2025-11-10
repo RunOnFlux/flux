@@ -2941,6 +2941,38 @@ async function reinstallOldApplications() {
               appSpecifications.version >= 8 && appSpecifications.enterprise,
             );
 
+            // Check if system is running arcaneOS for enterprise apps
+            if (isEnterprise && !isArcane) {
+              log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS. Removing application and informing peers.`);
+              log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
+
+              // Send removal message to peers
+              // eslint-disable-next-line no-await-in-loop
+              const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+              if (ip) {
+                const broadcastedAt = Date.now();
+                const appRemovedMessage = {
+                  type: 'fluxappremoved',
+                  version: 1,
+                  appName: appSpecifications.name,
+                  ip,
+                  broadcastedAt,
+                };
+                log.info('Broadcasting appremoved message to the network');
+                // eslint-disable-next-line global-require
+                const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+                // eslint-disable-next-line no-await-in-loop
+                await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
+                // eslint-disable-next-line no-await-in-loop
+                await serviceHelper.delay(500);
+                // eslint-disable-next-line no-await-in-loop
+                await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+              }
+              // Skip installation and continue to next app
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+
             const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
 
             if (isEnterprise) {
@@ -3110,6 +3142,38 @@ async function reinstallOldApplications() {
               const isEnterprise = Boolean(
                 appSpecifications.version >= 8 && appSpecifications.enterprise,
               );
+
+              // Check if system is running arcaneOS for enterprise apps
+              if (isEnterprise && !isArcane) {
+                log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS. Removing application and informing peers.`);
+                log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
+
+                // Send removal message to peers
+                // eslint-disable-next-line no-await-in-loop
+                const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+                if (ip) {
+                  const broadcastedAt = Date.now();
+                  const appRemovedMessage = {
+                    type: 'fluxappremoved',
+                    version: 1,
+                    appName: appSpecifications.name,
+                    ip,
+                    broadcastedAt,
+                  };
+                  log.info('Broadcasting appremoved message to the network');
+                  // eslint-disable-next-line global-require
+                  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+                  // eslint-disable-next-line no-await-in-loop
+                  await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
+                  // eslint-disable-next-line no-await-in-loop
+                  await serviceHelper.delay(500);
+                  // eslint-disable-next-line no-await-in-loop
+                  await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+                }
+                // Skip installation and continue to next app
+                // eslint-disable-next-line no-continue
+                continue;
+              }
 
               const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
 
