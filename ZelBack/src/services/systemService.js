@@ -521,8 +521,7 @@ async function monitorSyncthingPackage() {
           return { data: { data: {} } };
         });
 
-      const minSyncthingVersion =
-        data.syncthing || config.minimumSyncthingAllowedVersion;
+      const minSyncthingVersion = data.syncthing || config.minimumSyncthingAllowedVersion;
 
       const currentSyncthingVersion = await getPackageVersion('syncthing');
 
@@ -561,7 +560,7 @@ async function monitorSyncthingPackage() {
         log.info('Syncthing upgraded, restarting to load new binary...');
         await syncthingService.systemRestart(null, null).catch(() => { });
       }
-    }
+    };
 
     await versionChecker();
 
@@ -687,6 +686,8 @@ async function monitorSystem() {
     // Debian 12 = 1.219
     setImmediate(() => ensurePackageVersion('netcat-openbsd', '1.187'));
     setImmediate(() => monitorSyncthingPackage());
+    // eslint-disable-next-line no-use-before-define
+    setImmediate(() => ensureChronyd());
   } catch (error) {
     log.error(error);
   }
@@ -912,6 +913,172 @@ async function enableFluxdZmq(zmqEndpoint) {
   return true;
 }
 
+/**
+ * Ensures chrony is installed and running, replacing systemd-timesyncd.
+ * Will disable and mask systemd-timesyncd after confirming chrony is working.
+ * On failure to install chrony, restarts systemd-timesyncd if it was previously stopped.
+ * @returns {Promise<boolean>} True if chrony is configured successfully, false otherwise
+ */
+async function ensureChronyd() {
+  if (isArcane) return true;
+
+  try {
+    log.info('Checking time synchronization service...');
+
+    // Check if chrony is already installed
+    const chronyVersion = await getPackageVersion('chrony');
+    const chronyInstalled = Boolean(chronyVersion);
+
+    // Check if systemd-timesyncd is active
+    const { error: timedActiveCheck } = await serviceHelper.runCommand('systemctl', {
+      runAsRoot: true,
+      logError: false,
+      params: ['is-active', 'systemd-timesyncd'],
+    });
+
+    const timedActive = !timedActiveCheck; // No error means service is active
+
+    // If chrony already installed and timesyncd not active, we're done
+    if (chronyInstalled && !timedActive) {
+      log.info('Chrony already configured');
+      return true;
+    }
+
+    let timedWasStopped = false;
+
+    // Stop and disable systemd-timesyncd if it's running
+    if (timedActive) {
+      log.info('Stopping systemd-timesyncd service...');
+
+      await serviceHelper.runCommand('systemctl', {
+        runAsRoot: true,
+        params: ['stop', 'systemd-timesyncd'],
+      });
+
+      timedWasStopped = true;
+    }
+
+    // Install chrony if not already present
+    if (!chronyInstalled) {
+      log.info('Installing chrony...');
+
+      // Update apt cache to ensure we have latest package info
+      await updateAptCache();
+
+      const { error: installError } = await queueAptGetCommand('install', {
+        wait: true,
+        params: ['chrony'],
+      });
+
+      if (installError) {
+        log.error('Failed to install chrony');
+
+        // Restart systemd-timesyncd if we stopped it
+        if (timedWasStopped) {
+          log.info('Restarting systemd-timesyncd due to chrony installation failure');
+          await serviceHelper.runCommand('systemctl', {
+            runAsRoot: true,
+            params: ['start', 'systemd-timesyncd'],
+          });
+        }
+
+        return false;
+      }
+
+      log.info('Chrony installed successfully');
+    }
+
+    // Enable and start chrony service
+    log.info('Starting chrony service...');
+
+    const { error: enableError } = await serviceHelper.runCommand('systemctl', {
+      runAsRoot: true,
+      params: ['enable', 'chrony'],
+    });
+
+    if (enableError) {
+      log.error('Failed to enable chrony service');
+
+      // Restart systemd-timesyncd if we stopped it
+      if (timedWasStopped) {
+        log.info('Restarting systemd-timesyncd due to chrony enable failure');
+        await serviceHelper.runCommand('systemctl', {
+          runAsRoot: true,
+          params: ['start', 'systemd-timesyncd'],
+        });
+      }
+
+      return false;
+    }
+
+    await serviceHelper.runCommand('systemctl', {
+      runAsRoot: true,
+      params: ['start', 'chrony'],
+    });
+
+    // Wait for chrony to initialize
+    await serviceHelper.delay(3 * 1000);
+
+    // Verify chrony is actually syncing time
+    log.info('Verifying chrony time synchronization...');
+
+    const { stdout: trackingOutput, error: trackingError } = await serviceHelper.runCommand('chronyc', {
+      params: ['tracking'],
+      logError: false,
+    });
+
+    if (trackingError || !trackingOutput) {
+      log.error('Failed to verify chrony tracking status');
+
+      // Restart systemd-timesyncd if we stopped it
+      if (timedWasStopped) {
+        log.info('Restarting systemd-timesyncd due to chrony verification failure');
+        await serviceHelper.runCommand('systemctl', {
+          runAsRoot: true,
+          params: ['start', 'systemd-timesyncd'],
+        });
+      }
+
+      return false;
+    }
+
+    // Check if chrony has a reference (is syncing or trying to sync)
+    // The "Reference ID" line should not be "00000000" if it's working
+    const hasReference = trackingOutput.includes('Reference ID') && !trackingOutput.includes('Reference ID    : 00000000');
+
+    if (!hasReference) {
+      log.warn('Chrony may not be synchronizing yet, but service is running');
+      // We'll continue anyway as chrony might just need more time to find servers
+    } else {
+      log.info('Chrony is synchronizing time successfully');
+    }
+
+    // Disable and mask systemd-timesyncd to prevent it from running
+    log.info('Disabling and masking systemd-timesyncd service...');
+
+    const { error: disableError } = await serviceHelper.runCommand('systemctl', {
+      runAsRoot: true,
+      logError: false,
+      params: ['disable', 'systemd-timesyncd'],
+    });
+
+    if (!disableError) {
+      await serviceHelper.runCommand('systemctl', {
+        runAsRoot: true,
+        params: ['mask', 'systemd-timesyncd'],
+      });
+      log.info('systemd-timesyncd disabled and masked');
+    } else {
+      log.info('systemd-timesyncd service not found, skipping disable/mask');
+    }
+    log.info('Chrony configured successfully');
+    return true;
+  } catch (error) {
+    log.error('Error configuring chrony:', error);
+    return false;
+  }
+}
+
 module.exports = {
   monitorSystem,
   // testing exports
@@ -921,6 +1088,7 @@ module.exports = {
   aptRunner,
   cacheUpdateTime,
   enableFluxdZmq,
+  ensureChronyd,
   ensurePackageVersion,
   getPackageVersion,
   getQueue,

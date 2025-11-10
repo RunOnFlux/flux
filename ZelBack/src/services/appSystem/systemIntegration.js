@@ -2,10 +2,13 @@ const os = require('os');
 const config = require('config');
 const log = require('../../lib/log');
 const messageHelper = require('../messageHelper');
+// eslint-disable-next-line no-unused-vars
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const dockerService = require('../dockerService');
+// eslint-disable-next-line no-unused-vars
 const daemonServiceFluxnodeRpcs = require('../daemonService/daemonServiceFluxnodeRpcs');
+// eslint-disable-next-line no-unused-vars
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const benchmarkService = require('../benchmarkService');
 const hwRequirements = require('../appRequirements/hwRequirements');
@@ -13,7 +16,7 @@ const daemonServiceBenchmarkRpcs = require('../daemonService/daemonServiceBenchm
 const generalService = require('../generalService');
 
 // Node specifications cache
-let nodeSpecs = {
+const nodeSpecs = {
   cpuCores: 0,
   ram: 0,
   ssdStorage: 0,
@@ -89,6 +92,7 @@ async function systemArchitecture() {
 function checkAppStaticIpRequirements(appSpecs) {
   if (appSpecs.version >= 7 && appSpecs.staticip) {
     // Import locally to avoid circular dependency
+    // eslint-disable-next-line global-require
     const geolocationService = require('../geolocationService');
     const isMyNodeStaticIP = geolocationService.isStaticIP();
     if (isMyNodeStaticIP !== appSpecs.staticip) {
@@ -139,6 +143,7 @@ async function checkAppNodesRequirements(appSpecs) {
 function checkAppGeolocationRequirements(appSpecs) {
   if (appSpecs.version >= 5 && appSpecs.geolocation && appSpecs.geolocation.length > 0) {
     // Import locally to avoid circular dependency
+    // eslint-disable-next-line global-require
     const geolocationService = require('../geolocationService');
     const nodeGeo = geolocationService.getNodeGeolocation();
     if (!nodeGeo) {
@@ -190,6 +195,7 @@ function checkAppGeolocationRequirements(appSpecs) {
  */
 function nodeFullGeolocation() {
   // Import locally to avoid circular dependency
+  // eslint-disable-next-line global-require
   const geolocationService = require('../geolocationService');
   const nodeGeo = geolocationService.getNodeGeolocation();
   if (!nodeGeo) {
@@ -205,6 +211,7 @@ function nodeFullGeolocation() {
  */
 async function checkAppHWRequirements(appSpecs) {
   // Import locally to avoid circular dependency
+  // eslint-disable-next-line global-require
   const appController = require('../appManagement/appController');
 
   // appSpecs has hdd, cpu and ram assigned to correct tier
@@ -412,10 +419,9 @@ async function createFluxNetworkAPI(req, res) {
       error.name,
       error.code,
     );
-    res.json(errorResponse);
+    return res.json(errorResponse);
   }
 }
-
 
 /**
  * Start monitoring of apps
@@ -430,6 +436,7 @@ async function startMonitoringOfApps(appSpecsToMonitor) {
 
     log.info(`Starting monitoring for ${appSpecsToMonitor.length} apps`);
 
+    // eslint-disable-next-line no-restricted-syntax
     for (const appSpec of appSpecsToMonitor) {
       // Initialize monitoring for each app
       log.info(`Monitoring started for ${appSpec.name}`);
@@ -454,6 +461,7 @@ async function stopMonitoringOfApps(appSpecsToMonitor, deleteData = false) {
 
     log.info(`Stopping monitoring for ${appSpecsToMonitor.length} apps`);
 
+    // eslint-disable-next-line no-restricted-syntax
     for (const appSpec of appSpecsToMonitor) {
       // Stop monitoring for each app
       log.info(`Monitoring stopped for ${appSpec.name}`);

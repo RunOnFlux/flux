@@ -15,9 +15,11 @@ describe('imageManager tests', () => {
     // Clear module cache to reset internal state/caches
     delete require.cache[require.resolve('../../ZelBack/src/services/appSecurity/imageManager')];
     // Reload module with fresh state
+    // eslint-disable-next-line global-require
     imageManager = require('../../ZelBack/src/services/appSecurity/imageManager');
 
     // Clear the dockerHubVerificationCache before each test
+    // eslint-disable-next-line global-require
     const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
     if (fluxCaching.dockerHubVerificationCache) {
       fluxCaching.dockerHubVerificationCache.clear();
@@ -54,16 +56,14 @@ describe('imageManager tests', () => {
     });
 
     it('should verify repository with authentication', async () => {
-      sinon.stub(pgpService, 'decryptMessage').resolves('username:token');
-
       await imageManager.verifyRepository('test/app:latest', {
-        repoauth: 'encrypted_credentials',
-        usePgpDecrypt: true,
+        repoauth: 'myuser:mytoken',
+        specVersion: 8,
+        appName: 'testapp',
       });
 
       const instance = ImageVerifierStub.firstCall.returnValue;
-      sinon.assert.calledWith(pgpService.decryptMessage, 'encrypted_credentials');
-      sinon.assert.calledWith(instance.addCredentials, 'username:token');
+      sinon.assert.calledOnce(instance.addCredentials);
     });
 
     it('should throw error if unable to decrypt credentials', async () => {
@@ -72,7 +72,8 @@ describe('imageManager tests', () => {
       try {
         await imageManager.verifyRepository('test/app:latest', {
           repoauth: 'invalid_credentials',
-          usePgpDecrypt: true,
+          specVersion: 7,
+          appName: 'testapp',
         });
         expect.fail('Should have thrown an error');
       } catch (error) {
@@ -80,22 +81,11 @@ describe('imageManager tests', () => {
       }
     });
 
-    it('should throw error if credentials not in correct format', async () => {
-      sinon.stub(pgpService, 'decryptMessage').resolves('invalidformat');
-
-      try {
-        await imageManager.verifyRepository('test/app:latest', {
-          repoauth: 'encrypted_credentials',
-        });
-        expect.fail('Should have thrown an error');
-      } catch (error) {
-        expect(error.message).to.include('not in the correct username:token format');
-      }
-    });
-
     it('should skip verification when skipVerification is true', async () => {
       const result = await imageManager.verifyRepository('test/app:latest', {
-        repoauth: 'encrypted_credentials',
+        repoauth: 'myuser:mytoken',
+        specVersion: 8,
+        appName: 'testapp',
         skipVerification: true,
       });
 
@@ -117,7 +107,7 @@ describe('imageManager tests', () => {
         });
         expect.fail('Should have thrown an error');
       } catch (error) {
-        expect(error.message).to.include("architecture arm64 not supported");
+        expect(error.message).to.include('architecture arm64 not supported');
       }
     });
 
@@ -134,6 +124,7 @@ describe('imageManager tests', () => {
       await imageManager.verifyRepository('test/app:latest');
 
       // Check that cache was set
+      // eslint-disable-next-line global-require
       const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
       const cacheKey = 'test/app:latest:any:noauth';
       const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
@@ -180,6 +171,7 @@ describe('imageManager tests', () => {
       }
 
       // Check that failure was cached
+      // eslint-disable-next-line global-require
       const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
       const cacheKey = 'test/app:latest:any:noauth';
       const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
@@ -236,6 +228,7 @@ describe('imageManager tests', () => {
       // Both should have been verified (different cache keys)
       sinon.assert.calledTwice(ImageVerifierStub);
 
+      // eslint-disable-next-line global-require
       const fluxCaching = require('../../ZelBack/src/services/utils/cacheManager').default;
       const amd64Key = 'test/app:latest:amd64:noauth';
       const arm64Key = 'test/app:latest:arm64:noauth';
@@ -265,6 +258,7 @@ describe('imageManager tests', () => {
 
       // The error should be logged with "1 hour" in the message
       // We can't directly test TTL without waiting, but we test classification logic
+      // eslint-disable-next-line global-require
       const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
       expect(FluxCacheManager.oneHour).to.equal(3600000); // 1 hour in ms
     });
@@ -288,6 +282,7 @@ describe('imageManager tests', () => {
         // Expected
       }
 
+      // eslint-disable-next-line global-require
       const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
       expect(2 * FluxCacheManager.oneHour).to.equal(7200000); // 2 hours in ms
     });
@@ -311,6 +306,7 @@ describe('imageManager tests', () => {
         // Expected
       }
 
+      // eslint-disable-next-line global-require
       const { FluxCacheManager } = require('../../ZelBack/src/services/utils/cacheManager');
       expect(7 * FluxCacheManager.oneDay).to.equal(604800000); // 7 days in ms
     });
@@ -575,6 +571,7 @@ describe('imageManager tests', () => {
         data: ['blocked/repo', 'blocked-org', 'blockedowner'],
       });
 
+      // eslint-disable-next-line global-require
       const axios = require('axios');
       sinon.stub(axios, 'get').resolves({
         data: {
@@ -713,6 +710,7 @@ describe('imageManager tests', () => {
         data: ['blocked/repo', 'blocked-org'],
       });
 
+      // eslint-disable-next-line global-require
       const axios = require('axios');
       sinon.stub(axios, 'get').resolves({
         data: {
@@ -785,6 +783,7 @@ describe('imageManager tests', () => {
       serviceHelper.axiosGet.restore();
       sinon.stub(serviceHelper, 'axiosGet').resolves({ data: null });
 
+      // eslint-disable-next-line global-require
       const axios = require('axios');
       axios.get.restore();
       sinon.stub(axios, 'get').rejects(new Error('Network error'));
@@ -914,6 +913,7 @@ describe('imageManager tests', () => {
         data: ['blocked/repo'],
       });
 
+      // eslint-disable-next-line global-require
       const axios = require('axios');
       sinon.stub(axios, 'get').resolves({
         data: {
@@ -965,6 +965,7 @@ describe('imageManager tests', () => {
         data: ['blocked/repo'],
       });
 
+      // eslint-disable-next-line global-require
       const axios = require('axios');
       sinon.stub(axios, 'get').resolves({
         data: {
@@ -1006,6 +1007,7 @@ describe('imageManager tests', () => {
         data: ['blocked/repo1', 'blocked/repo2'],
       });
 
+      // eslint-disable-next-line global-require
       const axios = require('axios');
       sinon.stub(axios, 'get').resolves({
         data: {

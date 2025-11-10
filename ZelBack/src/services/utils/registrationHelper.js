@@ -1,4 +1,5 @@
 const messageHelper = require('../messageHelper');
+// eslint-disable-next-line no-unused-vars
 const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const geolocationService = require('../geolocationService');
@@ -26,6 +27,7 @@ async function registrationInformation(req, res) {
     const nodeGeo = geolocationService.getNodeGeolocation();
 
     // Get node specifications
+    // eslint-disable-next-line global-require
     const hwRequirements = require('../appRequirements/hwRequirements');
     const nodeSpecs = await hwRequirements.getNodeSpecs();
 

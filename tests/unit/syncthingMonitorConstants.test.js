@@ -42,7 +42,7 @@ describe('syncthingMonitorConstants tests', () => {
   describe('Sync monitoring constants', () => {
     it('should have MAX_SYNC_WAIT_EXECUTIONS defined', () => {
       expect(constants.MAX_SYNC_WAIT_EXECUTIONS).to.be.a('number');
-      expect(constants.MAX_SYNC_WAIT_EXECUTIONS).to.equal(60);
+      expect(constants.MAX_SYNC_WAIT_EXECUTIONS).to.equal(120); // ~1 hour at 30s intervals
     });
 
     it('should have CLOCK_SKEW_TOLERANCE_MS defined', () => {

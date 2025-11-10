@@ -1,6 +1,7 @@
 const { expect } = require('chai');
 const sinon = require('sinon');
 const os = require('os');
+// eslint-disable-next-line no-unused-vars
 const config = require('config');
 const systemIntegration = require('../../ZelBack/src/services/appSystem/systemIntegration');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
@@ -32,6 +33,7 @@ describe('systemIntegration tests', () => {
 
   describe('getNodeSpecs tests', () => {
     it('should get CPU cores from os module', async () => {
+      // eslint-disable-next-line no-unused-vars
       const cpusStub = sinon.stub(os, 'cpus').returns([{}, {}, {}, {}]); // 4 cores
       sinon.stub(os, 'totalmem').returns(16 * 1024 * 1024 * 1024); // 16GB
       sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks').resolves({
@@ -47,6 +49,7 @@ describe('systemIntegration tests', () => {
 
     it('should get RAM from os module', async () => {
       sinon.stub(os, 'cpus').returns([{}]);
+      // eslint-disable-next-line no-unused-vars
       const totalmemStub = sinon.stub(os, 'totalmem').returns(8 * 1024 * 1024 * 1024); // 8GB
       sinon.stub(daemonServiceBenchmarkRpcs, 'getBenchmarks').resolves({
         status: 'success',
@@ -192,6 +195,7 @@ describe('systemIntegration tests', () => {
 
     it('should pass if node has static IP and app requires it', () => {
       const appSpecs = { name: 'TestApp', version: 7, staticip: true };
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'isStaticIP').returns(true);
 
@@ -202,6 +206,7 @@ describe('systemIntegration tests', () => {
 
     it('should throw error if static IP mismatch', () => {
       const appSpecs = { name: 'TestApp', version: 7, staticip: true };
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'isStaticIP').returns(false);
 
@@ -325,6 +330,7 @@ describe('systemIntegration tests', () => {
 
     it('should pass if node matches continent requirement', () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['acEU'] };
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'getNodeGeolocation').returns({
         continentCode: 'EU',
@@ -339,6 +345,7 @@ describe('systemIntegration tests', () => {
 
     it('should pass if node matches country requirement', () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['acEU_FR'] };
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'getNodeGeolocation').returns({
         continentCode: 'EU',
@@ -353,6 +360,7 @@ describe('systemIntegration tests', () => {
 
     it('should throw error if continent mismatch', () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['acNA'] };
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'getNodeGeolocation').returns({
         continentCode: 'EU',
@@ -370,6 +378,7 @@ describe('systemIntegration tests', () => {
 
     it('should throw error if node location is forbidden', () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['a!cEU'] };
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'getNodeGeolocation').returns({
         continentCode: 'EU',
@@ -387,6 +396,7 @@ describe('systemIntegration tests', () => {
 
     it('should throw error if node geolocation not set', () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['acEU'] };
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'getNodeGeolocation').returns(null);
 
@@ -401,6 +411,7 @@ describe('systemIntegration tests', () => {
 
   describe('nodeFullGeolocation tests', () => {
     it('should return full geolocation string', () => {
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'getNodeGeolocation').returns({
         continentCode: 'EU',
@@ -414,6 +425,7 @@ describe('systemIntegration tests', () => {
     });
 
     it('should throw error if geolocation not set', () => {
+      // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
       sinon.stub(geolocationService, 'getNodeGeolocation').returns(null);
 
@@ -521,8 +533,12 @@ describe('systemIntegration tests', () => {
       const appSpecs = {
         name: 'ComposedApp',
         compose: [
-          { name: 'Component1', cpu: 1.0, ram: 1000, hdd: 25 },
-          { name: 'Component2', cpu: 1.5, ram: 2000, hdd: 50 },
+          {
+            name: 'Component1', cpu: 1.0, ram: 1000, hdd: 25,
+          },
+          {
+            name: 'Component2', cpu: 1.5, ram: 2000, hdd: 50,
+          },
         ],
       };
 
@@ -535,8 +551,12 @@ describe('systemIntegration tests', () => {
       const appSpecs = {
         name: 'ComposedApp',
         compose: [
-          { name: 'Component1', cpu: 10.0, ram: 1000, hdd: 25 },
-          { name: 'Component2', cpu: 10.0, ram: 1000, hdd: 25 },
+          {
+            name: 'Component1', cpu: 10.0, ram: 1000, hdd: 25,
+          },
+          {
+            name: 'Component2', cpu: 10.0, ram: 1000, hdd: 25,
+          },
         ],
       };
 

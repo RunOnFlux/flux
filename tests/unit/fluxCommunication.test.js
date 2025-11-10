@@ -1443,6 +1443,7 @@ describe('fluxCommunication tests', () => {
       });
 
       // Stub initiateAndHandleConnection to prevent actual connections
+      // eslint-disable-next-line no-unused-vars
       const initiateStub = sinon.stub(fluxCommunication, 'initiateAndHandleConnection').resolves();
 
       const infoSpy = sinon.spy(log, 'info');
@@ -1464,9 +1465,11 @@ describe('fluxCommunication tests', () => {
       sinon.stub(serviceHelper, 'axiosGet').resolves(axiosGetResponse);
 
       // Start fluxDiscovery and wait for it to make connection attempts
+      // eslint-disable-next-line no-unused-vars
       const discoveryPromise = fluxCommunication.fluxDiscovery();
 
       // Wait for the discovery logic to execute and make at least one connection attempt
+      // eslint-disable-next-line no-promise-executor-return
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Verify the expected log calls were made

@@ -7,6 +7,7 @@ const appSpecHelpers = require('../../ZelBack/src/services/utils/appSpecHelpers'
 const dbHelper = require('../../ZelBack/src/services/dbHelper');
 const daemonServiceMiscRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceMiscRpcs');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
+// eslint-disable-next-line no-unused-vars
 const log = require('../../ZelBack/src/lib/log');
 
 describe('appSpecHelpers tests', () => {
@@ -70,9 +71,15 @@ describe('appSpecHelpers tests', () => {
         name: 'ComposedApp',
         version: 4,
         compose: [
-          { name: 'Frontend', cpu: 1, ram: 2000, hdd: 50 },
-          { name: 'Backend', cpu: 2, ram: 4000, hdd: 100 },
-          { name: 'Database', cpu: 2, ram: 8000, hdd: 200 },
+          {
+            name: 'Frontend', cpu: 1, ram: 2000, hdd: 50,
+          },
+          {
+            name: 'Backend', cpu: 2, ram: 4000, hdd: 100,
+          },
+          {
+            name: 'Database', cpu: 2, ram: 8000, hdd: 200,
+          },
         ],
         instances: 2,
       };
@@ -181,7 +188,9 @@ describe('appSpecHelpers tests', () => {
         name: 'V5App',
         version: 5,
         compose: [
-          { name: 'Service', cpu: 2, ram: 4000, hdd: 100 },
+          {
+            name: 'Service', cpu: 2, ram: 4000, hdd: 100,
+          },
         ],
       };
 
@@ -599,13 +608,15 @@ describe('appSpecHelpers tests', () => {
       });
       sinon.stub(dbHelper, 'findOneInDatabase').resolves(null);
 
-      const getChainParamsPriceUpdates = require('../../ZelBack/src/services/utils/chainUtilities').getChainParamsPriceUpdates;
+      // eslint-disable-next-line global-require
+      const { getChainParamsPriceUpdates } = require('../../ZelBack/src/services/utils/chainUtilities');
       sinon.stub(getChainParamsPriceUpdates, 'call').resolves([
         { height: 0, minPrice: 1 },
         { height: 50000, minPrice: 2 },
       ]);
 
-      const appPricePerMonth = require('../../ZelBack/src/services/utils/appUtilities').appPricePerMonth;
+      // eslint-disable-next-line global-require
+      const { appPricePerMonth } = require('../../ZelBack/src/services/utils/appUtilities');
       sinon.stub(appPricePerMonth, 'call').resolves(10);
 
       try {

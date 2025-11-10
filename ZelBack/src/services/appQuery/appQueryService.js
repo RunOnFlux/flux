@@ -115,8 +115,11 @@ async function listRunningApps(req, res) {
     }
     const modifiedApps = [];
     apps.forEach((app) => {
+      // eslint-disable-next-line no-param-reassign
       delete app.HostConfig;
+      // eslint-disable-next-line no-param-reassign
       delete app.NetworkSettings;
+      // eslint-disable-next-line no-param-reassign
       delete app.Mounts;
       modifiedApps.push(app);
     });

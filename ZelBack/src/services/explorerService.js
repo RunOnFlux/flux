@@ -783,7 +783,10 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       const globalAppsSpecs = await registryManager.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
 
       if (globalAppsSpecs.length >= 2) {
-        const defaultExpire = config.fluxapps.blocksLasting;
+        // Account for PON fork - chain is 4x faster after fork
+        const defaultExpire = scannedBlockHeight >= config.fluxapps.daemonPONFork
+          ? config.fluxapps.blocksLasting * 4
+          : config.fluxapps.blocksLasting;
         const minBlockheightDifference = defaultExpire * 0.9; // it is highly unlikely that there was no app registration or an update for default of 2200 blocks ~3days
         const oldestAppHeight = globalAppsSpecs[0].height;
         const youngestAppHeight = globalAppsSpecs.pop().height;

@@ -16,8 +16,11 @@ let stateManager = null;
 /**
  * Throttle state for daemon RPC calls
  */
-let lastDaemonCallTimestamp = 0;
-let lastDaemonCallResult = [];
+// eslint-disable-next-line no-unused-vars
+const lastDaemonCallTimestamp = 0;
+// eslint-disable-next-line no-unused-vars
+const lastDaemonCallResult = [];
+// eslint-disable-next-line no-unused-vars
 const DAEMON_CALL_THROTTLE_MS = 30000; // 30 seconds
 
 /**
@@ -31,8 +34,11 @@ const DAEMON_CALL_THROTTLE_MS = 30000; // 30 seconds
  * @returns {Promise<void>}
  */
 async function start(options = {}) {
-  return new Promise((resolve, reject) => {
-    if (stateManager) return resolve();
+  return new Promise((resolve, reject) => { // eslint-disable-line consistent-return
+    if (stateManager) {
+      resolve();
+      return;
+    }
 
     const waitTimeoutMs = options.waitTimeoutMs || 0;
     const stateEmitter = options.stateEmitter || null;

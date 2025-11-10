@@ -1145,6 +1145,7 @@ deb https://apt.syncthing.net/ syncthing testing
       let writeStub;
       let rmStub;
       let logSpy;
+      // eslint-disable-next-line no-unused-vars
       let cacheUpdateTimeStub;
 
       beforeEach(() => {

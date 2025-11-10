@@ -15,6 +15,7 @@ describe('cryptographicKeys tests', () => {
   // Helper to reload module after environment change
   const reloadModule = () => {
     delete require.cache[require.resolve('../../ZelBack/src/services/appMessaging/cryptographicKeys')];
+    // eslint-disable-next-line global-require
     cryptographicKeys = require('../../ZelBack/src/services/appMessaging/cryptographicKeys');
   };
 

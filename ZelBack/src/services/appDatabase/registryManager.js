@@ -437,6 +437,7 @@ async function getApplicationSpecifications(appName) {
   };
   let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
   if (!appInfo) {
+    // eslint-disable-next-line no-use-before-define
     const allApps = await availableApps();
     appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
   }
@@ -1122,8 +1123,11 @@ async function expireGlobalApplications() {
     };
     const results = await dbHelper.findInDatabase(databaseApps, globalAppsInformation, queryApps, projectionApps);
     const appsToExpire = [];
-    const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
     results.forEach((appSpecs) => {
+      // Determine default expire based on whether app was registered after PON fork
+      const defaultExpire = appSpecs.height >= config.fluxapps.daemonPONFork
+        ? config.fluxapps.blocksLasting * 4
+        : config.fluxapps.blocksLasting;
       const expireIn = appSpecs.expire || defaultExpire;
       let actualExpirationHeight = appSpecs.height + expireIn;
 
@@ -1161,6 +1165,7 @@ async function expireGlobalApplications() {
 
     // get list of locally installed apps.
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const appQueryService = require('../appQuery/appQueryService');
     const installedAppsRes = await appQueryService.installedApps();
     if (installedAppsRes.status !== 'success') {
@@ -1177,6 +1182,10 @@ async function expireGlobalApplications() {
       } else if (app.height === 0) {
         // do nothing, forever lasting local app
       } else {
+        // Determine default expire based on whether app was registered after PON fork
+        const defaultExpire = app.height >= config.fluxapps.daemonPONFork
+          ? config.fluxapps.blocksLasting * 4
+          : config.fluxapps.blocksLasting;
         const expireIn = app.expire || defaultExpire;
         let actualExpirationHeight = app.height + expireIn;
 
@@ -1203,13 +1212,14 @@ async function expireGlobalApplications() {
 
     // remove appsToRemoveNames apps from locally running
     // Use dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const appUninstaller = require('../appLifecycle/appUninstaller');
     // eslint-disable-next-line no-restricted-syntax
     for (const appName of appsToRemoveNames) {
       log.warn(`Application ${appName} is expired, removing`);
       log.warn(`REMOVAL REASON: App expired - ${appName} reached expiration date (registryManager)`);
       // eslint-disable-next-line no-await-in-loop
-      await appUninstaller.removeAppLocally(appName, null, false, true, true);
+      await appUninstaller.removeAppLocally(appName, null, true, false, true);
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(1 * 60 * 1000); // wait for 1 min
     }
@@ -1446,17 +1456,20 @@ async function reconstructAppMessagesHashCollectionAPI(req, res) {
  */
 async function registerAppGlobalyApi(req, res) {
   // Import dependencies needed for this function
+  // eslint-disable-next-line global-require
   const generalService = require('../generalService');
-  const serviceHelper = require('../serviceHelper');
-  const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
-  const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+  // eslint-disable-next-line global-require
   const appUtilities = require('../utils/appUtilities');
+  // eslint-disable-next-line global-require
   const appValidator = require('../appRequirements/appValidator');
+  // eslint-disable-next-line global-require
   const imageManager = require('../appSecurity/imageManager');
+  // eslint-disable-next-line global-require
   const messageVerifier = require('../appMessaging/messageVerifier');
+  // eslint-disable-next-line global-require
   const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
+  // eslint-disable-next-line global-require
   const { outgoingPeers, incomingPeers } = require('../utils/establishedConnections');
-  const config = require('config');
 
   const isArcane = Boolean(process.env.FLUXOS_PATH);
 

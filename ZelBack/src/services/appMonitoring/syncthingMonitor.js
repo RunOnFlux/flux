@@ -2,6 +2,7 @@
 const path = require('node:path');
 const config = require('config');
 const dbHelper = require('../dbHelper');
+// eslint-disable-next-line no-unused-vars
 const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
@@ -10,6 +11,7 @@ const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const {
   MONITOR_INTERVAL_MS,
+  // eslint-disable-next-line no-unused-vars
   ERROR_RETRY_DELAY_MS,
   SYNC_STATE_LOG_INTERVAL_MS,
 } = require('./syncthingMonitorConstants');
@@ -18,7 +20,6 @@ const {
   buildDeviceConfiguration,
   createSyncthingFolderConfig,
   ensureStfolderExists,
-  getContainerFolderPath,
   getContainerDataFlags,
   requiresSyncing,
   folderNeedsUpdate,
@@ -79,91 +80,83 @@ async function processContainerData(params) {
 
   const containersData = containerData.split('|');
 
-  // Process each container
-  for (let i = 0; i < containersData.length; i += 1) {
-    const container = containersData[i];
-    const containerDataFlags = getContainerDataFlags(container);
+  // Check if syncing is required (only check primary mount - index 0)
+  const primaryContainer = containersData[0];
+  const primaryContainerDataFlags = getContainerDataFlags(primaryContainer);
 
-    // Skip if no syncing required
-    if (!requiresSyncing(containerDataFlags)) {
-      // eslint-disable-next-line no-continue
-      continue;
-    }
+  if (!requiresSyncing(primaryContainerDataFlags)) {
+    // No syncing required for this app
+    return;
+  }
 
-    // Build folder path
-    const containerFolder = getContainerFolderPath(containersData, i);
-    const appId = dockerService.getAppIdentifier(identifier);
-    const folder = `${appsFolder + appId + containerFolder}`;
-    const id = appId;
-    const label = appId;
+  // Sync the entire appId folder (not individual mount points)
+  // This ensures all subdirectories (appdata, logs, config, etc.) are synced together
+  const appId = dockerService.getAppIdentifier(identifier);
+  const folder = `${appsFolder}${appId}`;
+  const id = appId;
+  const label = appId;
 
-    // Ensure .stfolder directory exists
-    // eslint-disable-next-line no-await-in-loop
-    await ensureStfolderExists(folder);
+  // Ensure .stfolder directory exists at appId level
+  await ensureStfolderExists(folder);
 
-    // Get and process app locations
-    // eslint-disable-next-line no-await-in-loop
-    let locations = await appLocation(installedAppName);
-    locations = sortAndFilterLocations(locations, myIP);
+  // Get and process app locations
+  let locations = await appLocation(installedAppName);
+  locations = sortAndFilterLocations(locations, myIP);
 
-    // Build device configuration (parallelized internally)
-    // eslint-disable-next-line no-await-in-loop
-    const devices = await buildDeviceConfiguration(
-      locations,
+  // Build device configuration (parallelized internally)
+  const devices = await buildDeviceConfiguration(
+    locations,
+    myIP,
+    myDeviceId,
+    state.syncthingDevicesIDCache,
+    devicesConfiguration,
+    devicesIds,
+    allDevicesResp,
+  );
+
+  // Create base folder configuration
+  const syncthingFolder = createSyncthingFolderConfig(id, label, folder, devices);
+  const syncFolder = allFoldersResp.data.find((x) => x.id === id);
+
+  // Handle receive-only or global sync flags
+  if (primaryContainerDataFlags.includes('r') || primaryContainerDataFlags.includes('g')) {
+    // Use state machine to manage folder sync transitions
+    const { syncthingFolder: updatedFolder, cache, skipProcessing } = await manageFolderSyncState({
+      appId,
+      syncFolder,
+      containerDataFlags: primaryContainerDataFlags,
+      syncthingAppsFirstRun: state.syncthingAppsFirstRun,
+      receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
+      appLocation,
       myIP,
-      myDeviceId,
-      state.syncthingDevicesIDCache,
-      devicesConfiguration,
-      devicesIds,
-      allDevicesResp
-    );
+      appDockerStopFn,
+      appDockerRestartFn,
+      appDeleteDataInMountPointFn,
+      syncthingFolder,
+      installedAppName,
+    });
 
-    // Create base folder configuration
-    const syncthingFolder = createSyncthingFolderConfig(id, label, folder, devices);
-    const syncFolder = allFoldersResp.data.find((x) => x.id === id);
-
-    // Handle receive-only or global sync flags
-    if (containerDataFlags.includes('r') || containerDataFlags.includes('g')) {
-      // Use state machine to manage folder sync transitions
-      // eslint-disable-next-line no-await-in-loop
-      const { syncthingFolder: updatedFolder, cache, skipProcessing } = await manageFolderSyncState({
-        appId,
-        syncFolder,
-        containerDataFlags,
-        syncthingAppsFirstRun: state.syncthingAppsFirstRun,
-        receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
-        appLocation,
-        myIP,
-        appDockerStopFn,
-        appDockerRestartFn,
-        appDeleteDataInMountPointFn,
-        syncthingFolder,
-        installedAppName,
-      });
-
-      // Update cache if provided
-      if (cache !== null) {
-        state.receiveOnlySyncthingAppsCache.set(appId, cache);
-      }
-
-      // Skip processing if marked to skip
-      if (skipProcessing) {
-        // eslint-disable-next-line no-continue
-        continue;
-      }
-
-      // Update folder with state machine result
-      Object.assign(syncthingFolder, updatedFolder);
+    // Update cache if provided
+    if (cache !== null) {
+      state.receiveOnlySyncthingAppsCache.set(appId, cache);
     }
 
-    // Add to tracking arrays
-    folderIds.push(id);
-    foldersConfiguration.push(syncthingFolder);
-
-    // Check if folder needs update
-    if (folderNeedsUpdate(syncFolder, syncthingFolder)) {
-      newFoldersConfiguration.push(syncthingFolder);
+    // Skip processing if marked to skip
+    if (skipProcessing) {
+      return;
     }
+
+    // Update folder with state machine result
+    Object.assign(syncthingFolder, updatedFolder);
+  }
+
+  // Add to tracking arrays
+  folderIds.push(id);
+  foldersConfiguration.push(syncthingFolder);
+
+  // Check if folder needs update
+  if (folderNeedsUpdate(syncFolder, syncthingFolder)) {
+    newFoldersConfiguration.push(syncthingFolder);
   }
 }
 
@@ -226,8 +219,8 @@ async function logSyncState(foldersConfiguration) {
         ? ` (${status.inSyncBytes}/${status.globalBytes} bytes)`
         : '';
       log.info(
-        `syncthingAppsCore - Folder ${status.id} (${status.type}): ` +
-        `${status.syncPercentage.toFixed(2)}% synced, state: ${status.state}${bytesInfo}`
+        `syncthingAppsCore - Folder ${status.id} (${status.type}): `
+        + `${status.syncPercentage.toFixed(2)}% synced, state: ${status.state}${bytesInfo}`,
       );
     }
   });
@@ -244,6 +237,7 @@ async function logSyncState(foldersConfiguration) {
  * @param {Function} removeAppLocallyFn - Remove app function
  * @returns {Promise<void>}
  */
+// eslint-disable-next-line no-unused-vars
 async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDockerStopFn, appDockerRestartFn, appDeleteDataInMountPointFn, removeAppLocallyFn) {
   // Sync global state before checking
   getGlobalStateFn();
@@ -254,6 +248,7 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
   }
 
   state.updateSyncthingRunning = true;
+  let syncthingInitializedSuccessfully = false;
 
   try {
     // Get list of all installed apps
@@ -282,6 +277,30 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     // Get current Syncthing configuration
     const allFoldersResp = await syncthingService.getConfigFolders();
     const allDevicesResp = await syncthingService.getConfigDevices();
+
+    // CRITICAL: Validate Syncthing configuration is loaded before proceeding
+    // On system restart, Syncthing API might be available but config not fully loaded
+    // This prevents data deletion during the race condition window
+    if (!allFoldersResp || !allFoldersResp.data || !Array.isArray(allFoldersResp.data)) {
+      if (state.syncthingAppsFirstRun) {
+        log.warn('syncthingAppsCore - Syncthing folder configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
+      } else {
+        log.error('syncthingAppsCore - Failed to get Syncthing folders configuration');
+      }
+      return;
+    }
+
+    if (!allDevicesResp || !allDevicesResp.data || !Array.isArray(allDevicesResp.data)) {
+      if (state.syncthingAppsFirstRun) {
+        log.warn('syncthingAppsCore - Syncthing device configuration not ready yet on first run. Waiting for next cycle to avoid data loss.');
+      } else {
+        log.error('syncthingAppsCore - Failed to get Syncthing devices configuration');
+      }
+      return;
+    }
+
+    // Mark that Syncthing is properly initialized - safe to clear first run flag
+    syncthingInitializedSuccessfully = true;
 
     // Initialize tracking arrays
     const devicesIds = [];
@@ -348,10 +367,10 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
 
     // Remove unused folders and devices (parallelized for better performance)
     const nonUsedFolders = allFoldersResp.data.filter(
-      (syncthingFolder) => !folderIds.includes(syncthingFolder.id)
+      (syncthingFolder) => !folderIds.includes(syncthingFolder.id),
     );
     const nonUsedDevices = allDevicesResp.data.filter(
-      (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== myDeviceId
+      (syncthingDevice) => !devicesIds.includes(syncthingDevice.deviceID) && syncthingDevice.deviceID !== myDeviceId,
     );
 
     // Parallelize cleanup operations
@@ -392,11 +411,13 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
           log.warn(`Failed to check errors for folder ${folder.id}: ${error.message}`);
         }
         return null;
-      })
+      }),
     );
 
     // Process folder errors sequentially (app removal requires sequential processing)
+    // eslint-disable-next-line no-restricted-syntax
     for (const errorInfo of folderErrorChecks) {
+      // eslint-disable-next-line no-continue
       if (!errorInfo) continue;
 
       const { folder, error } = errorInfo;
@@ -422,7 +443,11 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     log.error(error.stack);
   } finally {
     state.updateSyncthingRunning = false;
-    state.syncthingAppsFirstRun = false;
+    // Only clear first run flag if Syncthing was successfully initialized
+    // This ensures we don't proceed with app processing until Syncthing is fully ready
+    if (syncthingInitializedSuccessfully) {
+      state.syncthingAppsFirstRun = false;
+    }
   }
 }
 
@@ -458,7 +483,7 @@ function syncthingApps(state, installedAppsFn, getGlobalStateFn, appDockerStopFn
         appDockerStopFn,
         appDockerRestartFn,
         appDeleteDataInMountPointFn,
-        removeAppLocallyFn
+        removeAppLocallyFn,
       );
     } catch (error) {
       log.error(`syncthingApps - Unexpected error in monitoring loop: ${error.message}`);

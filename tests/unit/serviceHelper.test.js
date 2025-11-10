@@ -229,6 +229,7 @@ describe('serviceHelper tests', () => {
 
     it('should return application owner if app exists in database', async () => {
       const appOwner = '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH';
+      // eslint-disable-next-line global-require
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       const getOwnerResult = await registryManager.getApplicationOwner('PolkadotNode');
 
@@ -241,6 +242,7 @@ describe('serviceHelper tests', () => {
       // this test should verify the fallback behavior works by using PolkadotNode
       // but removing it from local lookup (simulate it being in global but not local)
       const appOwner = '196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH';
+      // eslint-disable-next-line global-require
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 
       // Use the existing PolkadotNode which is in the global database
@@ -251,6 +253,7 @@ describe('serviceHelper tests', () => {
     });
 
     it('should return null if the app does not exist', async () => {
+      // eslint-disable-next-line global-require
       const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
       const getOwnerResult = await registryManager.getApplicationOwner('testing');
 

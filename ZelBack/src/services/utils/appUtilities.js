@@ -201,13 +201,32 @@ async function getContainerStorage(appName) {
     let volumeMountsSize = 0;
     const containerRootFsSize = serviceHelper.ensureNumber(containerInfo.SizeRootFs) || 0;
     if (containerInfo?.Mounts?.length) {
-      await Promise.all(containerInfo.Mounts.map(async (mount) => {
-        let source = mount?.Source;
-        const mountType = mount?.Type;
-        if (source) {
-          if (mountType === 'bind') {
-            source = source.replace('/appdata', '');
-            const exec = `sudo du -sb ${source}`;
+      // Collect all mount sources and filter out nested mounts to avoid double-counting
+      const allMounts = containerInfo.Mounts.filter((m) => m?.Source);
+      const mountsToCount = [];
+
+      // For each mount, check if it's a child of another mount
+      // eslint-disable-next-line no-restricted-syntax
+      for (const mount of allMounts) {
+        const source = mount.Source;
+        const isNested = allMounts.some((otherMount) => {
+          if (otherMount === mount) return false; // Skip self
+          const otherSource = otherMount.Source;
+          // Check if this mount is a child of another mount
+          return source.startsWith(`${otherSource}/`);
+        });
+
+        if (!isNested) {
+          mountsToCount.push(mount);
+        }
+      }
+
+      await Promise.all(mountsToCount.map(async (mount) => {
+        const source = mount.Source;
+        const mountType = mount.Type;
+        if (mountType === 'bind') {
+          const exec = `sudo du -sb ${source}`;
+          try {
             const mountInfo = await cmdAsync(exec);
             if (mountInfo) {
               const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
@@ -215,8 +234,12 @@ async function getContainerStorage(appName) {
             } else {
               log.warn(`No mount info returned for source: ${source}`);
             }
-          } else if (mountType === 'volume') {
-            const exec = `sudo du -sb ${source}`;
+          } catch (error) {
+            log.warn(`Failed to get size for bind mount ${source}: ${error.message}`);
+          }
+        } else if (mountType === 'volume') {
+          const exec = `sudo du -sb ${source}`;
+          try {
             const mountInfo = await cmdAsync(exec);
             if (mountInfo) {
               const sizeNum = serviceHelper.ensureNumber(mountInfo.split('\t')[0]) || 0;
@@ -224,9 +247,11 @@ async function getContainerStorage(appName) {
             } else {
               log.warn(`No mount info returned for source: ${source}`);
             }
-          } else {
-            log.warn(`Unsupported mount type or source: Type: ${mountType}, Source: ${source}`);
+          } catch (error) {
+            log.warn(`Failed to get size for volume mount ${source}: ${error.message}`);
           }
+        } else {
+          log.warn(`Unsupported mount type or source: Type: ${mountType}, Source: ${source}`);
         }
       }));
     }

@@ -147,16 +147,14 @@ class NetworkStateManager extends EventEmitter {
   }
 
   get canFetch() {
-    const canFetch =
-      this.lastFetchElapsedMs > NetworkStateManager.#minFetchIntervalMs;
+    const canFetch = this.lastFetchElapsedMs > NetworkStateManager.#minFetchIntervalMs;
 
     return canFetch;
   }
 
   get remainingFetchSeconds() {
-    const remainingSec =
-      (NetworkStateManager.#minFetchIntervalMs - this.lastFetchElapsedMs) /
-      1_000;
+    const remainingSec = (NetworkStateManager.#minFetchIntervalMs - this.lastFetchElapsedMs)
+      / 1_000;
 
     const rounded = Math.round((remainingSec + Number.EPSILON) * 100) / 100;
 
@@ -230,9 +228,8 @@ class NetworkStateManager extends EventEmitter {
       const chunk = nodes.slice(startIndex, endIndex);
 
       chunk.forEach((node) => {
-        const nodesByPubkey =
-          pubkeyIndex.get(node.pubkey) ||
-          pubkeyIndex.set(node.pubkey, new Map()).get(node.pubkey);
+        const nodesByPubkey = pubkeyIndex.get(node.pubkey)
+          || pubkeyIndex.set(node.pubkey, new Map()).get(node.pubkey);
 
         nodesByPubkey.set(node.ip, node);
         socketAddressIndex.set(node.ip, node);
@@ -364,8 +361,7 @@ class NetworkStateManager extends EventEmitter {
 
       this.#lastFetchTime = fetchEnd;
 
-      const fetchElapsed =
-        Number(fetchEnd - fetchStart) / 1_000_000;
+      const fetchElapsed = Number(fetchEnd - fetchStart) / 1_000_000;
 
       const rounded = Math.round((fetchElapsed + Number.EPSILON) * 100) / 100;
 
@@ -385,8 +381,7 @@ class NetworkStateManager extends EventEmitter {
 
       await this.#buildIndexes(this.#state);
 
-      const indexElapsed =
-        Number(process.hrtime.bigint() - indexStart) / 1_000_000;
+      const indexElapsed = Number(process.hrtime.bigint() - indexStart) / 1_000_000;
 
       const rounded = Math.round((indexElapsed + Number.EPSILON) * 100) / 100;
 
@@ -394,12 +389,12 @@ class NetworkStateManager extends EventEmitter {
       const socketAddressSize = this.#socketAddressIndex.size;
 
       log.info(
-        'Network State Indexes created, nodes found: ' +
-        `${state.length}, elapsed: ${rounded} ms`
+        'Network State Indexes created, nodes found: '
+        + `${state.length}, elapsed: ${rounded} ms`,
       );
 
       log.info(
-        `pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`
+        `pubkeyIndexSize: ${pubkeySize}, socketAddressSize: ${socketAddressSize}`,
       );
 
       if (!populated) {
@@ -426,8 +421,8 @@ class NetworkStateManager extends EventEmitter {
     const handler = async (blockHeight) => {
       if (!this.canFetch) {
         log.info(
-          'Throttling networkUpdate - using cached nodelist ' +
-          `(${this.nodeCount} nodes). Next call allowed in ${this.remainingFetchSeconds}s`
+          'Throttling networkUpdate - using cached nodelist '
+          + `(${this.nodeCount} nodes). Next call allowed in ${this.remainingFetchSeconds}s`,
         );
 
         return;
@@ -435,8 +430,8 @@ class NetworkStateManager extends EventEmitter {
 
       if (this.#fetchQueued) {
         log.info(
-          `Block ${blockHeight} received but a fetch ` +
-          'is already queued... skipping'
+          `Block ${blockHeight} received but a fetch `
+          + 'is already queued... skipping',
         );
 
         return;
@@ -444,7 +439,8 @@ class NetworkStateManager extends EventEmitter {
 
       if (this.fetchRunning) {
         log.info(
-          'Block received but fetching in progress... ' + 'queueing next fetch'
+          // eslint-disable-next-line no-useless-concat
+          'Block received but fetching in progress... ' + 'queueing next fetch',
         );
 
         this.#fetchQueued = true;
@@ -464,10 +460,9 @@ class NetworkStateManager extends EventEmitter {
     await this.fetchNetworkState();
     await this.waitStarted;
 
-    const updater =
-      this.#stateEmitter && this.stateEvent
-        ? this.#startEventEmitter
-        : this.#startPolling;
+    const updater = this.#stateEmitter && this.stateEvent
+      ? this.#startEventEmitter
+      : this.#startPolling;
 
     updater.bind(this)();
   }
@@ -478,7 +473,7 @@ class NetworkStateManager extends EventEmitter {
     if (this.#stateEmitter) {
       this.#stateEmitter.removeListener(
         this.stateEvent,
-        this.#boundEventHandler
+        this.#boundEventHandler,
       );
       this.#boundEventHandler = null;
     }
@@ -494,8 +489,7 @@ class NetworkStateManager extends EventEmitter {
    * @returns {Promise<Map<string, Fluxnode>> | Fluxnode | null>} Clone of the state
    */
   async search(filter, type) {
-    const invalidInput =
-      !filter || typeof filter !== 'string' || typeof type !== 'string';
+    const invalidInput = !filter || typeof filter !== 'string' || typeof type !== 'string';
 
     if (invalidInput) return null;
 

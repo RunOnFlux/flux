@@ -84,6 +84,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
   // this takes roughly at least 1 second
   if (furtherVerification) {
     // Dynamic require to avoid circular dependency
+    // eslint-disable-next-line global-require
     const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
     const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
@@ -377,7 +378,6 @@ async function storeAppInstallingMessage(message) {
   // all stored, rebroadcast
   return true;
 }
-
 
 /**
  * Store app removed message

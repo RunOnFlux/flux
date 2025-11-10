@@ -1,0 +1,70 @@
+version: 2
+
+# Exit code configuration
+exit_zero: false  # Fail builds on real secrets
+
+# Verbosity
+verbose: false
+
+# GitGuardian dashboard instance
+instance: https://dashboard.gitguardian.com
+
+secret:
+  # Exclude test and documentation files from scanning
+  ignored_paths:
+    # Test fixtures with mock tokens
+    - 'tests/unit/registryAuth/integration/fixtures/*.json'
+
+    # Test files with example credentials
+    - 'tests/unit/registryAuth/*.test.js'
+
+    # Documentation examples
+    - 'docs/registry-auth/**/examples/*'
+    - 'docs/registry-auth/**/*.md'
+
+    # Example/template files
+    - '**/.env.test.template'
+    - '**/.env.example'
+    - '**/README.md'
+
+  # Ignore specific test credential patterns
+  ignored_matches:
+    # AWS Example Credentials (official AWS documentation examples)
+    - name: AWS Test Access Key
+      match: AKIAIOSFODNN7EXAMPLE
+
+    - name: AWS Test Secret Key
+      match: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+    # Azure Test GUIDs
+    - name: Azure Test Tenant ID
+      match: 12345678-1234-1234-1234-123456789012
+
+    - name: Azure Test Client ID
+      match: 87654321-4321-4321-4321-210987654321
+
+    - name: Azure Test Client Secret
+      match: myClientSecret123
+
+    - name: Azure Fixture Tenant
+      match: 12345678-abcd-efgh-ijkl-123456789012
+
+    # Google Test Service Account
+    - name: Google Test Service Account
+      match: service-account@my-project-123.iam.gserviceaccount.com
+
+    - name: Google Test Service Account 2
+      match: test-sa@example-project-12345.iam.gserviceaccount.com
+
+    # Mock Tokens in Fixtures
+    - name: Mock ECR Token
+      match: QVdTOk1PQ0tfRUNSX1BBU1NXT1JE
+
+    - name: Mock Azure Token
+      match: MOCK_AZURE_ACCESS_TOKEN
+
+    - name: Mock Google Token
+      match: MOCK_GOOGLE_ACCESS_TOKEN
+
+  # Don't show secret values in output (security best practice)
+  show_secrets: false

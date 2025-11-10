@@ -12,7 +12,8 @@ const SYNCTHING_RESCAN_INTERVAL_SECONDS = 900; // 15 minutes
 const SYNCTHING_MAX_CONFLICTS = 0;
 
 // Sync monitoring
-const MAX_SYNC_WAIT_EXECUTIONS = 60; // ~30 minutes at 30s intervals
+const MAX_SYNC_WAIT_EXECUTIONS = 120; // ~1 hour at 30s intervals
+const STALLED_SYNC_CHECK_COUNT = 10; // Number of checks with no progress before considering sync stalled (~5 minutes)
 const CLOCK_SKEW_TOLERANCE_MS = 5000; // 5 seconds tolerance for timestamp comparison
 const LEADER_ELECTION_MIN_EXECUTIONS = 2;
 const LEADER_ELECTION_EXECUTIONS_PER_INDEX = 10;
@@ -29,6 +30,7 @@ module.exports = {
   SYNCTHING_RESCAN_INTERVAL_SECONDS,
   SYNCTHING_MAX_CONFLICTS,
   MAX_SYNC_WAIT_EXECUTIONS,
+  STALLED_SYNC_CHECK_COUNT,
   CLOCK_SKEW_TOLERANCE_MS,
   LEADER_ELECTION_MIN_EXECUTIONS,
   LEADER_ELECTION_EXECUTIONS_PER_INDEX,

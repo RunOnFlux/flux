@@ -349,6 +349,5 @@ describe('dockerOperations tests', () => {
       sinon.assert.callCount(dockerService.appDockerRestart, 4);
       sinon.assert.callCount(startCallback, 4);
     });
-
   });
 });

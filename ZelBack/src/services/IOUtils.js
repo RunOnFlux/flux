@@ -421,7 +421,8 @@ async function fileUpload(req, res) {
       if (type === 'backup') {
         filepath = `${appVolumePath[0].mount}/backup/upload/`;
       } else {
-        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+        // Use appid level to access appdata and all other mount points
+        filepath = `${appVolumePath[0].mount}/${folder}`;
       }
     } else {
       throw new Error('Application volume not found');

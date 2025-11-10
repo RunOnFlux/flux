@@ -5,6 +5,7 @@ const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
+// eslint-disable-next-line no-unused-vars
 const { appConstants } = require('../utils/appConstants');
 const { getContainerStorage } = require('../utils/appUtilities');
 
@@ -13,11 +14,13 @@ const util = require('util');
 // eslint-disable-next-line import/no-extraneous-dependencies
 const nodecmd = require('node-cmd');
 
+// eslint-disable-next-line no-unused-vars
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
+// eslint-disable-next-line no-unused-vars
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 
-let dosState = 0;
-let dosMessage = null;
+const dosState = 0;
+const dosMessage = null;
 
 const cmdAsync = util.promisify(nodecmd.run);
 const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
@@ -418,33 +421,45 @@ function startAppMonitoring(appName, appsMonitored) {
     throw new Error('No App specified');
   }
 
+  // eslint-disable-next-line global-require
   // Get appsMonitored from globalState if not provided (to avoid circular dependency)
   if (!appsMonitored) {
+    // eslint-disable-next-line global-require
     const globalState = require('../utils/globalState');
+    // eslint-disable-next-line prefer-destructuring, no-param-reassign
     appsMonitored = globalState.appsMonitored;
   }
 
   // Safety check: if appsMonitored is still undefined, throw a more descriptive error
   if (!appsMonitored) {
+    // eslint-disable-next-line no-param-reassign
     throw new Error('Failed to initialize app monitoring: appsMonitored object is undefined');
+  // eslint-disable-next-line no-param-reassign
   }
 
+  // eslint-disable-next-line no-param-reassign
   log.info('Initialize Monitoring...');
+  // eslint-disable-next-line no-param-reassign
   appsMonitored[appName] = {}; // Initialize the app's monitoring object
   if (!appsMonitored[appName].statsStore) {
+    // eslint-disable-next-line no-param-reassign
     appsMonitored[appName].statsStore = [];
   }
   if (!appsMonitored[appName].lastHourstatsStore) {
+    // eslint-disable-next-line no-param-reassign
     appsMonitored[appName].lastHourstatsStore = [];
   }
   // Clear previous interval for this app to prevent multiple intervals
   clearInterval(appsMonitored[appName].oneMinuteInterval);
+  // eslint-disable-next-line no-param-reassign
   appsMonitored[appName].run = 0;
+  // eslint-disable-next-line no-param-reassign
   appsMonitored[appName].oneMinuteInterval = setInterval(async () => {
     try {
       if (!appsMonitored[appName]) {
         log.error(`Monitoring of ${appName} already stopped`);
         return;
+      // eslint-disable-next-line no-param-reassign
       }
       const dockerContainer = await dockerService.getDockerContainerOnly(appName);
       if (!dockerContainer) {
@@ -453,23 +468,28 @@ function startAppMonitoring(appName, appsMonitored) {
         stopAppMonitoring(appName, true, appsMonitored);
         return;
       }
+      // eslint-disable-next-line no-param-reassign
       appsMonitored[appName].run += 1;
       const statsNow = await dockerService.dockerContainerStats(appName);
       const containerStorageInfo = await getContainerStorage(appName);
+      // eslint-disable-next-line no-param-reassign
       statsNow.disk_stats = containerStorageInfo;
       const now = Date.now();
       if (appsMonitored[appName].run % 3 === 0) {
         const inspect = await dockerService.dockerContainerInspect(appName);
+        // eslint-disable-next-line no-param-reassign
         statsNow.nanoCpus = inspect.HostConfig.NanoCpus;
         appsMonitored[appName].statsStore.push({ timestamp: now, data: statsNow });
         const statsStoreSizeInBytes = new TextEncoder().encode(JSON.stringify(appsMonitored[appName].statsStore)).length;
         const estimatedSizeInMB = statsStoreSizeInBytes / (1024 * 1024);
         log.info(`Size of stats for ${appName}: ${estimatedSizeInMB.toFixed(2)} MB`);
+        // eslint-disable-next-line no-param-reassign
         appsMonitored[appName].statsStore = appsMonitored[appName].statsStore.filter(
           (stat) => now - stat.timestamp <= 7 * 24 * 60 * 60 * 1000,
         );
       }
       appsMonitored[appName].lastHourstatsStore.push({ timestamp: now, data: statsNow });
+      // eslint-disable-next-line no-param-reassign
       appsMonitored[appName].lastHourstatsStore = appsMonitored[appName].lastHourstatsStore.filter(
         (stat) => now - stat.timestamp <= 60 * 60 * 1000,
       );
@@ -478,6 +498,7 @@ function startAppMonitoring(appName, appsMonitored) {
     }
   }, 1 * 60 * 1000);
 }
+// eslint-disable-next-line global-require
 
 /**
  * Stop monitoring an application
@@ -489,7 +510,9 @@ function startAppMonitoring(appName, appsMonitored) {
 function stopAppMonitoring(appName, deleteData, appsMonitored) {
   // Get appsMonitored from globalState if not provided (to avoid circular dependency)
   if (!appsMonitored) {
+    // eslint-disable-next-line global-require
     const globalState = require('../utils/globalState');
+    // eslint-disable-next-line prefer-destructuring, no-param-reassign
     appsMonitored = globalState.appsMonitored;
   }
 
@@ -502,6 +525,7 @@ function stopAppMonitoring(appName, deleteData, appsMonitored) {
   if (appsMonitored[appName]) {
     clearInterval(appsMonitored[appName].oneMinuteInterval);
     if (deleteData) {
+      // eslint-disable-next-line no-param-reassign
       delete appsMonitored[appName];
     }
   }
@@ -692,6 +716,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             // cpu was high on 80% of the checks
             cpuThrottling = true;
           }
+          // eslint-disable-next-line no-param-reassign
           appsMonitored[app.name].lastHourstatsStore = [];
           log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
           log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
@@ -749,6 +774,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
               // cpu was high on 80% of the checks
               cpuThrottling = true;
             }
+            // eslint-disable-next-line no-param-reassign
             appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
             log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
             log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
@@ -839,6 +865,7 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
   } finally {
     await serviceHelper.delay(5 * 60 * 1000);
     monitorSharedDBApps(installedApps, removeAppLocally, globalState);
+  // eslint-disable-next-line global-require
   }
 }
 
@@ -852,6 +879,7 @@ async function monitorSharedDBApps(installedApps, removeAppLocally, globalState)
  */
 async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRedeploy, appsStorageViolations) {
   try {
+    // eslint-disable-next-line global-require
     const config = require('config');
     // get list of locally installed apps.
     const installedAppsRes = await installedApps();
@@ -876,6 +904,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
           if (contExists) {
             totalSize += contExists.SizeRootFs;
           }
+        // eslint-disable-next-line no-param-reassign
         }
         const maxAllowedSize = app.compose.length * allowedMaximum;
         if (totalSize > maxAllowedSize) { // here we allow that one component can take more space than allowed as long as total per entire app is lower than total allowed
@@ -890,6 +919,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
               log.error(error);
             });
             const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
+            // eslint-disable-next-line no-param-reassign
             appsStorageViolations = adjArray;
           } else {
             log.warn(`Application ${app.name} is using ${totalSize} space which is more than allowed ${maxAllowedSize}. Soft redeploying...`);
@@ -903,6 +933,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
         }
       } else {
         const identifier = app.name;
+        // eslint-disable-next-line no-param-reassign
         const contId = dockerService.getAppDockerNameIdentifier(identifier);
         const contExists = dockerSystemDF.Containers.find((cont) => cont.Names[0] === contId);
         if (contExists) {
@@ -918,6 +949,7 @@ async function checkStorageSpaceForApps(installedApps, removeAppLocally, softRed
                 log.error(error);
               });
               const adjArray = appsStorageViolations.filter((appName) => (appName) !== app.name);
+              // eslint-disable-next-line no-param-reassign
               appsStorageViolations = adjArray;
             } else {
               log.warn(`Application ${app.name} is using ${contExists.SizeRootFs} space which is more than allowed ${allowedMaximum}. Soft redeploying...`);

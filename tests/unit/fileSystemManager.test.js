@@ -140,7 +140,9 @@ describe('fileSystemManager tests', () => {
   describe('renameAppsObject', () => {
     it('should rename object when authorized', async () => {
       const req = {
-        params: { appname: 'testapp', oldpath: 'oldname', newname: 'newname', component: 'testcomp' },
+        params: {
+          appname: 'testapp', oldpath: 'oldname', newname: 'newname', component: 'testcomp',
+        },
         query: {},
       };
       const res = {
@@ -161,7 +163,9 @@ describe('fileSystemManager tests', () => {
 
     it('should deny unauthorized access', async () => {
       const req = {
-        params: { appname: 'testapp', oldpath: 'oldname', newname: 'newname', component: 'testcomp' },
+        params: {
+          appname: 'testapp', oldpath: 'oldname', newname: 'newname', component: 'testcomp',
+        },
         query: {},
       };
       const res = {
@@ -200,7 +204,9 @@ describe('fileSystemManager tests', () => {
 
     it('should reject invalid newname with slash', async () => {
       const req = {
-        params: { appname: 'testapp', oldpath: 'oldname', newname: 'new/name', component: 'testcomp' },
+        params: {
+          appname: 'testapp', oldpath: 'oldname', newname: 'new/name', component: 'testcomp',
+        },
         query: {},
       };
       const res = {

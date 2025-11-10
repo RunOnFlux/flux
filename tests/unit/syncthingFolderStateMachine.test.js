@@ -311,7 +311,7 @@ describe('syncthingFolderStateMachine tests', () => {
     it('should force start after max executions', async () => {
       mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
         restarted: false,
-        numberOfExecutions: 59,
+        numberOfExecutions: 119, // MAX_SYNC_WAIT_EXECUTIONS - 1
       });
       mockParams.appLocation.resolves([
         { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 1000 },

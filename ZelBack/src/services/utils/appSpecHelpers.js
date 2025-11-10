@@ -423,7 +423,6 @@ async function getAppPrice(req, res) {
   return getAppFiatAndFluxPrice(req, res);
 }
 
-
 module.exports = {
   parseAppSpecification,
   getAppFiatAndFluxPrice,

@@ -10,6 +10,8 @@ const registryManager = require('../appDatabase/registryManager');
 const messageVerifier = require('../appMessaging/messageVerifier');
 const imageManager = require('../appSecurity/imageManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
+// eslint-disable-next-line no-unused-vars
+const { supportedArchitectures } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const portManager = require('../appNetwork/portManager');
@@ -582,6 +584,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
     if (appSpecifications.port < minPort || appSpecifications.port > maxPort) {
       throw new Error(`Assigned port ${appSpecifications.port} is not within Flux Apps range ${minPort}-${maxPort}`);
     }
+    // eslint-disable-next-line global-require
     const iBP = require('../fluxNetworkHelper').isPortBanned(appSpecifications.port);
     if (iBP) {
       throw new Error(`Assigned port ${appSpecifications.port} is not allowed for Flux Apps`);
@@ -596,6 +599,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
       if (port < minPort || port > maxPort) {
         throw new Error(`Assigned port ${port} is not within Flux Apps range ${minPort}-${maxPort}`);
       }
+      // eslint-disable-next-line global-require
       const iBP = require('../fluxNetworkHelper').isPortBanned(port);
       if (iBP) {
         throw new Error(`Assigned port ${port} is not allowed for Flux Apps`);
@@ -700,6 +704,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
         if (port < minPort || port > maxPort) {
           throw new Error(`Assigned port ${port} is not within Flux Apps range ${minPort}-${maxPort}`);
         }
+        // eslint-disable-next-line global-require
         const iBP = require('../fluxNetworkHelper').isPortBanned(port);
         if (iBP) {
           throw new Error(`Assigned port ${port} is not allowed for Flux Apps`);
@@ -1241,18 +1246,23 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       // check repository whitelisted and repotag is available for download
       await imageManager.verifyRepository(appSpecifications.repotag);
     } else {
-      // we have to skip this on v7 as we don't have the key
-      const skipVerification = appSpecifications.version === 7;
-
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
-        // check repository whitelisted and repotag is available for download
-        // eslint-disable-next-line no-await-in-loop
+        // For v7 enterprise apps, skip verification because repoauth is PGP-encrypted
+        // and only selected nodes have the private keys to decrypt it.
+        // For v8+, repoauth is plain text (already decrypted from enterprise blob),
+        // so we can and should verify the repository.
+        const skipVerification = appSpecifications.version === 7 && appComponent.repoauth;
 
+        // fail open
+        if (skipVerification) return true;
+
+        // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
         await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
-          skipVerification,
+          specVersion: appSpecifications.version,
+          appName: appSpecifications.name,
         });
       }
     }
@@ -1381,6 +1391,7 @@ async function verifyAppUpdateParameters(req, res) {
       // Validate update compatibility with previous version
       const timestamp = Date.now();
       // Dynamic require to avoid circular dependency
+      // eslint-disable-next-line global-require
       const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
       await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, timestamp);
 

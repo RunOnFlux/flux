@@ -27,6 +27,7 @@ const appQueryService = require('../../ZelBack/src/services/appQuery/appQuerySer
 const resourceQueryService = require('../../ZelBack/src/services/appQuery/resourceQueryService');
 const registryManager = require('../../ZelBack/src/services/appDatabase/registryManager');
 const daemonServiceControlRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceControlRpcs');
+// eslint-disable-next-line no-unused-vars
 const daemonServiceBenchmarkRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceFluxnodeRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceFluxnodeRpcs');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
@@ -1399,6 +1400,7 @@ describe('fluxService tests', () => {
   describe('tailBenchmarkDebug tests', () => {
     let verifyPrivilegeStub;
     let runCmdStub;
+    // eslint-disable-next-line no-unused-vars
     let fsAccessStub;
 
     beforeEach(() => {
@@ -2333,6 +2335,7 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
+      // eslint-disable-next-line no-unused-vars
       const expectedData = `module.exports = {
         initial: {
           ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
@@ -2429,6 +2432,7 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
+      // eslint-disable-next-line no-unused-vars
       const expectedData = `module.exports = {
         initial: {
           ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
@@ -2530,6 +2534,7 @@ describe('fluxService tests', () => {
           name: undefined,
         },
       };
+      // eslint-disable-next-line no-unused-vars
       const expectedData = `module.exports = {
             initial: {
               ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
@@ -2631,6 +2636,7 @@ describe('fluxService tests', () => {
           name: undefined,
         },
       };
+      // eslint-disable-next-line no-unused-vars
       const expectedData = `module.exports = {
             initial: {
               ipaddress: '${adminConfig.initial.ipaddress || '127.0.0.1'}',
@@ -2707,6 +2713,7 @@ describe('fluxService tests', () => {
         },
         status: 'success',
       };
+      // eslint-disable-next-line no-unused-vars
       const expectedData = `module.exports = {
   initial: {
     ipaddress: '${adminConfig.initial.ipaddress}',
@@ -2944,6 +2951,7 @@ describe('fluxService tests', () => {
 
   describe('streamChain tests', () => {
     let osStub;
+    // eslint-disable-next-line no-unused-vars
     let readdirStub;
     let daemonServiceUtilsStub;
     let tarPackStub;

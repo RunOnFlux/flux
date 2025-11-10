@@ -15,7 +15,9 @@ const { updateAppSpecifications } = require('../appDatabase/registryManager');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
+  // eslint-disable-next-line no-unused-vars
   globalAppsLocations,
+  // eslint-disable-next-line no-unused-vars
   globalAppsInstallingLocations,
   appsHashesCollection,
   scannedHeightCollection,
@@ -391,11 +393,6 @@ async function checkAppTemporaryMessageExistence(hash) {
   return false;
 }
 
-
-
-
-
-
 /**
  * Check if app hash has message
  * @param {string} hash - Hash to check
@@ -533,6 +530,7 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           valueSat: serviceHelper.ensureNumber(valueSat),
         };
         // Import locally to avoid circular dependency
+        // eslint-disable-next-line global-require
         const messageStore = require('./messageStore');
         await messageStore.storeAppPermanentMessage(permanentAppMessage);
         // await update zelapphashes that we already have it stored
@@ -566,113 +564,119 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
           const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
           if (tempMessage.type === 'zelappregister' || tempMessage.type === 'fluxappregister') {
           // check if value is optimal or higher
-          let appPrice = await appPricePerMonth(specifications, height, appPrices);
-          const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-          const expireIn = specifications.expire || defaultExpire;
-          // app prices are ceiled to highest 0.01
-          const multiplier = expireIn / defaultExpire;
-          appPrice *= multiplier;
-          appPrice = Math.ceil(appPrice * 100) / 100;
-          if (appPrice < priceSpecifications.minPrice) {
-            appPrice = priceSpecifications.minPrice;
-          }
-          if (valueSat >= appPrice * 1e8) {
-            const updateForSpecifications = permanentAppMessage.appSpecifications;
-            updateForSpecifications.hash = permanentAppMessage.hash;
-            updateForSpecifications.height = permanentAppMessage.height;
-            // object of appSpecifications extended for hash and height
-            await updateAppSpecifications(updateForSpecifications);
+            let appPrice = await appPricePerMonth(specifications, height, appPrices);
+            // Use defaultExpire from outer scope which accounts for PON fork
+            const expireIn = specifications.expire || defaultExpire;
+            // app prices are ceiled to highest 0.01
+            const multiplier = expireIn / defaultExpire;
+            appPrice *= multiplier;
+            appPrice = Math.ceil(appPrice * 100) / 100;
+            if (appPrice < priceSpecifications.minPrice) {
+              appPrice = priceSpecifications.minPrice;
+            }
+            if (valueSat >= appPrice * 1e8) {
+              const updateForSpecifications = permanentAppMessage.appSpecifications;
+              updateForSpecifications.hash = permanentAppMessage.hash;
+              updateForSpecifications.height = permanentAppMessage.height;
+              // object of appSpecifications extended for hash and height
+              await updateAppSpecifications(updateForSpecifications);
             // every time we ask for a missing app message that is a appregister call after expireGlobalApplications to make sure we don't have on
-          } else {
-            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${JSON.stringify(priceSpecifications)} - specs ${JSON.stringify(specifications)}`);
-          }
-        } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
+            } else {
+              log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8} - priceSpecs ${JSON.stringify(priceSpecifications)} - specs ${JSON.stringify(specifications)}`);
+            }
+          } else if (tempMessage.type === 'zelappupdate' || tempMessage.type === 'fluxappupdate') {
           // appSpecifications.name as identifier
-          const db = dbHelper.databaseConnection();
-          const database = db.db(config.database.appsglobal.database);
-          const projection = {
-            projection: {
-              _id: 0,
-            },
-          };
-          // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
-          const appsQuery = {
-            'appSpecifications.name': specifications.name,
-          };
-          const findPermAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
-          let latestPermanentRegistrationMessage;
-          findPermAppMessage.forEach((foundMessage) => {
+            const db = dbHelper.databaseConnection();
+            const database = db.db(config.database.appsglobal.database);
+            const projection = {
+              projection: {
+                _id: 0,
+              },
+            };
+            // we may not have the application in global apps. This can happen when we receive the message after the app has already expired AND we need to get message right before our message. Thus using messages system that is accurate
+            const appsQuery = {
+              'appSpecifications.name': specifications.name,
+            };
+            const findPermAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, appsQuery, projection);
+            let latestPermanentRegistrationMessage;
+            findPermAppMessage.forEach((foundMessage) => {
             // has to be registration message
-            if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-              if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
-                latestPermanentRegistrationMessage = foundMessage;
-              } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-                if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+              if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+                if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
                   latestPermanentRegistrationMessage = foundMessage;
+                } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+                    latestPermanentRegistrationMessage = foundMessage;
+                  }
                 }
               }
-            }
-          });
-          // some early app have zelAppSepcifications
-          const appsQueryB = {
-            'zelAppSpecifications.name': specifications.name,
-          };
-          const findPermAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
-          findPermAppMessageB.forEach((foundMessage) => {
+            });
+            // some early app have zelAppSepcifications
+            const appsQueryB = {
+              'zelAppSpecifications.name': specifications.name,
+            };
+            const findPermAppMessageB = await dbHelper.findInDatabase(database, globalAppsMessages, appsQueryB, projection);
+            findPermAppMessageB.forEach((foundMessage) => {
             // has to be registration message
-            if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
-              if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
-                latestPermanentRegistrationMessage = foundMessage;
-              } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
-                if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+              if (foundMessage.type === 'zelappregister' || foundMessage.type === 'fluxappregister' || foundMessage.type === 'zelappupdate' || foundMessage.type === 'fluxappupdate') { // can be any type
+                if (!latestPermanentRegistrationMessage && foundMessage.timestamp <= tempMessage.timestamp) { // no message and found message is not newer than our message
                   latestPermanentRegistrationMessage = foundMessage;
+                } else if (latestPermanentRegistrationMessage && latestPermanentRegistrationMessage.height <= foundMessage.height) { // we have some message and the message is quite new
+                  if (latestPermanentRegistrationMessage.timestamp < foundMessage.timestamp && foundMessage.timestamp <= tempMessage.timestamp) { // but our message is newer. foundMessage has to have lower timestamp than our new message
+                    latestPermanentRegistrationMessage = foundMessage;
+                  }
                 }
               }
+            });
+            const messageInfo = latestPermanentRegistrationMessage;
+            if (!messageInfo) {
+              log.error(`Last permanent message for ${specifications.name} not found`);
+              return true;
             }
-          });
-          const messageInfo = latestPermanentRegistrationMessage;
-          if (!messageInfo) {
-            log.error(`Last permanent message for ${specifications.name} not found`);
-            return true;
+            const previousSpecs = messageInfo.appSpecifications || messageInfo.zelAppSpecifications;
+            // here comparison of height differences and specifications
+            // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
+            let appPrice = await appPricePerMonth(specifications, height, appPrices);
+            let previousSpecsPrice = await appPricePerMonth(previousSpecs, messageInfo.height || height, appPrices);
+            // Calculate default expire for current and previous apps based on their registration heights
+            const defaultExpireCurrent = height >= config.fluxapps.daemonPONFork
+              ? config.fluxapps.blocksLasting * 4
+              : config.fluxapps.blocksLasting;
+            const defaultExpirePrevious = (messageInfo.height || height) >= config.fluxapps.daemonPONFork
+              ? config.fluxapps.blocksLasting * 4
+              : config.fluxapps.blocksLasting;
+            const currentExpireIn = specifications.expire || defaultExpireCurrent;
+            const previousExpireIn = previousSpecs.expire || defaultExpirePrevious;
+            // app prices are ceiled to highest 0.01
+            const multiplierCurrent = currentExpireIn / defaultExpireCurrent;
+            appPrice *= multiplierCurrent;
+            appPrice = Math.ceil(appPrice * 100) / 100;
+            const multiplierPrevious = previousExpireIn / defaultExpirePrevious;
+            previousSpecsPrice *= multiplierPrevious;
+            previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
+            // what is the height difference
+            const heightDifference = permanentAppMessage.height - messageInfo.height;
+            // currentExpireIn is always higher than heightDifference
+            const perc = (previousExpireIn - heightDifference) / previousExpireIn; // how much of previous specs was not used yet
+            let actualPriceToPay = appPrice * 0.9;
+            if (perc > 0) {
+              actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
+            }
+            actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
+            if (actualPriceToPay < priceSpecifications.minPrice) {
+              actualPriceToPay = priceSpecifications.minPrice;
+            }
+            if (valueSat >= actualPriceToPay * 1e8) {
+              const updateForSpecifications = permanentAppMessage.appSpecifications;
+              updateForSpecifications.hash = permanentAppMessage.hash;
+              updateForSpecifications.height = permanentAppMessage.height;
+              // object of appSpecifications extended for hash and height
+              // do not await this
+              updateAppSpecifications(updateForSpecifications);
+            } else {
+              log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
+            }
           }
-          const previousSpecs = messageInfo.appSpecifications || messageInfo.zelAppSpecifications;
-          // here comparison of height differences and specifications
-          // price shall be price for standard registration plus minus already paid price according to old specifics. height remains height valid for 22000 blocks
-          let appPrice = await appPricePerMonth(specifications, height, appPrices);
-          let previousSpecsPrice = await appPricePerMonth(previousSpecs, messageInfo.height || height, appPrices);
-          const defaultExpire = config.fluxapps.blocksLasting; // if expire is not set in specs, use this default value
-          const currentExpireIn = specifications.expire || defaultExpire;
-          const previousExpireIn = previousSpecs.expire || defaultExpire;
-          // app prices are ceiled to highest 0.01
-          const multiplierCurrent = currentExpireIn / defaultExpire;
-          appPrice *= multiplierCurrent;
-          appPrice = Math.ceil(appPrice * 100) / 100;
-          const multiplierPrevious = previousExpireIn / defaultExpire;
-          previousSpecsPrice *= multiplierPrevious;
-          previousSpecsPrice = Math.ceil(previousSpecsPrice * 100) / 100;
-          // what is the height difference
-          const heightDifference = permanentAppMessage.height - messageInfo.height;
-          // currentExpireIn is always higher than heightDifference
-          const perc = (previousExpireIn - heightDifference) / previousExpireIn; // how much of previous specs was not used yet
-          let actualPriceToPay = appPrice * 0.9;
-          if (perc > 0) {
-            actualPriceToPay = (appPrice - (perc * previousSpecsPrice)) * 0.9; // discount for missing heights. Allow 90%
-          }
-          actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
-          if (actualPriceToPay < priceSpecifications.minPrice) {
-            actualPriceToPay = priceSpecifications.minPrice;
-          }
-          if (valueSat >= actualPriceToPay * 1e8) {
-            const updateForSpecifications = permanentAppMessage.appSpecifications;
-            updateForSpecifications.hash = permanentAppMessage.hash;
-            updateForSpecifications.height = permanentAppMessage.height;
-            // object of appSpecifications extended for hash and height
-            // do not await this
-            updateAppSpecifications(updateForSpecifications);
-          } else {
-            log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
-          }
-        }
         }
         return true;
       }
@@ -725,6 +729,7 @@ async function checkAndRequestMultipleApps(apps, incoming = false, i = 1) {
         appsToRemove.push(app);
       }
     }
+    // eslint-disable-next-line no-param-reassign
     apps = apps.filter((item) => !appsToRemove.includes(item));
     if (apps.length > 0 && i < 5) {
       await checkAndRequestMultipleApps(apps, i % 2 === 0, i + 1);
@@ -766,6 +771,7 @@ async function continuousFluxAppHashesCheck(force = false) {
 
     if (firstContinuousFluxAppHashesCheckRun && !globalState.checkAndSyncAppHashesWasEverExecuted) {
       // Import checkAndSyncAppHashes from appHashSyncService
+      // eslint-disable-next-line global-require
       const appHashSyncService = require('./appHashSyncService');
       await appHashSyncService.checkAndSyncAppHashes();
     }

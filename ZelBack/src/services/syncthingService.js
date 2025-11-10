@@ -1602,7 +1602,7 @@ async function getDbRemoteNeed(req, res) {
  */
 async function getDbStatus(req, res) {
   try {
-    let folder = req?.params?.folder || req?.query?.folder;
+    const folder = req?.params?.folder || req?.query?.folder;
     let apiPath = '/rest/db/status';
     if (folder) {
       apiPath += `?folder=${folder}`;
@@ -2805,7 +2805,7 @@ async function collectSyncthingMetrics() {
         metrics.errors.system = errorsResponse.data.errors;
         if (metrics.errors.system.length > 0) {
           metrics.overall.healthy = false;
-          metrics.overall.issues.push(`${metrics.errors.system.length} system error(s) detected`);
+          metrics.overall.issues.push(`${metrics.errors.system.length}`);
         }
       }
     } catch (error) {
@@ -2903,7 +2903,7 @@ async function getSyncthingHealthSummary(req, res) {
       response = messageHelper.createDataMessage(summary);
     } else {
       response = messageHelper.errUnauthorizedMessage();
-    }  
+    }
     return res ? res.json(response) : response;
   } catch (error) {
     log.error(error);

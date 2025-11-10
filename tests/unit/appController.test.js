@@ -11,6 +11,7 @@ const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper'
 describe('appController tests', () => {
   let verificationHelperStub;
   let db;
+  // eslint-disable-next-line no-unused-vars
   let database;
 
   beforeEach(async () => {
@@ -19,6 +20,7 @@ describe('appController tests', () => {
     database = db.db(config.database.appsglobal.database);
 
     // Setup common stubs
+    // eslint-disable-next-line global-require
     const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
     verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege');
   });
@@ -530,6 +532,7 @@ describe('appController tests', () => {
     });
 
     it('should execute command on all app instances', async () => {
+      // eslint-disable-next-line global-require
       const axios = require('axios');
       const axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
 
@@ -545,9 +548,11 @@ describe('appController tests', () => {
         { ip: '192.168.1.2:16127', name: 'TestApp' },
       ];
       sinon.stub(dbHelper, 'findInDatabase').resolves(locations);
+      // eslint-disable-next-line global-require, no-shadow
       const fluxNetworkHelper = require('../../ZelBack/src/services/fluxNetworkHelper');
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').resolves('192.168.1.3:16127');
 
+      // eslint-disable-next-line global-require
       const axios = require('axios');
       const axiosStub = sinon.stub(axios, 'get').resolves({ status: 200 });
 

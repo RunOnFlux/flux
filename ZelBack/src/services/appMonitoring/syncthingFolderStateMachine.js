@@ -1,10 +1,14 @@
 // Syncthing Folder State Machine - Manages folder sync transitions
+const util = require('util');
+const nodecmd = require('node-cmd');
 const log = require('../../lib/log');
 const dockerService = require('../dockerService');
 const syncthingService = require('../syncthingService');
 const serviceHelper = require('../serviceHelper');
+const { appsFolder } = require('../utils/appConstants');
 const {
   MAX_SYNC_WAIT_EXECUTIONS,
+  STALLED_SYNC_CHECK_COUNT,
   LEADER_ELECTION_MIN_EXECUTIONS,
   LEADER_ELECTION_EXECUTIONS_PER_INDEX,
   SYNC_COMPLETE_PERCENTAGE,
@@ -12,6 +16,86 @@ const {
   CLOCK_SKEW_TOLERANCE_MS,
 } = require('./syncthingMonitorConstants');
 const { sortRunningAppList } = require('./syncthingMonitorHelpers');
+
+const cmdAsync = util.promisify(nodecmd.run);
+
+/**
+ * Fix permissions on all mount directories for containers
+ * Critical for synced data that may have wrong ownership
+ * Fixes permissions on appdata and all additional mount points
+ * @param {string} appId - App ID
+ * @returns {Promise<void>}
+ */
+async function fixAppdataPermissions(appId) {
+  try {
+    // Fix permissions on entire app directory to cover appdata and all additional mounts
+    // (appdata, logs, config, file mounts, etc.)
+    const appPath = `${appsFolder}${appId}`;
+
+    // Recursively set 777 permissions to allow any container user to write
+    // This ensures containers running as any UID/GID can access their data
+    // Covers both appdata (primary mount) and all additional mounts at the same level
+    const fixPermissions = `sudo chmod -R 777 ${appPath}`;
+    await cmdAsync(fixPermissions);
+    log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
+  } catch (error) {
+    log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
+    // Continue anyway - container might still work
+  }
+}
+
+/**
+ * Ensures mount paths exist and starts the container
+ * This is critical for file mounts after Syncthing cleanup deletes directories
+ * @param {string} appId - The app ID (e.g., "fluxweb_myapp" or "fluxtestapp")
+ * @returns {Promise<void>}
+ */
+async function ensureMountPathsAndStartContainer(appId) {
+  try {
+    // Parse appId to get app name and check if it's a component
+    const mainAppName = appId.replace(/^flux/, '').split('_')[1] || appId.replace(/^flux/, '');
+    const isComponent = appId.replace(/^flux/, '').includes('_');
+
+    // Fetch app specifications
+    // eslint-disable-next-line global-require
+    const registryManager = require('../appDatabase/registryManager');
+    const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
+
+    if (!appSpecs) {
+      log.warn(`ensureMountPathsAndStartContainer - Could not fetch specs for ${mainAppName}, starting container anyway`);
+      await dockerService.appDockerStart(appId);
+      return;
+    }
+
+    // Ensure mount paths exist before starting
+    // eslint-disable-next-line global-require
+    const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
+
+    if (isComponent) {
+      // For component apps, find the specific component spec
+      const componentName = appId.replace(/^flux/, '').split('_')[0];
+      const componentSpec = appSpecs.compose?.find((comp) => comp.name === componentName);
+
+      if (componentSpec && componentSpec.containerData) {
+        await advancedWorkflows.ensureMountPathsExist(componentSpec, mainAppName, true, appSpecs);
+      }
+    } else if (appSpecs.containerData) {
+      // For non-component apps
+      await advancedWorkflows.ensureMountPathsExist(appSpecs, mainAppName, false, null);
+    }
+
+    // Fix permissions on appdata directory to ensure container can write
+    // This is critical after Syncthing syncs data from peers - synced files may have wrong permissions
+    await fixAppdataPermissions(appId);
+
+    // Start the container
+    await dockerService.appDockerStart(appId);
+    log.info(`ensureMountPathsAndStartContainer - Successfully started ${appId} with mount paths ensured`);
+  } catch (error) {
+    log.error(`ensureMountPathsAndStartContainer - Error for ${appId}: ${error.message}`);
+    throw error;
+  }
+}
 
 /**
  * Helper function to get Syncthing folder sync completion status
@@ -143,7 +227,7 @@ async function handleFirstRun(params) {
   }
 
   // Sync folder exists - check container status
-  log.info(`handleFirstRun - First run, sync folder exists - checking container status`);
+  log.info('handleFirstRun - First run, sync folder exists - checking container status');
   let containerRunning = false;
 
   try {
@@ -157,13 +241,13 @@ async function handleFirstRun(params) {
   const cache = { restarted: true };
 
   if (syncFolder.type === 'receiveonly') {
-    log.info(`handleFirstRun - Sync folder is receiveonly, updating cache`);
+    log.info('handleFirstRun - Sync folder is receiveonly, updating cache');
     cache.restarted = false;
     cache.numberOfExecutions = 1;
   } else if (!containerRunning && containerDataFlags.includes('r')) {
     log.info(`handleFirstRun - Container not running, starting ${appId}`);
     try {
-      await dockerService.appDockerStart(appId);
+      await ensureMountPathsAndStartContainer(appId);
     } catch (error) {
       log.error(`handleFirstRun - Error starting ${appId}: ${error.message}`);
     }
@@ -202,6 +286,90 @@ async function handleSkippedAppSecondEncounter(params) {
 }
 
 /**
+ * Check if any remote peers have this folder in sendreceive mode and fully synced
+ * @param {string} folderId - Syncthing folder ID
+ * @returns {Promise<boolean>} True if at least one peer has folder in sendreceive and synced
+ */
+async function checkIfPeersAreSynced(folderId) {
+  try {
+    // Get all Syncthing folders
+    const configResponse = await syncthingService.getConfig({}, null);
+    if (!configResponse || configResponse.status !== 'success') {
+      return false;
+    }
+
+    const folder = configResponse.data.folders?.find((f) => f.id === folderId);
+    if (!folder) {
+      return false;
+    }
+
+    // Check if folder exists in sendreceive on at least one device
+    if (folder.type === 'sendreceive') {
+      // We ourselves are in sendreceive, peers must be synced
+      return true;
+    }
+
+    // Check remote devices for this folder
+    const { devices = [] } = folder;
+    if (devices.length === 0) {
+      return false;
+    }
+
+    // Get device completion status for each remote device
+    // eslint-disable-next-line no-restricted-syntax
+    for (const device of devices) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const completionResponse = await syncthingService.getDbCompletion({
+          query: { folder: folderId, device: device.deviceID },
+        }, null);
+
+        if (completionResponse?.status === 'success' && completionResponse.data) {
+          const { completion = 0 } = completionResponse.data;
+          // If any device has 100% completion, it means they have all the data
+          if (completion === 100) {
+            log.info(`checkIfPeersAreSynced - Found synced peer for ${folderId}: device ${device.deviceID.substring(0, 7)}... at ${completion}%`);
+            return true;
+          }
+        }
+      } catch (deviceError) {
+        log.warn(`checkIfPeersAreSynced - Error checking device ${device.deviceID}: ${deviceError.message}`);
+      }
+    }
+
+    return false;
+  } catch (error) {
+    log.error(`checkIfPeersAreSynced - Error checking peers for ${folderId}: ${error.message}`);
+    return false;
+  }
+}
+
+/**
+ * Check if sync is stalled (no progress for STALLED_SYNC_CHECK_COUNT checks)
+ * @param {Array} syncHistory - Array of recent sync statuses
+ * @returns {boolean} True if sync appears stalled
+ */
+function isSyncStalled(syncHistory) {
+  if (!syncHistory || syncHistory.length < STALLED_SYNC_CHECK_COUNT) {
+    return false;
+  }
+
+  // Get last N statuses
+  const recentStatuses = syncHistory.slice(-STALLED_SYNC_CHECK_COUNT);
+
+  // Check if inSyncBytes hasn't changed
+  const firstBytes = recentStatuses[0].inSyncBytes;
+  const allSameBytes = recentStatuses.every((status) => status.inSyncBytes === firstBytes);
+
+  if (allSameBytes) {
+    log.warn(`isSyncStalled - Detected stalled sync: ${firstBytes} bytes unchanged for ${STALLED_SYNC_CHECK_COUNT} checks`);
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Handle receive-only to send-receive transition
  * @param {Object} params - Parameters
  * @returns {Promise<Object>} Updated folder config and cache
@@ -224,6 +392,10 @@ async function handleReceiveOnlyTransition(params) {
 
   if (isLeader) {
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
+
+    // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
+    await fixAppdataPermissions(appId);
+
     syncthingFolder.type = 'sendreceive';
 
     if (containerDataFlags.includes('r')) {
@@ -241,11 +413,55 @@ async function handleReceiveOnlyTransition(params) {
   cache.numberOfExecutions = (cache.numberOfExecutions || 0) + 1;
 
   if (syncStatus) {
+    // Track sync history for stall detection
+    if (!cache.syncHistory) {
+      cache.syncHistory = [];
+    }
+    cache.syncHistory.push({
+      inSyncBytes: syncStatus.inSyncBytes,
+      globalBytes: syncStatus.globalBytes,
+      syncPercentage: syncStatus.syncPercentage,
+      timestamp: Date.now(),
+    });
+    // Keep only last 15 statuses to avoid memory bloat (need at least 10 for stall detection)
+    if (cache.syncHistory.length > 15) {
+      cache.syncHistory = cache.syncHistory.slice(-15);
+    }
+
     log.info(
-      `handleReceiveOnlyTransition - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% ` +
-      `(${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), ` +
-      `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`
+      `handleReceiveOnlyTransition - ${appId} sync status: ${syncStatus.syncPercentage.toFixed(2)}% `
+      + `(${syncStatus.inSyncBytes}/${syncStatus.globalBytes} bytes), `
+      + `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`,
     );
+
+    // Check for stalled sync - if no progress and peers are synced, restart
+    if (isSyncStalled(cache.syncHistory)) {
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync appears stalled, checking if peers are available...`);
+      const peersAreSynced = await checkIfPeersAreSynced(appId);
+
+      if (peersAreSynced) {
+        log.warn(
+          `handleReceiveOnlyTransition - ${appId} sync stalled but peers are synced. `
+          + 'Wiping local data and restarting sync to recover...',
+        );
+
+        // Wipe data and restart sync (similar to handleNewApp)
+        const { appDockerStopFn, appDeleteDataInMountPointFn } = params;
+        await appDockerStopFn(appId);
+        await serviceHelper.delay(OPERATION_DELAY_MS);
+        await appDeleteDataInMountPointFn(appId);
+        await serviceHelper.delay(OPERATION_DELAY_MS);
+
+        // Reset cache to start fresh
+        cache.numberOfExecutions = 1;
+        cache.syncHistory = [];
+        delete cache.previousGlobalBytes;
+
+        log.info(`handleReceiveOnlyTransition - ${appId} data wiped, sync restarted`);
+        return { syncthingFolder, cache };
+      }
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled but no synced peers found, continuing to wait...`);
+    }
 
     if (syncStatus.isSynced || cache.numberOfExecutions >= MAX_SYNC_WAIT_EXECUTIONS) {
       if (syncStatus.isSynced) {
@@ -253,6 +469,9 @@ async function handleReceiveOnlyTransition(params) {
       } else {
         log.warn(`handleReceiveOnlyTransition - ${appId} reached max wait time (${MAX_SYNC_WAIT_EXECUTIONS} executions), forcing start`);
       }
+
+      // Fix permissions before changing to sendreceive - critical for synced data
+      await fixAppdataPermissions(appId);
 
       syncthingFolder.type = 'sendreceive';
       if (containerDataFlags.includes('r')) {
@@ -272,6 +491,10 @@ async function handleReceiveOnlyTransition(params) {
 
     if (cache.numberOfExecutions >= numberOfExecutionsRequired) {
       log.info(`handleReceiveOnlyTransition - ${appId} reached required executions, switching to sendreceive`);
+
+      // Fix permissions before changing to sendreceive - critical for synced data
+      await fixAppdataPermissions(appId);
+
       syncthingFolder.type = 'sendreceive';
 
       if (containerDataFlags.includes('r')) {
@@ -325,6 +548,7 @@ async function handleNewApp(params) {
 async function ensureContainerRunning(appId, containerDataFlags) {
   try {
     const containerInspect = await dockerService.dockerContainerInspect(appId);
+
     if (!containerInspect.State.Running && containerDataFlags.includes('r')) {
       log.info(`ensureContainerRunning - ${appId} is not running, starting it`);
       await dockerService.appDockerStart(appId);
@@ -404,6 +628,8 @@ async function manageFolderSyncState(params) {
       myIP,
       containerDataFlags,
       appDockerRestartFn,
+      appDockerStopFn,
+      appDeleteDataInMountPointFn,
       syncthingFolder,
     });
     return result;

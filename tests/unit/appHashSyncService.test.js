@@ -209,6 +209,7 @@ describe('appHashSyncService tests', () => {
 
     it('should handle errors and reset running flag', async () => {
       const error = new Error('Database error');
+      // eslint-disable-next-line no-unused-vars
       const mockDb = { db: sinon.stub().returns('database') };
 
       dbHelperStub.databaseConnection.throws(error);

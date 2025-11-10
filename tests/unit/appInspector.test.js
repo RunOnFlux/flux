@@ -230,9 +230,9 @@ describe('appInspector tests', () => {
           verifyPrivilege: sinon.stub().resolves(false),
         },
         '../utils/appConstants': {
-      '../appQuery/appQueryService': {
-        decryptEnterpriseApps: sinon.stub().returnsArg(0),
-      },
+          '../appQuery/appQueryService': {
+            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          },
           appConstants: {},
         },
         '../utils/appUtilities': {
@@ -357,9 +357,9 @@ describe('appInspector tests', () => {
           verifyPrivilege: sinon.stub().resolves(false),
         },
         '../utils/appConstants': {
-      '../appQuery/appQueryService': {
-        decryptEnterpriseApps: sinon.stub().returnsArg(0),
-      },
+          '../appQuery/appQueryService': {
+            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          },
           appConstants: {},
         },
         '../utils/appUtilities': {
@@ -600,9 +600,9 @@ describe('appInspector tests', () => {
           verifyPrivilege: sinon.stub().resolves(false),
         },
         '../utils/appConstants': {
-      '../appQuery/appQueryService': {
-        decryptEnterpriseApps: sinon.stub().returnsArg(0),
-      },
+          '../appQuery/appQueryService': {
+            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          },
           appConstants: {},
         },
         '../utils/appUtilities': {
@@ -735,9 +735,9 @@ describe('appInspector tests', () => {
           verifyPrivilege: sinon.stub().resolves(false),
         },
         '../utils/appConstants': {
-      '../appQuery/appQueryService': {
-        decryptEnterpriseApps: sinon.stub().returnsArg(0),
-      },
+          '../appQuery/appQueryService': {
+            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          },
           appConstants: {},
         },
         '../utils/appUtilities': {
@@ -894,9 +894,9 @@ describe('appInspector tests', () => {
           verifyPrivilege: sinon.stub().resolves(false),
         },
         '../utils/appConstants': {
-      '../appQuery/appQueryService': {
-        decryptEnterpriseApps: sinon.stub().returnsArg(0),
-      },
+          '../appQuery/appQueryService': {
+            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          },
           appConstants: {},
         },
         '../utils/appUtilities': {
@@ -1088,9 +1088,9 @@ describe('appInspector tests', () => {
           verifyPrivilege: sinon.stub().resolves(false),
         },
         '../utils/appConstants': {
-      '../appQuery/appQueryService': {
-        decryptEnterpriseApps: sinon.stub().returnsArg(0),
-      },
+          '../appQuery/appQueryService': {
+            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          },
           appConstants: {},
         },
         '../utils/appUtilities': {

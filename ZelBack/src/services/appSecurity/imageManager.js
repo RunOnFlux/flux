@@ -2,7 +2,9 @@ const config = require('config');
 const axios = require('axios');
 const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
+// eslint-disable-next-line no-unused-vars
 const pgpService = require('../pgpService');
+const registryCredentialHelper = require('../utils/registryCredentialHelper');
 const imageVerifier = require('../utils/imageVerifier');
 const dbHelper = require('../dbHelper');
 const verificationHelper = require('../verificationHelper');
@@ -23,6 +25,7 @@ let cacheUserBlockedRepos = null;
  * @returns {{ttlMs: number, reason: string}}
  */
 function classifyVerificationError(error, errorMeta) {
+  // eslint-disable-next-line global-require
   const { FluxCacheManager } = require('../utils/cacheManager');
 
   // Use structured errorMeta if available (from imageVerifier)
@@ -77,14 +80,18 @@ function classifyVerificationError(error, errorMeta) {
  */
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
-  const skipVerification = options.skipVerification || false;
-  const usePgpDecrypt = options.usePgpDecrypt || false;
+  const specVersion = options.specVersion || null;
   const architecture = options.architecture || null;
+  const appName = options.appName || null;
 
   // Check cache first to avoid redundant Docker Hub API calls
   // Cache key includes architecture since same image may have different arch support
   const cacheKey = `${repotag}:${architecture || 'any'}:${repoauth ? 'auth' : 'noauth'}`;
   const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
+
+  if (repoauth && !specVersion) {
+    throw new Error('specVersion is required when using repoauth');
+  }
 
   if (cached) {
     log.info('Docker Hub verification cache HIT for '
@@ -105,39 +112,18 @@ async function verifyRepository(repotag, options = {}) {
   });
 
   if (repoauth) {
-    if (skipVerification) {
-      // fail open. This is done for v7 apps during verify when the node
-      // doesn't have the pgp key
+    // Use credential helper to handle version-aware decryption and cloud providers
+    const credentials = await registryCredentialHelper.getCredentials(
+      repotag,
+      repoauth,
+      specVersion,
+      appName,
+    );
 
-      fluxCaching.dockerHubVerificationCache.set(cacheKey, {
-        result: true,
-        error: null,
-      });
-
-      return true;
+    if (credentials) {
+      // Pass credentials object directly - no need to convert to string
+      imgVerifier.addCredentials(credentials);
     }
-
-    let authToken;
-
-    if (usePgpDecrypt) {
-      // v7 only, use pgp
-
-      authToken = await pgpService.decryptMessage(repoauth);
-
-      if (!authToken) {
-        throw new Error('Unable to decrypt provided credentials');
-      }
-
-    } else {
-      // v8+ specs repoauth is part of encrypted specs
-      authToken = repoauth;
-    }
-
-    if (typeof authToken !== 'string' || !authToken.includes(':')) {
-      throw new Error('Provided credentials not in the correct username:token format');
-    }
-
-    imgVerifier.addCredentials(authToken);
   }
 
   try {
