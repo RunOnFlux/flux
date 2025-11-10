@@ -248,6 +248,10 @@ async function startFluxFunctions() {
       monitoringOrchestrator.startMonitoringOfApps(null, globalState.appsMonitored, appQueryService.installedApps);
       portManager.restoreAppsPortsSupport();
     }, 1 * 60 * 1000);
+    setTimeout(() => {
+      // Check for enterprise apps on non-arcaneOS nodes and remove them
+      advancedWorkflows.checkAndRemoveEnterpriseAppsOnNonArcane();
+    }, 2 * 60 * 1000); // 2 minutes after startup
     setInterval(() => {
       portManager.restorePortsSupport(); // restore fluxos and apps ports/upnp
     }, 10 * 60 * 1000); // every 10 minutes
