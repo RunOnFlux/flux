@@ -690,7 +690,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       res.write(serviceHelper.ensureString(removeStatus));
       if (res.flush) res.flush();
     }
-    await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, sendRemovalMessage);
+    await appUninstaller.removeAppLocally(appSpecs.name, test ? null : res, true, test ? false : true, sendRemovalMessage);
     log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
 
     return false;
