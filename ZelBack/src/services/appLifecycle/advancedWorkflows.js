@@ -1313,7 +1313,7 @@ async function hardRedeploy(appSpecs, res) {
     const appInstaller = require('./appInstaller');
     await appInstaller.checkAppRequirements(appSpecs);
     // register
-    await appInstaller.registerAppLocally(appSpecs, undefined, res); // can throw
+    await appInstaller.registerAppLocally(appSpecs, undefined, res, false, true); // can throw
     log.info('Application redeployed');
     globalState.hardRedeployInProgress = false;
   } catch (error) {

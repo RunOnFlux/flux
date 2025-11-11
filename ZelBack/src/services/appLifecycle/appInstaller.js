@@ -335,9 +335,10 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
  * @param {object} componentSpecs Component specifications.
  * @param {object} res Response.
  * @param {boolean} test indicates if it is just to test the app install.
+ * @param {boolean} sendRemovalMessage whether to broadcast removal message to network if installation fails.
  * @returns {Promise<boolean>} Returns true if installation was successful, false otherwise.
  */
-async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
+async function registerAppLocally(appSpecs, componentSpecs, res, test = false, sendRemovalMessage = false) {
   // cpu, ram, hdd were assigned to correct tiered specs.
   // get applications specifics from app messages database
   // check if hash is in blockchain
@@ -682,6 +683,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
       res.write(serviceHelper.ensureString(errorResponse));
       if (res.flush) res.flush();
     }
+
     if (!test) {
       const removeStatus = messageHelper.createErrorMessage(`Error occured. Initiating Flux App ${appSpecs.name} removal`);
       log.info(removeStatus);
@@ -689,10 +691,20 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false) {
         res.write(serviceHelper.ensureString(removeStatus));
         if (res.flush) res.flush();
       }
-      await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, false);
+      await appUninstaller.removeAppLocally(appSpecs.name, res, true, true, sendRemovalMessage);
       log.info(`Cleanup completed for ${appSpecs.name} after installation failure`);
     }
+
     return false;
+  } finally {
+    if (test) {
+      try {
+        await appUninstaller.removeAppLocally(appSpecs.name, null, true, false, false);
+        log.info(`Test cleanup completed for ${appSpecs.name}`);
+      } catch (cleanupError) {
+        log.error(`Error during test cleanup for ${appSpecs.name}: ${cleanupError.message}`);
+      }
+    }
   }
   return true;
 }
@@ -955,18 +967,28 @@ async function installAppLocally(req, res) {
 /**
  * Check application requirements - validates hardware, static IP, nodes, and geolocation requirements
  * @param {object} appSpecs - Application specifications to check
+ * @param {boolean} skipGeolocation - Whether to skip geolocation checks (useful for testing)
+ * @param {boolean} skipStaticIp - Whether to skip static IP checks (useful for testing)
+ * @param {boolean} skipHardware - Whether to skip hardware and nodes checks (useful for testing)
  * @returns {Promise<boolean>} True if requirements are met
  */
-async function checkAppRequirements(appSpecs) {
+async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStaticIp = false, skipHardware = false) {
   // appSpecs has hdd, cpu and ram assigned to correct tier
-  await hwRequirements.checkAppHWRequirements(appSpecs);
-  // check geolocation
+  if (!skipHardware) {
+    await hwRequirements.checkAppHWRequirements(appSpecs);
+  }
 
-  hwRequirements.checkAppStaticIpRequirements(appSpecs);
+  if (!skipStaticIp) {
+    hwRequirements.checkAppStaticIpRequirements(appSpecs);
+  }
 
-  await hwRequirements.checkAppNodesRequirements(appSpecs);
+  if (!skipHardware) {
+    await hwRequirements.checkAppNodesRequirements(appSpecs);
+  }
 
-  hwRequirements.checkAppGeolocationRequirements(appSpecs);
+  if (!skipGeolocation) {
+    hwRequirements.checkAppGeolocationRequirements(appSpecs);
+  }
 
   return true;
 }
@@ -1039,7 +1061,8 @@ async function testAppInstall(req, res) {
       }
 
       // Test installation - similar to regular install but with test flag
-      await checkAppRequirements(appSpecifications);
+      // Skip all requirement checks for test installations (geolocation, static IP, hardware, nodes)
+      await checkAppRequirements(appSpecifications, true, true, true);
 
       res.setHeader('Content-Type', 'application/json');
 
