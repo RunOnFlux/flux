@@ -1243,6 +1243,7 @@ async function softRedeploy(appSpecs, res) {
               if (res.flush) res.flush();
             }
             // Call hardRedeploy instead
+            // eslint-disable-next-line no-use-before-define
             await hardRedeploy(appSpecs, res);
             return;
           }
