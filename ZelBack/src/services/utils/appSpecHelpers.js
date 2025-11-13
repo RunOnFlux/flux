@@ -382,6 +382,11 @@ async function getAppFiatAndFluxPrice(req, res) {
       }
       actualPriceToPay = Number(actualPriceToPay).toFixed(2);
 
+      // Ensure final price meets minimum after all discounts
+      if (actualPriceToPay < appPrices[0].minUSDPrice) {
+        actualPriceToPay = Number(appPrices[0].minUSDPrice).toFixed(2);
+      }
+
       let fiatRates;
       let fluxUSDRate;
       if (myShortCache.has('fluxRates')) {
