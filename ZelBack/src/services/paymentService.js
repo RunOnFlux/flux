@@ -52,7 +52,13 @@ async function verifyPayment(req, res) {
   req.on('end', async () => {
     try {
       const processedBody = serviceHelper.ensureObject(body);
-      const { txid, coin, chain, explorer } = processedBody;
+      // Support both transaction_id (from ZelCore) and txid
+      const txid = processedBody.transaction_id || processedBody.txid;
+      const {
+        coin, chain, explorer, amount,
+      } = processedBody;
+      // eslint-disable-next-line camelcase
+      const { from_address, to_address } = processedBody;
       const paymentId = req.query.paymentid || processedBody.paymentid;
 
       if (!paymentId) {
@@ -90,6 +96,11 @@ async function verifyPayment(req, res) {
           coin,
           chain: chain || coin,
           explorer: explorer || '',
+          // eslint-disable-next-line camelcase
+          fromAddress: from_address || '',
+          // eslint-disable-next-line camelcase
+          toAddress: to_address || '',
+          amount: amount || '',
           receivedAt: new Date(timestamp),
         };
 
@@ -99,6 +110,7 @@ async function verifyPayment(req, res) {
           message: 'Payment received successfully',
           paymentId,
           txid,
+          success_url: 'https://home.runonflux.io/successcheckout',
         };
         const resMessage = messageHelper.createDataMessage(resData);
         res.json(resMessage);
@@ -126,11 +138,13 @@ async function verifyPayment(req, res) {
 async function wsRespondPayment(ws, paymentid) {
   let connclosed = false;
 
+  // eslint-disable-next-line no-param-reassign
   ws.onclose = (evt) => {
     console.log(evt.code);
     connclosed = true;
   };
 
+  // eslint-disable-next-line no-param-reassign
   ws.onerror = (evt) => {
     log.error(evt.code);
     connclosed = true;
@@ -160,6 +174,9 @@ async function wsRespondPayment(ws, paymentid) {
           coin: result.coin,
           chain: result.chain,
           explorer: result.explorer,
+          fromAddress: result.fromAddress,
+          toAddress: result.toAddress,
+          amount: result.amount,
           receivedAt: result.receivedAt,
         };
         const message = messageHelper.createDataMessage(resData);
