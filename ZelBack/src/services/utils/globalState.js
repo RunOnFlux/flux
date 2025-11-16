@@ -26,6 +26,7 @@ const appsToBeCheckedLater = [];
 const appsSyncthingToBeCheckedLater = [];
 const receiveOnlySyncthingAppsCache = new Map();
 const syncthingDevicesIDCache = new Map();
+const folderHealthCache = new Map(); // Tracks health status for sync folders (isolation, connectivity issues)
 
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
@@ -88,6 +89,7 @@ module.exports = {
   get appsSyncthingToBeCheckedLater() { return appsSyncthingToBeCheckedLater; },
   get receiveOnlySyncthingAppsCache() { return receiveOnlySyncthingAppsCache; },
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
+  get folderHealthCache() { return folderHealthCache; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },

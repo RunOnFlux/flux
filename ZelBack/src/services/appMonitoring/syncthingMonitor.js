@@ -14,6 +14,7 @@ const {
   // eslint-disable-next-line no-unused-vars
   ERROR_RETRY_DELAY_MS,
   SYNC_STATE_LOG_INTERVAL_MS,
+  HEALTH_CHECK_INTERVAL_MS,
 } = require('./syncthingMonitorConstants');
 const {
   sortAndFilterLocations,
@@ -27,6 +28,9 @@ const {
 const {
   manageFolderSyncState,
 } = require('./syncthingFolderStateMachine');
+const {
+  monitorFolderHealth,
+} = require('./syncthingHealthMonitor');
 
 // Global collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -237,7 +241,6 @@ async function logSyncState(foldersConfiguration) {
  * @param {Function} removeAppLocallyFn - Remove app function
  * @returns {Promise<void>}
  */
-// eslint-disable-next-line no-unused-vars
 async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDockerStopFn, appDockerRestartFn, appDeleteDataInMountPointFn, removeAppLocallyFn) {
   // Sync global state before checking
   getGlobalStateFn();
@@ -430,6 +433,34 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     if (!state.lastSyncStateLogTime || (now - state.lastSyncStateLogTime >= SYNC_STATE_LOG_INTERVAL_MS)) {
       await logSyncState(foldersConfiguration);
       state.lastSyncStateLogTime = now;
+    }
+
+    // Run health monitoring every HEALTH_CHECK_INTERVAL_MS
+    // This checks for isolated nodes, connectivity issues, and takes corrective actions
+    if (!state.lastHealthCheckTime || (now - state.lastHealthCheckTime >= HEALTH_CHECK_INTERVAL_MS)) {
+      log.info('syncthingAppsCore - Running periodic health check');
+      try {
+        const healthResults = await monitorFolderHealth({
+          foldersConfiguration,
+          folderHealthCache: state.folderHealthCache,
+          appDockerStopFn,
+          appDockerStartFn: dockerService.appDockerStart,
+          removeAppLocallyFn,
+          state,
+          receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
+        });
+
+        if (healthResults.actions.length > 0) {
+          log.warn(`syncthingAppsCore - Health monitoring took ${healthResults.actions.length} corrective action(s)`);
+          healthResults.actions.forEach((action) => {
+            log.warn(`  - ${action.action.toUpperCase()} ${action.folderId}: ${action.reason} (${action.durationMinutes.toFixed(0)} min)`);
+          });
+        }
+
+        state.lastHealthCheckTime = now;
+      } catch (healthError) {
+        log.error(`syncthingAppsCore - Health monitoring error: ${healthError.message}`);
+      }
     }
 
     // Check if Syncthing restart is needed
