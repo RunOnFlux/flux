@@ -173,13 +173,13 @@ async function monitorFolderHealth(params) {
     // eslint-disable-next-line no-restricted-syntax
     for (const folderConfig of foldersConfiguration) {
       const folderId = folderConfig.id;
-      const appName = extractAppNameFromFolderId(folderId);
 
       // Skip folders whose apps haven't completed their initial process
+      // Note: receiveOnlySyncthingAppsCache is keyed by folderId (same as appId), not extracted app name
       if (receiveOnlySyncthingAppsCache) {
-        const appCache = receiveOnlySyncthingAppsCache.get(appName);
+        const appCache = receiveOnlySyncthingAppsCache.get(folderId);
         if (!appCache || appCache.restarted !== true) {
-          log.debug(`monitorFolderHealth - Skipping ${folderId} (app ${appName}), initial process not completed`);
+          log.debug(`monitorFolderHealth - Skipping ${folderId}, initial process not completed`);
           // eslint-disable-next-line no-continue
           continue;
         }
