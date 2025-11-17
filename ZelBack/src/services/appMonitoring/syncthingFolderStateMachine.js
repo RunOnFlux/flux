@@ -587,7 +587,10 @@ async function manageFolderSyncState(params) {
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {
     await ensureContainerRunning(appId, containerDataFlags);
-    return { syncthingFolder, cache: null, skipUpdate: true };
+    // Ensure cache entry exists so health monitor can track this folder
+    const existingCache = receiveOnlySyncthingAppsCache.get(appId);
+    const cache = existingCache || { restarted: true };
+    return { syncthingFolder, cache, skipUpdate: true };
   }
 
   // First run scenario
