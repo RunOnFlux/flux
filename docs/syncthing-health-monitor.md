@@ -62,7 +62,9 @@ Every 5 minutes (HEALTH_CHECK_INTERVAL_MS):
 │   ├─ Skip if installation in progress
 │   ├─ Skip if removal in progress
 │   ├─ Skip if soft redeploy in progress
-│   └─ Skip if hard redeploy in progress
+│   ├─ Skip if hard redeploy in progress
+│   ├─ Skip if backup in progress
+│   └─ Skip if restore in progress
 │
 ├─ 2. Get peer sync diagnostics from Syncthing API
 │
@@ -326,6 +328,13 @@ if (state.installationInProgress ||
     state.softRedeployInProgress ||
     state.hardRedeployInProgress) {
   log.info('Skipping health check, other operations in progress');
+  return { checked: false, actions: [] };
+}
+
+// Skip if backup or restore in progress
+if ((state.backupInProgress && state.backupInProgress.length > 0) ||
+    (state.restoreInProgress && state.restoreInProgress.length > 0)) {
+  log.info('Skipping health check, backup or restore in progress');
   return { checked: false, actions: [] };
 }
 ```
@@ -659,14 +668,14 @@ try {
 
 The service has comprehensive unit tests covering:
 
-- **44 test cases** in `tests/unit/syncthingHealthMonitor.test.js`
+- **46 test cases** in `tests/unit/syncthingHealthMonitor.test.js`
 - Helper functions (extractAppNameFromFolderId, getOrCreateHealthStatus, resetHealthStatus)
 - Query functions (shouldRemoveFolder, getHealthSummary)
 - Issue detection (isolation, cannot sync, peers behind, stalled sync)
 - Escalating actions (warning, stop, restart syncthing, remove)
 - Automatic recovery
 - Edge cases (first check, component names, multiple folders, error handling)
-- Skip conditions (installation, removal, redeploy in progress)
+- Skip conditions (installation, removal, redeploy, backup, restore in progress)
 - Backwards compatibility
 
 Run tests:

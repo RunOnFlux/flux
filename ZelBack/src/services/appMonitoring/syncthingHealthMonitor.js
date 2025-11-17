@@ -138,6 +138,12 @@ async function monitorFolderHealth(params) {
     return { checked: false, actions: [] };
   }
 
+  // Skip if backup or restore in progress
+  if ((state.backupInProgress && state.backupInProgress.length > 0) || (state.restoreInProgress && state.restoreInProgress.length > 0)) {
+    log.info('monitorFolderHealth - Skipping health check, backup or restore in progress');
+    return { checked: false, actions: [] };
+  }
+
   const results = {
     checked: true,
     timestamp: Date.now(),

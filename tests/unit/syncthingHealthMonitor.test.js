@@ -278,6 +278,8 @@ describe('syncthingHealthMonitor tests', () => {
         removalInProgress: false,
         softRedeployInProgress: false,
         hardRedeployInProgress: false,
+        backupInProgress: [],
+        restoreInProgress: [],
       };
       mockFoldersConfiguration = [];
       mockFolderHealthCache = new Map();
@@ -318,6 +320,40 @@ describe('syncthingHealthMonitor tests', () => {
       });
 
       expect(result.checked).to.be.false;
+    });
+
+    it('should skip health check when backup in progress', async () => {
+      mockState.backupInProgress = ['someapp'];
+
+      const result = await healthMonitor.monitorFolderHealth({
+        foldersConfiguration: mockFoldersConfiguration,
+        folderHealthCache: mockFolderHealthCache,
+        appDockerStopFn,
+        appDockerStartFn,
+        removeAppLocallyFn,
+        state: mockState,
+        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
+      });
+
+      expect(result.checked).to.be.false;
+      expect(result.actions).to.have.length(0);
+    });
+
+    it('should skip health check when restore in progress', async () => {
+      mockState.restoreInProgress = ['someapp'];
+
+      const result = await healthMonitor.monitorFolderHealth({
+        foldersConfiguration: mockFoldersConfiguration,
+        folderHealthCache: mockFolderHealthCache,
+        appDockerStopFn,
+        appDockerStartFn,
+        removeAppLocallyFn,
+        state: mockState,
+        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
+      });
+
+      expect(result.checked).to.be.false;
+      expect(result.actions).to.have.length(0);
     });
 
     it('should skip folders whose apps have not completed initial process', async () => {
