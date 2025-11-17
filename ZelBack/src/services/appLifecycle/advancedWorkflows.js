@@ -472,11 +472,14 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(mountingStatus));
       if (res.flush) res.flush();
     }
-    let execMount = `sudo mount -o loop ${useThisVolume.mount}/${appId}FLUXFSVOL ${appsFolder + appId}`;
+    let volumeFile = `${useThisVolume.mount}/${appId}FLUXFSVOL`;
     if (useThisVolume.mount === '/') {
-      execMount = `sudo mount -o loop ${fluxDirPath}appvolumes/${appId}FLUXFSVOL ${appsFolder + appId}`;
+      volumeFile = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
     }
-    await cmdAsync(execMount);
+    // Wait for volume file to exist (handles encrypted volumes not yet mounted after reboot)
+    // This ensures @reboot cron jobs don't fail when the encrypted partition isn't ready
+    let execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
+    await cmdAsync(`sudo mount -o loop ${volumeFile} ${appsFolder + appId}`);
     const mountingStatus2 = {
       status: 'Volume mounted',
     };
@@ -694,40 +697,6 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       }
     });
     if (!exists) {
-      // IMPORTANT: Prioritize mount jobs by adding them FIRST in the crontab
-      // This ensures loop mounts execute before other @reboot jobs
-      // Strategy: Remove all non-mount jobs, add new mount job, re-add other jobs
-      const nonMountJobs = [];
-      const currentJobs = crontab.jobs();
-
-      // Separate mount jobs from other jobs
-      currentJobs.forEach((job) => {
-        // Check if this is NOT a mount job (mount jobs have "sudo mount" in command)
-        const jobCommand = job.command ? job.command() : '';
-        const isMountJob = jobCommand.includes('sudo mount -o loop');
-
-        if (!isMountJob) {
-          // Extract schedule from job - handle both @reboot style and standard 5-field cron
-          let jobSchedule = '@reboot'; // default fallback
-          const jobString = job.toString();
-          if (jobString.startsWith('@')) {
-            // Special schedule like @reboot, @hourly, @daily, etc.
-            jobSchedule = jobString.split(' ')[0];
-          } else {
-            // Standard 5-field cron schedule (minute hour day month weekday)
-            jobSchedule = jobString.split(' ').slice(0, 5).join(' ');
-          }
-
-          nonMountJobs.push({
-            command: job.command(),
-            schedule: jobSchedule,
-            comment: job.comment(),
-          });
-          crontab.remove(job);
-        }
-      });
-
-      // Create the new mount job (now it will be at the top with other mount jobs)
       const job = crontab.create(execMount, '@reboot', appId);
       // check valid
       if (job == null) {
@@ -736,22 +705,8 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       if (!job.isValid()) {
         throw new Error('Failed to create a valid cron job');
       }
-
-      // Re-add non-mount jobs AFTER mount jobs
-      nonMountJobs.forEach((jobInfo) => {
-        try {
-          const readdedJob = crontab.create(jobInfo.command, jobInfo.schedule, jobInfo.comment);
-          if (!readdedJob || !readdedJob.isValid()) {
-            log.warn(`Failed to re-add crontab job: ${jobInfo.comment}`);
-          }
-        } catch (readdError) {
-          log.error(`Error re-adding crontab job ${jobInfo.comment}: ${readdError.message}`);
-        }
-      });
-
       // save
       crontab.save();
-      log.info(`Crontab reordered: mount jobs now execute first (${appId} added as priority)`);
     }
     const cronStatusB = {
       status: 'Crontab adjusted.',
