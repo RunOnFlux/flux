@@ -28,6 +28,7 @@ const {
 const {
   manageFolderSyncState,
   verifyFolderMountSafety,
+  isPathMounted,
 } = require('./syncthingFolderStateMachine');
 const {
   monitorFolderHealth,
@@ -40,6 +41,46 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
+
+/**
+ * Check if app folders are properly mounted
+ * Returns list of apps whose folders are not mounted yet
+ * Uses verifyFolderMountSafety to detect folders that exist but aren't properly mounted
+ * @param {Array} appsInstalled - List of installed apps
+ * @returns {Promise<Array>} List of apps with unmounted folders
+ */
+async function checkAppFolderMounts(appsInstalled) {
+  const unmountedApps = [];
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const installedApp of appsInstalled) {
+    if (installedApp.version <= 3) {
+      // Legacy app - single folder
+      const appId = dockerService.getAppIdentifier(installedApp.name);
+      const appFolder = `${appsFolder}${appId}`;
+      // eslint-disable-next-line no-await-in-loop
+      const mountSafety = await verifyFolderMountSafety(appId, appFolder);
+      if (!mountSafety.isSafe) {
+        // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
+        unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
+      }
+    } else {
+      // Newer app - check each component
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of installedApp.compose || []) {
+        const appId = dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`);
+        const appFolder = `${appsFolder}${appId}`;
+        // eslint-disable-next-line no-await-in-loop
+        const mountSafety = await verifyFolderMountSafety(appId, appFolder);
+        if (!mountSafety.isSafe) {
+          unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
+        }
+      }
+    }
+  }
+
+  return unmountedApps;
+}
 
 // Helper function to get app locations
 async function appLocation(appName) {
@@ -264,6 +305,16 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
 
     // Decrypt enterprise apps (version 8 with encrypted content)
     appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data);
+
+    // CRITICAL: Check if app folder mounts are ready before processing
+    // This prevents syncthing operations when loop devices aren't mounted after reboot
+    const unmountedApps = await checkAppFolderMounts(appsInstalled.data);
+    if (unmountedApps.length > 0) {
+      const unmountedList = unmountedApps.map((app) => app.appId).join(', ');
+      log.warn(`syncthingAppsCore - Skipping processing: ${unmountedApps.length} app folders not mounted yet: ${unmountedList}`);
+      log.warn('syncthingAppsCore - Waiting for app folders to be mounted before syncthing processing');
+      return;
+    }
 
     // Get required IDs and configurations
     const myDeviceId = await syncthingService.getDeviceId();

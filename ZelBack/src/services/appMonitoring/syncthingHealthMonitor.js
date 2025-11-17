@@ -1,6 +1,8 @@
 // Syncthing Health Monitor - Monitors cluster health and takes corrective actions
 const log = require('../../lib/log');
 const syncthingService = require('../syncthingService');
+const { isPathMounted } = require('./syncthingFolderStateMachine');
+const { appsFolder } = require('../utils/appConstants');
 const {
   HEALTH_STOP_THRESHOLD_MS,
   HEALTH_RESTART_SYNCTHING_THRESHOLD_MS,
@@ -173,6 +175,27 @@ async function monitorFolderHealth(params) {
     // eslint-disable-next-line no-restricted-syntax
     for (const folderConfig of foldersConfiguration) {
       const folderId = folderConfig.id;
+
+      // Skip folders whose mounts are not ready
+      const folderPath = `${appsFolder}${folderId}`;
+      // eslint-disable-next-line no-await-in-loop
+      const isMounted = await isPathMounted(folderPath);
+      if (isMounted === false) {
+        // Check if folder exists but not mounted (unmounted loop device)
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const fs = require('node:fs');
+          // eslint-disable-next-line no-await-in-loop
+          const stats = await fs.promises.stat(folderPath);
+          if (stats.isDirectory()) {
+            log.warn(`monitorFolderHealth - Skipping ${folderId}, folder exists but not mounted yet`);
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+        } catch (err) {
+          // Folder doesn't exist - proceed with health check
+        }
+      }
 
       // Skip folders whose apps haven't completed their initial process
       // Note: receiveOnlySyncthingAppsCache is keyed by folderId (same as appId), not extracted app name
