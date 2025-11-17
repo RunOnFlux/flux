@@ -20,6 +20,106 @@ const { sortRunningAppList } = require('./syncthingMonitorHelpers');
 const cmdAsync = util.promisify(nodecmd.run);
 
 /**
+ * Check if a path is a mount point (has a filesystem mounted on it)
+ * This detects if loop devices or other filesystems are properly mounted
+ * @param {string} dirPath - Directory path to check
+ * @returns {Promise<boolean>} True if path is a mount point
+ */
+async function isPathMounted(dirPath) {
+  try {
+    // mountpoint command returns 0 if path is a mount point
+    await cmdAsync(`mountpoint -q ${dirPath}`);
+    return true;
+  } catch (error) {
+    // mountpoint returns non-zero if not a mount point
+    return false;
+  }
+}
+
+/**
+ * Check if a directory has actual content (not just an empty mount point)
+ * @param {string} dirPath - Directory path to check
+ * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
+ */
+async function checkDirectoryHasContent(dirPath) {
+  try {
+    // Count files in directory (excluding . and ..)
+    const result = await cmdAsync(`find ${dirPath} -type f 2>/dev/null | head -100 | wc -l`);
+    const fileCount = parseInt(result.toString().trim(), 10) || 0;
+    return {
+      hasContent: fileCount > 0,
+      fileCount,
+    };
+  } catch (error) {
+    log.warn(`checkDirectoryHasContent - Error checking ${dirPath}: ${error.message}`);
+    return { hasContent: false, fileCount: 0 };
+  }
+}
+
+/**
+ * Verify that a Syncthing folder's mount is properly initialized
+ * This is CRITICAL to prevent data loss when mounts are not ready after reboot
+ * @param {string} appId - App ID (e.g., fluxwp_myapp)
+ * @param {string} folderPath - Syncthing folder path
+ * @returns {Promise<{isSafe: boolean, reason: string, isMounted: boolean, hasContent: boolean}>}
+ */
+async function verifyFolderMountSafety(appId, folderPath) {
+  const result = {
+    isSafe: true,
+    reason: 'ok',
+    isMounted: false,
+    hasContent: false,
+    fileCount: 0,
+  };
+
+  try {
+    // Check 1: Does the base app directory exist?
+    const baseDir = `${appsFolder}${appId}`;
+    const baseDirExists = await cmdAsync(`test -d ${baseDir} && echo "exists"`).then(() => true).catch(() => false);
+
+    if (!baseDirExists) {
+      result.isSafe = false;
+      result.reason = 'base_directory_missing';
+      log.warn(`verifyFolderMountSafety - ${appId} base directory does not exist: ${baseDir}`);
+      return result;
+    }
+
+    // Check 2: Is the base directory a mount point? (for loop-mounted volumes)
+    result.isMounted = await isPathMounted(baseDir);
+
+    // Check 3: Does the folder have actual content?
+    const contentCheck = await checkDirectoryHasContent(folderPath);
+    result.hasContent = contentCheck.hasContent;
+    result.fileCount = contentCheck.fileCount;
+
+    // Safety logic:
+    // If directory exists but is NOT mounted and has NO content, this is dangerous
+    // It might be an empty mount point waiting for loop device
+    if (!result.isMounted && !result.hasContent) {
+      result.isSafe = false;
+      result.reason = 'empty_unmounted_directory';
+      log.error(`verifyFolderMountSafety - CRITICAL: ${appId} directory exists but not mounted and empty! Likely missing loop mount.`);
+      return result;
+    }
+
+    // If mounted but empty, be cautious (could be race condition)
+    if (result.isMounted && !result.hasContent) {
+      // Give a small grace period - maybe syncing hasn't completed yet
+      // But this is still suspicious
+      log.warn(`verifyFolderMountSafety - ${appId} is mounted but has no content (0 files). Potential data loss risk.`);
+      // We'll allow it but log warning - Syncthing should handle this
+    }
+
+    return result;
+  } catch (error) {
+    log.error(`verifyFolderMountSafety - Error checking ${appId}: ${error.message}`);
+    result.isSafe = false;
+    result.reason = 'check_failed';
+    return result;
+  }
+}
+
+/**
  * Fix permissions on all mount directories for containers
  * Critical for synced data that may have wrong ownership
  * Fixes permissions on appdata and all additional mount points
@@ -586,6 +686,31 @@ async function manageFolderSyncState(params) {
 
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {
+    // CRITICAL SAFETY CHECK: Verify mount is properly initialized before trusting sendreceive mode
+    // This prevents data loss when loop mounts aren't ready after reboot
+    const folderPath = syncFolder.path || `${appsFolder}${appId}/appdata`;
+    const mountSafety = await verifyFolderMountSafety(appId, folderPath);
+
+    if (!mountSafety.isSafe) {
+      // DANGER: Mount not ready! Switch to receiveonly to prevent data propagation
+      log.error(`manageFolderSyncState - SAFETY BLOCK: ${appId} mount not safe (${mountSafety.reason}). Switching to receiveonly mode to prevent data loss.`);
+      log.error(`manageFolderSyncState - Mount status: mounted=${mountSafety.isMounted}, hasContent=${mountSafety.hasContent}, files=${mountSafety.fileCount}`);
+
+      // Update folder to receiveonly mode to prevent this node from sending "empty" state to peers
+      syncthingFolder.type = 'receiveonly';
+      const cache = {
+        numberOfExecutions: 0,
+        mountSafetyBlocked: true,
+        blockedReason: mountSafety.reason,
+        blockedAt: Date.now(),
+      };
+      receiveOnlySyncthingAppsCache.set(appId, cache);
+
+      // Return with skipUpdate=false so the folder config gets updated to receiveonly
+      return { syncthingFolder, cache, skipUpdate: false };
+    }
+
+    // Mount is safe, proceed normally
     await ensureContainerRunning(appId, containerDataFlags);
     // Ensure cache entry exists so health monitor can track this folder
     const existingCache = receiveOnlySyncthingAppsCache.get(appId);
@@ -682,4 +807,7 @@ module.exports = {
   manageFolderSyncState,
   getFolderSyncCompletion,
   isDesignatedLeader,
+  verifyFolderMountSafety,
+  isPathMounted,
+  checkDirectoryHasContent,
 };

@@ -27,6 +27,7 @@ const {
 } = require('./syncthingMonitorHelpers');
 const {
   manageFolderSyncState,
+  verifyFolderMountSafety,
 } = require('./syncthingFolderStateMachine');
 const {
   monitorFolderHealth,
@@ -304,6 +305,48 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
 
     // Mark that Syncthing is properly initialized - safe to clear first run flag
     syncthingInitializedSuccessfully = true;
+
+    // CRITICAL STARTUP SAFETY CHECK: Verify all sendreceive folders have safe mounts
+    // This prevents data loss when loop mounts aren't ready after reboot
+    if (state.syncthingAppsFirstRun && allFoldersResp.data.length > 0) {
+      log.info('syncthingAppsCore - First run detected, performing mount safety verification on existing folders');
+      let unsafeFoldersCount = 0;
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const folder of allFoldersResp.data) {
+        if (folder.type === 'sendreceive') {
+          // Extract appId from folder.id (e.g., fluxwp_myapp -> fluxwp_myapp)
+          const appId = folder.id;
+          const folderPath = folder.path;
+
+          // eslint-disable-next-line no-await-in-loop
+          const mountSafety = await verifyFolderMountSafety(appId, folderPath);
+
+          if (!mountSafety.isSafe) {
+            unsafeFoldersCount += 1;
+            log.error(`syncthingAppsCore - STARTUP SAFETY: Folder ${appId} has unsafe mount (${mountSafety.reason}). Switching to receiveonly to prevent data loss.`);
+
+            // Immediately switch to receiveonly mode
+            // eslint-disable-next-line no-await-in-loop
+            await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, folder.id).catch((err) => {
+              log.error(`syncthingAppsCore - Failed to switch ${folder.id} to receiveonly: ${err.message}`);
+            });
+          } else {
+            log.info(`syncthingAppsCore - Folder ${appId} mount is safe (mounted=${mountSafety.isMounted}, files=${mountSafety.fileCount})`);
+          }
+        }
+      }
+
+      if (unsafeFoldersCount > 0) {
+        log.error(`syncthingAppsCore - STARTUP WARNING: ${unsafeFoldersCount} folders had unsafe mounts and were switched to receiveonly mode. Check loop mounts!`);
+        // Restart Syncthing to apply the receiveonly changes immediately
+        await syncthingService.systemRestart().catch((err) => {
+          log.error(`syncthingAppsCore - Failed to restart Syncthing after safety switch: ${err.message}`);
+        });
+        // Wait for Syncthing to restart before continuing
+        await serviceHelper.delay(5000);
+      }
+    }
 
     // Initialize tracking arrays
     const devicesIds = [];
