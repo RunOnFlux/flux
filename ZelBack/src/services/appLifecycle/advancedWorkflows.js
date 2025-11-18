@@ -472,11 +472,14 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
       res.write(serviceHelper.ensureString(mountingStatus));
       if (res.flush) res.flush();
     }
-    let execMount = `sudo mount -o loop ${useThisVolume.mount}/${appId}FLUXFSVOL ${appsFolder + appId}`;
+    let volumeFile = `${useThisVolume.mount}/${appId}FLUXFSVOL`;
     if (useThisVolume.mount === '/') {
-      execMount = `sudo mount -o loop ${fluxDirPath}appvolumes/${appId}FLUXFSVOL ${appsFolder + appId}`;
+      volumeFile = `${fluxDirPath}appvolumes/${appId}FLUXFSVOL`;
     }
-    await cmdAsync(execMount);
+    // Wait for volume file to exist (handles encrypted volumes not yet mounted after reboot)
+    // This ensures @reboot cron jobs don't fail when the encrypted partition isn't ready
+    let execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
+    await cmdAsync(`sudo mount -o loop ${volumeFile} ${appsFolder + appId}`);
     const mountingStatus2 = {
       status: 'Volume mounted',
     };

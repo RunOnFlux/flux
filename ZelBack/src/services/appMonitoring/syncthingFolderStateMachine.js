@@ -20,6 +20,106 @@ const { sortRunningAppList } = require('./syncthingMonitorHelpers');
 const cmdAsync = util.promisify(nodecmd.run);
 
 /**
+ * Check if a path is a mount point (has a filesystem mounted on it)
+ * This detects if loop devices or other filesystems are properly mounted
+ * @param {string} dirPath - Directory path to check
+ * @returns {Promise<boolean>} True if path is a mount point
+ */
+async function isPathMounted(dirPath) {
+  try {
+    // mountpoint command returns 0 if path is a mount point
+    await cmdAsync(`mountpoint -q ${dirPath}`);
+    return true;
+  } catch (error) {
+    // mountpoint returns non-zero if not a mount point
+    return false;
+  }
+}
+
+/**
+ * Check if a directory has actual content (not just an empty mount point)
+ * @param {string} dirPath - Directory path to check
+ * @returns {Promise<{hasContent: boolean, fileCount: number}>} Content status
+ */
+async function checkDirectoryHasContent(dirPath) {
+  try {
+    // Count files in directory (excluding . and ..)
+    const result = await cmdAsync(`find ${dirPath} -type f 2>/dev/null | head -100 | wc -l`);
+    const fileCount = parseInt(result.toString().trim(), 10) || 0;
+    return {
+      hasContent: fileCount > 0,
+      fileCount,
+    };
+  } catch (error) {
+    log.warn(`checkDirectoryHasContent - Error checking ${dirPath}: ${error.message}`);
+    return { hasContent: false, fileCount: 0 };
+  }
+}
+
+/**
+ * Verify that a Syncthing folder's mount is properly initialized
+ * This is CRITICAL to prevent data loss when mounts are not ready after reboot
+ * @param {string} appId - App ID (e.g., fluxwp_myapp)
+ * @param {string} folderPath - Syncthing folder path
+ * @returns {Promise<{isSafe: boolean, reason: string, isMounted: boolean, hasContent: boolean}>}
+ */
+async function verifyFolderMountSafety(appId, folderPath) {
+  const result = {
+    isSafe: true,
+    reason: 'ok',
+    isMounted: false,
+    hasContent: false,
+    fileCount: 0,
+  };
+
+  try {
+    // Check 1: Does the base app directory exist?
+    const baseDir = `${appsFolder}${appId}`;
+    const baseDirExists = await cmdAsync(`test -d ${baseDir} && echo "exists"`).then(() => true).catch(() => false);
+
+    if (!baseDirExists) {
+      result.isSafe = false;
+      result.reason = 'base_directory_missing';
+      log.warn(`verifyFolderMountSafety - ${appId} base directory does not exist: ${baseDir}`);
+      return result;
+    }
+
+    // Check 2: Is the base directory a mount point? (for loop-mounted volumes)
+    result.isMounted = await isPathMounted(baseDir);
+
+    // Check 3: Does the folder have actual content?
+    const contentCheck = await checkDirectoryHasContent(folderPath);
+    result.hasContent = contentCheck.hasContent;
+    result.fileCount = contentCheck.fileCount;
+
+    // Safety logic:
+    // If directory exists but is NOT mounted and has NO content, this is dangerous
+    // It might be an empty mount point waiting for loop device
+    if (!result.isMounted && !result.hasContent) {
+      result.isSafe = false;
+      result.reason = 'empty_unmounted_directory';
+      log.error(`verifyFolderMountSafety - CRITICAL: ${appId} directory exists but not mounted and empty! Likely missing loop mount.`);
+      return result;
+    }
+
+    // If mounted but empty, be cautious (could be race condition)
+    if (result.isMounted && !result.hasContent) {
+      // Give a small grace period - maybe syncing hasn't completed yet
+      // But this is still suspicious
+      log.warn(`verifyFolderMountSafety - ${appId} is mounted but has no content (0 files). Potential data loss risk.`);
+      // We'll allow it but log warning - Syncthing should handle this
+    }
+
+    return result;
+  } catch (error) {
+    log.error(`verifyFolderMountSafety - Error checking ${appId}: ${error.message}`);
+    result.isSafe = false;
+    result.reason = 'check_failed';
+    return result;
+  }
+}
+
+/**
  * Fix permissions on all mount directories for containers
  * Critical for synced data that may have wrong ownership
  * Fixes permissions on appdata and all additional mount points
@@ -41,59 +141,6 @@ async function fixAppdataPermissions(appId) {
   } catch (error) {
     log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
     // Continue anyway - container might still work
-  }
-}
-
-/**
- * Ensures mount paths exist and starts the container
- * This is critical for file mounts after Syncthing cleanup deletes directories
- * @param {string} appId - The app ID (e.g., "fluxweb_myapp" or "fluxtestapp")
- * @returns {Promise<void>}
- */
-async function ensureMountPathsAndStartContainer(appId) {
-  try {
-    // Parse appId to get app name and check if it's a component
-    const mainAppName = appId.replace(/^flux/, '').split('_')[1] || appId.replace(/^flux/, '');
-    const isComponent = appId.replace(/^flux/, '').includes('_');
-
-    // Fetch app specifications
-    // eslint-disable-next-line global-require
-    const registryManager = require('../appDatabase/registryManager');
-    const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-
-    if (!appSpecs) {
-      log.warn(`ensureMountPathsAndStartContainer - Could not fetch specs for ${mainAppName}, starting container anyway`);
-      await dockerService.appDockerStart(appId);
-      return;
-    }
-
-    // Ensure mount paths exist before starting
-    // eslint-disable-next-line global-require
-    const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-
-    if (isComponent) {
-      // For component apps, find the specific component spec
-      const componentName = appId.replace(/^flux/, '').split('_')[0];
-      const componentSpec = appSpecs.compose?.find((comp) => comp.name === componentName);
-
-      if (componentSpec && componentSpec.containerData) {
-        await advancedWorkflows.ensureMountPathsExist(componentSpec, mainAppName, true, appSpecs);
-      }
-    } else if (appSpecs.containerData) {
-      // For non-component apps
-      await advancedWorkflows.ensureMountPathsExist(appSpecs, mainAppName, false, null);
-    }
-
-    // Fix permissions on appdata directory to ensure container can write
-    // This is critical after Syncthing syncs data from peers - synced files may have wrong permissions
-    await fixAppdataPermissions(appId);
-
-    // Start the container
-    await dockerService.appDockerStart(appId);
-    log.info(`ensureMountPathsAndStartContainer - Successfully started ${appId} with mount paths ensured`);
-  } catch (error) {
-    log.error(`ensureMountPathsAndStartContainer - Error for ${appId}: ${error.message}`);
-    throw error;
   }
 }
 
@@ -238,20 +285,22 @@ async function handleFirstRun(params) {
     log.warn(`handleFirstRun - Could not inspect ${appId}: ${error.message}`);
   }
 
-  const cache = { restarted: true };
-
-  if (syncFolder.type === 'receiveonly') {
-    log.info('handleFirstRun - Sync folder is receiveonly, updating cache');
-    cache.restarted = false;
-    cache.numberOfExecutions = 1;
-  } else if (!containerRunning && containerDataFlags.includes('r')) {
-    log.info(`handleFirstRun - Container not running, starting ${appId}`);
-    try {
-      await ensureMountPathsAndStartContainer(appId);
-    } catch (error) {
-      log.error(`handleFirstRun - Error starting ${appId}: ${error.message}`);
-    }
+  if (containerRunning) {
+    // App is running - this means FluxOS restart, not computer restart
+    // Skip processing - keep existing state
+    log.info(`handleFirstRun - ${appId} is running, FluxOS restart detected, keeping existing state`);
+    const cache = { restarted: true };
+    return { syncthingFolder, cache };
   }
+
+  // Container is stopped - computer was restarted
+  // Set to receiveonly mode to wait for sync before starting
+  log.info(`handleFirstRun - ${appId} is stopped, computer restart detected, setting to receiveonly mode`);
+  syncthingFolder.type = 'receiveonly';
+  const cache = {
+    restarted: false,
+    numberOfExecutions: 1,
+  };
 
   return { syncthingFolder, cache };
 }
@@ -434,39 +483,36 @@ async function handleReceiveOnlyTransition(params) {
       + `state: ${syncStatus.state}, executions: ${cache.numberOfExecutions}`,
     );
 
-    // Check for stalled sync - if no progress and peers are synced, restart
-    if (isSyncStalled(cache.syncHistory)) {
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync appears stalled, checking if peers are available...`);
-      const peersAreSynced = await checkIfPeersAreSynced(appId);
-
-      if (peersAreSynced) {
-        log.warn(
-          `handleReceiveOnlyTransition - ${appId} sync stalled but peers are synced. `
-          + 'Wiping local data and restarting sync to recover...',
-        );
-
-        // Wipe data and restart sync (similar to handleNewApp)
-        const { appDockerStopFn, appDeleteDataInMountPointFn } = params;
-        await appDockerStopFn(appId);
-        await serviceHelper.delay(OPERATION_DELAY_MS);
-        await appDeleteDataInMountPointFn(appId);
-        await serviceHelper.delay(OPERATION_DELAY_MS);
-
-        // Reset cache to start fresh
-        cache.numberOfExecutions = 1;
-        cache.syncHistory = [];
-        delete cache.previousGlobalBytes;
-
-        log.info(`handleReceiveOnlyTransition - ${appId} data wiped, sync restarted`);
-        return { syncthingFolder, cache };
-      }
-      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled but no synced peers found, continuing to wait...`);
-    }
-
+    // Check if synced or reached max wait time first (takes precedence)
     if (syncStatus.isSynced || cache.numberOfExecutions >= MAX_SYNC_WAIT_EXECUTIONS) {
       if (syncStatus.isSynced) {
         log.info(`handleReceiveOnlyTransition - ${appId} is synced (${syncStatus.syncPercentage.toFixed(2)}%), switching to sendreceive`);
       } else {
+        // Reached max wait time - check if we should remove the app
+        const syncIsStalled = isSyncStalled(cache.syncHistory);
+        const peersAreSynced = syncIsStalled ? await checkIfPeersAreSynced(appId) : false;
+
+        if (!syncStatus.isSynced && syncIsStalled && peersAreSynced) {
+          log.error(
+            `handleReceiveOnlyTransition - ${appId} reached max wait time with stalled sync and synced peers. `
+            + 'Removing app from node...',
+          );
+
+          // Remove the app from the node
+          try {
+            // eslint-disable-next-line global-require
+            const appUninstaller = require('../appLifecycle/appUninstaller');
+            await appUninstaller.removeAppLocally(appId, null, true, false, true);
+            log.info(`handleReceiveOnlyTransition - ${appId} removed from node successfully`);
+          } catch (error) {
+            log.error(`handleReceiveOnlyTransition - Failed to remove ${appId}: ${error.message}`);
+          }
+
+          // Mark as restarted to prevent further processing
+          cache.restarted = true;
+          return { syncthingFolder, cache };
+        }
+
         log.warn(`handleReceiveOnlyTransition - ${appId} reached max wait time (${MAX_SYNC_WAIT_EXECUTIONS} executions), forcing start`);
       }
 
@@ -479,6 +525,52 @@ async function handleReceiveOnlyTransition(params) {
         await appDockerRestartFn(appId);
       }
       cache.restarted = true;
+      return { syncthingFolder, cache };
+    }
+
+    // Check for stalled sync - if no progress and peers are synced, restart Syncthing
+    // This only runs if we haven't reached max executions yet
+    // Limit to one restart attempt per app to prevent infinite loops
+    if (isSyncStalled(cache.syncHistory) && !cache.syncthingRestartAttempted) {
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync appears stalled, checking if peers are available...`);
+      const peersAreSynced = await checkIfPeersAreSynced(appId);
+
+      if (peersAreSynced) {
+        log.warn(
+          `handleReceiveOnlyTransition - ${appId} sync stalled but peers are synced. `
+          + 'Stopping Docker app and restarting Syncthing to recover...',
+        );
+
+        // Stop Docker app if running
+        const { appDockerStopFn } = params;
+        try {
+          await appDockerStopFn(appId);
+          await serviceHelper.delay(OPERATION_DELAY_MS);
+          log.info(`handleReceiveOnlyTransition - ${appId} Docker container stopped`);
+        } catch (error) {
+          log.warn(`handleReceiveOnlyTransition - Could not stop ${appId}: ${error.message}`);
+        }
+
+        // Restart Syncthing
+        try {
+          await syncthingService.systemRestart();
+          log.info('handleReceiveOnlyTransition - Syncthing restarted to recover from stalled sync');
+        } catch (error) {
+          log.error(`handleReceiveOnlyTransition - Failed to restart Syncthing: ${error.message}`);
+        }
+
+        // Reset sync history and mark restart attempted
+        // Keep numberOfExecutions incrementing to eventually reach MAX_SYNC_WAIT_EXECUTIONS
+        cache.syncHistory = [];
+        cache.syncthingRestartAttempted = true; // Prevent infinite restart loop
+        delete cache.previousGlobalBytes;
+
+        log.info(`handleReceiveOnlyTransition - ${appId} recovery attempted (Syncthing restart), continuing to monitor`);
+        return { syncthingFolder, cache };
+      }
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync stalled but no synced peers found, continuing to wait...`);
+    } else if (isSyncStalled(cache.syncHistory) && cache.syncthingRestartAttempted) {
+      log.warn(`handleReceiveOnlyTransition - ${appId} sync still stalled after Syncthing restart, continuing to wait for max executions...`);
     }
   } else {
     // Fallback to time-based approach
@@ -586,8 +678,36 @@ async function manageFolderSyncState(params) {
 
   // If already syncing in sendreceive mode, ensure container is running
   if (folderAlreadySyncing) {
+    // CRITICAL SAFETY CHECK: Verify mount is properly initialized before trusting sendreceive mode
+    // This prevents data loss when loop mounts aren't ready after reboot
+    const folderPath = syncFolder.path || `${appsFolder}${appId}/appdata`;
+    const mountSafety = await verifyFolderMountSafety(appId, folderPath);
+
+    if (!mountSafety.isSafe) {
+      // DANGER: Mount not ready! Switch to receiveonly to prevent data propagation
+      log.error(`manageFolderSyncState - SAFETY BLOCK: ${appId} mount not safe (${mountSafety.reason}). Switching to receiveonly mode to prevent data loss.`);
+      log.error(`manageFolderSyncState - Mount status: mounted=${mountSafety.isMounted}, hasContent=${mountSafety.hasContent}, files=${mountSafety.fileCount}`);
+
+      // Update folder to receiveonly mode to prevent this node from sending "empty" state to peers
+      syncthingFolder.type = 'receiveonly';
+      const cache = {
+        numberOfExecutions: 0,
+        mountSafetyBlocked: true,
+        blockedReason: mountSafety.reason,
+        blockedAt: Date.now(),
+      };
+      receiveOnlySyncthingAppsCache.set(appId, cache);
+
+      // Return with skipUpdate=false so the folder config gets updated to receiveonly
+      return { syncthingFolder, cache, skipUpdate: false };
+    }
+
+    // Mount is safe, proceed normally
     await ensureContainerRunning(appId, containerDataFlags);
-    return { syncthingFolder, cache: null, skipUpdate: true };
+    // Ensure cache entry exists so health monitor can track this folder
+    const existingCache = receiveOnlySyncthingAppsCache.get(appId);
+    const cache = existingCache || { restarted: true };
+    return { syncthingFolder, cache, skipUpdate: true };
   }
 
   // First run scenario
@@ -679,4 +799,7 @@ module.exports = {
   manageFolderSyncState,
   getFolderSyncCompletion,
   isDesignatedLeader,
+  verifyFolderMountSafety,
+  isPathMounted,
+  checkDirectoryHasContent,
 };

@@ -2999,6 +2999,301 @@ function stopMetricsCollection() {
   }
 }
 
+/**
+ * Gets comprehensive peer sync diagnostics for all folders
+ * Identifies:
+ * - Which peers are connected/disconnected
+ * - Local sync status vs global
+ * - Whether peers have more updated data
+ * - Sync issues and recommendations
+ * @returns {Promise<Object>} Peer sync diagnostics
+ */
+async function getPeerSyncDiagnostics() {
+  try {
+    // Get config for folders and devices
+    const configResponse = await performRequest('get', '/rest/config');
+    if (!configResponse || configResponse.status !== 'success') {
+      throw new Error('Failed to fetch Syncthing configuration');
+    }
+    const syncthingConfig = configResponse.data;
+
+    // Get system connections status
+    const connectionsResponse = await performRequest('get', '/rest/system/connections');
+    if (!connectionsResponse || connectionsResponse.status !== 'success') {
+      throw new Error('Failed to fetch connection status');
+    }
+    const connections = connectionsResponse.data.connections || {};
+
+    // Get local device ID
+    const statusResponse = await performRequest('get', '/rest/system/status');
+    const localDeviceId = statusResponse?.data?.myID || 'unknown';
+
+    const diagnostics = {
+      timestamp: Date.now(),
+      localDeviceId,
+      summary: {
+        totalFolders: 0,
+        foldersWithIssues: 0,
+        cannotSyncFolders: [],
+        peersMoreUpdated: [],
+        disconnectedPeers: [],
+        connectedPeers: [],
+      },
+      folders: {},
+      devices: {},
+      issues: [],
+      recommendations: [],
+    };
+
+    // Build device info map
+    const deviceMap = {};
+    // eslint-disable-next-line no-restricted-syntax
+    for (const device of (syncthingConfig.devices || [])) {
+      if (device.deviceID === localDeviceId) {
+        deviceMap[device.deviceID] = {
+          name: device.name || 'Local',
+          isLocal: true,
+          connected: true,
+        };
+      } else {
+        const connInfo = connections[device.deviceID] || {};
+        const isConnected = connInfo.connected || false;
+        deviceMap[device.deviceID] = {
+          name: device.name || device.deviceID.substring(0, 7),
+          isLocal: false,
+          connected: isConnected,
+          address: connInfo.address || 'N/A',
+          clientVersion: connInfo.clientVersion || 'N/A',
+          inBytesTotal: connInfo.inBytesTotal || 0,
+          outBytesTotal: connInfo.outBytesTotal || 0,
+        };
+
+        if (isConnected) {
+          diagnostics.summary.connectedPeers.push(device.deviceID);
+        } else {
+          diagnostics.summary.disconnectedPeers.push(device.deviceID);
+        }
+      }
+    }
+    diagnostics.devices = deviceMap;
+
+    // Analyze each folder
+    const folders = syncthingConfig.folders || [];
+    diagnostics.summary.totalFolders = folders.length;
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const folder of folders) {
+      const folderId = folder.id;
+      const folderDiagnostic = {
+        id: folderId,
+        label: folder.label || folderId,
+        type: folder.type,
+        devices: [],
+        localStatus: null,
+        peerStatuses: [],
+        issues: [],
+        canSync: true,
+        peersAreMoreUpdated: false,
+      };
+
+      // Get local folder status
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const folderStatusResponse = await performRequest('get', `/rest/db/status?folder=${encodeURIComponent(folderId)}`);
+        if (folderStatusResponse?.status === 'success') {
+          const status = folderStatusResponse.data;
+          const globalBytes = status.globalBytes || 0;
+          const inSyncBytes = status.inSyncBytes || 0;
+          const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
+
+          folderDiagnostic.localStatus = {
+            globalBytes,
+            inSyncBytes,
+            needBytes: status.needBytes || 0,
+            needFiles: status.needFiles || 0,
+            syncPercentage: Math.round(syncPercentage * 100) / 100,
+            state: status.state || 'unknown',
+            errors: status.errors || 0,
+            pullErrors: status.pullErrors || 0,
+            globalFiles: status.globalFiles || 0,
+            localFiles: status.localFiles || 0,
+            outOfSyncFiles: (status.globalFiles || 0) - (status.localFiles || 0),
+          };
+
+          // Check if local is not fully synced
+          if (syncPercentage < 100 && globalBytes > 0) {
+            folderDiagnostic.issues.push({
+              type: 'incomplete_sync',
+              message: `Local is ${syncPercentage.toFixed(2)}% synced (missing ${status.needBytes} bytes, ${status.needFiles} files)`,
+            });
+          }
+        }
+      } catch (err) {
+        folderDiagnostic.issues.push({
+          type: 'status_error',
+          message: `Cannot get local status: ${err.message}`,
+        });
+      }
+
+      // Check each device's completion for this folder
+      const folderDevices = folder.devices || [];
+      let hasConnectedPeer = false;
+      let anyPeerMoreUpdated = false;
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const folderDevice of folderDevices) {
+        const deviceId = folderDevice.deviceID;
+        if (deviceId === localDeviceId) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        const deviceInfo = deviceMap[deviceId] || { name: deviceId.substring(0, 7), connected: false };
+        const peerStatus = {
+          deviceId,
+          deviceName: deviceInfo.name,
+          connected: deviceInfo.connected,
+          completion: null,
+          needBytes: null,
+          needItems: null,
+          globalBytes: null,
+        };
+
+        if (deviceInfo.connected) {
+          hasConnectedPeer = true;
+          // Get what this peer needs FROM us (tells us if they're behind us)
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const completionResponse = await performRequest('get', `/rest/db/completion?folder=${encodeURIComponent(folderId)}&device=${encodeURIComponent(deviceId)}`);
+            if (completionResponse?.status === 'success') {
+              const comp = completionResponse.data;
+              peerStatus.completion = comp.completion || 0;
+              peerStatus.needBytes = comp.needBytes || 0;
+              peerStatus.needItems = comp.needItems || 0;
+              peerStatus.globalBytes = comp.globalBytes || 0;
+
+              // If peer completion is 100%, they have all our data
+              // But check if their globalBytes > our inSyncBytes to see if they have MORE
+              if (folderDiagnostic.localStatus) {
+                const localInSync = folderDiagnostic.localStatus.inSyncBytes;
+                const peerGlobal = comp.globalBytes || 0;
+
+                // Peer has more data if their global is larger than what we have synced
+                if (peerGlobal > localInSync && folderDiagnostic.localStatus.syncPercentage < 100) {
+                  peerStatus.hasMoreData = true;
+                  anyPeerMoreUpdated = true;
+                } else {
+                  peerStatus.hasMoreData = false;
+                }
+              }
+            }
+          } catch (err) {
+            peerStatus.error = err.message;
+          }
+        } else {
+          peerStatus.error = 'Device disconnected';
+        }
+
+        folderDiagnostic.peerStatuses.push(peerStatus);
+      }
+
+      // Determine if folder can sync
+      if (folderDevices.length <= 1) {
+        // Only local device
+        folderDiagnostic.canSync = true; // No peers to sync with
+        folderDiagnostic.issues.push({
+          type: 'no_peers',
+          message: 'No remote peers configured for this folder',
+        });
+      } else if (!hasConnectedPeer) {
+        folderDiagnostic.canSync = false;
+        folderDiagnostic.issues.push({
+          type: 'no_connection',
+          message: 'Cannot sync: All peers are disconnected',
+        });
+        diagnostics.summary.cannotSyncFolders.push(folderId);
+        diagnostics.summary.foldersWithIssues += 1;
+      } else if (anyPeerMoreUpdated && folderDiagnostic.localStatus?.syncPercentage < 100) {
+        folderDiagnostic.peersAreMoreUpdated = true;
+        folderDiagnostic.issues.push({
+          type: 'peers_more_updated',
+          message: 'Connected peers have more updated data than local instance',
+        });
+        diagnostics.summary.peersMoreUpdated.push(folderId);
+        diagnostics.summary.foldersWithIssues += 1;
+      }
+
+      diagnostics.folders[folderId] = folderDiagnostic;
+    }
+
+    // Generate overall issues and recommendations
+    if (diagnostics.summary.disconnectedPeers.length > 0) {
+      diagnostics.issues.push({
+        severity: 'warning',
+        message: `${diagnostics.summary.disconnectedPeers.length} peer(s) disconnected`,
+        details: diagnostics.summary.disconnectedPeers.map((id) => deviceMap[id]?.name || id.substring(0, 7)),
+      });
+      diagnostics.recommendations.push('Check network connectivity to disconnected peers');
+    }
+
+    if (diagnostics.summary.cannotSyncFolders.length > 0) {
+      diagnostics.issues.push({
+        severity: 'critical',
+        message: `${diagnostics.summary.cannotSyncFolders.length} folder(s) cannot sync with any peer`,
+        details: diagnostics.summary.cannotSyncFolders,
+      });
+      diagnostics.recommendations.push('Ensure at least one peer is connected for each folder');
+    }
+
+    if (diagnostics.summary.peersMoreUpdated.length > 0) {
+      diagnostics.issues.push({
+        severity: 'warning',
+        message: `${diagnostics.summary.peersMoreUpdated.length} folder(s) have peers with more updated data`,
+        details: diagnostics.summary.peersMoreUpdated,
+      });
+      diagnostics.recommendations.push('Check for sync conflicts or network issues preventing data reception');
+    }
+
+    if (diagnostics.summary.connectedPeers.length === 0 && diagnostics.summary.totalFolders > 0) {
+      diagnostics.issues.push({
+        severity: 'critical',
+        message: 'No peers connected - instance is isolated',
+        details: [],
+      });
+      diagnostics.recommendations.push('Check firewall settings and network configuration');
+    }
+
+    return diagnostics;
+  } catch (error) {
+    log.error(`getPeerSyncDiagnostics error: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * API endpoint for peer sync diagnostics
+ * @param {object} req Request
+ * @param {object} res Response
+ * @returns {object} Peer sync diagnostics
+ */
+async function getPeerSyncDiagnosticsApi(req, res) {
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      const diagnostics = await getPeerSyncDiagnostics();
+      response = messageHelper.createDataMessage(diagnostics);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
 module.exports = {
   startSyncthingSentinel,
   stopSyncthingSentinel,
@@ -3110,4 +3405,7 @@ module.exports = {
   collectSyncthingMetrics,
   startMetricsCollection,
   stopMetricsCollection,
+  // PEER SYNC DIAGNOSTICS
+  getPeerSyncDiagnostics,
+  getPeerSyncDiagnosticsApi,
 };

@@ -1223,6 +1223,9 @@ module.exports = (app) => {
   app.get('/syncthing/metrics/history/:limit?', cache('10 seconds'), (req, res) => {
     syncthingService.getSyncthingMetricsHistory(req, res);
   });
+  app.get('/syncthing/peer/diagnostics', cache('10 seconds'), (req, res) => {
+    syncthingService.getPeerSyncDiagnosticsApi(req, res);
+  });
 
   // POST PUBLIC methods route
   app.post('/id/verifylogin', (req, res) => {

@@ -132,6 +132,27 @@ async function appStart(req, res) {
     let appRes;
 
     if (isComponent) {
+      // For component start, check if it uses g:syncthing mode
+      const componentMainApp = appname.split('_')[1];
+      const appSpecs = await registryManager.getApplicationSpecifications(componentMainApp);
+      if (appSpecs && appSpecs.version > 3) {
+        const componentSpec = appSpecs.compose.find((comp) => `${comp.name}_${appSpecs.name}` === appname);
+        if (componentSpec && componentSpec.containerData && componentSpec.containerData.includes('g:')) {
+          // Check if component is running
+          try {
+            const containers = await dockerService.dockerListContainers(false); // Get only running containers
+            const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(appname) || container.Id === appname);
+            if (!isRunning) {
+              log.info(`Skipping start for g:syncthing component ${appname} - not currently running`);
+              appRes = `Component ${appname} uses g:syncthing mode and is not running - skipped start`;
+              const appResponse = messageHelper.createDataMessage(appRes);
+              return res ? res.json(appResponse) : appResponse;
+            }
+          } catch (error) {
+            log.warn(`Could not check running status for ${appname}: ${error.message}`);
+          }
+        }
+      }
       appRes = await dockerService.appDockerStart(appname);
       appInspector.startAppMonitoring(appname);
     } else {
@@ -142,6 +163,21 @@ async function appStart(req, res) {
       }
 
       if (appSpecs.version <= 3) {
+        // For non-composed apps, check if it uses g:syncthing mode
+        if (appSpecs.containerData && appSpecs.containerData.includes('g:')) {
+          try {
+            const containers = await dockerService.dockerListContainers(false);
+            const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(appname) || container.Id === appname);
+            if (!isRunning) {
+              log.info(`Skipping start for g:syncthing app ${appname} - not currently running`);
+              appRes = `Application ${appname} uses g:syncthing mode and is not running - skipped start`;
+              const appResponse = messageHelper.createDataMessage(appRes);
+              return res ? res.json(appResponse) : appResponse;
+            }
+          } catch (error) {
+            log.warn(`Could not check running status for ${appname}: ${error.message}`);
+          }
+        }
         appRes = await dockerService.appDockerStart(appname);
         appInspector.startAppMonitoring(appname);
       } else {
@@ -150,6 +186,21 @@ async function appStart(req, res) {
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
           const componentName = `${appComponent.name}_${appSpecs.name}`;
+          // Check if component uses g:syncthing mode
+          if (appComponent.containerData && appComponent.containerData.includes('g:')) {
+            try {
+              // eslint-disable-next-line no-await-in-loop
+              const containers = await dockerService.dockerListContainers(false);
+              const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(componentName) || container.Id === componentName);
+              if (!isRunning) {
+                log.info(`Skipping start for g:syncthing component ${componentName} - not currently running`);
+                // eslint-disable-next-line no-continue
+                continue;
+              }
+            } catch (error) {
+              log.warn(`Could not check running status for ${componentName}: ${error.message}`);
+            }
+          }
           log.info(`Starting component: ${componentName}`);
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStart(componentName);
@@ -294,6 +345,27 @@ async function appRestart(req, res) {
     let appRes;
 
     if (isComponent) {
+      // For component restart, check if it uses g:syncthing mode
+      const componentMainApp = appname.split('_')[1];
+      const appSpecs = await registryManager.getApplicationSpecifications(componentMainApp);
+      if (appSpecs && appSpecs.version > 3) {
+        const componentSpec = appSpecs.compose.find((comp) => `${comp.name}_${appSpecs.name}` === appname);
+        if (componentSpec && componentSpec.containerData && componentSpec.containerData.includes('g:')) {
+          // Check if component is running
+          try {
+            const containers = await dockerService.dockerListContainers(false); // Get only running containers
+            const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(appname) || container.Id === appname);
+            if (!isRunning) {
+              log.info(`Skipping restart for g:syncthing component ${appname} - not currently running`);
+              appRes = `Component ${appname} uses g:syncthing mode and is not running - skipped restart`;
+              const appResponse = messageHelper.createDataMessage(appRes);
+              return res ? res.json(appResponse) : appResponse;
+            }
+          } catch (error) {
+            log.warn(`Could not check running status for ${appname}: ${error.message}`);
+          }
+        }
+      }
       appRes = await dockerService.appDockerRestart(appname);
     } else {
       // Check if app exists before restarting
@@ -304,11 +376,42 @@ async function appRestart(req, res) {
       }
 
       if (appSpecs.version <= 3) {
+        // For non-composed apps, check if it uses g:syncthing mode
+        if (appSpecs.containerData && appSpecs.containerData.includes('g:')) {
+          try {
+            const containers = await dockerService.dockerListContainers(false);
+            const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(appname) || container.Id === appname);
+            if (!isRunning) {
+              log.info(`Skipping restart for g:syncthing app ${appname} - not currently running`);
+              appRes = `Application ${appname} uses g:syncthing mode and is not running - skipped restart`;
+              const appResponse = messageHelper.createDataMessage(appRes);
+              return res ? res.json(appResponse) : appResponse;
+            }
+          } catch (error) {
+            log.warn(`Could not check running status for ${appname}: ${error.message}`);
+          }
+        }
         appRes = await dockerService.appDockerRestart(appname);
       } else {
         // For composed applications (version > 3), restart all components
         // eslint-disable-next-line no-restricted-syntax
         for (const appComponent of appSpecs.compose) {
+          const componentName = `${appComponent.name}_${appSpecs.name}`;
+          // Check if component uses g:syncthing mode
+          if (appComponent.containerData && appComponent.containerData.includes('g:')) {
+            try {
+              // eslint-disable-next-line no-await-in-loop
+              const containers = await dockerService.dockerListContainers(false);
+              const isRunning = containers.some((container) => container.Names[0] === dockerService.getAppDockerNameIdentifier(componentName) || container.Id === componentName);
+              if (!isRunning) {
+                log.info(`Skipping restart for g:syncthing component ${componentName} - not currently running`);
+                // eslint-disable-next-line no-continue
+                continue;
+              }
+            } catch (error) {
+              log.warn(`Could not check running status for ${componentName}: ${error.message}`);
+            }
+          }
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerRestart(`${appComponent.name}_${appSpecs.name}`);
         }
