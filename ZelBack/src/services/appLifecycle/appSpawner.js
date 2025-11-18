@@ -401,7 +401,7 @@ async function trySpawningGlobalApplication() {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
-            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 45m if remaining missing instances`);
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 27m if remaining missing instances`);
             const appToCheck = {
               timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
               appName: appToRun,
@@ -423,7 +423,7 @@ async function trySpawningGlobalApplication() {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
-            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance being installed on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 45m if remaining missing instances`);
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance being installed on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 27m if remaining missing instances`);
             const appToCheck = {
               timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
               appName: appToRun,
