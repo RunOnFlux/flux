@@ -950,6 +950,103 @@ describe('syncthingHealthMonitor tests', () => {
       expect(syncthingServiceMock.systemRestart.calledOnce).to.be.true;
     });
 
+    it('should only restart syncthing once when multiple folders need restart', async () => {
+      mockFoldersConfiguration = [{ id: 'fluxapp1' }, { id: 'fluxapp2' }, { id: 'fluxapp3' }];
+      mockReceiveOnlySyncthingAppsCache.set('app1', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('app2', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('app3', { restarted: true });
+
+      // All three folders have issues exceeding restart threshold
+      const restartTime = Date.now() - constantsMock.HEALTH_RESTART_SYNCTHING_THRESHOLD_MS - 1000;
+      mockFolderHealthCache.set('fluxapp1', {
+        isolatedSince: null,
+        cannotSyncSince: restartTime,
+        peersBehindSince: null,
+        lastHealthyTimestamp: restartTime,
+        lastAction: 'stopped',
+        appWasStopped: false,
+        lastSyncPercentage: null,
+      });
+      mockFolderHealthCache.set('fluxapp2', {
+        isolatedSince: null,
+        cannotSyncSince: restartTime,
+        peersBehindSince: null,
+        lastHealthyTimestamp: restartTime,
+        lastAction: 'stopped',
+        appWasStopped: false,
+        lastSyncPercentage: null,
+      });
+      mockFolderHealthCache.set('fluxapp3', {
+        isolatedSince: null,
+        cannotSyncSince: restartTime,
+        peersBehindSince: null,
+        lastHealthyTimestamp: restartTime,
+        lastAction: 'stopped',
+        appWasStopped: false,
+        lastSyncPercentage: null,
+      });
+
+      syncthingServiceMock.getPeerSyncDiagnostics.resolves({
+        folders: {
+          fluxapp1: {
+            canSync: false,
+            peersAreMoreUpdated: false,
+            peerStatuses: [{ connected: false }],
+            localStatus: { syncPercentage: 50, state: 'idle' },
+            issues: [{ message: 'disconnected' }],
+          },
+          fluxapp2: {
+            canSync: false,
+            peersAreMoreUpdated: false,
+            peerStatuses: [{ connected: false }],
+            localStatus: { syncPercentage: 50, state: 'idle' },
+            issues: [{ message: 'disconnected' }],
+          },
+          fluxapp3: {
+            canSync: false,
+            peersAreMoreUpdated: false,
+            peerStatuses: [{ connected: false }],
+            localStatus: { syncPercentage: 50, state: 'idle' },
+            issues: [{ message: 'disconnected' }],
+          },
+        },
+        summary: { connectedPeers: ['peer1'], totalFolders: 3 },
+      });
+
+      syncthingServiceMock.systemRestart.resolves();
+
+      const result = await healthMonitor.monitorFolderHealth({
+        foldersConfiguration: mockFoldersConfiguration,
+        folderHealthCache: mockFolderHealthCache,
+        appDockerStopFn,
+        appDockerStartFn,
+        removeAppLocallyFn,
+        state: mockState,
+        receiveOnlySyncthingAppsCache: mockReceiveOnlySyncthingAppsCache,
+      });
+
+      // Should have 3 actions (one restart, two skipped)
+      expect(result.actions).to.have.length(3);
+
+      // First folder should trigger actual restart
+      expect(result.actions[0].action).to.equal('restart_syncthing');
+      expect(result.actions[0].folderId).to.equal('fluxapp1');
+
+      // Second and third should be skipped
+      expect(result.actions[1].action).to.equal('restart_syncthing_skipped');
+      expect(result.actions[1].folderId).to.equal('fluxapp2');
+      expect(result.actions[2].action).to.equal('restart_syncthing_skipped');
+      expect(result.actions[2].folderId).to.equal('fluxapp3');
+
+      // systemRestart should only be called once, not three times
+      expect(syncthingServiceMock.systemRestart.calledOnce).to.be.true;
+
+      // All folders should be marked as restarted
+      expect(mockFolderHealthCache.get('fluxapp1').lastAction).to.equal('restarted_syncthing');
+      expect(mockFolderHealthCache.get('fluxapp2').lastAction).to.equal('restarted_syncthing');
+      expect(mockFolderHealthCache.get('fluxapp3').lastAction).to.equal('restarted_syncthing');
+    });
+
     it('should skip soft redeploy in progress', async () => {
       mockState.softRedeployInProgress = true;
 
