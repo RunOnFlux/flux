@@ -63,6 +63,13 @@ const syncthingMonitorHelpersMock = {
   folderNeedsUpdate: sinon.stub().returns(false),
 };
 
+const syncthingHealthMonitorMock = {
+  monitorFolderHealth: sinon.stub().resolves({
+    actions: [],
+    summary: { healthy: 0, warnings: 0, issues: 0 },
+  }),
+};
+
 const appQueryServiceMock = {
   decryptEnterpriseApps: sinon.stub().returnsArg(0), // Return apps as-is by default
 };
@@ -77,6 +84,7 @@ const syncthingMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/sy
   '../appQuery/appQueryService': appQueryServiceMock,
   './syncthingFolderStateMachine': syncthingFolderStateMachineMock,
   './syncthingMonitorHelpers': syncthingMonitorHelpersMock,
+  './syncthingHealthMonitor': syncthingHealthMonitorMock,
 });
 
 describe('syncthingMonitor tests', () => {
@@ -120,6 +128,7 @@ describe('syncthingMonitor tests', () => {
     fluxNetworkHelperMock.getMyFluxIPandPort.reset();
     dockerServiceMock.dockerContainerInspect.reset();
     dockerServiceMock.appDockerStart.reset();
+    syncthingHealthMonitorMock.monitorFolderHealth.reset();
 
     // Default stub behaviors
     syncthingServiceMock.getConfigFolders.resolves({ data: [] });
@@ -127,6 +136,10 @@ describe('syncthingMonitor tests', () => {
     syncthingServiceMock.getConfigRestartRequired.resolves({
       status: 'success',
       data: { requiresRestart: false },
+    });
+    syncthingHealthMonitorMock.monitorFolderHealth.resolves({
+      actions: [],
+      summary: { healthy: 0, warnings: 0, issues: 0 },
     });
 
     // Use fake timers to control setInterval
@@ -277,11 +290,12 @@ describe('syncthingMonitor tests', () => {
 
       // Complete first execution
       resolveFirst({ status: 'success', data: [] });
-      await clock.tickAsync(1);
+      // Give time for all async operations in the promise chain to complete
+      await clock.tickAsync(100);
 
       // Now advance to next interval - should execute again
       await clock.tickAsync(30000);
-      await clock.tickAsync(1);
+      await clock.tickAsync(100);
 
       expect(mockInstalledAppsFn.callCount).to.be.greaterThan(1);
     });
@@ -301,13 +315,13 @@ describe('syncthingMonitor tests', () => {
         mockRemoveAppLocallyFn,
       );
 
-      // Wait for first execution
-      await clock.tickAsync(1);
+      // Wait for first execution to complete
+      await clock.tickAsync(100);
       const firstCallCount = mockInstalledAppsFn.callCount;
 
-      // Advance to next interval
+      // Advance to next interval and let it complete
       await clock.tickAsync(30000);
-      await clock.tickAsync(1);
+      await clock.tickAsync(100);
 
       expect(mockInstalledAppsFn.callCount).to.be.greaterThan(firstCallCount);
     });
