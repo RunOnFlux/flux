@@ -9,6 +9,8 @@ const proxyquire = require('proxyquire').noCallThru();
 const syncthingServiceMock = {
   getDbStatus: sinon.stub(),
   systemRestart: sinon.stub(),
+  getConfig: sinon.stub(),
+  getDbCompletion: sinon.stub(),
 };
 
 const dockerServiceMock = {
@@ -39,6 +41,9 @@ describe('syncthingFolderStateMachine tests', () => {
     sinon.reset();
     syncthingServiceMock.getDbStatus.reset();
     syncthingServiceMock.systemRestart.reset();
+    syncthingServiceMock.systemRestart.resolves();
+    syncthingServiceMock.getConfig.reset();
+    syncthingServiceMock.getDbCompletion.reset();
     dockerServiceMock.dockerContainerInspect.reset();
     dockerServiceMock.appDockerStart.reset();
     dockerServiceMock.getAppIdentifier.reset();
@@ -415,6 +420,187 @@ describe('syncthingFolderStateMachine tests', () => {
       expect(result.syncthingFolder.type).to.equal('receiveonly');
       expect(result.cache.numberOfExecutionsRequired).to.be.a('number');
       expect(result.cache.numberOfExecutions).to.equal(2);
+    });
+
+    it('should stop Docker and restart Syncthing when sync is stalled with synced peers', async () => {
+      // Setup stalled sync scenario
+      const syncHistory = [];
+      for (let i = 0; i < 10; i++) {
+        syncHistory.push({
+          inSyncBytes: 500, // Same bytes - stalled
+          globalBytes: 1000,
+          syncPercentage: 50,
+          timestamp: Date.now() + i * 1000,
+        });
+      }
+
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 15,
+        syncHistory,
+      });
+      // Add multiple peers so this node is NOT the leader
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 900 }, // Earlier broadcast - will be leader
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }, // This node
+      ]);
+
+      // Mock sync status showing stalled sync
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 1000,
+          inSyncBytes: 500,
+          state: 'syncing',
+        },
+      });
+
+      // Mock config showing peers with sendreceive
+      syncthingServiceMock.getConfig = sinon.stub().resolves({
+        status: 'success',
+        data: {
+          folders: [{
+            id: 'test-app',
+            type: 'receiveonly',
+            devices: [{ deviceID: 'DEVICE123' }],
+          }],
+        },
+      });
+
+      // Mock completion showing peer is synced
+      syncthingServiceMock.getDbCompletion = sinon.stub().resolves({
+        status: 'success',
+        data: { completion: 100 },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      // numberOfExecutions should NOT be reset - continues incrementing toward max
+      // Started at 15, incremented to 16 during processing, not reset to 1
+      expect(result.cache.numberOfExecutions).to.equal(16);
+      expect(result.cache.syncHistory).to.be.an('array').that.is.empty;
+      expect(result.cache.syncthingRestartAttempted).to.be.true;
+      sinon.assert.calledOnce(mockParams.appDockerStopFn);
+      sinon.assert.calledOnce(syncthingServiceMock.systemRestart);
+    });
+
+    it('should not restart Syncthing more than once for stalled sync', async () => {
+      // Setup stalled sync scenario with restart already attempted
+      const syncHistory = [];
+      for (let i = 0; i < 10; i++) {
+        syncHistory.push({
+          inSyncBytes: 500, // Same bytes - stalled
+          globalBytes: 1000,
+          syncPercentage: 50,
+          timestamp: Date.now() + i * 1000,
+        });
+      }
+
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 20,
+        syncHistory,
+        syncthingRestartAttempted: true, // Already attempted restart
+      });
+      // Add multiple peers so this node is NOT the leader
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 900 },
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 },
+      ]);
+
+      // Mock sync status showing still stalled
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 1000,
+          inSyncBytes: 500,
+          state: 'syncing',
+        },
+      });
+
+      // Mock config showing peers
+      syncthingServiceMock.getConfig = sinon.stub().resolves({
+        status: 'success',
+        data: {
+          folders: [{
+            id: 'test-app',
+            type: 'receiveonly',
+            devices: [{ deviceID: 'DEVICE123' }],
+          }],
+        },
+      });
+
+      // Mock completion showing peer is synced
+      syncthingServiceMock.getDbCompletion = sinon.stub().resolves({
+        status: 'success',
+        data: { completion: 100 },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      // Should NOT restart Syncthing again (already attempted)
+      expect(syncthingServiceMock.systemRestart.called).to.be.false;
+      // Should continue waiting
+      expect(result.cache.syncthingRestartAttempted).to.be.true;
+      expect(result.syncthingFolder.type).to.equal('receiveonly');
+    });
+
+    it('should remove app when max executions reached with stalled sync and synced peers', async () => {
+      // Setup stalled sync scenario at max executions
+      const syncHistory = [];
+      for (let i = 0; i < 10; i++) {
+        syncHistory.push({
+          inSyncBytes: 500, // Same bytes - stalled
+          globalBytes: 1000,
+          syncPercentage: 50,
+          timestamp: Date.now() + i * 1000,
+        });
+      }
+
+      mockParams.receiveOnlySyncthingAppsCache.set('test-app', {
+        restarted: false,
+        numberOfExecutions: 120, // MAX_SYNC_WAIT_EXECUTIONS
+        syncHistory,
+      });
+      // Add multiple peers so this node is NOT the leader
+      mockParams.appLocation.resolves([
+        { ip: '10.0.0.0:16127', runningSince: null, broadcastedAt: 900 }, // Earlier broadcast - will be leader
+        { ip: '10.0.0.1:16127', runningSince: null, broadcastedAt: 1000 }, // This node
+      ]);
+
+      // Mock sync status showing NOT synced
+      syncthingServiceMock.getDbStatus.resolves({
+        status: 'success',
+        data: {
+          globalBytes: 1000,
+          inSyncBytes: 500,
+          state: 'syncing',
+        },
+      });
+
+      // Mock config showing peers
+      syncthingServiceMock.getConfig = sinon.stub().resolves({
+        status: 'success',
+        data: {
+          folders: [{
+            id: 'test-app',
+            type: 'receiveonly',
+            devices: [{ deviceID: 'DEVICE123' }],
+          }],
+        },
+      });
+
+      // Mock completion showing peer is synced
+      syncthingServiceMock.getDbCompletion = sinon.stub().resolves({
+        status: 'success',
+        data: { completion: 100 },
+      });
+
+      const result = await stateMachine.manageFolderSyncState(mockParams);
+
+      expect(result.cache.restarted).to.be.true;
+      // Note: We can't easily test appUninstaller.removeAppLocally since it's required dynamically
+      // In production, this would remove the app
     });
   });
 });
