@@ -21,11 +21,16 @@ const serviceHelperMock = {
   delay: sinon.stub().resolves(),
 };
 
+const nodecmdMock = {
+  run: sinon.stub(),
+};
+
 // Load module with mocked dependencies
 const stateMachine = proxyquire('../../ZelBack/src/services/appMonitoring/syncthingFolderStateMachine', {
   '../dockerService': dockerServiceMock,
   '../syncthingService': syncthingServiceMock,
   '../serviceHelper': serviceHelperMock,
+  'node-cmd': nodecmdMock,
 });
 
 describe('syncthingFolderStateMachine tests', () => {
@@ -39,6 +44,30 @@ describe('syncthingFolderStateMachine tests', () => {
     dockerServiceMock.getAppIdentifier.reset();
     serviceHelperMock.delay.reset();
     serviceHelperMock.delay.resolves();
+    nodecmdMock.run.reset();
+
+    // Mock successful file system operations for safety checks
+    // This makes verifyFolderMountSafety return isSafe: true
+    // nodecmd.run callback signature: (err, data, stderr)
+    nodecmdMock.run.callsFake((cmd, callback) => {
+      if (cmd.includes('test -d')) {
+        // Directory exists
+        callback(null, 'exists', '');
+      } else if (cmd.includes('mountpoint')) {
+        // Not a mount point (exit code 1) - this causes an error
+        const err = new Error('not a mountpoint');
+        err.code = 1;
+        callback(err, '', '');
+      } else if (cmd.includes('find')) {
+        // Has files (return count > 0)
+        callback(null, '10\n', '');
+      } else if (cmd.includes('chmod')) {
+        // Permission changes succeed
+        callback(null, '', '');
+      } else {
+        callback(null, '', '');
+      }
+    });
   });
 
   describe('isDesignatedLeader', () => {

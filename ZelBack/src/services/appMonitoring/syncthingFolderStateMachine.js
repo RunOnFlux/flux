@@ -145,59 +145,6 @@ async function fixAppdataPermissions(appId) {
 }
 
 /**
- * Ensures mount paths exist and starts the container
- * This is critical for file mounts after Syncthing cleanup deletes directories
- * @param {string} appId - The app ID (e.g., "fluxweb_myapp" or "fluxtestapp")
- * @returns {Promise<void>}
- */
-async function ensureMountPathsAndStartContainer(appId) {
-  try {
-    // Parse appId to get app name and check if it's a component
-    const mainAppName = appId.replace(/^flux/, '').split('_')[1] || appId.replace(/^flux/, '');
-    const isComponent = appId.replace(/^flux/, '').includes('_');
-
-    // Fetch app specifications
-    // eslint-disable-next-line global-require
-    const registryManager = require('../appDatabase/registryManager');
-    const appSpecs = await registryManager.getApplicationSpecifications(mainAppName);
-
-    if (!appSpecs) {
-      log.warn(`ensureMountPathsAndStartContainer - Could not fetch specs for ${mainAppName}, starting container anyway`);
-      await dockerService.appDockerStart(appId);
-      return;
-    }
-
-    // Ensure mount paths exist before starting
-    // eslint-disable-next-line global-require
-    const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
-
-    if (isComponent) {
-      // For component apps, find the specific component spec
-      const componentName = appId.replace(/^flux/, '').split('_')[0];
-      const componentSpec = appSpecs.compose?.find((comp) => comp.name === componentName);
-
-      if (componentSpec && componentSpec.containerData) {
-        await advancedWorkflows.ensureMountPathsExist(componentSpec, mainAppName, true, appSpecs);
-      }
-    } else if (appSpecs.containerData) {
-      // For non-component apps
-      await advancedWorkflows.ensureMountPathsExist(appSpecs, mainAppName, false, null);
-    }
-
-    // Fix permissions on appdata directory to ensure container can write
-    // This is critical after Syncthing syncs data from peers - synced files may have wrong permissions
-    await fixAppdataPermissions(appId);
-
-    // Start the container
-    await dockerService.appDockerStart(appId);
-    log.info(`ensureMountPathsAndStartContainer - Successfully started ${appId} with mount paths ensured`);
-  } catch (error) {
-    log.error(`ensureMountPathsAndStartContainer - Error for ${appId}: ${error.message}`);
-    throw error;
-  }
-}
-
-/**
  * Helper function to get Syncthing folder sync completion status
  * @param {string} folderId - The Syncthing folder ID
  * @returns {Promise<Object|null>} Sync status object or null if unavailable
@@ -338,20 +285,22 @@ async function handleFirstRun(params) {
     log.warn(`handleFirstRun - Could not inspect ${appId}: ${error.message}`);
   }
 
-  const cache = { restarted: true };
-
-  if (syncFolder.type === 'receiveonly') {
-    log.info('handleFirstRun - Sync folder is receiveonly, updating cache');
-    cache.restarted = false;
-    cache.numberOfExecutions = 1;
-  } else if (!containerRunning && containerDataFlags.includes('r')) {
-    log.info(`handleFirstRun - Container not running, starting ${appId}`);
-    try {
-      await ensureMountPathsAndStartContainer(appId);
-    } catch (error) {
-      log.error(`handleFirstRun - Error starting ${appId}: ${error.message}`);
-    }
+  if (containerRunning) {
+    // App is running - this means FluxOS restart, not computer restart
+    // Skip processing - keep existing state
+    log.info(`handleFirstRun - ${appId} is running, FluxOS restart detected, keeping existing state`);
+    const cache = { restarted: true };
+    return { syncthingFolder, cache };
   }
+
+  // Container is stopped - computer was restarted
+  // Set to receiveonly mode to wait for sync before starting
+  log.info(`handleFirstRun - ${appId} is stopped, computer restart detected, setting to receiveonly mode`);
+  syncthingFolder.type = 'receiveonly';
+  const cache = {
+    restarted: false,
+    numberOfExecutions: 1,
+  };
 
   return { syncthingFolder, cache };
 }
