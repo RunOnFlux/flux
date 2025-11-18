@@ -390,7 +390,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should skip folders whose apps have restarted flag set to false', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: false });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: false });
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
           fluxmyapp: {
@@ -420,7 +420,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should process folders whose apps have completed initial process', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
           fluxmyapp: {
@@ -467,7 +467,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should detect global isolation', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
           fluxmyapp: {
@@ -497,7 +497,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should detect cannot sync issues', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
           fluxmyapp: {
@@ -528,7 +528,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should detect peers behind issues when not actively syncing', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
           fluxmyapp: {
@@ -559,7 +559,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should NOT flag peers behind when actively syncing', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
           fluxmyapp: {
@@ -591,7 +591,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should clear peers behind issue when sync starts', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       // Pre-set an existing peers behind issue
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
@@ -633,7 +633,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should NOT flag peers behind when in sync-preparing state', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
           fluxmyapp: {
@@ -663,7 +663,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should detect stalled sync when percentage does not change', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       // Pre-set tracking to simulate stalled sync - percentage same as current
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
@@ -706,7 +706,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should NOT flag stalled sync when percentage changes', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       // Pre-set tracking with old percentage
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
@@ -750,7 +750,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should update sync tracking when sync completes', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
 
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
@@ -782,7 +782,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should handle first check with null lastSyncPercentage (not stalled)', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       // New folder, no previous percentage tracked
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
@@ -830,9 +830,9 @@ describe('syncthingHealthMonitor tests', () => {
         { id: 'fluxapp2' },
         { id: 'fluxapp3' },
       ];
-      mockReceiveOnlySyncthingAppsCache.set('app1', { restarted: true });
-      mockReceiveOnlySyncthingAppsCache.set('app2', { restarted: true });
-      mockReceiveOnlySyncthingAppsCache.set('app3', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxapp1', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxapp2', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxapp3', { restarted: true });
 
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
@@ -879,7 +879,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should handle component folder names correctly', async () => {
       mockFoldersConfiguration = [{ id: 'fluxweb_mycomposeapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('mycomposeapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxweb_mycomposeapp', { restarted: true });
 
       syncthingServiceMock.getPeerSyncDiagnostics.resolves({
         folders: {
@@ -909,7 +909,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should restart syncthing after restart threshold', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
         cannotSyncSince: Date.now() - constantsMock.HEALTH_RESTART_SYNCTHING_THRESHOLD_MS - 1000,
@@ -952,9 +952,9 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should only restart syncthing once when multiple folders need restart', async () => {
       mockFoldersConfiguration = [{ id: 'fluxapp1' }, { id: 'fluxapp2' }, { id: 'fluxapp3' }];
-      mockReceiveOnlySyncthingAppsCache.set('app1', { restarted: true });
-      mockReceiveOnlySyncthingAppsCache.set('app2', { restarted: true });
-      mockReceiveOnlySyncthingAppsCache.set('app3', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxapp1', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxapp2', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxapp3', { restarted: true });
 
       // All three folders have issues exceeding restart threshold
       const restartTime = Date.now() - constantsMock.HEALTH_RESTART_SYNCTHING_THRESHOLD_MS - 1000;
@@ -1081,7 +1081,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should take warning action after warning threshold', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
         cannotSyncSince: Date.now() - constantsMock.HEALTH_WARNING_THRESHOLD_MS - 1000,
@@ -1120,7 +1120,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should take stop action after stop threshold', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
         cannotSyncSince: Date.now() - constantsMock.HEALTH_STOP_THRESHOLD_MS - 1000,
@@ -1160,7 +1160,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should restart app when issues resolve after being stopped', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
         cannotSyncSince: null,
@@ -1200,7 +1200,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should remove app after remove threshold', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
         cannotSyncSince: Date.now() - constantsMock.HEALTH_REMOVE_THRESHOLD_MS - 1000,
@@ -1241,7 +1241,7 @@ describe('syncthingHealthMonitor tests', () => {
 
     it('should clean up cache for folders that no longer exist', async () => {
       mockFoldersConfiguration = [{ id: 'fluxmyapp' }];
-      mockReceiveOnlySyncthingAppsCache.set('myapp', { restarted: true });
+      mockReceiveOnlySyncthingAppsCache.set('fluxmyapp', { restarted: true });
       mockFolderHealthCache.set('fluxmyapp', {
         isolatedSince: null,
         cannotSyncSince: null,
