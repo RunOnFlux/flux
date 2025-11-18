@@ -171,6 +171,9 @@ async function monitorFolderHealth(params) {
       log.warn(`monitorFolderHealth - Node is ISOLATED: No peers connected, ${diagnostics.summary.totalFolders} folders configured`);
     }
 
+    // Track if Syncthing restart was already triggered in this execution to prevent multiple restarts
+    let syncthingRestartTriggered = false;
+
     // Process each folder
     // eslint-disable-next-line no-restricted-syntax
     for (const folderConfig of foldersConfiguration) {
@@ -380,20 +383,34 @@ async function monitorFolderHealth(params) {
           issueDuration = (now - healthStatus.peersBehindSince) / (60 * 1000);
         }
 
-        log.warn(`monitorFolderHealth - RESTARTING SYNCTHING for ${folderId} due to ${issueType} for ${issueDuration.toFixed(0)} minutes`);
+        // Only actually restart Syncthing once per execution, even if multiple folders need it
+        if (!syncthingRestartTriggered) {
+          log.warn(`monitorFolderHealth - RESTARTING SYNCTHING for ${folderId} due to ${issueType} for ${issueDuration.toFixed(0)} minutes`);
 
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await syncthingService.systemRestart();
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await syncthingService.systemRestart();
+            syncthingRestartTriggered = true;
+            healthStatus.lastAction = 'restarted_syncthing';
+            results.actions.push({
+              folderId,
+              action: 'restart_syncthing',
+              reason: issueType,
+              durationMinutes: issueDuration,
+            });
+          } catch (error) {
+            log.error(`monitorFolderHealth - Failed to restart syncthing for ${folderId}: ${error.message}`);
+          }
+        } else {
+          // Syncthing already restarted in this execution, just mark this folder
+          log.info(`monitorFolderHealth - Syncthing already restarted this cycle, marking ${folderId} as restarted`);
           healthStatus.lastAction = 'restarted_syncthing';
           results.actions.push({
             folderId,
-            action: 'restart_syncthing',
+            action: 'restart_syncthing_skipped',
             reason: issueType,
             durationMinutes: issueDuration,
           });
-        } catch (error) {
-          log.error(`monitorFolderHealth - Failed to restart syncthing for ${folderId}: ${error.message}`);
         }
       } else if (actionToTake === 'warning' && healthStatus.lastAction === 'none') {
         let issueDuration = 0;
