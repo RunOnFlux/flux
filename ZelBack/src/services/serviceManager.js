@@ -27,6 +27,7 @@ const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const appHashSyncService = require('./appMessaging/appHashSyncService');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
+const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const globalState = require('./utils/globalState');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -188,6 +189,14 @@ async function startFluxFunctions() {
         log.error(`Volume validation service error: ${error.message}`);
       });
     }, 45 * 1000); // Run after 45 seconds to allow system to stabilize
+
+    // Cleanup and fix crontab mount entries (add wait logic, remove stale entries, ensure mounts are active)
+    log.info('Scheduling crontab and mounts cleanup...');
+    setTimeout(() => {
+      crontabAndMountsCleanup.cleanupCrontabAndMounts().catch((error) => {
+        log.error(`Crontab and mounts cleanup service error: ${error.message}`);
+      });
+    }, 30 * 1000); // Run after 30 seconds to allow DB to be fully ready
 
     log.info('Flux Apps installing locations prepared');
 

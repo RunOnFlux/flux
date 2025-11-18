@@ -14,6 +14,7 @@ const {
   // eslint-disable-next-line no-unused-vars
   ERROR_RETRY_DELAY_MS,
   SYNC_STATE_LOG_INTERVAL_MS,
+  HEALTH_CHECK_INTERVAL_MS,
 } = require('./syncthingMonitorConstants');
 const {
   sortAndFilterLocations,
@@ -26,7 +27,12 @@ const {
 } = require('./syncthingMonitorHelpers');
 const {
   manageFolderSyncState,
+  verifyFolderMountSafety,
+  isPathMounted,
 } = require('./syncthingFolderStateMachine');
+const {
+  monitorFolderHealth,
+} = require('./syncthingHealthMonitor');
 
 // Global collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -35,6 +41,46 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
 const appsFolder = `${appsFolderPath}/`;
+
+/**
+ * Check if app folders are properly mounted
+ * Returns list of apps whose folders are not mounted yet
+ * Uses verifyFolderMountSafety to detect folders that exist but aren't properly mounted
+ * @param {Array} appsInstalled - List of installed apps
+ * @returns {Promise<Array>} List of apps with unmounted folders
+ */
+async function checkAppFolderMounts(appsInstalled) {
+  const unmountedApps = [];
+
+  // eslint-disable-next-line no-restricted-syntax
+  for (const installedApp of appsInstalled) {
+    if (installedApp.version <= 3) {
+      // Legacy app - single folder
+      const appId = dockerService.getAppIdentifier(installedApp.name);
+      const appFolder = `${appsFolder}${appId}`;
+      // eslint-disable-next-line no-await-in-loop
+      const mountSafety = await verifyFolderMountSafety(appId, appFolder);
+      if (!mountSafety.isSafe) {
+        // Folder exists but mount is not safe (empty and not mounted - likely unmounted loop device)
+        unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
+      }
+    } else {
+      // Newer app - check each component
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of installedApp.compose || []) {
+        const appId = dockerService.getAppIdentifier(`${component.name}_${installedApp.name}`);
+        const appFolder = `${appsFolder}${appId}`;
+        // eslint-disable-next-line no-await-in-loop
+        const mountSafety = await verifyFolderMountSafety(appId, appFolder);
+        if (!mountSafety.isSafe) {
+          unmountedApps.push({ appId, appName: installedApp.name, reason: mountSafety.reason });
+        }
+      }
+    }
+  }
+
+  return unmountedApps;
+}
 
 // Helper function to get app locations
 async function appLocation(appName) {
@@ -237,7 +283,6 @@ async function logSyncState(foldersConfiguration) {
  * @param {Function} removeAppLocallyFn - Remove app function
  * @returns {Promise<void>}
  */
-// eslint-disable-next-line no-unused-vars
 async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDockerStopFn, appDockerRestartFn, appDeleteDataInMountPointFn, removeAppLocallyFn) {
   // Sync global state before checking
   getGlobalStateFn();
@@ -260,6 +305,16 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
 
     // Decrypt enterprise apps (version 8 with encrypted content)
     appsInstalled.data = await decryptEnterpriseApps(appsInstalled.data);
+
+    // CRITICAL: Check if app folder mounts are ready before processing
+    // This prevents syncthing operations when loop devices aren't mounted after reboot
+    const unmountedApps = await checkAppFolderMounts(appsInstalled.data);
+    if (unmountedApps.length > 0) {
+      const unmountedList = unmountedApps.map((app) => app.appId).join(', ');
+      log.warn(`syncthingAppsCore - Skipping processing: ${unmountedApps.length} app folders not mounted yet: ${unmountedList}`);
+      log.warn('syncthingAppsCore - Waiting for app folders to be mounted before syncthing processing');
+      return;
+    }
 
     // Get required IDs and configurations
     const myDeviceId = await syncthingService.getDeviceId();
@@ -301,6 +356,48 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
 
     // Mark that Syncthing is properly initialized - safe to clear first run flag
     syncthingInitializedSuccessfully = true;
+
+    // CRITICAL STARTUP SAFETY CHECK: Verify all sendreceive folders have safe mounts
+    // This prevents data loss when loop mounts aren't ready after reboot
+    if (state.syncthingAppsFirstRun && allFoldersResp.data.length > 0) {
+      log.info('syncthingAppsCore - First run detected, performing mount safety verification on existing folders');
+      let unsafeFoldersCount = 0;
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const folder of allFoldersResp.data) {
+        if (folder.type === 'sendreceive') {
+          // Extract appId from folder.id (e.g., fluxwp_myapp -> fluxwp_myapp)
+          const appId = folder.id;
+          const folderPath = folder.path;
+
+          // eslint-disable-next-line no-await-in-loop
+          const mountSafety = await verifyFolderMountSafety(appId, folderPath);
+
+          if (!mountSafety.isSafe) {
+            unsafeFoldersCount += 1;
+            log.error(`syncthingAppsCore - STARTUP SAFETY: Folder ${appId} has unsafe mount (${mountSafety.reason}). Switching to receiveonly to prevent data loss.`);
+
+            // Immediately switch to receiveonly mode
+            // eslint-disable-next-line no-await-in-loop
+            await syncthingService.adjustConfigFolders('patch', { type: 'receiveonly' }, folder.id).catch((err) => {
+              log.error(`syncthingAppsCore - Failed to switch ${folder.id} to receiveonly: ${err.message}`);
+            });
+          } else {
+            log.info(`syncthingAppsCore - Folder ${appId} mount is safe (mounted=${mountSafety.isMounted}, files=${mountSafety.fileCount})`);
+          }
+        }
+      }
+
+      if (unsafeFoldersCount > 0) {
+        log.error(`syncthingAppsCore - STARTUP WARNING: ${unsafeFoldersCount} folders had unsafe mounts and were switched to receiveonly mode. Check loop mounts!`);
+        // Restart Syncthing to apply the receiveonly changes immediately
+        await syncthingService.systemRestart().catch((err) => {
+          log.error(`syncthingAppsCore - Failed to restart Syncthing after safety switch: ${err.message}`);
+        });
+        // Wait for Syncthing to restart before continuing
+        await serviceHelper.delay(5000);
+      }
+    }
 
     // Initialize tracking arrays
     const devicesIds = [];
@@ -430,6 +527,34 @@ async function syncthingAppsCore(state, installedAppsFn, getGlobalStateFn, appDo
     if (!state.lastSyncStateLogTime || (now - state.lastSyncStateLogTime >= SYNC_STATE_LOG_INTERVAL_MS)) {
       await logSyncState(foldersConfiguration);
       state.lastSyncStateLogTime = now;
+    }
+
+    // Run health monitoring every HEALTH_CHECK_INTERVAL_MS
+    // This checks for isolated nodes, connectivity issues, and takes corrective actions
+    if (!state.lastHealthCheckTime || (now - state.lastHealthCheckTime >= HEALTH_CHECK_INTERVAL_MS)) {
+      log.info('syncthingAppsCore - Running periodic health check');
+      try {
+        const healthResults = await monitorFolderHealth({
+          foldersConfiguration,
+          folderHealthCache: state.folderHealthCache,
+          appDockerStopFn,
+          appDockerStartFn: dockerService.appDockerStart,
+          removeAppLocallyFn,
+          state,
+          receiveOnlySyncthingAppsCache: state.receiveOnlySyncthingAppsCache,
+        });
+
+        if (healthResults.actions.length > 0) {
+          log.warn(`syncthingAppsCore - Health monitoring took ${healthResults.actions.length} corrective action(s)`);
+          healthResults.actions.forEach((action) => {
+            log.warn(`  - ${action.action.toUpperCase()} ${action.folderId}: ${action.reason} (${action.durationMinutes.toFixed(0)} min)`);
+          });
+        }
+
+        state.lastHealthCheckTime = now;
+      } catch (healthError) {
+        log.error(`syncthingAppsCore - Health monitoring error: ${healthError.message}`);
+      }
     }
 
     // Check if Syncthing restart is needed

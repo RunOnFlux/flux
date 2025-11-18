@@ -378,9 +378,16 @@ async function trySpawningGlobalApplication() {
       const myIpWithoutPort = myIP.split(':')[0];
       const lastIndex = myIpWithoutPort.lastIndexOf('.');
       const secondLastIndex = myIpWithoutPort.substring(0, lastIndex).lastIndexOf('.');
-      const sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
+      let sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
+        await serviceHelper.delay(shortDelayTime);
+        trySpawningGlobalApplication();
+        return;
+      }
+      sameIpRangeNode = installingAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
+      if (sameIpRangeNode) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
         await serviceHelper.delay(shortDelayTime);
         trySpawningGlobalApplication();
         return;
@@ -394,7 +401,29 @@ async function trySpawningGlobalApplication() {
           // eslint-disable-next-line no-await-in-loop
           const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
           if (!isOpen) {
-            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 30m if remaining missing instances`);
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance running on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 27m if remaining missing instances`);
+            const appToCheck = {
+              timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
+              appName: appToRun,
+              hash: appHash,
+              required: minInstances,
+            };
+            globalState.appsSyncthingToBeCheckedLater.push(appToCheck);
+            // eslint-disable-next-line no-await-in-loop
+            await serviceHelper.delay(shortDelayTime);
+            globalState.trySpawningGlobalAppCache.delete(appHash);
+            trySpawningGlobalApplication();
+            return;
+          }
+        }
+        // eslint-disable-next-line no-restricted-syntax
+        for (const node of installingAppList) {
+          const ip = node.ip.split(':')[0];
+          const port = node.ip.split(':')[1] || '16127';
+          // eslint-disable-next-line no-await-in-loop
+          const isOpen = await fluxNetworkHelper.isPortOpen(ip, port);
+          if (!isOpen) {
+            log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and instance being installed on ${ip}:${port} is not reachable, possible conenctivity issue, will be installed in 27m if remaining missing instances`);
             const appToCheck = {
               timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
               appName: appToRun,
