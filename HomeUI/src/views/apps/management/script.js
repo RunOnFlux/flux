@@ -940,20 +940,44 @@ export default {
     },
     appRunningTill() {
       const blockTime = 2 * 60 * 1000;
-      // Use dynamic default expire based on block height (1 month)
-      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
-      const defaultExpire = 22000 * multiplier;
+      const newBlockTime = 30 * 1000;
+      // Use dynamic default expire based on app registration height (1 month)
+      const appRegistrationHeight = this.callBResponse.data.height;
+      const defaultExpire = appRegistrationHeight >= FORK_BLOCK_HEIGHT ? 88000 : 22000;
       const expires = this.callBResponse.data.expire || defaultExpire;
-      const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+
+      const now = this.timestamp || Date.now();
+
+      // Calculate currentExpire accounting for fork block speed change
+      let currentExpire;
+      let currentExpireTime;
+      if (appRegistrationHeight < FORK_BLOCK_HEIGHT) {
+        // App registered before fork - need to adjust for speed change
+        const originalExpireHeight = appRegistrationHeight + expires;
+        if (originalExpireHeight > FORK_BLOCK_HEIGHT) {
+          // Expiration crosses fork boundary
+          const blocksAfterFork = originalExpireHeight - FORK_BLOCK_HEIGHT;
+          const adjustedBlocksAfterFork = blocksAfterFork * 4;
+          const adjustedExpireHeight = FORK_BLOCK_HEIGHT + adjustedBlocksAfterFork;
+          currentExpire = adjustedExpireHeight - this.daemonBlockCount;
+          currentExpireTime = (blocksAfterFork * newBlockTime) + ((FORK_BLOCK_HEIGHT - appRegistrationHeight) * blockTime) + now;
+        } else {
+          // Expiration is before fork, no adjustment needed
+          currentExpire = originalExpireHeight - this.daemonBlockCount;
+          currentExpireTime = currentExpire * blockTime + now;
+        }
+      } else {
+        // App registered after fork, no adjustment needed
+        currentExpire = appRegistrationHeight + expires - this.daemonBlockCount;
+        currentExpireTime = currentExpire * newBlockTime + now;
+      }
+
       let newExpire = currentExpire;
       if (this.extendSubscription) {
         newExpire = this.expireOptions[this.expirePosition].value;
       }
 
-      const now = this.timestamp || Date.now();
-
-      const currentExpireTime = currentExpire * blockTime + now;
-      const newExpireTime = newExpire * blockTime + now;
+      const newExpireTime = newExpire * newBlockTime + now;
 
       const runningTill = {
         current: currentExpireTime,
