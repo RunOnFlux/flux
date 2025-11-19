@@ -4593,7 +4593,7 @@ export default {
         this.initiatePaymentWS();
 
         // Build ZelCore protocol URL with callback
-        const zelProtocol = `zel:?action=pay&coin=zelcash&address=${this.deploymentAddress}&amount=${this.appPricePerSpecs}&message=${this.updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png&callback=${this.paymentCallbackValue()}`;
+        const zelProtocol = `zel:?action=pay&coin=zelcash&address=${this.deploymentAddress}&amount=${this.appPricePerSpecs}&message=${this.updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png&callback=${this.paymentCallbackValue}`;
 
         if (window.zelcore) {
           window.zelcore.protocol(zelProtocol);
