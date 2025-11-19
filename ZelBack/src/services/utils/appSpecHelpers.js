@@ -300,6 +300,18 @@ async function getAppFiatAndFluxPrice(req, res) {
         if (daemonHeight > 1315000) {
           previousExpireIn = appInfo.expire || previousDefaultExpire;
         }
+
+        // Adjust previousExpireIn if app was registered before fork and expiration crosses fork
+        if (appInfo.height < config.fluxapps.daemonPONFork) {
+          const originalExpireHeight = appInfo.height + previousExpireIn;
+          if (originalExpireHeight > config.fluxapps.daemonPONFork) {
+            // Expiration crosses fork boundary - adjust blocks after fork
+            const blocksAfterFork = originalExpireHeight - config.fluxapps.daemonPONFork;
+            const adjustedBlocksAfterFork = blocksAfterFork * 4;
+            const adjustedExpireHeight = config.fluxapps.daemonPONFork + adjustedBlocksAfterFork;
+            previousExpireIn = adjustedExpireHeight - appInfo.height;
+          }
+        }
         const multiplierPrevious = previousExpireIn / previousDefaultExpire;
         previousSpecsPrice *= multiplierPrevious;
         previousSpecsPrice = Number(previousSpecsPrice).toFixed(2);
