@@ -374,6 +374,9 @@ module.exports = (app) => {
   app.get('/apps/apporiginalowner/:appname?', cache('30 seconds'), (req, res) => {
     appQueryService.getApplicationOriginalOwner(req, res);
   });
+  app.get('/apps/messagescount/:appowner?', cache('30 seconds'), (req, res) => {
+    appQueryService.getAppsMessagesCount(req, res);
+  });
   app.get('/apps/hashes', cache('30 seconds'), (req, res) => {
     registryManager.getAppHashes(req, res);
   });
