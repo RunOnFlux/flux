@@ -2057,7 +2057,10 @@ export default {
         mybackend += ':';
         mybackend += config.value.apiPort;
       }
-      const backendURL = store.get('backendURL') || mybackend;
+      let backendURL = store.get('backendURL') || mybackend;
+      // Convert HTTP/HTTPS to WebSocket protocol
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
       const wsuri = `${backendURL}/ws/payment/${paymentId.value}`;
       const websocketConn = new WebSocket(wsuri);
       paymentWebsocket.value = websocketConn;

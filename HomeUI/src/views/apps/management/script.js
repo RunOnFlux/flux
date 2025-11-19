@@ -737,6 +737,11 @@ export default {
       maxInstances: 100,
       minInstances: 3,
       globalZelidAuthorized: true,
+      paymentId: '',
+      paymentLoading: false,
+      paymentReceived: false,
+      transactionId: '',
+      paymentWebsocket: null,
       monitoringStream: {},
       statsFields: [
         { key: 'timestamp', label: 'Date' },
@@ -1165,6 +1170,41 @@ export default {
       }
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/id/providesign`;
+      return encodeURI(url);
+    },
+    paymentCallbackValue() {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) {
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          this.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          this.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
+      }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/payment/verifypayment?paymentid=${this.paymentId}`;
       return encodeURI(url);
     },
     isAppOwner() {
@@ -4503,21 +4543,72 @@ export default {
         this.showToast('warning', 'Failed to sign message, please try again.');
       }
     },
-    initZelcorePay() {
+    async initZelcorePay() {
       try {
-        const protocol = `zel:?action=pay&coin=zelcash&address=${this.deploymentAddress}&amount=${this.appPricePerSpecs}&message=${this.updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        this.paymentLoading = true;
+        this.paymentReceived = false;
+        this.transactionId = '';
+
+        // Request a payment ID from the backend
+        const { protocol, hostname, port } = window.location;
+        let mybackend = '';
+        mybackend += protocol;
+        mybackend += '//';
+        const regex = /[A-Za-z]/g;
+        if (hostname.split('-')[4]) {
+          const splitted = hostname.split('-');
+          const names = splitted[4].split('.');
+          const adjP = +names[0] + 1;
+          names[0] = adjP.toString();
+          names[2] = 'api';
+          splitted[4] = '';
+          mybackend += splitted.join('-');
+          mybackend += names.join('.');
+        } else if (hostname.match(regex)) {
+          const names = hostname.split('.');
+          names[0] = 'api';
+          mybackend += names.join('.');
+        } else {
+          if (typeof hostname === 'string') {
+            this.$store.commit('flux/setUserIp', hostname);
+          }
+          if (+port > 16100) {
+            const apiPort = +port + 1;
+            this.$store.commit('flux/setFluxPort', apiPort);
+          }
+          mybackend += hostname;
+          mybackend += ':';
+          mybackend += this.config.apiPort;
+        }
+        const backendURL = store.get('backendURL') || mybackend;
+
+        const paymentResponse = await axios.get(`${backendURL}/payment/paymentrequest`);
+        if (paymentResponse.data.status !== 'success') {
+          throw new Error('Failed to create payment request');
+        }
+
+        this.paymentId = paymentResponse.data.data.paymentId;
+
+        // Set up WebSocket connection for payment confirmation
+        this.initiatePaymentWS();
+
+        // Build ZelCore protocol URL with callback
+        const zelProtocol = `zel:?action=pay&coin=zelcash&address=${this.deploymentAddress}&amount=${this.appPricePerSpecs}&message=${this.updateHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png&callback=${this.paymentCallbackValue()}`;
+
         if (window.zelcore) {
-          window.zelcore.protocol(protocol);
+          window.zelcore.protocol(zelProtocol);
         } else {
           const hiddenLink = document.createElement('a');
-          hiddenLink.href = protocol;
+          hiddenLink.href = zelProtocol;
           hiddenLink.style.display = 'none';
           document.body.appendChild(hiddenLink);
           hiddenLink.click();
           document.body.removeChild(hiddenLink);
         }
       } catch (error) {
-        this.showToast('warning', 'Failed to sign message, please try again.');
+        this.paymentLoading = false;
+        this.showToast('error', 'Failed to initiate ZelCore payment. Please try again.');
+        console.error(error);
       }
     },
     async initZelcore() {
@@ -4618,6 +4709,81 @@ export default {
     },
     onOpen(evt) {
       console.log(evt);
+    },
+    // Payment WebSocket handlers
+    onPaymentError(evt) {
+      console.log('Payment WebSocket error:', evt);
+      this.paymentLoading = false;
+    },
+    onPaymentMessage(evt) {
+      const data = qs.parse(evt.data);
+      console.log('Payment WebSocket message:', data);
+
+      if (data.status === 'success' && data.data) {
+        const paymentData = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
+        this.transactionId = paymentData.txid;
+        this.paymentReceived = true;
+        this.paymentLoading = false;
+        this.showToast('success', `Payment received! Transaction ID: ${this.transactionId}`);
+      } else if (data.status === 'error') {
+        this.paymentLoading = false;
+        const errorMsg = typeof data.data === 'string' ? data.data : (data.data?.message || data.message || 'Payment request expired or invalid');
+        this.showToast('error', errorMsg);
+      }
+    },
+    onPaymentClose(evt) {
+      console.log('Payment WebSocket closed:', evt);
+      if (!this.paymentReceived) {
+        this.paymentLoading = false;
+      }
+    },
+    onPaymentOpen(evt) {
+      console.log('Payment WebSocket opened:', evt);
+    },
+    initiatePaymentWS() {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      const wsprotocol = protocol === 'https:' ? 'wss://' : 'ws://';
+      mybackend += wsprotocol;
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) {
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          this.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          this.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
+      }
+      let backendURL = store.get('backendURL') || mybackend;
+      // Convert HTTP/HTTPS to WebSocket protocol
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const wsuri = `${backendURL}/ws/payment/${this.paymentId}`;
+      const websocketConn = new WebSocket(wsuri);
+      this.paymentWebsocket = websocketConn;
+
+      const self = this;
+      websocketConn.onopen = (evt) => { self.onPaymentOpen(evt); };
+      websocketConn.onclose = (evt) => { self.onPaymentClose(evt); };
+      websocketConn.onmessage = (evt) => { self.onPaymentMessage(evt); };
+      websocketConn.onerror = (evt) => { self.onPaymentError(evt); };
     },
 
     async getInstalledApplicationSpecifics(silent = false) {

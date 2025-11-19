@@ -163,7 +163,7 @@
                   <p>
                     Pay with Zelcore
                   </p>
-                  <div>
+                  <div v-if="!paymentLoading && !paymentReceived">
                     <a
                       @click="initZelcore"
                     >
@@ -175,6 +175,32 @@
                         width="100%"
                       >
                     </a>
+                  </div>
+                  <div v-if="paymentLoading">
+                    <b-spinner
+                      variant="primary"
+                      label="Loading..."
+                      style="width: 3rem; height: 3rem;"
+                    />
+                    <p class="mt-2">
+                      Waiting for payment confirmation...
+                    </p>
+                  </div>
+                  <div
+                    v-if="paymentReceived"
+                    class="text-success"
+                  >
+                    <feather-icon
+                      icon="CheckCircleIcon"
+                      size="48"
+                      class="text-success"
+                    />
+                    <p class="mt-2">
+                      Payment Received!
+                    </p>
+                    <p class="small">
+                      Transaction ID: {{ transactionId }}
+                    </p>
                   </div>
                 </div>
               </b-col>
@@ -196,6 +222,7 @@ import {
   BFormTextarea,
   BLink,
   BRow,
+  BSpinner,
 } from 'bootstrap-vue';
 import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import Ripple from 'vue-ripple-directive';
@@ -207,6 +234,8 @@ import {
 } from 'vue';
 
 const axios = require('axios');
+const qs = require('qs');
+const store = require('store');
 const timeoptions = require('@/libs/dateFormat');
 
 export default {
@@ -219,6 +248,7 @@ export default {
     BFormTextarea,
     BLink,
     BRow,
+    BSpinner,
 
     // eslint-disable-next-line vue/no-unused-components
     ToastificationContent,
@@ -254,6 +284,13 @@ export default {
     const foundationAddress = ref('');
     const validTill = ref(0);
 
+    // Payment-related properties
+    const paymentId = ref('');
+    const paymentLoading = ref(false);
+    const paymentReceived = ref(false);
+    const transactionId = ref('');
+    const paymentWebsocket = ref(null);
+
     const perfectScrollbarSettings = {
       maxScrollbarLength: 150,
     };
@@ -269,6 +306,113 @@ export default {
       });
     };
 
+    const getBackendURL = () => {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) {
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        mybackend += hostname;
+        mybackend += ':';
+        const apiPort = +port > 16100 ? +port + 1 : 16127;
+        mybackend += apiPort;
+      }
+      return store.get('backendURL') || mybackend;
+    };
+
+    const paymentCallbackValue = () => {
+      const backendURL = getBackendURL();
+      const url = `${backendURL}/payment/verifypayment?paymentid=${paymentId.value}`;
+      return encodeURI(url);
+    };
+
+    // Payment WebSocket handlers
+    const onPaymentError = (evt) => {
+      console.log('Payment WebSocket error:', evt);
+      paymentLoading.value = false;
+    };
+
+    const onPaymentMessage = (evt) => {
+      const data = qs.parse(evt.data);
+      console.log('Payment WebSocket message:', data);
+
+      if (data.status === 'success' && data.data) {
+        const paymentData = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
+        transactionId.value = paymentData.txid;
+        paymentReceived.value = true;
+        paymentLoading.value = false;
+        showToast('success', `Payment received! Transaction ID: ${transactionId.value}`);
+      } else if (data.status === 'error') {
+        paymentLoading.value = false;
+        const errorMsg = typeof data.data === 'string' ? data.data : (data.data?.message || data.message || 'Payment request expired or invalid');
+        showToast('danger', errorMsg);
+      }
+    };
+
+    const onPaymentClose = (evt) => {
+      console.log('Payment WebSocket closed:', evt);
+      if (!paymentReceived.value) {
+        paymentLoading.value = false;
+      }
+    };
+
+    const onPaymentOpen = (evt) => {
+      console.log('Payment WebSocket opened:', evt);
+    };
+
+    const initiatePaymentWS = () => {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      const wsprotocol = protocol === 'https:' ? 'wss://' : 'ws://';
+      mybackend += wsprotocol;
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) {
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        mybackend += hostname;
+        mybackend += ':';
+        const apiPort = +port > 16100 ? +port + 1 : 16127;
+        mybackend += apiPort;
+      }
+      let backendURL = store.get('backendURL') || mybackend;
+      // Convert HTTP/HTTPS to WebSocket protocol
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const wsuri = `${backendURL}/ws/payment/${paymentId.value}`;
+      const websocketConn = new WebSocket(wsuri);
+      paymentWebsocket.value = websocketConn;
+
+      websocketConn.onopen = onPaymentOpen;
+      websocketConn.onclose = onPaymentClose;
+      websocketConn.onmessage = onPaymentMessage;
+      websocketConn.onerror = onPaymentError;
+    };
+
     const getXdaoPrice = async () => {
       const response = await axios.get('https://stats.runonflux.io/proposals/price');
       console.log(response);
@@ -281,7 +425,26 @@ export default {
 
     const initZelcore = async () => {
       try {
-        const protocol = `zel:?action=pay&coin=zelcash&address=${foundationAddress.value}&amount=${proposalPrice.value}&message=${registrationHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        paymentLoading.value = true;
+        paymentReceived.value = false;
+        transactionId.value = '';
+
+        // Request a payment ID from the backend
+        const backendURL = getBackendURL();
+
+        const paymentResponse = await axios.get(`${backendURL}/payment/paymentrequest`);
+        if (paymentResponse.data.status !== 'success') {
+          throw new Error('Failed to create payment request');
+        }
+
+        paymentId.value = paymentResponse.data.data.paymentId;
+
+        // Set up WebSocket connection for payment confirmation
+        initiatePaymentWS();
+
+        // Build ZelCore protocol URL with callback
+        const protocol = `zel:?action=pay&coin=zelcash&address=${foundationAddress.value}&amount=${proposalPrice.value}&message=${registrationHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png&callback=${paymentCallbackValue()}`;
+
         if (window.zelcore) {
           window.zelcore.protocol(protocol);
         } else {
@@ -293,7 +456,9 @@ export default {
           document.body.removeChild(hiddenLink);
         }
       } catch (error) {
-        showToast('danger', error.message);
+        paymentLoading.value = false;
+        showToast('danger', error.message || 'Failed to initiate ZelCore payment. Please try again.');
+        console.error(error);
       }
     };
 
@@ -377,6 +542,12 @@ export default {
       registrationHash,
       validTill,
       foundationAddress,
+
+      // Payment properties
+      paymentId,
+      paymentLoading,
+      paymentReceived,
+      transactionId,
 
       initZelcore,
 
