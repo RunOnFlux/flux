@@ -118,6 +118,9 @@ function verifyMessage(message, address, signature, strMessageMagic, checkSegwit
 function signMessage(message, pk) {
   let signature;
   try {
+    if (!pk || typeof pk !== 'string') {
+      throw new Error('Invalid private key provided');
+    }
     const privateKey = zeltrezjs.address.WIFToPrivKey(pk);
 
     const isCompressed = !pk.startsWith('5');

@@ -15,7 +15,7 @@
                 :key="filter.title + $route.path"
                 :to="filter.route"
                 :active="isDynamicRouteActive(filter.route)"
-                @click="$emit('close-app-view'); $emit('close-left-sidebar')"
+                @click="$emit('scroll-app-view'); $emit('close-app-view'); $emit('close-left-sidebar')"
               >
                 <v-icon
                   :name="filter.icon"
@@ -35,7 +35,7 @@
                 :active="isDynamicRouteActive(action.route)"
                 target="_blank"
                 rel="noopener noreferrer"
-                @click="$emit('close-app-view'); $emit('close-left-sidebar'); $emit(action.event)"
+                @click="$emit('scroll-app-view'); $emit('close-app-view'); $emit('close-left-sidebar'); $emit(action.event);"
               >
                 <v-icon
                   :name="action.icon"

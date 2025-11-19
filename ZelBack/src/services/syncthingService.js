@@ -15,13 +15,9 @@ const messageHelper = require('./messageHelper');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
 
-// these are just for testing to stub right now
-const util = require('node:util');
-const nodecmd = require('node-cmd');
-
-const cmdAsync = util.promisify(nodecmd.get);
-
 const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
+
+const isArcane = Boolean(process.env.SYNCTHING_PATH);
 
 /**
  * If the binary is executable
@@ -29,7 +25,6 @@ const syncthingURL = `http://${config.syncthing.ip}:${config.syncthing.port}`;
 let syncthingBinaryPresent = false;
 
 let syncthingStatusOk = false;
-let getDeviceIDRunning = false;
 
 const parserOptions = {
   ignoreAttributes: false,
@@ -47,15 +42,14 @@ const asyncLock = new AsyncLock();
 const stc = new FluxController();
 
 /**
- * To get syncthing config xml file
- * @returns {Promise<(string | null)>} config gile (XML).
+ *
+ * Temporary function until Arcane is deployed
+ * @param {string} configDir The uesrs config dir
+ * @param {string} syncthingDir The syncthing config dir
+ * @param {string} configFile  The syncthing config file
+ * @returns {Promise<boolean>}
  */
-async function getConfigFile() {
-  const homedir = os.homedir();
-  const configDir = path.join(homedir, '.config');
-  const syncthingDir = path.join(configDir, 'syncthing');
-  const configFile = path.join(syncthingDir, 'config.xml');
-
+async function changeSyncthingOwnership(configDir, syncthingDir, configFile) {
   const user = os.userInfo().username;
   const owner = `${user}:${user}`;
 
@@ -66,7 +60,7 @@ async function getConfigFile() {
     params: [owner, configDir],
   });
 
-  if (chownConfigDirError) return null;
+  if (chownConfigDirError) return false;
 
   const { error: chownSyncthingError } = await serviceHelper.runCommand('chown', {
     runAsRoot: true,
@@ -74,7 +68,7 @@ async function getConfigFile() {
     params: [owner, syncthingDir],
   });
 
-  if (chownSyncthingError) return null;
+  if (chownSyncthingError) return false;
 
   const { error: chmodError } = await serviceHelper.runCommand('chmod', {
     runAsRoot: true,
@@ -82,7 +76,25 @@ async function getConfigFile() {
     params: ['644', configFile],
   });
 
-  if (chmodError) return null;
+  if (chmodError) return false;
+
+  return true;
+}
+
+/**
+ * To get syncthing config xml file
+ * @returns {Promise<(string | null)>} config file (XML).
+ */
+async function getConfigFile() {
+  const homedir = os.homedir();
+  const configDir = path.join(homedir, '.config');
+  const syncthingDir = process.env.SYNCTHING_PATH || path.join(configDir, 'syncthing');
+  const configFile = path.join(syncthingDir, 'config.xml');
+
+  if (!isArcane) {
+    const ownershipChanged = await changeSyncthingOwnership(configDir, syncthingDir, configFile);
+    if (!ownershipChanged) return null;
+  }
 
   let result = null;
   // this should never reject as chown would error first but just in case
@@ -173,29 +185,6 @@ function getAxiosCache() {
  */
 function syncthingController() {
   return stc;
-}
-
-/**
- * To get syncthing config xml file
- * @returns {string} config gile (XML).
- */
-async function getConfigFileDepreciated() {
-  try {
-    const homedir = os.homedir();
-    // fs may fail to read that as of eaccess
-    // change permissions of the file first so we can read it and get api key properly
-    const execDIRown = 'sudo chown $USER:$USER $HOME/.config'; // adjust .config folder for ownership of running user
-    await cmdAsync(execDIRown).catch((error) => log.error(error));
-    const execDIRownSyncthing = 'sudo chown $USER:$USER $HOME/.config/syncthing'; // adjust .config/syncthing folder for ownership of running user
-    await cmdAsync(execDIRownSyncthing).catch((error) => log.error(error));
-    const execPERM = `sudo chmod 644 ${homedir}/.config/syncthing/config.xml`;
-    await cmdAsync(execPERM);
-    const result = await fs.readFile(`${homedir}/.config/syncthing/config.xml`, 'utf8');
-    return result;
-  } catch (error) {
-    log.error(error);
-    return null;
-  }
 }
 
 /**
@@ -1613,8 +1602,7 @@ async function getDbRemoteNeed(req, res) {
  */
 async function getDbStatus(req, res) {
   try {
-    let { folder } = req.params;
-    folder = folder || req.query.folder;
+    const folder = req?.params?.folder || req?.query?.folder;
     let apiPath = '/rest/db/status';
     if (folder) {
       apiPath += `?folder=${folder}`;
@@ -2159,53 +2147,6 @@ async function getSvcReport(req, res) {
 
 /**
  * Returns device id, also checks that syncthing is installed and running and we have the api key.
- * @param {object} req Request.
- * @param {object} res Response.
- * @returns {object} Message
- */
-async function getDeviceIdDepreciated(req, res) {
-  if (getDeviceIDRunning) {
-    await serviceHelper.delay(2000);
-    return getDeviceIdDepreciated(req, res);
-  }
-  getDeviceIDRunning = true;
-  let meta;
-  let healthy;
-  let pingResponse;
-  let synthingRunning;
-  try {
-    meta = await getMeta();
-    await serviceHelper.delay(500);
-    healthy = await getHealth(); // check that syncthing instance is healthy
-    await serviceHelper.delay(500);
-    pingResponse = await systemPing(); // check that flux has proper api key
-    const execSynct = 'ps aux | grep -i syncthing';
-    synthingRunning = await cmdAsync(execSynct);
-    if (meta.status === 'success' && pingResponse.data.ping === 'pong' && healthy.data.status === 'OK') {
-      const adjustedString = meta.data.slice(15).slice(0, -2);
-      const deviceObject = JSON.parse(adjustedString);
-      const { deviceID } = deviceObject;
-      const successResponse = messageHelper.createDataMessage(deviceID);
-      syncthingStatusOk = true;
-      return res ? res.json(successResponse) : successResponse;
-    }
-    throw new Error('Syncthing is not running properly');
-  } catch (error) {
-    syncthingStatusOk = false;
-    log.error(error);
-    log.error(synthingRunning);
-    log.error(meta);
-    log.error(healthy);
-    log.error(pingResponse);
-    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
-    return res ? res.json(errorResponse) : errorResponse;
-  } finally {
-    getDeviceIDRunning = false;
-  }
-}
-
-/**
- * Returns device id, also checks that syncthing is installed and running and we have the api key.
  * @returns {Promise<null | string>} Message
  */
 async function getDeviceId() {
@@ -2474,7 +2415,69 @@ async function stopSyncthingSentinel() {
   await stc.abort();
   // so axios gets a new sigal
   axiosCache.reset();
+  // Stop metrics collection
+  stopMetricsCollection(); // eslint-disable-line no-use-before-define
   log.info('Syncthing sentinel stopped');
+}
+
+/**
+ * Temporary function until moved over to Arcane
+ * @param {boolean} installed If syncthing is installed
+ * @returns {Promise<void>}
+ */
+async function ensureSyncthingRunning(installed) {
+  if (installed && await getDeviceId()) return;
+
+  log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
+  await stopSyncthing();
+  await installSyncthingIdempotently();
+  await configureDirectories();
+
+  const homedir = os.homedir();
+  const syncthingHome = path.join(homedir, '.config/syncthing');
+  const logFile = path.join(syncthingHome, 'syncthing.log');
+
+  log.info('Spawning Syncthing instance...');
+
+  // if nodeJS binary has the CAP_SETUID capability, can then set the uid to 0,
+  // without having to call sudo. IMO, Flux should be run as it's own user, not just
+  // whatever the operator installed as.
+  // this can throw
+
+  // having issues with nodemon and pm2. Using pm2 --no-treekill stops syncthing getting
+  // killed, but then get issues with nodemon not dying.
+
+  // adding old spawn with shell in the interim.
+
+  childProcess.spawn(
+    `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
+    { shell: true },
+  ).unref();
+
+  // childProcess.spawn(
+  //   'sudo',
+  //   [
+  //     'nohup',
+  //     'syncthing',
+  //     '--logfile',
+  //     logFile,
+  //     '--logflags=3',
+  //     '--log-max-old-files=2',
+  //     '--log-max-size=26214400',
+  //     '--allow-newer-config',
+  //     '--no-browser',
+  //     '--home',
+  //     syncthingHome,
+  //   ],
+  //   {
+  //     detached: true,
+  //     stdio: 'ignore',
+  //     // uid: 0,
+  //   },
+  // ).unref();
+
+  // let syncthing set itself up
+  await stc.sleep(5 * 1000);
 }
 
 /**
@@ -2490,60 +2493,11 @@ async function runSyncthingSentinel() {
   }
 
   try {
-    if (!installed || !await getDeviceId()) {
-      log.error('Unable to get syncthing deviceId. Reconfiguring syncthing.');
-      await stopSyncthing();
-      await installSyncthingIdempotently();
-      await configureDirectories();
-
-      const homedir = os.homedir();
-      const syncthingHome = path.join(homedir, '.config/syncthing');
-      const logFile = path.join(syncthingHome, 'syncthing.log');
-
-      if (stc.aborted) return 0;
-
-      log.info('Spawning Syncthing instance...');
-
-      // if nodeJS binary has the CAP_SETUID capability, can then set the uid to 0,
-      // without having to call sudo. IMO, Flux should be run as it's own user, not just
-      // whatever the operator installed as.
-      // this can throw
-
-      // having issues with nodemon and pm2. Using pm2 --no-treekill stops syncthing getting
-      // killed, but then get issues with nodemon not dying.
-
-      // adding old spawn with shell in the interim.
-
-      childProcess.spawn(
-        `sudo nohup syncthing --logfile ${logFile} --logflags=3 --log-max-old-files=2 --log-max-size=26214400 --allow-newer-config --no-browser --home ${syncthingHome} >/dev/null 2>&1 </dev/null &`,
-        { shell: true },
-      ).unref();
-
-      // childProcess.spawn(
-      //   'sudo',
-      //   [
-      //     'nohup',
-      //     'syncthing',
-      //     '--logfile',
-      //     logFile,
-      //     '--logflags=3',
-      //     '--log-max-old-files=2',
-      //     '--log-max-size=26214400',
-      //     '--allow-newer-config',
-      //     '--no-browser',
-      //     '--home',
-      //     syncthingHome,
-      //   ],
-      //   {
-      //     detached: true,
-      //     stdio: 'ignore',
-      //     // uid: 0,
-      //   },
-      // ).unref();
-
-      // let syncthing set itself up
-      await stc.sleep(5 * 1000);
+    if (!isArcane) {
+      await ensureSyncthingRunning(installed);
     }
+
+    if (stc.aborted) return 0;
 
     // every 8 minutes call adjustSyncthing to check service folders
     // this will also run on first iteration
@@ -2568,7 +2522,7 @@ async function runSyncthingSentinel() {
  * @returns {<void>}
  */
 async function startSyncthingSentinel() {
-  while (!syncthingBinaryPresent) {
+  while (!isArcane && !syncthingBinaryPresent) {
     // eslint-disable-next-line no-await-in-loop
     const { error } = await serviceHelper.runCommand('syncthing', { logError: false, params: ['--version'] });
 
@@ -2580,6 +2534,9 @@ async function startSyncthingSentinel() {
 
   // idempotent
   stc.startLoop(runSyncthingSentinel);
+
+  // Start metrics collection (every 60 seconds by default)
+  startMetricsCollection(60_000); // eslint-disable-line no-use-before-define
 }
 
 /**
@@ -2599,6 +2556,742 @@ if (require.main === module) {
     if (cmd === 'start') startSyncthingSentinel();
     if (cmd === 'stop') await stopSyncthingSentinel();
   });
+}
+
+// === METRICS AND MONITORING ===
+
+/**
+ * Storage for metrics history
+ */
+const metricsHistory = {
+  snapshots: [],
+  maxSnapshots: 100, // Keep last 100 snapshots
+};
+
+/**
+ * Collects comprehensive metrics from Syncthing
+ * @returns {Promise<object>} Aggregated metrics object
+ */
+async function collectSyncthingMetrics() {
+  try {
+    const timestamp = Date.now();
+    const metrics = {
+      timestamp,
+      health: {
+        status: 'unknown',
+        error: null,
+      },
+      system: {
+        status: 'unknown',
+        uptime: 0,
+        cpuPercent: 0,
+        error: null,
+      },
+      connections: {
+        total: 0,
+        connected: 0,
+        devices: {},
+        error: null,
+      },
+      folders: {
+        total: 0,
+        syncing: 0,
+        idle: 0,
+        error: 0,
+        details: {},
+      },
+      stats: {
+        device: null,
+        folder: null,
+        error: null,
+      },
+      errors: {
+        system: [],
+        folder: {},
+      },
+      overall: {
+        healthy: true,
+        syncProgress: 0,
+        issues: [],
+      },
+    };
+
+    // Collect health status
+    try {
+      const healthResponse = await performRequest('get', '/rest/noauth/health');
+      if (healthResponse.status === 'success') {
+        metrics.health.status = healthResponse.data?.status || 'ok';
+      } else {
+        metrics.health.error = healthResponse.data?.message || 'Unknown error';
+        metrics.overall.healthy = false;
+        metrics.overall.issues.push('Health check failed');
+      }
+    } catch (error) {
+      metrics.health.error = error.message;
+      metrics.overall.healthy = false;
+      metrics.overall.issues.push(`Health check error: ${error.message}`);
+    }
+
+    // Collect system status
+    try {
+      const systemResponse = await performRequest('get', '/rest/system/status');
+      if (systemResponse.status === 'success') {
+        const systemData = systemResponse.data;
+        metrics.system = {
+          status: 'ok',
+          uptime: systemData.uptime || 0,
+          cpuPercent: systemData.cpuPercent || 0,
+          goroutines: systemData.goroutines || 0,
+          myID: systemData.myID || '',
+          pathSeparator: systemData.pathSeparator || '/',
+          startTime: systemData.startTime || '',
+          error: null,
+        };
+      } else {
+        metrics.system.error = systemResponse.data?.message || 'Failed to get system status';
+        metrics.overall.issues.push('System status unavailable');
+      }
+    } catch (error) {
+      metrics.system.error = error.message;
+      metrics.overall.issues.push(`System status error: ${error.message}`);
+    }
+
+    // Collect connections
+    try {
+      const connectionsResponse = await performRequest('get', '/rest/system/connections');
+      if (connectionsResponse.status === 'success') {
+        const connectionsData = connectionsResponse.data;
+        const devices = connectionsData.connections || {};
+        let connected = 0;
+        const deviceDetails = {};
+
+        Object.keys(devices).forEach((deviceId) => {
+          const device = devices[deviceId];
+          if (device.connected) {
+            connected += 1;
+          }
+          deviceDetails[deviceId] = {
+            connected: device.connected || false,
+            address: device.address || '',
+            clientVersion: device.clientVersion || '',
+            type: device.type || '',
+            inBytesTotal: device.inBytesTotal || 0,
+            outBytesTotal: device.outBytesTotal || 0,
+          };
+        });
+
+        metrics.connections = {
+          total: Object.keys(devices).length,
+          connected,
+          devices: deviceDetails,
+          error: null,
+        };
+      } else {
+        metrics.connections.error = connectionsResponse.data?.message || 'Failed to get connections';
+      }
+    } catch (error) {
+      metrics.connections.error = error.message;
+    }
+
+    // Collect folder statistics
+    try {
+      const statsResponse = await performRequest('get', '/rest/stats/folder');
+      if (statsResponse.status === 'success') {
+        metrics.stats.folder = statsResponse.data;
+      }
+    } catch (error) {
+      metrics.stats.error = error.message;
+    }
+
+    // Collect device statistics
+    try {
+      const deviceStatsResponse = await performRequest('get', '/rest/stats/device');
+      if (deviceStatsResponse.status === 'success') {
+        metrics.stats.device = deviceStatsResponse.data;
+      }
+    } catch (error) {
+      if (!metrics.stats.error) metrics.stats.error = error.message;
+    }
+
+    // Collect folder status (get config first to know which folders exist)
+    try {
+      const configResponse = await performRequest('get', '/rest/config/folders');
+      if (configResponse.status === 'success' && Array.isArray(configResponse.data)) {
+        const folders = configResponse.data;
+        metrics.folders.total = folders.length;
+        let totalGlobalBytes = 0;
+        let totalInSyncBytes = 0;
+
+        // eslint-disable-next-line no-restricted-syntax
+        for (const folder of folders) {
+          const folderId = folder.id;
+          try {
+            // Get folder status
+            // eslint-disable-next-line no-await-in-loop
+            const statusResponse = await performRequest('get', `/rest/db/status?folder=${folderId}`);
+            if (statusResponse.status === 'success') {
+              const folderStatus = statusResponse.data;
+              const state = folderStatus.state || 'unknown';
+              const globalBytes = folderStatus.globalBytes || 0;
+              const inSyncBytes = folderStatus.inSyncBytes || 0;
+              const needBytes = folderStatus.needBytes || 0;
+              const pullErrors = folderStatus.pullErrors || 0;
+              const errors = folderStatus.errors || 0;
+
+              metrics.folders.details[folderId] = {
+                label: folder.label || folderId,
+                state,
+                globalBytes,
+                inSyncBytes,
+                needBytes,
+                pullErrors,
+                errors,
+                syncPercentage: globalBytes > 0 ? ((inSyncBytes / globalBytes) * 100).toFixed(2) : 100,
+              };
+
+              totalGlobalBytes += globalBytes;
+              totalInSyncBytes += inSyncBytes;
+
+              // Count states
+              if (state === 'syncing' || state === 'sync-preparing') {
+                metrics.folders.syncing += 1;
+              } else if (state === 'idle') {
+                metrics.folders.idle += 1;
+              } else if (state === 'error') {
+                metrics.folders.error += 1;
+                metrics.overall.issues.push(`Folder ${folder.label || folderId} in error state`);
+              }
+
+              // Track errors
+              if (errors > 0 || pullErrors > 0) {
+                metrics.errors.folder[folderId] = {
+                  pullErrors,
+                  errors,
+                };
+                metrics.overall.issues.push(`Folder ${folder.label || folderId} has ${errors + pullErrors} error(s)`);
+              }
+            }
+          } catch (error) {
+            log.warn(`Failed to get status for folder ${folderId}: ${error.message}`);
+            metrics.folders.details[folderId] = {
+              label: folder.label || folderId,
+              state: 'unknown',
+              error: error.message,
+            };
+          }
+        }
+
+        // Calculate overall sync progress
+        if (totalGlobalBytes > 0) {
+          metrics.overall.syncProgress = parseFloat(((totalInSyncBytes / totalGlobalBytes) * 100).toFixed(2));
+        } else {
+          metrics.overall.syncProgress = 100;
+        }
+
+        // Update overall health based on folder states
+        if (metrics.folders.error > 0) {
+          metrics.overall.healthy = false;
+        }
+      }
+    } catch (error) {
+      metrics.folders.error = error.message;
+      metrics.overall.issues.push(`Failed to collect folder metrics: ${error.message}`);
+    }
+
+    // Collect system errors
+    try {
+      const errorsResponse = await performRequest('get', '/rest/system/error');
+      if (errorsResponse.status === 'success' && errorsResponse.data?.errors) {
+        metrics.errors.system = errorsResponse.data.errors;
+        if (metrics.errors.system.length > 0) {
+          metrics.overall.healthy = false;
+          metrics.overall.issues.push(`${metrics.errors.system.length}`);
+        }
+      }
+    } catch (error) {
+      log.warn(`Failed to get system errors: ${error.message}`);
+    }
+
+    return metrics;
+  } catch (error) {
+    log.error(`Failed to collect syncthing metrics: ${error.message}`);
+    return {
+      timestamp: Date.now(),
+      error: error.message,
+      overall: { healthy: false, issues: [`Metrics collection failed: ${error.message}`] },
+    };
+  }
+}
+
+/**
+ * Saves a metrics snapshot to history
+ * @param {object} metrics Metrics object to save
+ */
+function saveMetricsSnapshot(metrics) {
+  metricsHistory.snapshots.push(metrics);
+
+  // Keep only the last N snapshots
+  if (metricsHistory.snapshots.length > metricsHistory.maxSnapshots) {
+    metricsHistory.snapshots.shift();
+  }
+}
+
+/**
+ * Gets current syncthing metrics
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Current metrics
+ */
+async function getSyncthingMetrics(req, res) {
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      const metrics = await collectSyncthingMetrics();
+      response = messageHelper.createDataMessage(metrics);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Gets syncthing health summary
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Health summary
+ */
+async function getSyncthingHealthSummary(req, res) {
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      const metrics = await collectSyncthingMetrics();
+      const summary = {
+        timestamp: metrics.timestamp,
+        healthy: metrics.overall.healthy,
+        syncProgress: metrics.overall.syncProgress,
+        issues: metrics.overall.issues,
+        health: {
+          status: metrics.health.status,
+          error: metrics.health.error,
+        },
+        system: {
+          uptime: metrics.system.uptime,
+          status: metrics.system.status,
+        },
+        connections: {
+          connected: metrics.connections.connected,
+          total: metrics.connections.total,
+        },
+        folders: {
+          total: metrics.folders.total,
+          syncing: metrics.folders.syncing,
+          idle: metrics.folders.idle,
+          error: metrics.folders.error,
+        },
+        errors: {
+          systemErrors: metrics.errors.system.length,
+          folderErrors: Object.keys(metrics.errors.folder).length,
+        },
+      };
+      response = messageHelper.createDataMessage(summary);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Gets syncthing metrics history
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Metrics history
+ */
+async function getSyncthingMetricsHistory(req, res) {
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      let { limit } = req.params;
+      limit = limit || req.query.limit || metricsHistory.maxSnapshots;
+      limit = parseInt(limit, 10);
+
+      const snapshots = metricsHistory.snapshots.slice(-limit);
+      response = messageHelper.createDataMessage({
+        snapshots,
+        count: snapshots.length,
+        maxSnapshots: metricsHistory.maxSnapshots,
+      });
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Periodic metrics collection (called by sentinel or scheduler)
+ * @returns {Promise<object|void>} Collected metrics or void
+ */
+async function collectAndSaveMetrics() {
+  try {
+    if (!syncthingStatusOk) {
+      log.debug('Syncthing not running, skipping metrics collection');
+      return undefined;
+    }
+
+    const metrics = await collectSyncthingMetrics();
+    saveMetricsSnapshot(metrics);
+
+    // Log warnings for any issues
+    if (!metrics.overall.healthy) {
+      log.warn(`Syncthing health issues detected: ${metrics.overall.issues.join(', ')}`);
+    }
+
+    return metrics;
+  } catch (error) {
+    log.error(`Error in periodic metrics collection: ${error.message}`);
+    return undefined;
+  }
+}
+
+/**
+ * Starts periodic metrics collection
+ * @param {number} intervalMs Interval in milliseconds (default: 60000 = 1 minute)
+ */
+let metricsCollectionInterval = null;
+function startMetricsCollection(intervalMs = 60_000) {
+  if (metricsCollectionInterval) {
+    log.info('Metrics collection already running');
+    return;
+  }
+
+  log.info(`Starting syncthing metrics collection with ${intervalMs}ms interval`);
+  metricsCollectionInterval = setInterval(collectAndSaveMetrics, intervalMs);
+
+  // Collect initial metrics immediately
+  collectAndSaveMetrics();
+}
+
+/**
+ * Stops periodic metrics collection
+ */
+function stopMetricsCollection() {
+  if (metricsCollectionInterval) {
+    clearInterval(metricsCollectionInterval);
+    metricsCollectionInterval = null;
+    log.info('Stopped syncthing metrics collection');
+  }
+}
+
+/**
+ * Gets comprehensive peer sync diagnostics for all folders
+ * Identifies:
+ * - Which peers are connected/disconnected
+ * - Local sync status vs global
+ * - Whether peers have more updated data
+ * - Sync issues and recommendations
+ * @returns {Promise<Object>} Peer sync diagnostics
+ */
+async function getPeerSyncDiagnostics() {
+  try {
+    // Get config for folders and devices
+    const configResponse = await performRequest('get', '/rest/config');
+    if (!configResponse || configResponse.status !== 'success') {
+      throw new Error('Failed to fetch Syncthing configuration');
+    }
+    const syncthingConfig = configResponse.data;
+
+    // Get system connections status
+    const connectionsResponse = await performRequest('get', '/rest/system/connections');
+    if (!connectionsResponse || connectionsResponse.status !== 'success') {
+      throw new Error('Failed to fetch connection status');
+    }
+    const connections = connectionsResponse.data.connections || {};
+
+    // Get local device ID
+    const statusResponse = await performRequest('get', '/rest/system/status');
+    const localDeviceId = statusResponse?.data?.myID || 'unknown';
+
+    const diagnostics = {
+      timestamp: Date.now(),
+      localDeviceId,
+      summary: {
+        totalFolders: 0,
+        foldersWithIssues: 0,
+        cannotSyncFolders: [],
+        peersMoreUpdated: [],
+        disconnectedPeers: [],
+        connectedPeers: [],
+      },
+      folders: {},
+      devices: {},
+      issues: [],
+      recommendations: [],
+    };
+
+    // Build device info map
+    const deviceMap = {};
+    // eslint-disable-next-line no-restricted-syntax
+    for (const device of (syncthingConfig.devices || [])) {
+      if (device.deviceID === localDeviceId) {
+        deviceMap[device.deviceID] = {
+          name: device.name || 'Local',
+          isLocal: true,
+          connected: true,
+        };
+      } else {
+        const connInfo = connections[device.deviceID] || {};
+        const isConnected = connInfo.connected || false;
+        deviceMap[device.deviceID] = {
+          name: device.name || device.deviceID.substring(0, 7),
+          isLocal: false,
+          connected: isConnected,
+          address: connInfo.address || 'N/A',
+          clientVersion: connInfo.clientVersion || 'N/A',
+          inBytesTotal: connInfo.inBytesTotal || 0,
+          outBytesTotal: connInfo.outBytesTotal || 0,
+        };
+
+        if (isConnected) {
+          diagnostics.summary.connectedPeers.push(device.deviceID);
+        } else {
+          diagnostics.summary.disconnectedPeers.push(device.deviceID);
+        }
+      }
+    }
+    diagnostics.devices = deviceMap;
+
+    // Analyze each folder
+    const folders = syncthingConfig.folders || [];
+    diagnostics.summary.totalFolders = folders.length;
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const folder of folders) {
+      const folderId = folder.id;
+      const folderDiagnostic = {
+        id: folderId,
+        label: folder.label || folderId,
+        type: folder.type,
+        devices: [],
+        localStatus: null,
+        peerStatuses: [],
+        issues: [],
+        canSync: true,
+        peersAreMoreUpdated: false,
+      };
+
+      // Get local folder status
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const folderStatusResponse = await performRequest('get', `/rest/db/status?folder=${encodeURIComponent(folderId)}`);
+        if (folderStatusResponse?.status === 'success') {
+          const status = folderStatusResponse.data;
+          const globalBytes = status.globalBytes || 0;
+          const inSyncBytes = status.inSyncBytes || 0;
+          const syncPercentage = globalBytes > 0 ? (inSyncBytes / globalBytes) * 100 : 100;
+
+          folderDiagnostic.localStatus = {
+            globalBytes,
+            inSyncBytes,
+            needBytes: status.needBytes || 0,
+            needFiles: status.needFiles || 0,
+            syncPercentage: Math.round(syncPercentage * 100) / 100,
+            state: status.state || 'unknown',
+            errors: status.errors || 0,
+            pullErrors: status.pullErrors || 0,
+            globalFiles: status.globalFiles || 0,
+            localFiles: status.localFiles || 0,
+            outOfSyncFiles: (status.globalFiles || 0) - (status.localFiles || 0),
+          };
+
+          // Check if local is not fully synced
+          if (syncPercentage < 100 && globalBytes > 0) {
+            folderDiagnostic.issues.push({
+              type: 'incomplete_sync',
+              message: `Local is ${syncPercentage.toFixed(2)}% synced (missing ${status.needBytes} bytes, ${status.needFiles} files)`,
+            });
+          }
+        }
+      } catch (err) {
+        folderDiagnostic.issues.push({
+          type: 'status_error',
+          message: `Cannot get local status: ${err.message}`,
+        });
+      }
+
+      // Check each device's completion for this folder
+      const folderDevices = folder.devices || [];
+      let hasConnectedPeer = false;
+      let anyPeerMoreUpdated = false;
+
+      // eslint-disable-next-line no-restricted-syntax
+      for (const folderDevice of folderDevices) {
+        const deviceId = folderDevice.deviceID;
+        if (deviceId === localDeviceId) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
+        const deviceInfo = deviceMap[deviceId] || { name: deviceId.substring(0, 7), connected: false };
+        const peerStatus = {
+          deviceId,
+          deviceName: deviceInfo.name,
+          connected: deviceInfo.connected,
+          completion: null,
+          needBytes: null,
+          needItems: null,
+          globalBytes: null,
+        };
+
+        if (deviceInfo.connected) {
+          hasConnectedPeer = true;
+          // Get what this peer needs FROM us (tells us if they're behind us)
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const completionResponse = await performRequest('get', `/rest/db/completion?folder=${encodeURIComponent(folderId)}&device=${encodeURIComponent(deviceId)}`);
+            if (completionResponse?.status === 'success') {
+              const comp = completionResponse.data;
+              peerStatus.completion = comp.completion || 0;
+              peerStatus.needBytes = comp.needBytes || 0;
+              peerStatus.needItems = comp.needItems || 0;
+              peerStatus.globalBytes = comp.globalBytes || 0;
+
+              // If peer completion is 100%, they have all our data
+              // But check if their globalBytes > our inSyncBytes to see if they have MORE
+              if (folderDiagnostic.localStatus) {
+                const localInSync = folderDiagnostic.localStatus.inSyncBytes;
+                const peerGlobal = comp.globalBytes || 0;
+
+                // Peer has more data if their global is larger than what we have synced
+                if (peerGlobal > localInSync && folderDiagnostic.localStatus.syncPercentage < 100) {
+                  peerStatus.hasMoreData = true;
+                  anyPeerMoreUpdated = true;
+                } else {
+                  peerStatus.hasMoreData = false;
+                }
+              }
+            }
+          } catch (err) {
+            peerStatus.error = err.message;
+          }
+        } else {
+          peerStatus.error = 'Device disconnected';
+        }
+
+        folderDiagnostic.peerStatuses.push(peerStatus);
+      }
+
+      // Determine if folder can sync
+      if (folderDevices.length <= 1) {
+        // Only local device
+        folderDiagnostic.canSync = true; // No peers to sync with
+        folderDiagnostic.issues.push({
+          type: 'no_peers',
+          message: 'No remote peers configured for this folder',
+        });
+      } else if (!hasConnectedPeer) {
+        folderDiagnostic.canSync = false;
+        folderDiagnostic.issues.push({
+          type: 'no_connection',
+          message: 'Cannot sync: All peers are disconnected',
+        });
+        diagnostics.summary.cannotSyncFolders.push(folderId);
+        diagnostics.summary.foldersWithIssues += 1;
+      } else if (anyPeerMoreUpdated && folderDiagnostic.localStatus?.syncPercentage < 100) {
+        folderDiagnostic.peersAreMoreUpdated = true;
+        folderDiagnostic.issues.push({
+          type: 'peers_more_updated',
+          message: 'Connected peers have more updated data than local instance',
+        });
+        diagnostics.summary.peersMoreUpdated.push(folderId);
+        diagnostics.summary.foldersWithIssues += 1;
+      }
+
+      diagnostics.folders[folderId] = folderDiagnostic;
+    }
+
+    // Generate overall issues and recommendations
+    if (diagnostics.summary.disconnectedPeers.length > 0) {
+      diagnostics.issues.push({
+        severity: 'warning',
+        message: `${diagnostics.summary.disconnectedPeers.length} peer(s) disconnected`,
+        details: diagnostics.summary.disconnectedPeers.map((id) => deviceMap[id]?.name || id.substring(0, 7)),
+      });
+      diagnostics.recommendations.push('Check network connectivity to disconnected peers');
+    }
+
+    if (diagnostics.summary.cannotSyncFolders.length > 0) {
+      diagnostics.issues.push({
+        severity: 'critical',
+        message: `${diagnostics.summary.cannotSyncFolders.length} folder(s) cannot sync with any peer`,
+        details: diagnostics.summary.cannotSyncFolders,
+      });
+      diagnostics.recommendations.push('Ensure at least one peer is connected for each folder');
+    }
+
+    if (diagnostics.summary.peersMoreUpdated.length > 0) {
+      diagnostics.issues.push({
+        severity: 'warning',
+        message: `${diagnostics.summary.peersMoreUpdated.length} folder(s) have peers with more updated data`,
+        details: diagnostics.summary.peersMoreUpdated,
+      });
+      diagnostics.recommendations.push('Check for sync conflicts or network issues preventing data reception');
+    }
+
+    if (diagnostics.summary.connectedPeers.length === 0 && diagnostics.summary.totalFolders > 0) {
+      diagnostics.issues.push({
+        severity: 'critical',
+        message: 'No peers connected - instance is isolated',
+        details: [],
+      });
+      diagnostics.recommendations.push('Check firewall settings and network configuration');
+    }
+
+    return diagnostics;
+  } catch (error) {
+    log.error(`getPeerSyncDiagnostics error: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * API endpoint for peer sync diagnostics
+ * @param {object} req Request
+ * @param {object} res Response
+ * @returns {object} Peer sync diagnostics
+ */
+async function getPeerSyncDiagnosticsApi(req, res) {
+  try {
+    const authorized = res ? await verificationHelper.verifyPrivilege('fluxteam', req) : true;
+    let response = null;
+    if (authorized === true) {
+      const diagnostics = await getPeerSyncDiagnostics();
+      response = messageHelper.createDataMessage(diagnostics);
+    } else {
+      response = messageHelper.errUnauthorizedMessage();
+    }
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(error.message, error.name, error.code);
+    return res ? res.json(errorResponse) : errorResponse;
+  }
 }
 
 module.exports = {
@@ -2703,8 +3396,16 @@ module.exports = {
   setSyncthingRunningState,
   adjustSyncthing,
   getConfigFile,
-  getConfigFileDepreciated,
-  getDeviceIdDepreciated,
   runSyncthingSentinel,
   stopSyncthing,
+  // METRICS AND MONITORING
+  getSyncthingMetrics,
+  getSyncthingHealthSummary,
+  getSyncthingMetricsHistory,
+  collectSyncthingMetrics,
+  startMetricsCollection,
+  stopMetricsCollection,
+  // PEER SYNC DIAGNOSTICS
+  getPeerSyncDiagnostics,
+  getPeerSyncDiagnosticsApi,
 };

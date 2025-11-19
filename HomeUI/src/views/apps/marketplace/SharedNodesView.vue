@@ -899,21 +899,35 @@
           :before-change="() => signature !== null"
         >
           <b-card
-            title="Sign Redeem Request with Zelcore"
+            title="Sign Redeem Request with Wallet"
             class="text-center wizard-card"
           >
-            <a
-              :href="(sendingRequest || requestSent || requestFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
-              @click="initiateSignWS"
-            >
-              <img
-                class="zelidLogin mb-2"
-                src="@/assets/images/FluxID.svg"
-                alt="Flux ID"
-                height="100%"
-                width="100%"
+            <div class="wallet-options">
+              <a
+                title="Sign with Zelcore"
+                @click="initiateSignWS"
               >
-            </a>
+                <img
+                  class="walletIcon mb-2"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a
+                title="Sign with SSP"
+                @click="initSSP"
+              >
+                <img
+                  class="walletIcon mb-2"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
             <b-form-input
               id="data"
               v-model="dataToSign"
@@ -995,20 +1009,34 @@
           </h5>
           <div class="d-flex flex-row mt-2">
             <h3 class="col text-center mt-2">
-              Pay with<br>Zelcore
+              Pay with<br>Wallet
             </h3>
-            <a
-              :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.fundingAddress}&amount=${selectedStake.collateral}&message=${selectedStake.signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
-              class="col"
-            >
-              <img
-                class="zelidLogin"
-                src="@/assets/images/FluxID.svg"
-                alt="Flux ID"
-                height="100%"
-                width="100%"
+            <div class="col wallet-options">
+              <a
+                title="Pay with Zelcore"
+                @click="initZelcorePayB"
               >
-            </a>
+                <img
+                  class="walletIcon"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a
+                title="Pay with SSP"
+                @click="initSSPpayB"
+              >
+                <img
+                  class="walletIcon"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
           </div>
           <h5 class="mt-1">
             This activation will expire if the transaction is not on the blockchain before <span class="text-danger">{{ new Date(selectedStake.expiry * 1000).toLocaleString() }}</span>
@@ -1140,21 +1168,35 @@
           :before-change="() => signature !== null"
         >
           <b-card
-            title="Sign with Zelcore"
+            title="Sign with Wallet"
             class="text-center wizard-card"
           >
-            <a
-              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
-              @click="initiateSignWS"
-            >
-              <img
-                class="zelidLogin mb-2"
-                src="@/assets/images/FluxID.svg"
-                alt="Flux ID"
-                height="100%"
-                width="100%"
+            <div class="wallet-options">
+              <a
+                title="Sign with Zelcore"
+                @click="initiateSignWS"
               >
-            </a>
+                <img
+                  class="walletIcon mb-2"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a
+                title="Sign with SSP"
+                @click="initSSP"
+              >
+                <img
+                  class="walletIcon mb-2"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
             <b-form-input
               id="data"
               v-model="dataToSign"
@@ -1275,21 +1317,35 @@
           :before-change="() => signature !== null"
         >
           <b-card
-            title="Sign with Zelcore"
+            title="Sign with Wallet"
             class="text-center wizard-card"
           >
-            <a
-              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
-              @click="initiateSignWS"
-            >
-              <img
-                class="zelidLogin mb-2"
-                src="@/assets/images/FluxID.svg"
-                alt="Flux ID"
-                height="100%"
-                width="100%"
+            <div class="wallet-options">
+              <a
+                title="Sign with Zelcore"
+                @click="initiateSignWS"
               >
-            </a>
+                <img
+                  class="walletIcon mb-2"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a
+                title="Sign with SSP"
+                @click="initSSP"
+              >
+                <img
+                  class="walletIcon mb-2"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
             <b-form-input
               id="data"
               v-model="dataToSign"
@@ -1465,21 +1521,35 @@
           :before-change="() => signature !== null"
         >
           <b-card
-            title="Sign with Zelcore"
+            title="Sign with Wallet"
             class="text-center wizard-card"
           >
-            <a
-              :href="(stakeRegistered || registeringStake || stakeRegisterFailed) ? '#' : `zel:?action=sign&message=${dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`"
-              @click="initiateSignWS"
-            >
-              <img
-                class="zelidLogin mb-2"
-                src="@/assets/images/FluxID.svg"
-                alt="Flux ID"
-                height="100%"
-                width="100%"
+            <div class="wallet-options">
+              <a
+                title="Sign with Zelcore"
+                @click="initiateSignWS"
               >
-            </a>
+                <img
+                  class="walletIcon mb-2"
+                  src="@/assets/images/FluxID.svg"
+                  alt="Flux ID"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+              <a
+                title="Sign with SSP"
+                @click="initSSP"
+              >
+                <img
+                  class="walletIcon mb-2"
+                  :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                  alt="SSP"
+                  height="100%"
+                  width="100%"
+                >
+              </a>
+            </div>
             <b-form-input
               id="data"
               v-model="dataToSign"
@@ -1561,20 +1631,34 @@
               </h5>
               <div class="d-flex flex-row mt-2">
                 <h3 class="col text-center mt-2">
-                  Pay with<br>Zelcore
+                  Pay with<br>Wallet
                 </h3>
-                <a
-                  :href="`zel:?action=pay&coin=zelcash&address=${titanConfig.fundingAddress}&amount=${stakeAmount}&message=${signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`"
-                  class="col"
-                >
-                  <img
-                    class="zelidLogin"
-                    src="@/assets/images/FluxID.svg"
-                    alt="Flux ID"
-                    height="100%"
-                    width="100%"
+                <div class="col wallet-options">
+                  <a
+                    title="Pay with Zelcore"
+                    @click="initZelcorePay"
                   >
-                </a>
+                    <img
+                      class="walletIcon"
+                      src="@/assets/images/FluxID.svg"
+                      alt="Flux ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a
+                    title="Pay with SSP"
+                    @click="initSSPpay"
+                  >
+                    <img
+                      class="walletIcon"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                      alt="SSP"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                </div>
               </div>
             </b-card>
           </div>
@@ -1620,6 +1704,7 @@ import VuePerfectScrollbar from 'vue-perfect-scrollbar';
 import Ripple from 'vue-ripple-directive';
 import { useToast } from 'vue-toastification/composition';
 import ToastificationContent from '@core/components/toastification/ToastificationContent.vue';
+import useAppConfig from '@core/app-config/useAppConfig';
 
 import 'vue-form-wizard/dist/vue-form-wizard.min.css';
 
@@ -1687,6 +1772,11 @@ export default {
   },
   setup(props) {
     const vm = getCurrentInstance().proxy;
+
+    const {
+      skin,
+    } = useAppConfig();
+
     // Use toast
     const toast = useToast();
     const showToast = (variant, title, icon = 'InfoIcon') => {
@@ -1798,10 +1888,29 @@ export default {
       console.log(evt);
     };
 
+    const initZelcore = () => {
+      try {
+        const protocol = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
     const initiateSignWS = () => {
       if (stakeRegistered.value || registeringStake.value || stakeRegisterFailed.value) {
         return;
       }
+      initZelcore();
       const { protocol, hostname } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -1842,6 +1951,26 @@ export default {
       ws.onclose = (evt) => { onClose(evt); };
       ws.onmessage = (evt) => { onMessage(evt); };
       ws.onerror = (evt) => { onError(evt); };
+    };
+
+    const initSSP = async () => {
+      try {
+        if (stakeRegistered.value || registeringStake.value || stakeRegisterFailed.value) {
+          return;
+        }
+        if (!window.ssp) {
+          showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: dataToSign.value });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        }
+        signature.value = responseData.signature;
+        userZelid.value = responseData.address;
+      } catch (error) {
+        showToast('danger', error.message);
+      }
     };
 
     // Variables to control showing dialogs
@@ -2408,6 +2537,88 @@ export default {
 
     const formatPaymentTooltip = (stake) => `Send a payment of ${stake.collateral} Flux to<br>${titanConfig.value.nodeAddress}<br>with a message<br>${stake.signatureHash}`;
 
+    const initZelcorePay = () => {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${titanConfig.value.fundingAddress}&amount=${stakeAmount.value}&message=${signatureHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+
+    const initZelcorePayB = () => {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${titanConfig.value.fundingAddress}&amount=${selectedStake.value.collateral}&message=${selectedStake.value.signatureHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+
+    const initSSPpay = async () => {
+      try {
+        if (!window.ssp) {
+          showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const data = {
+          amount: (+stakeAmount.value || 0).toString(),
+          address: titanConfig.value.fundingAddress,
+          message: signatureHash.value,
+          chain: 'flux',
+        };
+        const responseData = await window.ssp.request('pay', data);
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        } else {
+          showToast('success', 'Payment request sent successfully');
+        }
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
+    const initSSPpayB = async () => {
+      try {
+        if (!window.ssp) {
+          showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const data = {
+          amount: (+selectedStake.value.collateral || 0).toString(),
+          address: titanConfig.value.fundingAddress,
+          message: selectedStake.value.signatureHash,
+          chain: 'flux',
+        };
+        const responseData = await window.ssp.request('pay', data);
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        } else {
+          showToast('success', 'Payment request sent successfully');
+        }
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
     return {
 
       // UI
@@ -2512,6 +2723,13 @@ export default {
 
       tierColors,
       indexedTierColors,
+
+      initZelcorePay,
+      initZelcorePayB,
+      initSSP,
+      initSSPpay,
+      initSSPpayB,
+      skin,
     };
   },
 };
@@ -2526,6 +2744,25 @@ export default {
   height: 100px;
 }
 .zelidLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.wallet-options {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.walletIcon {
+  height: 80px;
+  width: 80px;
+  padding: 5px;
+}
+
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }

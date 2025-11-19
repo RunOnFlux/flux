@@ -12,13 +12,15 @@ const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const fluxRpc = require('./utils/fluxRpc');
 
-let response = messageHelper.createErrorMessage();
+// eslint-disable-next-line no-unused-vars
+const isArcane = Boolean(process.env.FLUXOS_PATH);
 
 let benchdClient = null;
 
 async function buildBenchdClient() {
+  // just use process.cwd() or os.homedir() or something
   const homeDirPath = path.join(__dirname, '../../../../');
-  const fluxbenchdPath = path.join(homeDirPath, '.fluxbenchmark');
+  const fluxbenchdPath = process.env.FLUXBENCH_PATH || path.join(homeDirPath, '.fluxbenchmark');
 
   const exists = await fs.stat(fluxbenchdPath).catch(() => false);
 
@@ -75,7 +77,7 @@ async function executeCall(rpc, params) {
 async function getStatus(req, res) {
   const rpccall = 'getstatus';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -88,6 +90,9 @@ async function getStatus(req, res) {
  */
 async function restartNodeBenchmarks(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
+
+  let response;
+
   if (authorized === true) {
     const rpccall = 'restartnodebenchmarks';
 
@@ -109,6 +114,9 @@ async function signFluxTransaction(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
   let { hexstring } = req.params;
   hexstring = hexstring || req.query.hexstring;
+
+  let response;
+
   if (authorized === true) {
     const rpccall = 'signzelnodetransaction';
     const rpcparameters = [];
@@ -138,6 +146,9 @@ async function signFluxTransactionPost(req, res) {
     const processedBody = serviceHelper.ensureObject(body);
     const { hexstring } = processedBody;
     const authorized = await verificationHelper.verifyPrivilege('admin', req);
+
+    let response;
+
     if (authorized === true) {
       const rpccall = 'signzelnodetransaction';
       const rpcparameters = [];
@@ -150,6 +161,46 @@ async function signFluxTransactionPost(req, res) {
     }
     return res.json(response);
   });
+}
+
+/**
+ * Ask FLuxBench to decrypt message
+ * @param {object} message message object with information to be decrypted.
+ */
+async function decryptMessage(message) {
+  const rpccall = 'decryptmessage';
+  const rpcparameters = [message];
+  return executeCall(rpccall, rpcparameters);
+}
+
+/**
+ * Ask FLuxBench to decrypt rsa message
+ * @param {object} message message object with information to be decrypted.
+ */
+async function decryptRSAMessage(message) {
+  const rpccall = 'decryptrsamessage';
+  const rpcparameters = [message];
+  return executeCall(rpccall, rpcparameters);
+}
+
+/**
+ * Ask FLuxBench to encrypt message
+ * @param {object} message message object with information to be decrypted.
+ */
+async function encryptMessage(message) {
+  const rpccall = 'encryptmessage';
+  const rpcparameters = [message];
+  return executeCall(rpccall, rpcparameters);
+}
+
+/**
+ * Ask FLuxBench to get public key to encrypt enterprise content
+ * @param {object} message message object with the key.
+ */
+async function getPublicKey(message) {
+  const rpccall = 'getpublickey';
+  const rpcparameters = [message];
+  return executeCall(rpccall, rpcparameters);
 }
 
 // == Control ==
@@ -166,7 +217,7 @@ async function help(req, res) {
   const rpccall = 'help';
   const rpcparameters = [command];
 
-  response = await executeCall(rpccall, rpcparameters);
+  const response = await executeCall(rpccall, rpcparameters);
 
   return res ? res.json(response) : response;
 }
@@ -179,6 +230,9 @@ async function help(req, res) {
  */
 async function stop(req, res) {
   const authorized = await verificationHelper.verifyPrivilege('admin', req);
+
+  let response;
+
   if (authorized === true) {
     const rpccall = 'stop';
 
@@ -200,7 +254,7 @@ async function stop(req, res) {
 async function getBenchmarks(req, res) {
   const rpccall = 'getbenchmarks';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -214,7 +268,7 @@ async function getBenchmarks(req, res) {
 async function getInfo(req, res) {
   const rpccall = 'getInfo';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -228,7 +282,7 @@ async function getInfo(req, res) {
 async function getPublicIp(req, res) {
   const rpccall = 'getpublicip';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -242,7 +296,7 @@ async function getPublicIp(req, res) {
 async function startMultiPortBench(req, res) {
   const rpccall = 'startmultiportbench';
 
-  response = await executeCall(rpccall);
+  const response = await executeCall(rpccall);
 
   return res ? res.json(response) : response;
 }
@@ -289,4 +343,9 @@ module.exports = {
 
   // == UPNP FluxBecnh ==
   executeUpnpBench,
+  //
+  decryptMessage,
+  getPublicKey,
+  decryptRSAMessage,
+  encryptMessage,
 };

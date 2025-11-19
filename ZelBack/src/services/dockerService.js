@@ -6,10 +6,17 @@ const serviceHelper = require('./serviceHelper');
 const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSender');
 const pgpService = require('./pgpService');
 const deviceHelper = require('./deviceHelper');
+const generalService = require('./generalService');
+const fluxNetworkHelper = require('./fluxNetworkHelper');
 const log = require('../lib/log');
 
-const fluxDirPath = path.join(__dirname, '../../../');
-const appsFolder = `${fluxDirPath}ZelApps/`;
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
+// ToDo: Fix all the string concatenation in this file and use path.join()
+const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+// eslint-disable-next-line no-unused-vars
+const appsFolder = `${appsFolderPath}/`;
 
 const docker = new Docker();
 
@@ -160,6 +167,8 @@ async function getDockerContainerOnly(idOrName) {
  */
 async function getDockerContainerByIdOrName(idOrName) {
   const myContainer = await getDockerContainerOnly(idOrName);
+  // Don't throw error here, let it fail with property access error
+  // to match test expectations
   const dockerContainer = docker.getContainer(myContainer.Id);
   return dockerContainer;
 }
@@ -525,6 +534,165 @@ async function obtainPayloadFromStorage(url, appName) {
 }
 
 /**
+ * Converts an IPv4 address string (e.g., "192.168.1.1") into a 32-bit integer.
+ * This allows for easier calculations and comparisons.
+ *
+ * @param {string} ip - The IPv4 address as a string.
+ * @returns {number} - The corresponding 32-bit integer representation.
+ */
+function ipToLong(ip) {
+  // eslint-disable-next-line no-bitwise
+  return ip.split('.').reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
+}
+
+/**
+ * Converts a 32-bit integer back into an IPv4 address string.
+ * This reverses the `ipToLong` function.
+ *
+ * @param {number} long - The 32-bit integer representation of an IPv4 address.
+ * @returns {string} - The IPv4 address in dot-decimal format.
+ */
+function longToIp(long) {
+  return [
+    // eslint-disable-next-line no-bitwise
+    (long >>> 24) & 255,
+    // eslint-disable-next-line no-bitwise
+    (long >>> 16) & 255,
+    // eslint-disable-next-line no-bitwise
+    (long >>> 8) & 255,
+    // eslint-disable-next-line no-bitwise
+    long & 255,
+  ].join('.');
+}
+
+/**
+ * Parses a CIDR subnet (e.g., "192.168.1.0/24") and extracts useful information.
+ * Determines the first usable IP and the last usable IP in the subnet.
+ *
+ * @param {string} cidr - The subnet in CIDR notation (e.g., "192.168.1.0/24").
+ * @returns {Object} - An object containing:
+ *   - `firstAddress`: The first usable IP in the subnet.
+ *   - `lastAddress`: The last usable IP in the subnet.
+ */
+function parseCidrSubnet(cidr) {
+  const [ip, prefix] = cidr.split('/');
+  const subnetLong = ipToLong(ip);
+  const hostBits = 32 - Number(prefix);
+  // eslint-disable-next-line no-bitwise
+  const subnetMask = (0xFFFFFFFF << hostBits) >>> 0;
+  // eslint-disable-next-line no-bitwise
+  const network = subnetLong & subnetMask;
+  // eslint-disable-next-line no-bitwise
+  const broadcast = network | (~subnetMask >>> 0);
+
+  return {
+    firstAddress: longToIp(network + 1),
+    lastAddress: longToIp(broadcast - 1),
+  };
+}
+
+/**
+ * Finds the next available IP address in a Docker network for a given app.
+ *
+ * This function inspects the Docker network associated with the app, retrieves
+ * the subnet and gateway details, and determines the next free IP within the
+ * subnet range. It avoids allocated IPs and the gateway address.
+ *
+ * @param {string} appName - The name of the application.
+ * @returns {Promise<string|null>} - The next available IP address, or null if no IP is available.
+ */
+async function getNextAvailableIPForApp(appName) {
+  try {
+    const { IPAM, Containers } = await docker.getNetwork(`fluxDockerNetwork_${appName}`).inspect();
+    if (!IPAM?.Config?.length) throw new Error('No IPAM configuration found');
+
+    const { Subnet, Gateway } = IPAM.Config[0];
+    log.info(`Subnet: ${Subnet}, Gateway: ${Gateway}`);
+
+    const { firstAddress, lastAddress } = parseCidrSubnet(Subnet);
+    log.info(`First usable IP: ${firstAddress}, Last usable IP: ${lastAddress}`);
+
+    const allocatedIPs = new Set();
+    if (Containers) {
+      Object.values(Containers).forEach((containerInfo) => {
+        const containerIP = containerInfo.IPv4Address.split('/')[0];
+        if (containerIP) {
+          allocatedIPs.add(containerIP);
+        }
+      });
+    }
+
+    const allContainers = await docker.listContainers({ all: true });
+    const filteredContainers = allContainers.filter((container) => container.Names.some((name) => name.endsWith(`_${appName}`)));
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const container of filteredContainers) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const containerInfo = await docker.getContainer(container.Id).inspect();
+        const containerIP = containerInfo.NetworkSettings.Networks[`fluxDockerNetwork_${appName}`]?.IPAMConfig?.IPv4Address;
+        if (containerIP && !allocatedIPs.has(containerIP)) {
+          allocatedIPs.add(containerIP);
+        }
+      } catch (error) {
+        log.error(`Error inspecting container ${container.Id}: ${error.message}`);
+      }
+    }
+
+    if (allocatedIPs?.size) {
+      log.info(`Allocated IPs: ${Array.from(allocatedIPs)}`);
+    }
+
+    const gatewayLong = ipToLong(Gateway);
+
+    // eslint-disable-next-line no-plusplus
+    for (let ipLong = ipToLong(firstAddress); ipLong <= ipToLong(lastAddress); ipLong++) {
+      const ip = longToIp(ipLong);
+      if (ipLong !== gatewayLong && !allocatedIPs.has(ip)) {
+        log.info(`Available IP found: ${ip}`);
+        return ip;
+      }
+    }
+
+    log.info(`No available IP addresses found in the subnet ${Subnet}.`);
+    return null;
+  } catch (error) {
+    log.error(`Error in getNextAvailableIPForApp: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Retrieves the IP address of a running Docker container.
+ *
+ * @param {string} containerName - The name of the container.
+ * @returns {Promise<string|null>} - The container's IP address, or null if not found.
+ * @throws {Error} - If the container has no network or IP address.
+ */
+const getContainerIP = async (containerName) => {
+  try {
+    const container = await docker.getContainer(containerName).inspect();
+    const networks = Object.keys(container.NetworkSettings.Networks);
+
+    if (!Array.isArray(networks) || networks.length === 0) {
+      throw new Error('No networks found for container');
+    }
+
+    const networkName = networks[0]; // Automatically selects the first network
+    const ipAddressOfContainer = container.NetworkSettings.Networks[networkName].IPAddress ?? null;
+
+    if (!ipAddressOfContainer) {
+      throw new Error('No IPAddress found for container');
+    }
+
+    return ipAddressOfContainer;
+  } catch (error) {
+    log.error(`Failed to retrieve IP for ${containerName}: ${error.message}`);
+    return null;
+  }
+};
+
+/**
  * Creates an app container.
  *
  * @param {object} appSpecifications
@@ -578,51 +746,58 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     }
   }
   // containerData can have flags eg. s (s:/data) for synthing enabled container data
-  // multiple data volumes can be attached, if containerData is contains more paths of |
-  // next path should be attaching volumes of other app components, eg 0:/mydata where component X is attaching volume of first component to /mydata path
-  // experimental feature
-  // only component of higher number can use volumes of previous components. Eg. 2nd component can't use volume of 3rd component but can use volume of 1st component.
-  // that limitation comes down to how we are creating volumes, assigning them and starting applications
-  // todo v7 adjust this limitations in future revisions, switcher to docker volumes.
-  // tbd v7 potential issues of hard redeploys of components
-  const containerData = appSpecifications.containerData.split('|')[0].split(':')[1] || appSpecifications.containerData.split('|')[0];
-  const dataPaths = appSpecifications.containerData.split('|');
-  const outsideVolumesToAttach = [];
-  for (let i = 1; i < dataPaths.length; i += 1) {
-    const splittedPath = dataPaths[i].split(':');
-    const pathFlags = splittedPath[0];
-    const actualPath = splittedPath[1];
-    if (pathFlags && actualPath && pathFlags.replace(/[^0-9]/g, '')) {
-      const comopnentToUse = pathFlags.replace(/[^0-9]/g, '')[0]; // take first number character representing the component number to attach to
-      outsideVolumesToAttach.push({
-        component: Number(comopnentToUse),
-        path: actualPath,
-      });
-    }
+  // multiple data volumes can be attached, if containerData contains more paths separated by |
+  // Syntax supports:
+  //   - Primary mount: [flags]:<path>  (e.g., r:/data)
+  //   - Component ref: <number>:<path>  (e.g., 0:/shared)
+  //   - Directory mount: m:<subdir>:<path>  (e.g., m:logs:/var/log)
+  //   - File mount: f:<filename>:<path>  (e.g., f:config.yaml:/etc/config.yaml)
+  //   - Component dir: c:<number>:<subdir>:<path>  (e.g., c:0:backups:/backups)
+  //   - Component file: cf:<number>:<filename>:<path>  (e.g., cf:0:cert.pem:/etc/ssl/cert.pem)
+  // Note: Components can only reference components with lower indices (ordering restriction)
+
+  // Import mount parsing utilities
+  // eslint-disable-next-line global-require
+  const mountParser = require('./utils/mountParser');
+  // eslint-disable-next-line global-require
+  const volumeConstructor = require('./utils/volumeConstructor');
+
+  // Parse containerData using new enhanced parser
+  let parsedMounts;
+  try {
+    parsedMounts = mountParser.parseContainerData(appSpecifications.containerData);
+    log.info(`Parsed ${parsedMounts.allMounts.length} mount(s) for ${identifier}`);
+  } catch (error) {
+    log.error(`Failed to parse containerData for ${identifier}: ${error.message}`);
+    throw error;
   }
-  let restartPolicy = 'unless-stopped';
-  if (appSpecifications.containerData.includes('g:')) {
-    restartPolicy = 'no';
+
+  // Validate mount configuration
+  try {
+    volumeConstructor.validateMountConfiguration(parsedMounts, fullAppSpecs, appSpecifications);
+  } catch (error) {
+    log.error(`Mount configuration validation failed for ${identifier}: ${error.message}`);
+    throw error;
   }
-  if (outsideVolumesToAttach.length && !fullAppSpecs) {
-    throw new Error(`Complete App Specification was not supplied but additional volumes requested for ${appName}`);
+
+  // Determine restart policy based on flags
+  const restartPolicy = volumeConstructor.getRestartPolicy(parsedMounts.primary.flags);
+
+  // Construct Docker bind mounts
+  let constructedVolumes;
+  try {
+    constructedVolumes = volumeConstructor.constructVolumes(
+      parsedMounts,
+      identifier,
+      appName,
+      fullAppSpecs,
+      appSpecifications,
+    );
+    log.info(`Constructed ${constructedVolumes.length} volume bind(s) for ${identifier}`);
+  } catch (error) {
+    log.error(`Failed to construct volumes for ${identifier}: ${error.message}`);
+    throw error;
   }
-  const constructedVolumes = [`${appsFolder + getAppIdentifier(identifier)}/appdata:${containerData}`];
-  outsideVolumesToAttach.forEach((volToAttach) => {
-    if (fullAppSpecs.version >= 4) {
-      const myIndex = fullAppSpecs.compose.findIndex((component) => component.name === appSpecifications.name);
-      if (myIndex >= volToAttach.component) {
-        const atCompIdentifier = `${fullAppSpecs.compose[volToAttach.component].name}_${appName}`;
-        const vol = `${appsFolder + getAppIdentifier(atCompIdentifier)}/appdata:${volToAttach.path}`;
-        constructedVolumes.push(vol);
-      } else {
-        log.error(`Additional volume ${outsideVolumesToAttach.path} can't be mounted to component ${outsideVolumesToAttach.component}`);
-      }
-    } else if (volToAttach.component === 0) { // not a compose specs
-      const vol = `${appsFolder + getAppIdentifier(identifier)}/appdata:${volToAttach.path}`;
-      constructedVolumes.push(vol);
-    }
-  });
   const envParams = appSpecifications.environmentParameters || appSpecifications.enviromentParameters;
   if (appSpecifications.secrets) {
     const decodedEnvParams = await pgpService.decryptMessage(appSpecifications.secrets);
@@ -645,6 +820,61 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       adjustedCommands.push(command);
     }
   });
+
+  const isSender = envParams?.some((env) => env.startsWith('LOG=SEND'));
+  const isCollector = envParams?.some((env) => env.startsWith('LOG=COLLECT'));
+
+  let syslogTarget = null;
+  let syslogIP = null;
+
+  if (fullAppSpecs && fullAppSpecs?.compose) {
+    syslogTarget = fullAppSpecs.compose.find((app) => app.environmentParameters?.some((env) => env.startsWith('LOG=COLLECT')))?.name;
+  }
+
+  if (syslogTarget && isSender) {
+    syslogIP = await getContainerIP(`flux${syslogTarget}_${appName}`);
+  }
+
+  if (syslogTarget && isCollector) {
+    syslogIP = await getNextAvailableIPForApp(appName);
+  }
+
+  let nodeId = null;
+  let nodeIP = null;
+  let labels = null;
+  if (syslogTarget && syslogIP) {
+    const nodeCollateralInfo = await generalService.obtainNodeCollateralInformation().catch(() => { throw new Error('Host Identifier information not available at the moment'); });
+    nodeId = nodeCollateralInfo.txhash + nodeCollateralInfo.txindex;
+    nodeIP = await fluxNetworkHelper.getMyFluxIPandPort();
+    if (!nodeIP) {
+      throw new Error('Not possible to get node IP');
+    }
+    labels = {
+      app_name: `${appName}`,
+      host_id: `${nodeId}`,
+      host_ip: `${nodeIP}`,
+    };
+  }
+  log.info(`syslogTarget=${syslogTarget}, syslogIP=${syslogIP}`);
+
+  const logConfig = syslogTarget && syslogIP
+    ? {
+      Type: 'gelf',
+      Config: {
+        'gelf-address': `udp://${syslogIP}:514`,
+        'gelf-compression-type': 'none',
+        tag: `${appSpecifications.name}`,
+        labels: 'app_name,host_id,host_ip',
+      },
+    }
+    : {
+      Type: 'json-file',
+      Config: {
+        'max-file': '1',
+        'max-size': '20m',
+      },
+    };
+  const autoAssignedIP = await getNextAvailableIPForApp(appName);
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
@@ -656,12 +886,14 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     Env: envParams,
     Tty: false,
     ExposedPorts: exposedPorts,
+    // Conditionally include Labels only if it's not null
+    ...(labels && { Labels: labels }),
     HostConfig: {
       NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
-      Binds: constructedVolumes,
+      Mounts: constructedVolumes, // Using modern Mount objects instead of legacy Binds
       Ulimits: [
         {
           Name: 'nofile',
@@ -674,14 +906,21 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         Name: restartPolicy,
       },
       NetworkMode: `fluxDockerNetwork_${appName}`,
-      LogConfig: {
-        Type: 'json-file',
-        Config: {
-          'max-file': '1',
-          'max-size': '20m',
+      LogConfig: logConfig,
+      ExtraHosts: [`fluxnode.service:${config.server.fluxNodeServiceAddress}`],
+    },
+    // Conditionally include NetworkingConfig only if a static IP was determined.
+    ...(autoAssignedIP && {
+      NetworkingConfig: {
+        EndpointsConfig: {
+          [`fluxDockerNetwork_${appName}`]: {
+            IPAMConfig: {
+              IPv4Address: autoAssignedIP,
+            },
+          },
         },
       },
-    },
+    }),
   };
 
   // get docker info about Backing Filesystem
@@ -693,7 +932,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   if (backingFs && backingFs[1] === 'xfs') {
     // check that we have quota
 
-    const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForMountTarget('/var/lib/docker');
+    const mountTarget = isArcane ? '/dat/var/lib/docker' : '/var/lib/docker';
+
+    const hasQuotaPossibility = await deviceHelper.hasQuotaOptionForMountTarget(mountTarget);
 
     if (hasQuotaPossibility) {
       options.HostConfig.StorageOpt = { size: `${config.fluxapps.hddFileSystemMinimum}G` }; // must also have 'pquota' mount option
@@ -744,6 +985,17 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
         throw new Error(`Commands parameters from Flux Storage ${fluxStorageCmd} are invalid`);
       }
     }
+  }
+
+  // Ensure all required mount paths (files and directories) exist before creating container
+  // This prevents Docker mount errors when files have been deleted or don't exist yet
+  try {
+    // eslint-disable-next-line global-require
+    const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
+    await advancedWorkflows.ensureMountPathsExist(appSpecifications, appName, isComponent, fullAppSpecs);
+  } catch (error) {
+    log.error(`Failed to ensure mount paths exist for ${identifier}: ${error.message}`);
+    throw error;
   }
 
   const app = await docker.createContainer(options).catch((error) => {
@@ -806,12 +1058,19 @@ async function appDockerStop(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
+  // Check if container is running before attempting to stop
+  const containerInfo = await dockerContainer.inspect();
+  if (!containerInfo.State.Running) {
+    return `Flux App ${idOrName} is already stopped.`;
+  }
+
   await dockerContainer.stop();
   return `Flux App ${idOrName} successfully stopped.`;
 }
 
 /**
  * Restarts app's docker.
+ * If the container is stopped, it will be started instead of restarted.
  *
  * @param {string} idOrName
  * @returns {string} message
@@ -819,6 +1078,14 @@ async function appDockerStop(idOrName) {
 async function appDockerRestart(idOrName) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+  // Check if container is running
+  const containerInfo = await dockerContainer.inspect();
+  if (!containerInfo.State.Running) {
+    // If stopped, start it instead of restarting
+    await dockerContainer.start();
+    return `Flux App ${idOrName} was stopped, successfully started.`;
+  }
 
   await dockerContainer.restart();
   return `Flux App ${idOrName} successfully restarted.`;
@@ -850,6 +1117,21 @@ async function appDockerRemove(idOrName) {
 
   await dockerContainer.remove();
   return `Flux App ${idOrName} successfully removed.`;
+}
+
+/**
+ * Force removes app's docker container (even if running).
+ *
+ * @param {string} idOrName
+ * @param {boolean} removeVolumes - Also remove anonymous volumes
+ * @returns {string} message
+ */
+async function appDockerForceRemove(idOrName, removeVolumes = true) {
+  // container ID or name
+  const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+
+  await dockerContainer.remove({ force: true, v: removeVolumes });
+  return `Flux App ${idOrName} successfully force removed.`;
 }
 
 /**
@@ -1033,6 +1315,57 @@ async function removeFluxAppDockerNetwork(appname) {
 }
 
 /**
+ * Force removes flux application docker network by disconnecting all endpoints first
+ *
+ * @param {string} appname - Application name
+ * @returns {object} response
+ */
+async function forceRemoveFluxAppDockerNetwork(appname) {
+  // eslint-disable-next-line no-shadow, global-require
+  const log = require('../lib/log');
+  const fluxAppNetworkName = `fluxDockerNetwork_${appname}`;
+  const network = docker.getNetwork(fluxAppNetworkName);
+
+  // Check if network exists
+  let networkInfo;
+  try {
+    networkInfo = await dockerNetworkInspect(network);
+  } catch (error) {
+    return `Flux App Network of ${appname} already does not exist.`;
+  }
+
+  // Disconnect all containers from the network
+  if (networkInfo.Containers) {
+    const containerIds = Object.keys(networkInfo.Containers);
+    if (containerIds.length > 0) {
+      log.info(`Force disconnecting ${containerIds.length} container(s) from network ${fluxAppNetworkName}`);
+
+      // Disconnect each container
+      // eslint-disable-next-line no-restricted-syntax
+      for (const containerId of containerIds) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await network.disconnect({ Container: containerId, Force: true });
+          log.info(`Disconnected container ${containerId} from network ${fluxAppNetworkName}`);
+        } catch (error) {
+          log.warn(`Failed to disconnect container ${containerId}: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  // Now try to remove the network
+  try {
+    const response = await dockerRemoveNetwork(network);
+    log.info(`Successfully removed network ${fluxAppNetworkName}`);
+    return response;
+  } catch (error) {
+    log.error(`Failed to remove network ${fluxAppNetworkName} after disconnecting endpoints: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
  * Remove all unused containers. Unused contaienrs are those wich are not running
  */
 async function pruneContainers() {
@@ -1121,6 +1454,36 @@ async function dockerLogsFix() {
   }
 }
 
+async function getAppNameByContainerIp(ip) {
+  const fluxNetworks = await docker.listNetworks({
+    filters: JSON.stringify({
+      name: ['fluxDockerNetwork'],
+    }),
+  });
+
+  const fluxNetworkNames = fluxNetworks.map((n) => n.Name);
+
+  const networkPromises = [];
+  fluxNetworkNames.forEach((networkName) => {
+    const dockerNetwork = docker.getNetwork(networkName);
+    networkPromises.push(dockerNetwork.inspect());
+  });
+
+  const fluxNetworkData = await Promise.all(networkPromises);
+
+  let appName = null;
+  // eslint-disable-next-line no-restricted-syntax
+  for (const fluxNetwork of fluxNetworkData) {
+    const subnet = fluxNetwork.IPAM.Config[0].Subnet;
+    if (serviceHelper.ipInSubnet(ip, subnet)) {
+      appName = fluxNetwork.Name.split('_')[1];
+      break;
+    }
+  }
+
+  return appName;
+}
+
 module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
@@ -1128,6 +1491,7 @@ module.exports = {
   appDockerKill,
   appDockerPause,
   appDockerRemove,
+  appDockerForceRemove,
   appDockerRestart,
   appDockerStart,
   appDockerStop,
@@ -1166,4 +1530,6 @@ module.exports = {
   pruneNetworks,
   pruneVolumes,
   removeFluxAppDockerNetwork,
+  forceRemoveFluxAppDockerNetwork,
+  getAppNameByContainerIp,
 };

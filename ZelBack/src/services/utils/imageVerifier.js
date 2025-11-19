@@ -12,7 +12,7 @@ class ImageVerifier {
 
   static imagePattern = /^(?:(?<provider>(?:(?:[\w-]+(?:\.[\w-]+)+)(?::\d+)?)|[\w]+:\d+)\/)?\/?(?<namespace>(?:(?:[a-z0-9]+(?:(?:[._]|__|[-]*)[a-z0-9]+)*)\/){0,2})(?<repository>[a-z0-9-_.]+\/{0,1}[a-z0-9-_.]+)[:]?(?<tag>[\w][\w.-]{0,127})?/;
 
-  static wwwAuthHeaderPattern = /Bearer realm="(?<realm>(?:[0-9a-z:\-./]*?))"(?:,service="(?<service>(?:[0-9a-z:\-./]*?))")?(?:,scope="(?<scope>[0-9a-z:\-._/]*?)")?/;
+  static wwwAuthHeaderPattern = /(?<scheme>Bearer|Basic)\s+realm="(?<realm>[^"]+)"(?:,\s*service="(?<service>[^"]+)")?(?:,\s*scope="(?<scope>[^"]+)")?/;
 
   static supportedMediaTypes = [
     'application/vnd.oci.image.index.v1+json',
@@ -55,9 +55,13 @@ class ImageVerifier {
 
   #parseErrorDetail = '';
 
+  #lookupErrorMeta = null; // Stores { httpStatus, errorCode, errorType }
+
   #architectureSupported = false;
 
-  authed = false;
+  authConfigured = false;
+
+  authVerified = false;
 
   evaluated = false;
 
@@ -110,6 +114,14 @@ class ImageVerifier {
 
   get error() {
     return this.parseError || this.lookupError || this.evaluationError;
+  }
+
+  get errorDetail() {
+    return this.#lookupErrorDetail || this.#parseErrorDetail || this.#evaluationErrorDetail || '';
+  }
+
+  get errorMeta() {
+    return this.#lookupErrorMeta;
   }
 
   get parts() {
@@ -168,8 +180,13 @@ class ImageVerifier {
           'https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/repositories.json',
           { timeout: 20_000 },
         )
-        .catch(() => {
+        .catch((err) => {
           this.#lookupErrorDetail = 'Unable to fetch whitelisted repositories. Try again later.';
+          this.#lookupErrorMeta = {
+            httpStatus: err?.response?.status || null,
+            errorCode: err?.code || null,
+            errorType: 'whitelist_fetch_error',
+          };
           return { data: [] };
         });
 
@@ -230,8 +247,12 @@ class ImageVerifier {
       }
     } else {
       // we have certainty that the image parts that we have are correct
+      // Docker Hub uses 'library' namespace for official images, but other registries don't use default namespaces
       // this would be better to lookup against dockerhub library (only 150 odd images to pull via api)
-      this.namespace = namespace || 'library';
+      const isDockerHub = this.provider === ImageVerifier.defaultDockerRegistry;
+      const defaultNamespace = isDockerHub ? 'library' : '';
+
+      this.namespace = namespace || defaultNamespace;
       this.repository = repository;
       this.tag = tag;
       this.ambiguous = false;
@@ -248,26 +269,61 @@ class ImageVerifier {
    * @param {object} authDetails Parsed www-authenticate header.
    */
   async #handleAuth(authDetails) {
-    const { realm, service, scope } = authDetails;
+    const {
+      scheme, realm, service, scope,
+    } = authDetails;
 
+    // For Basic auth (AWS ECR), use credentials directly without token exchange
+    if (scheme === 'Basic') {
+      if (!this.credentials) {
+        this.#lookupErrorDetail = 'Basic authentication required but no credentials provided';
+        return;
+      }
+
+      // Set up Basic auth interceptor for all subsequent requests
+      this.#axiosInstance.interceptors.request.use((config) => {
+        const authString = `${this.credentials.username}:${this.credentials.password}`;
+        const base64Auth = Buffer.from(authString).toString('base64');
+        // eslint-disable-next-line no-param-reassign
+        config.headers.Authorization = `Basic ${base64Auth}`;
+        return config;
+      });
+
+      this.authConfigured = true;
+      this.authVerified = false; // Not verified yet - will be tested on retry
+      return;
+    }
+
+    // For Bearer auth (Docker Hub, etc.), do token exchange
     const {
       data: { token },
     } = await serviceHelper
       .axiosGet(`${realm}?service=${service}&scope=${scope}`, { auth: this.credentials })
       .catch((err) => {
-        const status = err?.response.status;
+        const status = err?.response?.status;
 
         if (status === 401) {
           this.#lookupErrorDetail = `Authentication rejected for: ${this.rawImageTag}`;
+          this.#lookupErrorMeta = {
+            httpStatus: 401,
+            errorCode: null,
+            errorType: 'auth_rejected',
+          };
         } else {
           this.#lookupErrorDetail = `Authentication token from ${realm} for ${scope} not available`;
+          this.#lookupErrorMeta = {
+            httpStatus: status || null,
+            errorCode: null,
+            errorType: 'auth_unavailable',
+          };
         }
         return { data: { token: null } };
       });
 
     if (!token) return;
 
-    this.authed = true;
+    this.authConfigured = true;
+    this.authVerified = true; // Verified at realm endpoint
     this.#axiosInstance.interceptors.request.use((config) => {
       // eslint-disable-next-line no-param-reassign
       config.headers.Authorization = `Bearer ${token}`;
@@ -285,6 +341,11 @@ class ImageVerifier {
 
     if (connectionErrors.includes(error.code)) {
       this.#lookupErrorDetail = `Connection Error ${error.code}: ${this.rawImageTag} not available`;
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: error.code,
+        errorType: 'network',
+      };
       return { data: null };
     }
 
@@ -292,11 +353,34 @@ class ImageVerifier {
 
     if (httpStatus !== 401) {
       this.#lookupErrorDetail = `Bad HTTP Status ${httpStatus}: ${this.rawImageTag} not available`;
+      this.#lookupErrorMeta = {
+        httpStatus,
+        errorCode: null,
+        // eslint-disable-next-line no-nested-ternary
+        errorType: httpStatus === 429 ? 'rate_limit' : (httpStatus >= 500 ? 'server_error' : 'http_error'),
+      };
       return { data: null };
     }
 
-    if (this.authed) {
-      this.#lookupErrorDetail = `Authentication failed: ${this.rawImageTag} not available or doesn't exist`;
+    if (this.authConfigured) {
+      // This is the second 401 - we already set up auth and retried
+      if (this.authVerified) {
+        // Bearer: Credentials were verified at realm endpoint, so image doesn't exist
+        this.#lookupErrorDetail = `Authentication failed: ${this.rawImageTag} not available or doesn't exist`;
+        this.#lookupErrorMeta = {
+          httpStatus: 401,
+          errorCode: null,
+          errorType: 'auth_failed',
+        };
+      } else {
+        // Basic: Credentials weren't verified yet, so they must be invalid
+        this.#lookupErrorDetail = `Authentication rejected for: ${this.rawImageTag}`;
+        this.#lookupErrorMeta = {
+          httpStatus: 401,
+          errorCode: null,
+          errorType: 'auth_rejected',
+        };
+      }
       return { data: null };
     }
 
@@ -306,12 +390,17 @@ class ImageVerifier {
 
     if (!authDetails) {
       this.#lookupErrorDetail = `Malformed Auth Header: ${this.rawImageTag} not available`;
+      this.#lookupErrorMeta = {
+        httpStatus: 401,
+        errorCode: null,
+        errorType: 'auth_error',
+      };
       return { data: null };
     }
 
     await this.#handleAuth(authDetails);
 
-    if (!this.authed) return { data: null };
+    if (!this.authConfigured) return { data: null };
 
     return this.#axiosInstance
       .get(endpointUrl)
@@ -340,6 +429,11 @@ class ImageVerifier {
 
       if (size > this.maxImageSize) {
         this.#evaluationErrorDetail = `Docker image: ${this.rawImageTag} size is over Flux limit`;
+        this.#lookupErrorMeta = {
+          httpStatus: null,
+          errorCode: null,
+          errorType: 'size_limit',
+        };
       }
 
       if (this.architecture === arch) this.#architectureSupported = true;
@@ -350,6 +444,11 @@ class ImageVerifier {
 
       if (!images.length) {
         this.#evaluationErrorDetail = `Docker image: ${this.rawImageTag} does not have a valid architecture`;
+        this.#lookupErrorMeta = {
+          httpStatus: null,
+          errorCode: null,
+          errorType: 'unsupported_architecture',
+        };
         return;
       }
 
@@ -386,11 +485,18 @@ class ImageVerifier {
         break;
       default:
         this.#evaluationErrorDetail = `Unsupported Media type: ${mediaType} for: ${this.rawImage}`;
+        this.#lookupErrorMeta = {
+          httpStatus: null,
+          errorCode: null,
+          errorType: 'unsupported_media_type',
+        };
     }
   }
 
   async #fetchManifest(digest) {
-    const manifestEndpoint = `${this.namespace}/${this.repository}/manifests/${digest}`;
+    const manifestEndpoint = this.namespace
+      ? `${this.namespace}/${this.repository}/manifests/${digest}`
+      : `${this.repository}/manifests/${digest}`;
 
     const { data: imageManifest } = await this.#axiosInstance
       .get(manifestEndpoint)
@@ -400,7 +506,9 @@ class ImageVerifier {
   }
 
   async #fetchConfig(digest) {
-    const blobsEndpoint = `${this.namespace}/${this.repository}/blobs/${digest}`;
+    const blobsEndpoint = this.namespace
+      ? `${this.namespace}/${this.repository}/blobs/${digest}`
+      : `${this.repository}/blobs/${digest}`;
 
     const { data: imageConfig } = await this.#axiosInstance
       .get(blobsEndpoint)
@@ -410,21 +518,42 @@ class ImageVerifier {
   }
 
   /**
-   * Adds credentials to the verifier. The user is responsible for ensuring the
-   * credentials are formatted correclty.
-   * @param {string} credentials
+   * Adds credentials to the verifier.
+   * @param {string|object} credentials - Either "username:password" string or {username, password} object
    */
   addCredentials(credentials) {
-    const [username, password] = credentials
-      ? credentials.split(':')
-      : [null, null];
-    this.credentials = username && password ? { username, password } : null;
+    // Accept object format (preferred - avoids parsing issues with passwords containing colons)
+    if (credentials && typeof credentials === 'object' && credentials.username && credentials.password) {
+      this.credentials = {
+        username: credentials.username,
+        password: credentials.password,
+      };
+      return;
+    }
+
+    // Accept string format (backward compatible)
+    // Use indexOf + substring to handle passwords containing colons correctly
+    if (credentials && typeof credentials === 'string') {
+      const colonIndex = credentials.indexOf(':');
+      if (colonIndex === -1) {
+        this.credentials = null;
+        return;
+      }
+
+      const username = credentials.substring(0, colonIndex);
+      const password = credentials.substring(colonIndex + 1);
+      this.credentials = username && password ? { username, password } : null;
+      return;
+    }
+
+    this.credentials = null;
   }
 
   resetErrors() {
     this.#parseErrorDetail = null;
     this.#lookupErrorDetail = null;
     this.#evaluationErrorDetail = null;
+    this.#lookupErrorMeta = null;
   }
 
   /**
@@ -459,6 +588,11 @@ class ImageVerifier {
 
     if (!this.useable) {
       this.#evaluationErrorDetail = `Image Tag: ${this.rawImageTag} is not in valid format [HOST[:PORT_NUMBER]/][NAMESPACE/]REPOSITORY:TAG`;
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: null,
+        errorType: 'invalid_format',
+      };
       return false;
     }
 
@@ -480,6 +614,11 @@ class ImageVerifier {
 
     if (!whitelisted) {
       this.#evaluationErrorDetail = 'Repository is not whitelisted. Please contact Flux Team.';
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: null,
+        errorType: 'not_whitelisted',
+      };
     }
 
     return Boolean(whitelisted);
@@ -499,6 +638,11 @@ class ImageVerifier {
 
     if (imageManifest.schemaVersion !== 2) {
       this.#lookupErrorDetail = `Unsupported schemaVersion: ${imageManifest.schemaVersion} for: ${this.rawImageTag}`;
+      this.#lookupErrorMeta = {
+        httpStatus: null,
+        errorCode: null,
+        errorType: 'unsupported_schema',
+      };
       return false;
     }
 

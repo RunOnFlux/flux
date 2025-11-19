@@ -190,6 +190,10 @@ class FluxRpc {
       ['help', null],
       ['stop', null],
       ['getinfo', null],
+      ['decryptmessage', null],
+      ['getpublickey', null],
+      ['decryptrsamessage', null],
+      ['encryptmessage', null],
     ]),
   };
 
@@ -204,6 +208,11 @@ class FluxRpc {
 
     this.auth = options.auth || null;
     this.mode = options.mode || 'fluxd';
+    // Originally, this timeout was 60s. However, it got lowered to 10s. Which,
+    // due to the chaintips call, is too low. On a Stratus (with average CPU) this
+    // call was about 14s. Now we set it to defauolt 60s here, and the callee can
+    // set whatever timeout they want (should make this option overrideable per call)
+    const timeout = options.timeout || 60_000;
 
     if (!(['fluxd', 'fluxbenchd'].includes(this.mode))) {
       throw new Error('mode must be one of fluxd | fluxbenchd');
@@ -212,8 +221,7 @@ class FluxRpc {
     this.controller = options.controller || new fluxController.FluxController();
 
     // we don't use the serviceHelper methods here to avoid adding these calls to debug
-    // set this timeout to 10s (was 60s) even 10s is high.
-    this.#instance = axios.create({ baseURL: this.url, auth: this.auth, timeout: 10_000 });
+    this.#instance = axios.create({ baseURL: this.url, auth: this.auth, timeout });
 
     this.methods = FluxRpc.#methodMap[this.mode];
   }
@@ -247,7 +255,10 @@ class FluxRpc {
       let errorMessage;
       let errorCode;
 
-      if (data) {
+      if (typeof data === 'string') {
+        errorCode = 500;
+        errorMessage = data;
+      } else if (data) {
         const { code: rpcErrorCode, message: rpcErrorMsg } = data.error;
 
         errorCode = rpcErrorCode;

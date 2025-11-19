@@ -4,6 +4,8 @@ const os = require('node:os');
 const { promisify } = require('node:util');
 
 const config = require('config');
+const configDefault = require('../../config/default');
+const userconfig = require('../../../config/userconfig');
 
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
@@ -13,10 +15,8 @@ const messageHelper = require('./messageHelper');
 const daemonServiceUtils = require('./daemonService/daemonServiceUtils');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
 const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
-const daemonServiceBenchmarkRpcs = require('./daemonService/daemonServiceBenchmarkRpcs');
 const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./benchmarkService');
-const appsService = require('./appsService');
 const generalService = require('./generalService');
 const explorerService = require('./explorerService');
 const fluxCommunication = require('./fluxCommunication');
@@ -24,6 +24,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const geolocationService = require('./geolocationService');
 const syncthingService = require('./syncthingService');
 const dockerService = require('./dockerService');
+const upnpService = require('./upnpService');
 
 // for streamChain endpoint
 const zlib = require('node:zlib');
@@ -32,10 +33,56 @@ const tar = require('tar/create');
 // const stream = require('node:stream/promises');
 const stream = require('node:stream');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+// Cache for OS distribution information
+let cachedOSDistInfo = null;
+
+// remove this when nodes are off 14.18.1
+function promiseAnyPolyfill(promisesArray) {
+  const promiseErrors = new Array(promisesArray.length);
+
+  return new Promise((resolve, reject) => {
+    promisesArray.forEach((promise, index) => {
+      Promise.resolve(promise)
+        .then(resolve)
+        .catch((error) => {
+          promiseErrors[index] = error;
+
+          if (index === promisesArray.length - 1) {
+            reject(promiseErrors);
+          }
+        });
+    });
+  });
+}
+
+if (typeof Promise.any === 'undefined') {
+  // polyfill for nodeJS 14.18.1
+  // eslint-disable-next-line global-require
+  globalThis.Promise.any = promiseAnyPolyfill;
+}
+
 /**
  * Stream chain lock, so only one request at a time
  */
 let lock = false;
+
+/**
+ * Stream chain prep lock, so only one request at a time
+ */
+let prepLock = false;
+
+/**
+ * If fluxd needs to be restarted
+ */
+let daemonStartRequired = false;
+
+/**
+ * Only disabled if a stream fails to meet minimum
+ * throughput criteria. I.e. 200Mbps.
+ */
+let streamChainDisabled = false;
 
 /**
  * For testing
@@ -59,14 +106,33 @@ function lockStreamLock() {
 }
 
 /**
+ * For testing
+ */
+function disableStreaming() {
+  streamChainDisabled = true;
+}
+
+/**
+ * For testing
+ */
+function enableStreaming() {
+  streamChainDisabled = false;
+}
+
+/**
  * To show the directory on the node machine where FluxOS files are stored.
  * @param {object} req Request.
  * @param {object} res Response.
  * @returns {Promise<object>} Message.
  */
 async function fluxBackendFolder(req, res) {
-  const fluxBackFolder = path.join(__dirname, '../../');
-  const message = messageHelper.createDataMessage(fluxBackFolder);
+  const projectRoot = process.env.FLUXOS_PATH;
+
+  const backendDir = projectRoot
+    ? path.join(projectRoot, 'ZelBack')
+    : path.join(__dirname, '../../');
+
+  const message = messageHelper.createDataMessage(backendDir);
   return res.json(message);
 }
 
@@ -591,10 +657,10 @@ function getNodeJsVersions(req, res) {
  * @returns {Promise<object>} Message.
  */
 async function getFluxIP(req, res) {
-  const benchmarkResponse = await daemonServiceBenchmarkRpcs.getBenchmarks();
+  const benchmarkResponse = await benchmarkService.getBenchmarks();
   let myIP = null;
   if (benchmarkResponse.status === 'success') {
-    const benchmarkResponseData = JSON.parse(benchmarkResponse.data);
+    const benchmarkResponseData = benchmarkResponse.data;
     if (benchmarkResponseData.ipaddress) {
       myIP = benchmarkResponseData.ipaddress.length > 5 ? benchmarkResponseData.ipaddress : null;
     }
@@ -612,6 +678,22 @@ async function getFluxIP(req, res) {
 function getFluxZelID(req, res) {
   const zelID = userconfig.initial.zelid;
   const message = messageHelper.createDataMessage(zelID);
+  return res ? res.json(message) : message;
+}
+
+/**
+ * Returns Flux Team and Support Team Flux IDs.
+ * @param {object} req Request object
+ * @param {object} res Response object
+ * @returns {object} JSON response with team IDs
+ */
+function getFluxIds(req, res) {
+  const fluxConfig = {
+    fluxTeamFluxID: configDefault.fluxTeamFluxID,
+    fluxSupportTeamFluxID: configDefault.fluxSupportTeamFluxID,
+  };
+
+  const message = messageHelper.createDataMessage(fluxConfig);
   return res ? res.json(message) : message;
 }
 
@@ -1059,6 +1141,54 @@ function getFluxTimezone(req, res) {
 }
 
 /**
+ * Helper function to get Linux distribution information (cached)
+ * @returns {Promise<object>} Object containing distribution name and version
+ */
+async function getOSDistributionInfo() {
+  // Return cached value if available
+  if (cachedOSDistInfo) {
+    return cachedOSDistInfo;
+  }
+
+  try {
+    if (os.platform() === 'linux') {
+      const osReleaseContent = await fs.readFile('/etc/os-release', 'utf8');
+      const lines = osReleaseContent.split('\n');
+      const osInfo = {};
+
+      lines.forEach((line) => {
+        const [key, value] = line.split('=');
+        if (key && value) {
+          osInfo[key] = value.replace(/"/g, '');
+        }
+      });
+
+      cachedOSDistInfo = {
+        distribution: osInfo.NAME || 'Unknown',
+        version: osInfo.VERSION_ID || osInfo.VERSION || 'Unknown',
+        prettyName: osInfo.PRETTY_NAME || `${osInfo.NAME} ${osInfo.VERSION_ID}`,
+      };
+    } else {
+      // For non-Linux systems, return basic OS info
+      cachedOSDistInfo = {
+        distribution: os.type(),
+        version: os.release(),
+        prettyName: `${os.type()} ${os.release()}`,
+      };
+    }
+  } catch (error) {
+    // Fallback if /etc/os-release doesn't exist or can't be read
+    cachedOSDistInfo = {
+      distribution: os.type(),
+      version: os.release(),
+      prettyName: `${os.type()} ${os.release()}`,
+    };
+  }
+
+  return cachedOSDistInfo;
+}
+
+/**
  * To get info (version, status etc.) for daemon, node, benchmark, FluxOS and apps.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -1091,12 +1221,17 @@ async function getFluxInfo(req, res) {
     info.flux.syncthingVersion = syncthingVersion.data.version;
     const dockerVersion = await dockerService.dockerVersion();
     info.flux.dockerVersion = dockerVersion.Version;
+    const osDistInfo = await getOSDistributionInfo();
+    info.flux.os = osDistInfo.distribution;
+    info.flux.osVersion = osDistInfo.version;
+    info.flux.osPrettyName = osDistInfo.prettyName;
     const ipRes = await getFluxIP();
     if (ipRes.status === 'error') {
       throw ipRes.data;
     }
     info.flux.ip = ipRes.data;
     info.flux.staticIp = geolocationService.isStaticIP();
+    info.flux.upnp = upnpService.isUPNP();
     info.flux.maxNumberOfIpChanges = fluxNetworkHelper.getMaxNumberOfIpChanges();
     const zelidRes = await getFluxZelID();
     if (zelidRes.status === 'error') {
@@ -1117,9 +1252,19 @@ async function getFluxInfo(req, res) {
       throw dosResult.data;
     }
     info.flux.dos = dosResult.data;
-    const dosAppsResult = await appsService.getAppsDOSState();
+    // eslint-disable-next-line global-require
+    const appInspector = require('./appManagement/appInspector');
+    const dosAppsResult = await appInspector.getAppsDOSState();
     if (dosResult.status === 'error') {
       throw dosAppsResult.data;
+    }
+    const arcaneHumanVersion = process.env.FLUXOS_HUMAN_VERSION;
+    const arcaneVersion = process.env.FLUXOS_VERSION;
+    if (arcaneVersion) {
+      info.flux.arcaneVersion = arcaneVersion;
+    }
+    if (arcaneHumanVersion) {
+      info.flux.arcaneHumanVersion = arcaneHumanVersion;
     }
     info.flux.appsDos = dosAppsResult.data;
     info.flux.development = userconfig.initial.development || false;
@@ -1151,22 +1296,28 @@ async function getFluxInfo(req, res) {
     }
     info.benchmark.bench = benchmarkBenchRes.data;
 
-    const apppsFluxUsage = await appsService.fluxUsage();
+    // eslint-disable-next-line global-require
+    const resourceQueryService = require('./appQuery/resourceQueryService');
+    const apppsFluxUsage = await resourceQueryService.fluxUsage();
     if (apppsFluxUsage.status === 'error') {
       throw apppsFluxUsage.data;
     }
     info.apps.fluxusage = apppsFluxUsage.data;
-    const appsRunning = await appsService.listRunningApps();
+    // eslint-disable-next-line global-require
+    const appQueryService = require('./appQuery/appQueryService');
+    const appsRunning = await appQueryService.listRunningApps();
     if (appsRunning.status === 'error') {
       throw appsRunning.data;
     }
     info.apps.runningapps = appsRunning.data;
-    const appsResources = await appsService.appsResources();
+    const appsResources = await resourceQueryService.appsResources();
     if (appsResources.status === 'error') {
       throw appsResources.data;
     }
     info.apps.resources = appsResources.data;
-    const appHashes = await appsService.getAppHashes();
+    // eslint-disable-next-line global-require
+    const registryManager = require('./appDatabase/registryManager');
+    const appHashes = await registryManager.getAppHashes();
     if (appHashes.status === 'error') {
       throw appHashes.data;
     }
@@ -1369,7 +1520,7 @@ async function adjustAPIPort(req, res) {
       apiport = apiport || req.query.apiport || '';
 
       const allowedAPIPorts = [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197];
-      if (!allowedAPIPorts.includes(apiport)) {
+      if (!allowedAPIPorts.includes(+apiport)) {
         const errMessage = messageHelper.createErrorMessage('API Port not valid');
         res.json(errMessage);
         return;
@@ -1548,6 +1699,155 @@ async function restartFluxOS(req, res) {
 }
 
 /**
+ * Helper function to safely set response status
+ * @param {Response} res HTTP response
+ * @param {number} status HTTP status code
+ * @param {string} message Status message
+ */
+function safeSetResponseStatus(res, status, message) {
+  if (res && typeof res.status === 'function') {
+    res.statusMessage = message;
+    res.status(status).end();
+  }
+}
+
+/*
+* @param {Request} req HTTP request
+* @param {Response} res HTTP response
+* @returns {Promise<void>}
+*/
+async function streamChainPreparation(req, res) {
+  if (streamChainDisabled) {
+    safeSetResponseStatus(res, 422, 'Failed minimium throughput criteria. Disabled.');
+    return;
+  }
+
+  if (lock || prepLock) {
+    safeSetResponseStatus(res, 503, 'Streaming of chain already in progress, server busy.');
+    return;
+  }
+
+  /**
+   * Use the remote address here, don't need to worry about x-forwarded-for headers as
+   * we only allow the local network. Also, using the remote address is fine as FluxOS
+   * won't confirm if the upstream is natting behind a private address. I.e public
+   * connections coming in via a private address. (Flux websockets need the remote address
+   * or they think there is only one inbound connnection)
+   */
+  try {
+    prepLock = true;
+
+    let ip = req.socket.remoteAddress;
+    if (!ip) {
+      safeSetResponseStatus(res, 400, 'Socket closed.');
+      return;
+    }
+
+    // convert from IPv4-mapped IPv6 address format to straight IPv4 (from socket)
+    ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
+
+    if (!serviceHelper.isPrivateAddress(ip)) {
+      safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
+      return;
+    }
+
+    log.info(`Stream chain preparation request received from: ${ip}`);
+
+    // Check if local daemon is synced
+    const urlExplorerA = 'https://explorer.runonflux.io/api/status?q=getInfo';
+    const urlExplorerB = 'https://explorer.flux.zelcore.io/api/status?q=getInfo';
+
+    const axiosConfig = {
+      timeout: 5000,
+    };
+
+    const { status: blockCountStatus, data: blockCount } = await daemonServiceBlockchainRpcs.getBlockCount();
+
+    if (blockCountStatus !== 'success') {
+      safeSetResponseStatus(res, 503, 'Error getting blockCount from local Flux Daemon.');
+      return;
+    }
+
+    const explorerResponse = await Promise.any([
+      serviceHelper.axiosGet(urlExplorerA, axiosConfig),
+      serviceHelper.axiosGet(urlExplorerB, axiosConfig),
+    ]).catch(() => null);
+
+    if (!explorerResponse || !explorerResponse?.data?.info?.blocks) {
+      safeSetResponseStatus(res, 503, 'Error getting Flux Explorer Height.');
+      return;
+    }
+
+    if (blockCount + 20 < explorerResponse.data.info.blocks) {
+      safeSetResponseStatus(res, 503, 'Error local Daemon is not synced.');
+      return;
+    }
+
+    const { status: fluxNodeStatus, data: fluxNodeInfo } = await daemonServiceFluxnodeRpcs.getFluxNodeStatus();
+
+    if (fluxNodeStatus !== 'success') {
+      safeSetResponseStatus(res, 503, 'Error getting fluxNodeStatus from local Flux Daemon.');
+      return;
+    }
+
+    // check if it is outside maintenance window
+    if (fluxNodeInfo.status === 'CONFIRMED' && fluxNodeInfo.last_confirmed_height > 0 && (480 - (blockCount - fluxNodeInfo.last_confirmed_height)) < 30) {
+      // fluxnodes needs to confirm between 480 and 600 blocks, if it is 30 blocks (15m) remaining to enter confirmation window we already consider outside maintenance window, as this can take around 12 minutes.
+      safeSetResponseStatus(res, 503, 'Error Fluxnode is not in maintenance window.');
+      return;
+    }
+
+    // on non Arcane, we check if the stop commands return successfully, as there is no guarantee that the
+    // node is running using zelcash or pm2 etc
+
+    // stop services
+    if (isArcane) {
+      await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['stop', 'flux-watchdog.service', 'fluxd.service'] });
+    } else {
+      const { error: watchdogError } = await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['stop', 'watchdog'] });
+      if (watchdogError) {
+        safeSetResponseStatus(res, 503, 'Error: unable to stop watchdog');
+        return;
+      }
+
+      log.info('pm2 watchdog service has been stopped');
+
+      const { error: zelcashError } = await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['stop', 'zelcash.service'] });
+
+      if (zelcashError) {
+        safeSetResponseStatus(res, 503, 'Error: unable to stop zelcash service');
+        // if zelcash failed, it means watchdog was successful, we need to restart (no await)
+        serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        return;
+      }
+
+      log.info('zelcash service has been stopped');
+    }
+
+    daemonStartRequired = true;
+    const response = messageHelper.createSuccessMessage('Daemon stopped, you can start stream chain functionality');
+    res.json(response);
+  } finally {
+    // check if restart required
+    setTimeout(() => {
+      if (!lock && daemonStartRequired) {
+        daemonStartRequired = false;
+        log.info('Stream chain prep timeout hit: restarting services');
+        if (isArcane) {
+          serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+        } else {
+          serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+          serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+        }
+      } else {
+        log.info('Stream chain prep timeout hit: services already restarted or stream in progress');
+      }
+      prepLock = false;
+    }, 30 * 1_000);
+  }
+}
+
+/**
  * Streams the blockchain via http at breakneck speeds.
  *
  * Designed for UPnP nodes.
@@ -1597,12 +1897,19 @@ async function restartFluxOS(req, res) {
  * @param {Response} res HTTP response
  * @returns {Promise<void>}
  */
+
 async function streamChain(req, res) {
-  if (lock) {
-    res.statusMessage = 'Streaming of chain already in progress, server busy.';
-    res.status(503).end();
+  if (streamChainDisabled) {
+    safeSetResponseStatus(res, 422, 'Failed minimium throughput criteria. Disabled.');
     return;
   }
+
+  if (lock) {
+    safeSetResponseStatus(res, 503, 'Streaming of chain already in progress, server busy.');
+    return;
+  }
+
+  let monitorTimer = null;
 
   try {
     lock = true;
@@ -1616,8 +1923,7 @@ async function streamChain(req, res) {
      */
     let ip = req.socket.remoteAddress;
     if (!ip) {
-      res.statusMessage = 'Socket closed.';
-      res.status(400).end();
+      safeSetResponseStatus(res, 400, 'Socket closed.');
       return;
     }
 
@@ -1625,15 +1931,14 @@ async function streamChain(req, res) {
     ip = ip.replace(/^.*:/, ''); // this is greedy, so will remove ::ffff:
 
     if (!serviceHelper.isPrivateAddress(ip)) {
-      res.statusMessage = 'Request must be from an address on the same private network as the host.';
-      res.status(403).end();
+      safeSetResponseStatus(res, 403, 'Request must be from an address on the same private network as the host.');
       return;
     }
 
     log.info(`Stream chain request received from: ${ip}`);
 
     const homeDir = os.homedir();
-    const base = path.join(homeDir, '.flux');
+    const base = process.env.FLUXD_PATH || path.join(homeDir, '.flux');
 
     // the order can matter when doing the stream live, the level db's can be volatile
     const folders = [
@@ -1655,8 +1960,7 @@ async function streamChain(req, res) {
     const chainExists = foldersExist.every((x) => x);
 
     if (!chainExists) {
-      res.statusMessage = 'Unable to find chain at $HOME/.flux';
-      res.status(500).end();
+      safeSetResponseStatus(res, 500, 'Unable to find chain');
       return;
     }
 
@@ -1672,19 +1976,20 @@ async function streamChain(req, res) {
     compress = processedBody.compress || false;
 
     if (!safe && compress) {
-      res.statusMessage = 'Unable to compress blockchain in unsafe mode, it will corrupt new db.';
-      res.status(422).end();
+      safeSetResponseStatus(res, 422, 'Unable to compress blockchain in unsafe mode, it will corrupt new db.');
       return;
     }
 
     if (safe) {
-      const blockInfoRes = await daemonServiceBlockchainRpcs.getBlockchainInfo();
-      fluxdRunning = !(blockInfoRes.status === 'error' && blockInfoRes.data.code === 'ECONNREFUSED');
+      // we have to build the client here so that we can avoid the cache. We should have an option for he
+      // blockChainRpcs thing to skip cache
+      const fluxdClient = await daemonServiceUtils.buildFluxdClient();
+      const blockCountRes = await fluxdClient.run('getBlockCount', { params: [] }).catch((err) => err);
+      fluxdRunning = !(blockCountRes instanceof Error && blockCountRes.code === 'ECONNREFUSED');
     }
 
     if (safe && fluxdRunning) {
-      res.statusMessage = 'Flux daemon still running, unable to clone blockchain.';
-      res.status(503).end();
+      safeSetResponseStatus(res, 503, 'Flux daemon still running, unable to clone blockchain.');
       return;
     }
 
@@ -1708,10 +2013,42 @@ async function streamChain(req, res) {
     res.setHeader('Approx-Content-Length', totalSize.toString());
 
     const workflow = [];
+    const passThrough = new stream.PassThrough();
+    let bytesTransferred = 0;
+
+    const monitorStreamWorker = () => {
+      // this may not trigger after exactly 35s, but close enough. We use 35 seconds,
+      // so that it can be guaranteed that the timeout set in streamChainPreparation has
+      // already triggered. Also gives us a better approximation of throughput as TCP can
+      // take quite a bit of time to wind up sometimes.
+      const timeoutMs = 35_000;
+      const thresholdMbps = 200;
+
+      // data transfer rates are usually Megabytes per second (not Mebibytes)
+      return setTimeout(() => {
+        const mbps = ((bytesTransferred / 1000 ** 2) / (timeoutMs / 1_000)) * 8;
+
+        if (mbps < thresholdMbps) {
+          log.info(`Stream chain transfer rate too slow: ${mbps.toFixed(2)} Mbps, cancelling stream and disabling further streams`);
+          streamChainDisabled = true;
+          passThrough.destroy();
+        } else {
+          log.info(`Stream chain transfer rate: ${mbps.toFixed(2)} Mbps, proceeding`);
+        }
+      }, timeoutMs);
+    };
+
+    passThrough.once('data', () => {
+      monitorTimer = monitorStreamWorker();
+    });
+
+    passThrough.on('data', (chunk) => {
+      bytesTransferred += chunk.byteLength;
+    });
 
     const readStream = tar.create({ cwd: base }, folders);
 
-    workflow.push(readStream);
+    workflow.push(readStream, passThrough);
 
     if (compress) {
       log.info('Compression requested... adding gzip. This can be 10-20x slower than sending uncompressed');
@@ -1725,9 +2062,48 @@ async function streamChain(req, res) {
     const error = await pipeline(...workflow).catch((err) => err);
 
     if (error) log.warn(`Stream error: ${error.code}`);
+  } catch (error) {
+    log.error(error);
   } finally {
+    clearTimeout(monitorTimer);
+    // start services
+    if (daemonStartRequired) {
+      daemonStartRequired = false;
+
+      if (isArcane) {
+        await serviceHelper.runCommand('systemctl', { runAsRoot: false, params: ['start', 'fluxd.service', 'flux-watchdog.service'] });
+      } else {
+        await serviceHelper.runCommand('systemctl', { runAsRoot: true, params: ['start', 'zelcash.service'] });
+        await serviceHelper.runCommand('pm2', { runAsRoot: false, params: ['start', 'watchdog', '--watch'] });
+      }
+    }
+
     lock = false;
   }
+}
+
+// Return boolean true if system is running ArcaneOS
+async function isSystemSecure() {
+  try {
+    const benchmarkResponse = await benchmarkService.getBenchmarks();
+    if (benchmarkResponse.status === 'error') {
+      throw new Error('Not possible to check if node is ArcaneOS.');
+    }
+    return benchmarkResponse.data.systemsecure;
+  } catch (error) {
+    log.error(error);
+    return false;
+  }
+}
+
+/**
+ * Returns information if node is running ArcaneOS
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function isArcaneOs(req, res) {
+  const response = messageHelper.createDataMessage(await isSystemSecure());
+  res.json(response);
 }
 
 module.exports = {
@@ -1759,6 +2135,7 @@ module.exports = {
   getFluxTimezone,
   getFluxVersion,
   getFluxZelID,
+  getFluxIds,
   getMarketplaceURL,
   getNodeJsVersions,
   getNodeTier,
@@ -1775,6 +2152,7 @@ module.exports = {
   softUpdateFluxInstall,
   startBenchmark,
   startDaemon,
+  streamChainPreparation,
   streamChain,
   tailBenchmarkDebug,
   tailDaemonDebug,
@@ -1786,9 +2164,13 @@ module.exports = {
   updateDaemon,
   updateFlux,
   // Exports for testing purposes
+  disableStreaming,
+  enableStreaming,
   fluxLog,
   getStreamLock,
   lockStreamLock,
   tailFluxLog,
   unlockStreamLock,
+  isArcaneOs,
+  isSystemSecure,
 };

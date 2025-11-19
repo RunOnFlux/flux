@@ -3,8 +3,9 @@
 USER=fluxtesting
 HASH_LOCATION=tests/images/.package_hash
 
-if ! docker ps 2>&1 >/dev/null
-then
+sudo chown $USER:$USER /var/run/docker.sock
+
+if ! docker ps 2>&1 >/dev/null; then
   echo "Docker not available... exiting"
   exit
 fi
@@ -26,10 +27,9 @@ EXISTING_HASH=$(cat $HASH_LOCATION 2>/dev/null || echo 0)
 # save as array, as referencing CURRENT_HASH will give first item
 CURRENT_HASH=($(sha256sum package.json))
 
-if [[ $EXISTING_HASH != $CURRENT_HASH ]]
-then
+if [[ $EXISTING_HASH != $CURRENT_HASH ]]; then
   # only echo hash on success
-  npm install && echo "$CURRENT_HASH" > $HASH_LOCATION
+  npm install --omit-dev && echo "$CURRENT_HASH" > $HASH_LOCATION
 fi
 
 # create directories etc
@@ -47,5 +47,10 @@ echo "FLUX DATABASE: $FLUX_DATABASE"
 echo "DOCKER CMD: $@"
 
 touch {debug,info,warn,error}.log
+
+if [[ -n $MANUAL_TEST ]]; then
+  "$@"
+  exit
+fi
 
 npx mocha "$@" --exit; rm -f {debug,info,warn,error}.log

@@ -184,6 +184,9 @@ export default {
   getMarketPlaceURL() {
     return Api().get('/flux/marketplaceurl');
   },
+  getFluxInfo() {
+    return Api().get('/flux/info');
+  },
   getZelid() {
     const axiosConfig = {
       headers: {

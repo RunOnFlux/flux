@@ -32,10 +32,14 @@ class FluxController {
   #running = false;
 
   /**
-   * async lock for functions to be able to tell the controller
+   * async locks for functions to be able to tell the controller
    * that work is still being done
    */
-  lock = new AsyncLock();
+  #locks = new Map([['default', new AsyncLock()]]);
+
+  get ['lock']() {
+    return this.#locks.get('default');
+  }
 
   get ['aborted']() {
     return this.#abortController.signal.aborted;
@@ -135,9 +139,46 @@ class FluxController {
     }
     this.#timeouts.clear();
     this.#timeoutId = 0;
-    await this.lock.ready;
+    await this.lock.waitReady();
     this.#abortController = new AbortController();
     this.#running = false;
+  }
+
+  /**
+   *
+   * @param {string} name Name of the lock
+   * @returns {boolean} If the lock was added
+   */
+  addLock(name) {
+    if (this.#locks.has(name)) return false;
+
+    this.#locks.set(name, new AsyncLock());
+
+    return true;
+  }
+
+  /**
+   *
+   * @param {string} name Name of the lock
+   * @returns {AsyncLock | null} The lock
+   */
+  getLock(name) {
+    const lock = this.#locks.get(name);
+
+    return lock || null;
+  }
+
+  /**
+   *
+   * @param {string} name Name of the lock
+   * @returns {boolean} If the lock was removed (or didn't exist)
+   */
+  removeLock(name) {
+    if (name === 'default') return false;
+
+    this.#locks.delete(name);
+
+    return true;
   }
 }
 

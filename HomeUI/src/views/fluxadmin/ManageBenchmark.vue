@@ -2,6 +2,7 @@
   <div>
     <b-row class="match-height">
       <b-col
+        v-if="!isArcane"
         sm="12"
         lg="6"
         xl="4"
@@ -144,10 +145,31 @@ export default {
   directives: {
     Ripple,
   },
+  data() {
+    return {
+      isArcane: false,
+    };
+  },
   mounted() {
     this.checkBenchmarkVersion();
+    this.fetchFluxInfo();
   },
   methods: {
+    async fetchFluxInfo() {
+      try {
+        const response = await FluxService.getFluxInfo();
+        const version = response?.data?.data?.flux?.arcaneVersion;
+
+        if (version) {
+          this.isArcane = true;
+        } else {
+          this.isArcane = false;
+        }
+        console.log(`isArcane: ${this.isArcane}`);
+      } catch (err) {
+        console.error('Failed to fetch Flux info:', err);
+      }
+    },
     checkBenchmarkVersion() {
       BenchmarkService.getInfo()
         .then((benchmarkResponse) => {

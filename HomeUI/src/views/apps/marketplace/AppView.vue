@@ -4,7 +4,7 @@
     <div class="app-detail-header">
       <!-- Header: Left -->
       <div class="app-header-left d-flex align-items-center">
-        <span class="go-back mr-1">
+        <span class="go-back mr-1 cursor-pointer">
           <feather-icon
             :icon="$store.state.appConfig.isRTL ? 'ChevronRightIcon' : 'ChevronLeftIcon'"
             size="20"
@@ -167,7 +167,6 @@
                 </b-card-text>
                 <div class="loginRow">
                   <a
-                    :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueLogin()}`"
                     title="Login with Zelcore"
                     @click="initiateLoginWS"
                   >
@@ -290,216 +289,235 @@
               </dd>
             </dl>
           </b-card>
-          <b-card v-if="userZelid" title="Details">
-            <b-form-textarea
-              id="textarea-rows"
-              rows="2"
-              readonly
-              :value="appData.description"
-              class="description-text"
-            />
-            <div
-              v-if="appData.contacts"
-              class="form-row form-group mt-2"
-              style="padding: 0;"
-            >
-              <label class="col-3 col-form-label">
-                Contact
-                <v-icon
-                  v-b-tooltip.hover.top="'Add your email contact to get notifications ex. app about to expire, app spawns. Your contact will be uploaded to Flux Storage to not be public visible'"
-                  name="info-circle"
-                />
-              </label>
-              <div class="col">
-                <b-form-input
-                  id="contact"
-                  v-model="contact"
-                />
-              </div>
-            </div>
-            <div v-if="appData.geolocationOptions">
-              <b-form-group
-                label-cols="3"
-                label-cols-lg="20"
-                :label="`Deployment Location`"
-                label-for="geolocation"
+          <b-card v-if="userZelid" no-body title="Details">
+            <b-card-body class="d-flex flex-column flex-grow-1">
+              <b-form-textarea
+                id="textarea-rows"
+                rows="2"
+                readonly
+                :value="appData.description"
+                class="description-text"
+              />
+              <div
+                v-if="appData.contacts"
+                class="form-row form-group mt-2"
+                style="padding: 0;"
               >
-                <b-form-select
-                  id="geolocation"
-                  v-model="selectedGeolocation"
-                  :options="appData.geolocationOptions"
+                <label class="col-3 col-form-label">
+                  Contact
+                  <v-icon
+                    v-b-tooltip.hover.top="'Add your email contact to get notifications ex. app about to expire, app spawns. Your contact will be uploaded to Flux Storage to not be public visible'"
+                    name="info-circle"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-input
+                    id="contact"
+                    v-model="contact"
+                  />
+                </div>
+              </div>
+              <div v-if="appData.geolocationOptions">
+                <b-form-group
+                  label-cols="3"
+                  label-cols-lg="20"
+                  :label="`Deployment Location`"
+                  label-for="geolocation"
                 >
-                  <b-form-select-option :value="null">
-                    Worldwide
-                  </b-form-select-option>
-                </b-form-select>
-              </b-form-group>
-            </div>
-            <div v-if="appData.selectInstances">
+                  <b-form-select
+                    id="geolocation"
+                    v-model="selectedGeolocation"
+                    :options="appData.geolocationOptions"
+                  >
+                    <b-form-select-option :value="null">
+                      Worldwide
+                    </b-form-select-option>
+                  </b-form-select>
+                </b-form-group>
+              </div>
+              <div v-if="appData.selectInstances">
+                <b-form-group
+                  v-if="appData.version >= 3"
+                  label-cols="3"
+                  label-cols-lg="20"
+                >
+                  <template #label>
+                    Instances
+                    <v-icon
+                      v-b-tooltip.hover.top="'Minimum number of application instances to be spawned'"
+                      name="info-circle"
+                    />
+                  </template>
+                  <div class="mx-1">
+                    {{ appInstances }}
+                  </div>
+                  <input
+                    id="appInstances"
+                    v-model="appInstances"
+                    type="range"
+                    class="form-control-range"
+                    style="width: 100%; outline: none;"
+                    :min="3"
+                    :max="100"
+                    :step="1"
+                  />
+                </b-form-group>
+              </div>
               <b-form-group
-                v-if="appData.version >= 3"
+                v-if="appData.version >= 6"
                 label-cols="3"
                 label-cols-lg="20"
               >
                 <template #label>
-                  Instances
+                  Period
                   <v-icon
-                    v-b-tooltip.hover.top="'Minimum number of application instances to be spawned'"
+                    v-b-tooltip.hover.top="'How long an application will live on Flux network'"
                     name="info-circle"
                   />
                 </template>
                 <div class="mx-1">
-                  {{ appInstances }}
+                  {{ getExpireLabel }}
                 </div>
                 <input
-                  id="appInstances"
-                  v-model="appInstances"
+                  id="period"
+                  v-model="expirePosition"
                   type="range"
                   class="form-control-range"
                   style="width: 100%; outline: none;"
-                  :min="3"
-                  :max="100"
+                  :min="0"
+                  :max="3"
                   :step="1"
                 />
               </b-form-group>
-            </div>
-            <b-form-group
-              v-if="appData.version >= 6"
-              label-cols="3"
-              label-cols-lg="20"
-            >
-              <template #label>
-                Period
-                <v-icon
-                  v-b-tooltip.hover.top="'How long an application will live on Flux network'"
-                  name="info-circle"
-                />
-              </template>
-              <div class="mx-1">
-                {{ getExpireLabel }}
-              </div>
-              <input
-                id="period"
-                v-model="expirePosition"
-                type="range"
-                class="form-control-range"
-                style="width: 100%; outline: none;"
-                :min="0"
-                :max="3"
-                :step="1"
-              />
-            </b-form-group>
-            <b-card style="padding: 0;">
-              <b-tabs @activate-tab="componentSelected">
-                <b-tab
-                  v-for="(component, index) in appData.compose"
-                  :key="index"
-                  :title="component.name"
-                >
-                  <div class="my-2 ml-2">
-                    <div class="list-entry">
-                      <p><b style="display: inline-block; width: 120px;">Description:</b>&nbsp;{{ component.description }}</p>
-                      <p><b style="display: inline-block; width: 120px;">Repository:</b>&nbsp;{{ component.repotag }}</p>
+              <div style="padding: 0;">
+                <b-tabs pills class="mt-1" @activate-tab="componentSelected">
+                  <b-tab
+                    v-for="(component, index) in appData.compose"
+                    :key="index"
+                    :title="component.name"
+                  >
+                    <div class="my-2 ml-2">
+                      <div class="list-entry">
+                        <p><b style="display: inline-block; width: 120px;">Description:</b>&nbsp;{{ component.description }}</p>
+                        <p><b style="display: inline-block; width: 120px;">Repository:</b>&nbsp;{{ component.repotag }}</p>
+                      </div>
                     </div>
+                    <div
+                      v-if="component.userEnvironmentParameters?.length > 0"
+                      title="Parameters"
+                      border-variant="dark"
+                    >
+                      <b-tabs v-if="component.userEnvironmentParameters" pills>
+                        <b-tab
+                          v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
+                          :key="paramIndex"
+                          :title="parameter.name"
+                        >
+                          <div class="form-row form-group">
+                            <label class="col-2 col-form-label ml-2">
+                              Value
+                              <v-icon
+                                v-b-tooltip.hover.top="parameter.description"
+                                name="info-circle"
+                                class="mr-1"
+                              />
+                            </label>
+                            <div class="col">
+                              <b-form-input
+                                id="enviromentParameters"
+                                v-model="parameter.value"
+                                :placeholder="parameter.placeholder"
+                              />
+                            </div>
+                          </div>
+                        </b-tab>
+                      </b-tabs>
+                    </div>
+                    <div
+                      v-if="component.userSecrets"
+                      title="Secrets"
+                      border-variant="primary"
+                    >
+                      <b-tabs v-if="component.userSecrets" pills>
+                        <b-tab
+                          v-for="(parameter, paramIndex) in component.userSecrets"
+                          :key="paramIndex"
+                          :title="parameter.name"
+                        >
+                          <div class="form-row form-group">
+                            <label class="col-2 col-form-label">
+                              Value
+                              <v-icon
+                                v-b-tooltip.hover.top="parameter.description"
+                                name="info-circle"
+                                class="mr-1"
+                              />
+                            </label>
+                            <div class="col">
+                              <b-form-input
+                                id="secrets"
+                                v-model="parameter.value"
+                                :placeholder="parameter.placeholder"
+                              />
+                            </div>
+                          </div>
+                        </b-tab>
+                      </b-tabs>
+                    </div>
+                    <b-button
+                      v-if="userZelid"
+                      v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+                      variant="outline-warning"
+                      aria-label="View Additional Details"
+                      class="mb-6"
+                      @click="componentParamsModalShowing = true"
+                    >
+                      View Additional Details
+                    </b-button>
+                  </b-tab>
+                </b-tabs>
+              </div>
+              <div
+                v-if="!appData.enabled"
+                class="text-center"
+              >
+                <h4>
+                  This Application is temporarily disabled
+                </h4>
+              </div>
+              <div v-else class="text-center mt-auto">
+                <!-- Footer ensures it's always at the bottom -->
+                <div class="text-left mt-2">
+                  <div class="d-flex align-items-center p-0 mt-auto">
+                    <b-form-checkbox
+                      id="tos"
+                      v-model="tosAgreed"
+                      switch
+                      class="custom-control-primary"
+                    />
+                    <span>
+                      I agree with
+                      <a
+                        href="https://cdn.runonflux.io/Flux_Terms_of_Service.pdf"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Terms of Service
+                      </a>
+                    </span>
                   </div>
-                  <b-card
-                    v-if="component.userEnvironmentParameters?.length > 0"
-                    title="Parameters"
-                    border-variant="dark"
-                  >
-                    <b-tabs v-if="component.userEnvironmentParameters">
-                      <b-tab
-                        v-for="(parameter, paramIndex) in component.userEnvironmentParameters"
-                        :key="paramIndex"
-                        :title="parameter.name"
-                      >
-                        <div class="form-row form-group">
-                          <label class="col-2 col-form-label ml-2">
-                            Value
-                            <v-icon
-                              v-b-tooltip.hover.top="parameter.description"
-                              name="info-circle"
-                              class="mr-1"
-                            />
-                          </label>
-                          <div class="col">
-                            <b-form-input
-                              id="enviromentParameters"
-                              v-model="parameter.value"
-                              :placeholder="parameter.placeholder"
-                            />
-                          </div>
-                        </div>
-                      </b-tab>
-                    </b-tabs>
-                  </b-card>
-                  <b-card
-                    v-if="component.userSecrets"
-                    title="Secrets"
-                    border-variant="primary"
-                  >
-                    <b-tabs v-if="component.userSecrets">
-                      <b-tab
-                        v-for="(parameter, paramIndex) in component.userSecrets"
-                        :key="paramIndex"
-                        :title="parameter.name"
-                      >
-                        <div class="form-row form-group">
-                          <label class="col-2 col-form-label">
-                            Value
-                            <v-icon
-                              v-b-tooltip.hover.top="parameter.description"
-                              name="info-circle"
-                              class="mr-1"
-                            />
-                          </label>
-                          <div class="col">
-                            <b-form-input
-                              id="secrets"
-                              v-model="parameter.value"
-                              :placeholder="parameter.placeholder"
-                            />
-                          </div>
-                        </div>
-                      </b-tab>
-                    </b-tabs>
-                  </b-card>
                   <b-button
                     v-if="userZelid"
-                    v-ripple.400="'rgba(255, 255, 255, 0.15)'"
-                    variant="outline-warning"
-                    aria-label="View Additional Details"
-                    class="mb-2"
-                    @click="componentParamsModalShowing = true"
+                    variant="outline-success"
+                    aria-label="Launch Marketplace App"
+                    class="mt-1 w-100"
+                    @click="checkFluxSpecificationsAndFormatMessage"
                   >
-                    View Additional Details
+                    Start Launching Marketplace Application
                   </b-button>
-                </b-tab>
-              </b-tabs>
-            </b-card>
-            <div
-              v-if="!appData.enabled"
-              class="text-center"
-            >
-              <h4>
-                This Application is temporarily disabled
-              </h4>
-            </div>
-            <div
-              v-else
-              class="text-center mt-auto"
-            >
-              <b-button
-                v-if="userZelid"
-                variant="outline-success"
-                aria-label="Launch Marketplace App"
-                class="mt-2 text-center"
-                style="position: absolute; bottom: 20px; left: 0; right: 0; margin-left: 3.0rem; margin-right: 3.0rem;"
-                @click="checkFluxSpecificationsAndFormatMessage"
-              >
-                Start Launching Marketplace Application
-              </b-button>
-            </div>
+                </div>
+              </div>
+            </b-card-body>
           </b-card>
         </b-col>
         <b-col
@@ -518,7 +536,7 @@
             <vue-apex-charts
               class="mt-1"
               type="radialBar"
-              height="200"
+              height="190"
               :options="cpuRadialBar"
               :series="cpu.series"
             />
@@ -532,7 +550,7 @@
             <vue-apex-charts
               class="mt-1"
               type="radialBar"
-              height="200"
+              height="190"
               :options="ramRadialBar"
               :series="ram.series"
             />
@@ -546,7 +564,7 @@
             <vue-apex-charts
               class="mt-1"
               type="radialBar"
-              height="200"
+              height="190"
               :options="hddRadialBar"
               :series="hdd.series"
             />
@@ -660,9 +678,10 @@
       title="Extra Component Parameters"
       size="lg"
       centered
-      button-size="sm"
       ok-only
       ok-title="Close"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
     >
       <div v-if="currentComponent">
         <list-entry
@@ -699,12 +718,12 @@
     <b-modal
       v-model="confirmLaunchDialogCloseShowing"
       title="Finish Launching App?"
-      size="sm"
       centered
-      button-size="sm"
       ok-title="Yes"
       cancel-title="No"
-      @ok="confirmLaunchDialogCloseShowing = false; launchModalShowing = false;"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
+      @ok="closeLaunchModals"
     >
       <h5 class="text-center">
         Please ensure that you have paid for your app, or saved the payment details for later.
@@ -723,7 +742,9 @@
       no-close-on-backdrop
       no-close-on-esc
       hide-footer
-      @ok="confirmLaunchDialogCancel"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
+      @hide="confirmLaunchDialogCancel"
     >
       <form-wizard
         ref="formWizard"
@@ -814,12 +835,12 @@
               <b-button
                 v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                 variant="primary"
-                aria-label="Flux Single Sign On"
+                aria-label="Flux Single Sign On/Email"
                 class="my-1"
                 style="width: 250px"
                 @click="initSignFluxSSO"
               >
-                Flux Single Sign On (SSO)
+                Flux Single Sign On (SSO)/Email
               </b-button>
             </div>
           </div>
@@ -963,7 +984,7 @@
                   Pay with Zelcore/SSP
                 </h4>
                 <div class="loginRow">
-                  <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${appPricePerDeployment}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+                  <a @click="initZelcorePay">
                     <img
                       class="walletIcon"
                       src="@/assets/images/FluxID.svg"
@@ -1036,6 +1057,7 @@ import {
 import ListEntry from '@/views/components/ListEntry.vue';
 import AppsService from '@/services/AppsService';
 import IDService from '@/services/IDService';
+import DaemonService from '@/services/DaemonService';
 import tierColors from '@/libs/colors';
 import SignClient from '@walletconnect/sign-client';
 import { WalletConnectModal } from '@walletconnect/modal';
@@ -1048,6 +1070,7 @@ import * as firebaseui from 'firebaseui';
 import 'firebaseui/dist/firebaseui.css';
 
 import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
+import { getOpenPGP } from '@/utils/openpgp-wrapper';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -1073,7 +1096,6 @@ let ethereum;
 const qs = require('qs');
 const axios = require('axios');
 const store = require('store');
-const openpgp = require('openpgp');
 const timeoptions = require('@/libs/dateFormat');
 
 export default {
@@ -1462,7 +1484,63 @@ export default {
       console.log('Message received:', data);
     };
 
+    const callbackValueLogin = () => {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          vm.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          vm.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        // eslint-disable-next-line no-use-before-define
+        mybackend += config.value.apiPort;
+      }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/id/verifylogin`;
+      return encodeURI(url);
+    };
+
+    const initZelcoreLogin = () => {
+      try {
+        const protocol = `zel:?action=sign&message=${loginPhrase.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueLogin()}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+
     const initiateLoginWS = () => {
+      initZelcoreLogin();
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -1505,43 +1583,6 @@ export default {
       websocket.value.onclose = (evt) => onCloseLogin(evt);
       websocket.value.onmessage = (evt) => onMessageLogin(evt);
       websocket.value.onerror = (evt) => onErrorLogin(evt);
-    };
-
-    const callbackValueLogin = () => {
-      const { protocol, hostname, port } = window.location;
-      let mybackend = '';
-      mybackend += protocol;
-      mybackend += '//';
-      const regex = /[A-Za-z]/g;
-      if (hostname.split('-')[4]) { // node specific domain
-        const splitted = hostname.split('-');
-        const names = splitted[4].split('.');
-        const adjP = +names[0] + 1;
-        names[0] = adjP.toString();
-        names[2] = 'api';
-        splitted[4] = '';
-        mybackend += splitted.join('-');
-        mybackend += names.join('.');
-      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
-        const names = hostname.split('.');
-        names[0] = 'api';
-        mybackend += names.join('.');
-      } else {
-        if (typeof hostname === 'string') {
-          vm.$store.commit('flux/setUserIp', hostname);
-        }
-        if (+port > 16100) {
-          const apiPort = +port + 1;
-          vm.$store.commit('flux/setFluxPort', apiPort);
-        }
-        mybackend += hostname;
-        mybackend += ':';
-        // eslint-disable-next-line no-use-before-define
-        mybackend += config.value.apiPort;
-      }
-      const backendURL = store.get('backendURL') || mybackend;
-      const url = `${backendURL}/id/verifylogin`;
-      return encodeURI(url);
     };
 
     const uiConfig = {
@@ -1769,6 +1810,9 @@ export default {
     const copyButtonRef = ref(null);
     const expireOptions = ref([]);
     const expirePosition = ref(Number(0));
+    const tosAgreed = ref(false);
+    const deploymentAddress = ref(null);
+    const currentBlockHeight = ref(0); // Store current block height for default expire calculation
     expireOptions.value = [
       {
         value: 22000,
@@ -1791,6 +1835,27 @@ export default {
         time: 365 * 24 * 60 * 60 * 1000,
       },
     ];
+
+    // Function to adjust expire options based on block height
+    const adjustExpireOptionsForBlockHeight = async () => {
+      try {
+        const response = await DaemonService.getBlockchainInfo();
+        if (response.data.status === 'success' && response.data.data) {
+          const currentHeight = response.data.data.blocks;
+          currentBlockHeight.value = currentHeight; // Store for later use
+          // After block 2020000, chain works 4x faster, so multiply block periods by 4
+          if (currentHeight >= 2020000) {
+            expireOptions.value = expireOptions.value.map((option) => ({
+              ...option,
+              value: option.value * 4,
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch blockchain info for expire options adjustment:', error);
+        // Keep default values if fetch fails
+      }
+    };
 
     const config = computed(() => vm.$store.state.flux.config);
     const validTill = computed(() => timestamp.value + 60 * 60 * 1000); // 1 hour
@@ -1884,27 +1949,65 @@ export default {
           return;
         }
         signature.value = signSSO.data.signature;
+        showToast('success', 'Message signed.');
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+    const initZelcorePay = () => {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${deploymentAddress.value}&amount=${appPricePerDeployment.value}&message=${registrationHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('warning', 'Failed to sign message, please try again.');
+      }
+    };
+    const initZelcore = async () => {
+      try {
+        const protocol = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else if (dataToSign.value.length > 1800) {
+          const message = dataToSign.value;
+          // upload to flux storage
+          const data = {
+            publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+            public: message,
+          };
+          await axios.post(
+            'https://storage.runonflux.io/v1/public',
+            data,
+          );
+          const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = zelProtocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
       } catch (error) {
         showToast('warning', 'Failed to sign message, please try again.');
       }
     };
     const initiateSignWS = async () => {
-      if (dataToSign.value.length > 1800) {
-        const message = dataToSign.value;
-        // upload to flux storage
-        const data = {
-          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
-          public: message,
-        };
-        await axios.post(
-          'https://storage.runonflux.io/v1/public',
-          data,
-        );
-        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
-        window.location.href = zelProtocol;
-      } else {
-        window.location.href = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue()}`;
-      }
+      await initZelcore();
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -2017,9 +2120,9 @@ export default {
           return;
         }
         const data = {
-          message: this.registrationHash,
-          amount: (+this.appPricePerDeployment || 0).toString(),
-          address: this.deploymentAddress,
+          message: registrationHash.value,
+          amount: (+appPricePerDeployment.value || 0).toString(),
+          address: deploymentAddress.value,
           chain: 'flux',
         };
         const responseData = await window.ssp.request('pay', data);
@@ -2162,7 +2265,7 @@ export default {
 
     const onSessionConnect = async (session) => {
       console.log(session);
-      // const msg = `0x${Buffer.from(this.loginPhrase, 'utf8').toString('hex')}`;
+      // const msg = `0x${Buffer.from(loginPhrase.value, 'utf8').toString('hex')}`;
       const result = await signClient.value.request({
         topic: session.topic,
         chainId: 'eip155:1',
@@ -2272,6 +2375,7 @@ export default {
     */
     const encryptMessage = async (message, encryptionKeys) => {
       try {
+        const openpgp = await getOpenPGP();
         const encKeys = encryptionKeys.map((key) => key.nodekey);
         const publicKeys = await Promise.all(encKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         const pgpMessage = await openpgp.createMessage({ text: message.replace('\\“', '\\"') });
@@ -2382,7 +2486,6 @@ export default {
       return domains;
     };
 
-    const deploymentAddress = ref(null);
     const appsDeploymentInformation = async () => {
       const response = await AppsService.appsDeploymentInformation();
       const { data } = response.data;
@@ -2396,6 +2499,9 @@ export default {
 
     const checkFluxSpecificationsAndFormatMessage = async () => {
       try {
+        if (!tosAgreed.value) {
+          throw new Error('Please agree to Terms of Service');
+        }
         loading.value = false;
         completed.value = false;
         // construct a valid v4 app spec from the marketplace app spec,
@@ -2433,7 +2539,9 @@ export default {
         }
         if (props.appData.version >= 6) {
           const auxArray = expireOptions.value;
-          appSpecification.expire = auxArray[expirePosition.value].value || 22000;
+          // After PON fork (block 2020000), default expire is 88000 blocks (4x22000)
+          const defaultExpire = currentBlockHeight.value >= 2020000 ? 88000 : 22000;
+          appSpecification.expire = auxArray[expirePosition.value].value || defaultExpire;
         }
         if (props.appData.version >= 7) {
           appSpecification.staticip = props.appData.staticip;
@@ -2875,10 +2983,15 @@ export default {
     };
 
     const confirmLaunchDialogCancel = (modalEvt) => {
-      if (registrationHash.value !== null) {
+      if (registrationHash.value !== null && !confirmLaunchDialogCloseShowing.value && launchModalShowing.value) {
         modalEvt.preventDefault();
         confirmLaunchDialogCloseShowing.value = true;
       }
+    };
+
+    const closeLaunchModals = () => {
+      confirmLaunchDialogCloseShowing.value = false;
+      launchModalShowing.value = false;
     };
 
     const initializeFirebaseUI = () => {
@@ -2907,10 +3020,14 @@ export default {
       if (!userZelid.value) {
         getZelIdLoginPhrase();
       }
+      // Adjust expire options based on current block height
+      await adjustExpireOptionsForBlockHeight();
     });
 
     return {
       // UI
+      closeLaunchModals,
+      tosAgreed,
       loading,
       completed,
       perfectScrollbarSettings,
@@ -2987,6 +3104,7 @@ export default {
       initStripePay,
       openSite,
       initSignFluxSSO,
+      initZelcorePay,
       initWalletConnect,
       initWalletConnectLogin,
       onSessionConnect,
@@ -3098,7 +3216,17 @@ a:hover img {
 .wizard-card {
   height: 250px;
 }
+.go-back:hover {
+  color: #2B61D1;
+}
 </style>
+
+<style>
+  .custom-modal-title {
+    color: #fff !important;
+  }
+</style>
+
 <style lang="scss">
 @import "@core/scss/vue/libs/vue-wizard.scss";
 </style>

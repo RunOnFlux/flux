@@ -1,3 +1,5 @@
+/* eslint no-bitwise: 0 */
+
 const util = require('node:util');
 const path = require('node:path');
 const fs = require('node:fs/promises');
@@ -30,14 +32,198 @@ const MAX_CHILD_PROCESS_TIME = 15 * 60 * 1000;
 const locks = new Map();
 
 /**
- * To delay by a number of milliseconds.
- * @param {number} ms Number of milliseconds.
- * @returns {Promise} Promise object.
+ *
+ * @param {string} initializer
+ * @returns {Array}
  */
-function delay(ms) {
+function cyrb128(initializer) {
+  let h1 = 1779033703;
+  let h2 = 3144134277;
+  let h3 = 1013904242;
+  let h4 = 2773480762;
+
+  for (let i = 0, k; i < initializer.length; i += 1) {
+    k = initializer.charCodeAt(i);
+    h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+    h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+    h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+  }
+
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+
+  h1 ^= (h2 ^ h3 ^ h4);
+  h2 ^= h1;
+  h3 ^= h1;
+  h4 ^= h1;
+
+  const seed = [h1 >>> 0, h2 >>> 0, h3 >>> 0, h4 >>> 0];
+
+  return seed;
+}
+
+/**
+ *
+ * @param {number} seed
+ * @returns {number}
+ */
+function splitmix32(seed) {
+  let a = seed;
+
+  return () => {
+    a |= 0;
+    a = a + 0x9e3779b9 | 0;
+    let t = a ^ a >>> 16;
+    t = Math.imul(t, 0x21f0aaad);
+    t ^= t >>> 15;
+    t = Math.imul(t, 0x735a2d97);
+
+    const value = ((t ^= t >>> 15) >>> 0) / 4294967296;
+
+    return value;
+  };
+}
+
+/**
+ *  Parse a human readable time string into milliseconds, for timers
+ * @param {number|string} userInterval the time period to parse. In the format
+ * ```<amount of time>[<unit of time>]+``` For example:
+ * ```
+ *   200  = 200 milliseconds
+ *   15s  = 15 seconds
+ *   2m   = 2 minutes
+ *   4h   = 4 hours
+ *   1d   = 1 day
+ *
+ *   3m30s   = 3 minutes 30 seconds
+ *   1h30m    = 1 hour 30 minutes
+ *   1d8h30m5s  = 1 day 8 hours 30 minutes 5 seconds
+ *
+ *   3 minutes 30 seconds
+ *   3minutes30seconds
+ *   3mins30secs
+ *   1minute5seconds
+ * ```
+ * @returns {number} milliseconds
+ */
+function parseInterval(userInterval) {
+  // we use a default interval here of 1 second, instead of 0. This is in case of
+  // user error where there is a function in a loop, this will prevent cpu @ 100%
+  const defaultInterval = 1_000;
+
+  if (typeof userInterval !== 'string' && typeof userInterval !== 'number') {
+    log.warn(`Unparsable time value received: ${userInterval}, returning 1000ms`);
+    return defaultInterval;
+  }
+
+  // if only numbers are provided, we assume they are ms and return those
+  if (/^[-+]?[0-9]*\.?[0-9]+$/.test(userInterval)) {
+    const asNumber = Math.floor(Number(userInterval));
+
+    if (asNumber < 0) {
+      log.warn(`Negative time value received: ${userInterval}, returning 1000ms`);
+      return defaultInterval;
+    }
+    return asNumber;
+  }
+
+  const formattedInterval = userInterval.replace(/\s/g, '').toLowerCase();
+  // this will ensure we only get time pairs. I.e. 1 minute
+  const timePattern = /^(?:[0-9]+(?:[s|S|m|M|h|H|d|D]|secs?|seconds?|mins?|minutes?|hrs?|hours?|days?))+$/;
+
+  if (!timePattern.test(formattedInterval)) {
+    log.warn(`Unparsable time value received: ${userInterval}, returning 1000ms`);
+    return defaultInterval;
+  }
+
+  const intervalAsArray = formattedInterval.match(/[0-9]+|[a-zA-Z]+/g);
+
+  let ms = 0;
+  // iterate the array objects as pairs
+  for (let i = 0; i < intervalAsArray.length; i += 2) {
+    const measure = intervalAsArray[i];
+    const unit = intervalAsArray[i + 1];
+
+    switch (unit) {
+      case 's':
+      case 'sec':
+      case 'secs':
+      case 'second':
+      case 'seconds':
+        ms += measure * 1_000;
+        break;
+      case 'm':
+      case 'min':
+      case 'mins':
+      case 'minute':
+      case 'minutes':
+        ms += measure * 60_000;
+        break;
+      case 'h':
+      case 'hr':
+      case 'hrs':
+      case 'hour':
+      case 'hours':
+        ms += measure * 3_600_000;
+        break;
+      case 'd':
+      case 'day':
+      case 'days':
+        ms += measure * 86_400_000;
+        break;
+      default:
+      // do nothing
+    }
+
+    if (ms >= 2_147_483_647) return 2_147_483_647;
+  }
+  return ms;
+}
+
+/**
+ * To delay by a number of milliseconds.
+ * @param {number} userInterval The interval to delay for. See parseInterval
+ * for specifics.
+ * @returns {Promise<void>} Promise object.
+ */
+function delay(userInterval) {
+  const ms = parseInterval(userInterval);
+
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+/**
+ * To generate a random delay in ms. By default between 0 and maxDelayMs
+ *
+ * Takes an optional initializer, for seeded random delay times. If an initializer
+ * is used, this function will return the same random number if the initializer is
+ * the same.
+ * @param {number} maxDelayMs
+ * @param {{initializer?: string, minDelayMs?: number}} options
+ * @returns {number}
+ */
+function randomDelayMs(maxDelayMs, options = {}) {
+  const initializer = options.initializer || null;
+  const minDelayMs = options.minDelayMs || 0;
+
+  const randFunc = initializer
+    ? () => {
+      const seed = cyrb128(initializer);
+      const rand = splitmix32(seed[0]);
+      return rand();
+    }
+    : Math.random;
+
+  const ms = Math.floor(
+    randFunc() * (maxDelayMs - minDelayMs + 1) + minDelayMs,
+  );
+
+  return ms;
 }
 
 /**
@@ -99,35 +285,19 @@ function ensureString(parameter) {
 }
 
 /**
- * To return the owner of a FluxOS application.
- * @param {string} appName Name of app.
- * @returns {number} Owner.
+ * To ensure a parameter is an array.
+ * @param {*} parameter Value to check
+ * @returns {array} Returns the parameter as array or empty array if invalid.
  */
-// helper owner flux app function
-async function getApplicationOwner(appName) {
-  const db = dbHelper.databaseConnection();
-  const database = db.db(config.database.appsglobal.database);
-
-  const query = { name: new RegExp(`^${appName}$`, 'i') };
-  const projection = {
-    projection: {
-      _id: 0,
-      owner: 1,
-    },
-  };
-  const globalAppsInformation = config.database.appsglobal.collections.appsInformation;
-  const appSpecs = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
-  if (appSpecs) {
-    return appSpecs.owner;
+function ensureArray(parameter) {
+  if (Array.isArray(parameter)) {
+    return parameter;
   }
-  // eslint-disable-next-line global-require
-  const appsService = require('./appsService');
-  const allApps = await appsService.availableApps();
-  const appInfo = allApps.find((app) => app.name.toLowerCase() === appName.toLowerCase());
-  if (appInfo) {
-    return appInfo.owner;
+  if (parameter === null || parameter === undefined) {
+    return [];
   }
-  return null;
+  // Convert single value to array
+  return [parameter];
 }
 
 /**
@@ -388,6 +558,30 @@ async function runCommand(userCmd, options = {}) {
 }
 
 /**
+ *
+ * @param {string} raw A possible Fluxnode socket address. I.e. 1.2.3.4:16147
+ * @param {{portAsNumber?: boolean}} options
+ * @returns {Array<string, number | string> | null} The ip as a string, and the
+ * port as either a number or string (depending on portAsNumber) If the input is
+ * unparsable - returns null
+ */
+function normalizeNodeIpApiPort(raw, options = {}) {
+  const portAsNumber = options.portAsNumber || false;
+
+  if (typeof raw !== 'string') return null;
+
+  const ipPattern = /^(?!0)(?!.*\.$)(?:(?:1?\d?\d|25[0-5]|2[0-4]\d)(?:\.|$)){4}$/;
+  const portPattern = /^(?:6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})(?:\s?,\s?(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3}))*$/;
+  const [ip, port = '16127'] = raw.split(':');
+
+  if (!ipPattern.test(ip) || !portPattern.test(port)) return null;
+
+  const castPort = portAsNumber ? Number(port) : port;
+
+  return [ip, castPort];
+}
+
+/**
  * Parses a raw version string from dpkg-query into an object
  * @param {string} rawVersion version string from dpkg-query. Eg:
  * 0.36.1-4ubuntu0.1 (ufw)
@@ -506,12 +700,15 @@ module.exports = {
   ensureNumber,
   ensureObject,
   ensureString,
-  getApplicationOwner,
+  ensureArray,
   ipInSubnet,
   isDecimalLimit,
   isPrivateAddress,
   minVersionSatisfy,
   parseVersion,
+  parseInterval,
+  randomDelayMs,
   runCommand,
   validIpv4Address,
+  normalizeNodeIpApiPort,
 };

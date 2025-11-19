@@ -9,6 +9,7 @@
       no-close-on-esc
       size="lg"
       header-bg-variant="primary"
+      title-class="custom-modal-title"
       :title="operationTitle"
       title-tag="h5"
     >
@@ -457,13 +458,34 @@
                 </div>
               </div>
               <div
-                v-if="appRegistrationSpecification.version >= 7"
+                v-if="appRegistrationSpecification.version === 7"
                 class="form-row form-group"
               >
                 <label class="col-form-label">
                   Enterprise Application
                   <v-icon
                     v-b-tooltip.hover.top="'Select if your application requires private image, secrets or if you want to target specific nodes on which application can run. Geolocation targetting is not possible in this case.'"
+                    name="info-circle"
+                    class="mr-1"
+                  />
+                </label>
+                <div class="col">
+                  <b-form-checkbox
+                    id="enterpriseapp"
+                    v-model="isPrivateApp"
+                    switch
+                    class="custom-control-primary inline"
+                  />
+                </div>
+              </div>
+              <div
+                v-if="appRegistrationSpecification.version >= 8"
+                class="form-row form-group"
+              >
+                <label class="col-form-label">
+                  Enterprise Application
+                  <v-icon
+                    v-b-tooltip.hover.top="'Select if your application requires privacy, your components specifications will be encrypted and only machines running ArcaneOS will be able to install them.'"
                     name="info-circle"
                     class="mr-1"
                   />
@@ -722,7 +744,7 @@
                   </div>
                 </div>
                 <div
-                  v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
+                  v-if="appRegistrationSpecification.version === 7 && isPrivateApp"
                   class="form-row form-group"
                 >
                   <label class="col-3 col-form-label">
@@ -743,7 +765,7 @@
                 </div>
                 <br>
                 <b-card-title>
-                  Resources &nbsp;&nbsp;&nbsp;<h6 class="inline text-small">
+                  Resources &nbsp;&nbsp;&nbsp;<h6 v-if="appRegistrationSpecification.version < 8" class="inline text-small">
                     Tiered:
                     <b-form-checkbox
                       id="tiered"
@@ -933,7 +955,7 @@
           </b-row>
         </b-card>
         <b-card
-          v-if="appRegistrationSpecification.version >= 7 && isPrivateApp"
+          v-if="appRegistrationSpecification.version === 7 && isPrivateApp"
           title="Enterprise Nodes"
         >
           Only these selected enterprise nodes will be able to run your application and are used for encryption. Only these nodes are able to access your private image and secrets.<br>
@@ -1141,6 +1163,185 @@
               @click="chooseEnterpriseDialog = true"
             >
               Choose Enterprise Nodes
+            </b-button>
+          </div>
+        </b-card>
+        <b-card
+          v-if="appRegistrationSpecification.version >= 8 && isPrivateApp"
+          title="Priority Nodes"
+        >
+          Select if needed Priority Nodes to run your app, the app can still deploy on other nodes on the network.<br>
+          <b-row>
+            <b-col
+              md="4"
+              sm="4"
+              class="my-1"
+            >
+              <b-form-group class="mb-0">
+                <label class="d-inline-block text-left mr-50">Per page</label>
+                <b-form-select
+                  id="perPageSelect"
+                  v-model="entNodesTable.perPage"
+                  size="sm"
+                  :options="entNodesTable.pageOptions"
+                  class="w-50"
+                />
+              </b-form-group>
+            </b-col>
+            <b-col
+              md="8"
+              class="my-1"
+            >
+              <b-form-group
+                label="Filter"
+                label-cols-sm="1"
+                label-align-sm="right"
+                label-for="filterInput"
+                class="mb-0"
+              >
+                <b-input-group size="sm">
+                  <b-form-input
+                    id="filterInput"
+                    v-model="entNodesTable.filter"
+                    type="search"
+                    placeholder="Type to Search"
+                  />
+                  <b-input-group-append>
+                    <b-button
+                      :disabled="!entNodesTable.filter"
+                      @click="entNodesTable.filter = ''"
+                    >
+                      Clear
+                    </b-button>
+                  </b-input-group-append>
+                </b-input-group>
+              </b-form-group>
+            </b-col>
+
+            <b-col cols="12">
+              <b-table
+                class="app-enterprise-nodes-table"
+                striped
+                hover
+                responsive
+                :per-page="entNodesTable.perPage"
+                :current-page="entNodesTable.currentPage"
+                :items="selectedEnterpriseNodes"
+                :fields="entNodesTable.fields"
+                :sort-by.sync="entNodesTable.sortBy"
+                :sort-desc.sync="entNodesTable.sortDesc"
+                :sort-direction="entNodesTable.sortDirection"
+                :filter="entNodesTable.filter"
+                :filter-included-fields="entNodesTable.filterOn"
+                show-empty
+                :empty-text="'No Priority Nodes selected'"
+              >
+                <template #cell(show_details)="row">
+                  <a @click="row.toggleDetails">
+                    <v-icon
+                      v-if="!row.detailsShowing"
+                      name="chevron-down"
+                    />
+                    <v-icon
+                      v-if="row.detailsShowing"
+                      name="chevron-up"
+                    />
+                  </a>
+                </template>
+                <template #row-details="row">
+                  <b-card class="mx-2">
+                    <list-entry
+                      title="IP Address"
+                      :data="row.item.ip"
+                    />
+                    <list-entry
+                      title="Public Key"
+                      :data="row.item.pubkey"
+                    />
+                    <list-entry
+                      title="Node Address"
+                      :data="row.item.payment_address"
+                    />
+                    <list-entry
+                      title="Collateral"
+                      :data="`${row.item.txhash}:${row.item.outidx}`"
+                    />
+                    <list-entry
+                      title="Tier"
+                      :data="row.item.tier"
+                    />
+                    <div>
+                      <b-button
+                        size="sm"
+                        class="mr-0"
+                        variant="primary"
+                        @click="openNodeFluxOS(row.item.ip.split(':')[0], row.item.ip.split(':')[1] ? +row.item.ip.split(':')[1] - 1 : 16126)"
+                      >
+                        Visit FluxNode
+                      </b-button>
+                    </div>
+                  </b-card>
+                </template>
+                <template #cell(ip)="row">
+                  {{ row.item.ip }}
+                </template>
+                <template #cell(payment_address)="row">
+                  {{ row.item.payment_address.slice(0, 8) }}...{{ row.item.payment_address.slice(row.item.payment_address.length - 8, row.item.payment_address.length) }}
+                </template>
+                <template #cell(tier)="row">
+                  {{ row.item.tier }}
+                </template>
+                <template #cell(score)="row">
+                  {{ row.item.score }}
+                </template>
+                <template #cell(actions)="locationRow">
+                  <b-button
+                    :id="`remove-${locationRow.item.ip}`"
+                    size="sm"
+                    class="mr-1 mb-1"
+                    variant="danger"
+                  >
+                    Remove
+                  </b-button>
+                  <confirm-dialog
+                    :target="`remove-${locationRow.item.ip}`"
+                    confirm-button="Remove FluxNode"
+                    @confirm="removeFluxNode(locationRow.item.ip)"
+                  />
+                  <b-button
+                    size="sm"
+                    class="mr-1 mb-1"
+                    variant="primary"
+                    @click="openNodeFluxOS(locationRow.item.ip.split(':')[0], locationRow.item.ip.split(':')[1] ? +locationRow.item.ip.split(':')[1] - 1 : 16126)"
+                  >
+                    Visit
+                  </b-button>
+                </template>
+              </b-table>
+            </b-col>
+            <b-col cols="12">
+              <b-pagination
+                v-model="entNodesTable.currentPage"
+                :total-rows="selectedEnterpriseNodes.length"
+                :per-page="entNodesTable.perPage"
+                align="center"
+                size="sm"
+                class="my-0"
+              />
+              <span class="table-total">Total: {{ selectedEnterpriseNodes.length }}</span>
+            </b-col>
+          </b-row>
+          <br>
+          <br>
+          <div class="text-center">
+            <b-button
+              v-ripple.400="'rgba(255, 255, 255, 0.15)'"
+              variant="primary"
+              aria-label="Choose Enterprise Nodes"
+              class="mb-2 mr-2"
+              @click="chooseEnterpriseDialog = true"
+            >
+              Choose Priority Nodes
             </b-button>
           </div>
         </b-card>
@@ -1700,12 +1901,12 @@
               <b-button
                 v-ripple.400="'rgba(255, 255, 255, 0.15)'"
                 variant="primary"
-                aria-label="Flux Single Sign On"
+                aria-label="Flux Single Sign On/Email"
                 class="my-1"
                 style="width: 250px"
                 @click="initSignFluxSSO"
               >
-                Flux Single Sign On (SSO)
+                Flux Single Sign On (SSO)/Email
               </b-button>
             </div>
           </b-card>
@@ -1839,7 +2040,7 @@
               Pay with Zelcore/SSP
             </h4>
             <div class="loginRow">
-              <a :href="`zel:?action=pay&coin=zelcash&address=${deploymentAddress}&amount=${applicationPrice}&message=${registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`">
+              <a @click="initZelcorePay">
                 <img
                   class="walletIcon"
                   src="@/assets/images/FluxID.svg"
@@ -1907,6 +2108,8 @@
       button-size="sm"
       ok-only
       ok-title="Done"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
     >
       <b-row>
         <b-col
@@ -2104,6 +2307,8 @@
       centered
       ok-title="Import"
       cancel-title="Cancel"
+      header-bg-variant="primary"
+      title-class="custom-modal-title"
       @ok="importSpecs(importedSpecs)"
       @cancel="importAppSpecs = false; importedSpecs = ''"
     >
@@ -2155,6 +2360,7 @@ import getPaymentGateways, { paymentBridge } from '@/libs/fiatGateways';
 
 import topologicalSort from '@/utils/topologicalSort';
 import yaml from 'js-yaml';
+import { getOpenPGP } from '@/utils/openpgp-wrapper';
 
 const projectId = 'df787edc6839c7de49d527bba9199eaa';
 
@@ -2178,7 +2384,6 @@ let ethereum;
 const qs = require('qs');
 const axios = require('axios');
 const store = require('store');
-const openpgp = require('openpgp');
 // const https = require('https');
 const timeoptions = require('@/libs/dateFormat');
 
@@ -2230,7 +2435,7 @@ export default {
       registrationHash: '',
       registrationtype: 'fluxappregister',
       currentHeight: 1350000,
-      specificationVersion: 7,
+      specificationVersion: 8,
       appRegistrationSpecification: {},
       appRegistrationSpecificationV3Template: {
         version: 3,
@@ -2403,6 +2608,36 @@ export default {
           },
         ],
       },
+      appRegistrationSpecificationV8Template: {
+        version: 8,
+        name: '',
+        description: '',
+        owner: '',
+        instances: 3,
+        contacts: '[]',
+        geolocation: [],
+        nodes: [],
+        expire: 22000,
+        staticip: false,
+        enterprise: '',
+        compose: [
+          {
+            name: '',
+            description: '',
+            repotag: '',
+            repoauth: '',
+            ports: '[]',
+            domains: '[]',
+            environmentParameters: '[]',
+            commands: '[]',
+            containerPorts: '[]',
+            containerData: '',
+            cpu: 0.5,
+            ram: 2000,
+            hdd: 40,
+          },
+        ],
+      },
       isPrivateApp: false,
       composeTemplate: {
         name: '',
@@ -2451,6 +2686,21 @@ export default {
         ramsuper: 2500,
         hddsuper: 60,
         cpubamf: 3.5,
+      },
+      composeTemplatev8: {
+        name: '',
+        description: '',
+        repotag: '',
+        repoauth: '',
+        ports: '[]',
+        domains: '[]',
+        environmentParameters: '[]',
+        commands: '[]',
+        containerPorts: '[]',
+        containerData: '',
+        cpu: 0.5,
+        ram: 2000,
+        hdd: 40,
       },
       dataForAppRegistration: {},
       applicationPrice: 0,
@@ -2572,15 +2822,29 @@ export default {
       return expTime;
     },
     subscribedTill() {
-      if (this.appRegistrationSpecification.expire) {
-        const timeFound = this.expireOptions.find((option) => option.value === this.appRegistrationSpecification.expire);
+      const expire = this.convertExpire();
+      if (expire) {
+        const timeFound = this.expireOptions.find((option) => option.value === expire);
         if (timeFound) {
           const expTime = this.timestamp + timeFound.time;
           return expTime;
         }
-        const blocks = this.appRegistrationSpecification.expire;
-        const blockTime = 2 * 60 * 1000;
-        const validTime = blocks * blockTime;
+        const blocks = expire;
+        // Calculate time based on current block height
+        // Before fork (block 2020000): 2 minutes per block
+        // After fork: 30 seconds per block
+        const forkBlock = 2020000;
+        const currentBlock = this.currentHeight;
+
+        let validTime = 0;
+        if (currentBlock < forkBlock) {
+          // Currently before fork: 2 minutes per block
+          validTime = blocks * 2 * 60 * 1000;
+        } else {
+          // Currently after fork: 30 seconds per block
+          validTime = blocks * 30 * 1000;
+        }
+
         const expTime = this.timestamp + validTime;
         return expTime;
       }
@@ -2675,16 +2939,23 @@ export default {
       if (this.appRegistrationSpecification.version >= 7 && value === false) {
         this.appRegistrationSpecification.nodes = [];
         this.appRegistrationSpecification.compose.forEach((component) => {
-          // eslint-disable-next-line no-param-reassign
-          component.secrets = '';
+          if (this.appRegistrationSpecification.version === 7 && value === false) {
+            // eslint-disable-next-line no-param-reassign
+            component.secrets = '';
+          }
           // eslint-disable-next-line no-param-reassign
           component.repoauth = '';
         });
         this.selectedEnterpriseNodes = [];
       }
-      // remove any geolocation
-      this.allowedGeolocations = {};
-      this.forbiddenGeolocations = {};
+      if (this.appRegistrationSpecification.version === 7 && value === false) {
+        // remove any geolocation
+        this.allowedGeolocations = {};
+        this.forbiddenGeolocations = {};
+      }
+      if (this.appRegistrationSpecification.version === 8 && value === false) {
+        this.appRegistrationSpecification.enterprise = '';
+      }
       this.dataToSign = '';
       this.signature = '';
       this.timestamp = null;
@@ -2826,7 +3097,104 @@ export default {
       if (this.expireOptions[this.expirePosition]) {
         return this.expireOptions[this.expirePosition].value;
       }
-      return 22000;
+      // After PON fork (block 2020000), default expire is 88000 blocks (4x22000)
+      return this.currentHeight >= 2020000 ? 88000 : 22000;
+    },
+    async importRsaPublicKey(base64SpkiDer) {
+      const spkiDer = Buffer.from(base64SpkiDer, 'base64');
+      // eslint-disable-next-line no-return-await
+      return await crypto.subtle.importKey(
+        'spki',
+        spkiDer,
+        {
+          name: 'RSA-OAEP',
+          hash: 'SHA-256',
+        },
+        false,
+        ['encrypt'],
+      );
+    },
+    base64ToUint8Array(base64) {
+      const binaryString = atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+
+      for (let i = 0; i < len; i += 1) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      return bytes;
+    },
+    arrayBufferToBase64(buffer) {
+      const data = [];
+
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+
+      for (let i = 0; i < len; i += 1) {
+        data.push(String.fromCharCode(bytes[i]));
+      }
+
+      return btoa(data.join(''));
+    },
+    async encryptAesKeyWithRsaKey(aesKey, rsaPubKey) {
+      const base64AesKey = this.arrayBufferToBase64(aesKey);
+
+      const rsaEncryptedBase64AesKey = await crypto.subtle.encrypt(
+        {
+          name: 'RSA-OAEP',
+        },
+        rsaPubKey,
+        Buffer.from(base64AesKey),
+      );
+
+      const base64RsaEncryptedBase64AesKey = this.arrayBufferToBase64(
+        rsaEncryptedBase64AesKey,
+      );
+
+      return base64RsaEncryptedBase64AesKey;
+    },
+    async encryptEnterpriseWithAes(
+      plainText,
+      aesKey,
+      base64RsaEncryptedAesKey,
+    ) {
+      const nonce = crypto.getRandomValues(new Uint8Array(12));
+      const plaintextEncoded = new TextEncoder().encode(plainText);
+      const rsaEncryptedAesKey = this.base64ToUint8Array(base64RsaEncryptedAesKey);
+
+      const aesCryptoKey = await crypto.subtle.importKey(
+        'raw',
+        aesKey,
+        'AES-GCM',
+        true,
+        ['encrypt', 'decrypt'],
+      );
+
+      const ciphertextTagBuf = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: nonce },
+        aesCryptoKey,
+        plaintextEncoded,
+      );
+
+      const ciphertextTag = new Uint8Array(ciphertextTagBuf);
+
+      const keyNonceCiphertextTag = new Uint8Array(
+        rsaEncryptedAesKey.length + nonce.length + ciphertextTag.length,
+      );
+
+      keyNonceCiphertextTag.set(rsaEncryptedAesKey);
+      keyNonceCiphertextTag.set(nonce, rsaEncryptedAesKey.byteLength);
+      keyNonceCiphertextTag.set(
+        ciphertextTag,
+        rsaEncryptedAesKey.byteLength + nonce.length,
+      );
+
+      const keyNonceCiphertextTagBase64 = this.arrayBufferToBase64(
+        keyNonceCiphertextTag.buffer,
+      );
+
+      return keyNonceCiphertextTagBase64;
     },
     async checkFluxSpecificationsAndFormatMessage() {
       try {
@@ -2840,9 +3208,9 @@ export default {
         // formation, pre verificaiton
         this.operationTitle = ' Compute registration message...';
         this.progressVisable = true;
-        const appSpecification = this.appRegistrationSpecification;
+        const appSpecification = JSON.parse(JSON.stringify(this.appRegistrationSpecification));
         let secretsPresent = false;
-        if (appSpecification.version >= 7) {
+        if (appSpecification.version === 7) {
           // construct nodes
           this.constructNodes();
           // encryption
@@ -2856,74 +3224,112 @@ export default {
               }
             }
           });
-        }
-        if (secretsPresent) { // we do encryption
-          this.showToast('info', 'Encrypting specifications, this will take a while...');
-          const fetchedKeys = [];
-          // eslint-disable-next-line no-restricted-syntax
-          for (const node of this.appRegistrationSpecification.nodes) {
-            const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
-            if (keyExists) {
-              fetchedKeys.push(keyExists.nodekey);
-            } else {
+          if (secretsPresent) { // we do encryption
+            this.showToast('info', 'Encrypting specifications, this will take a while...');
+            const fetchedKeys = [];
+            // eslint-disable-next-line no-restricted-syntax
+            for (const node of this.appRegistrationSpecification.nodes) {
+              const keyExists = this.enterprisePublicKeys.find((key) => key.nodeip === node);
+              if (keyExists) {
+                fetchedKeys.push(keyExists.nodekey);
+              } else {
               // eslint-disable-next-line no-await-in-loop
-              const pgpKey = await this.fetchEnterpriseKey(node);
-              if (pgpKey) {
-                const pair = {
-                  nodeip: node.ip,
-                  nodekey: pgpKey,
-                };
-                const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node.ip);
-                if (!keyExistsB) {
-                  this.enterprisePublicKeys.push(pair);
+                const pgpKey = await this.fetchEnterpriseKey(node);
+                if (pgpKey) {
+                  const pair = {
+                    nodeip: node.ip,
+                    nodekey: pgpKey,
+                  };
+                  const keyExistsB = this.enterprisePublicKeys.find((key) => key.nodeip === node.ip);
+                  if (!keyExistsB) {
+                    this.enterprisePublicKeys.push(pair);
+                  }
+                  fetchedKeys.push(pgpKey);
+                } // else silently fail
+              }
+            }
+            // time to encrypt
+            // eslint-disable-next-line no-restricted-syntax
+            for (const component of this.appRegistrationSpecification.compose) {
+              component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
+              component.commands = component.commands.replace('\\“', '\\"');
+              component.domains = component.domains.replace('\\“', '\\"');
+              if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
+              // need encryption
+                component.secrets = component.secrets.replace('\\“', '\\"');
+                // eslint-disable-next-line no-await-in-loop
+                const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
+                if (!encryptedMessage) {
+                  return;
                 }
-                fetchedKeys.push(pgpKey);
-              } // else silently fail
-            }
-          }
-          // time to encrypt
-          // eslint-disable-next-line no-restricted-syntax
-          for (const component of this.appRegistrationSpecification.compose) {
-            component.environmentParameters = component.environmentParameters.replace('\\“', '\\"');
-            component.commands = component.commands.replace('\\“', '\\"');
-            component.domains = component.domains.replace('\\“', '\\"');
-            if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
-              // need encryption
-              component.secrets = component.secrets.replace('\\“', '\\"');
-              // eslint-disable-next-line no-await-in-loop
-              const encryptedMessage = await this.encryptMessage(component.secrets, fetchedKeys);
-              if (!encryptedMessage) {
-                return;
+                component.secrets = encryptedMessage;
               }
-              component.secrets = encryptedMessage;
-            }
-            if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
+              if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
               // need encryption
               // eslint-disable-next-line no-await-in-loop
-              const encryptedMessage = await this.encryptMessage(component.repoauth, fetchedKeys);
-              if (!encryptedMessage) {
-                return;
+                const encryptedMessage = await this.encryptMessage(component.repoauth, fetchedKeys);
+                if (!encryptedMessage) {
+                  return;
+                }
+                component.repoauth = encryptedMessage;
               }
-              component.repoauth = encryptedMessage;
             }
           }
-        }
-        // recheck if encryption ok
-        if (secretsPresent) {
-          this.appRegistrationSpecification.compose.forEach((component) => {
-            if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
-              throw new Error('Encryption failed');
-            }
-            if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
-              throw new Error('Encryption failed');
-            }
-          });
+          // recheck if encryption ok
+          if (secretsPresent) {
+            this.appRegistrationSpecification.compose.forEach((component) => {
+              if (component.secrets && !component.secrets.startsWith('-----BEGIN PGP MESSAGE')) {
+                throw new Error('Encryption failed');
+              }
+              if (component.repoauth && !component.repoauth.startsWith('-----BEGIN PGP MESSAGE')) {
+                throw new Error('Encryption failed');
+              }
+            });
+          }
         }
         if (appSpecification.version >= 5) {
           appSpecification.geolocation = this.generateGeolocations();
         }
         if (appSpecification.version >= 6) {
           appSpecification.expire = this.convertExpire();
+        }
+
+        if (appSpecification.version >= 8) {
+          // construct nodes
+          this.constructNodes();
+          if (this.isPrivateApp) {
+            const zelidauth = localStorage.getItem('zelidauth');
+            // call api to get RSA public key
+            const appPubKeyData = {
+              name: appSpecification.name,
+              owner: appSpecification.owner,
+            };
+            const responseGetPublicKey = await AppsService.getAppPublicKey(zelidauth, appPubKeyData);
+            if (responseGetPublicKey.data.status === 'error') {
+              throw new Error(responseGetPublicKey.data.data.message || responseGetPublicKey.data.data);
+            }
+            const pubkey = responseGetPublicKey.data.data;
+
+            const rsaPubKey = await this.importRsaPublicKey(pubkey);
+            const aesKey = crypto.getRandomValues(new Uint8Array(32));
+
+            const encryptedEnterpriseKey = await this.encryptAesKeyWithRsaKey(
+              aesKey,
+              rsaPubKey,
+            );
+            const enterpriseSpecs = {
+              contacts: appSpecification.contacts,
+              compose: appSpecification.compose,
+            };
+            const encryptedEnterprise = await this.encryptEnterpriseWithAes(
+              JSON.stringify(enterpriseSpecs),
+              aesKey,
+              encryptedEnterpriseKey,
+            );
+            appSpecification.enterprise = encryptedEnterprise;
+            appSpecification.contacts = [];
+            appSpecification.compose = [];
+          }
         }
         // call api for verification of app registration specifications that returns formatted specs
         const responseAppSpecs = await AppsService.appRegistrationVerificaiton(appSpecification);
@@ -2965,57 +3371,69 @@ export default {
     },
 
     async getDaemonInfo() {
-      // const daemonGetInfo = await DaemonService.getInfo();
-      // if (daemonGetInfo.data.status === 'error') {
-      //   this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
-      // } else {
-      //   this.currentHeight = daemonGetInfo.data.data.blocks;
-      // }
-      // if (this.currentHeight < 1004000) { // fork height for spec v4
-      //   this.specificationVersion = 3;
-      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV3Template;
-      //   const ports = this.getRandomPort();
-      //   this.appRegistrationSpecification.ports = ports;
-      // } else if (this.currentHeight < 1142000) {
-      //   this.specificationVersion = 4;
-      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV4Template;
-      //   this.appRegistrationSpecification.compose.forEach((component) => {
-      //     const ports = this.getRandomPort();
-      //     // eslint-disable-next-line no-param-reassign
-      //     component.ports = ports;
-      //   });
-      // } else if (this.currentHeight < 1300000) {
-      //   this.specificationVersion = 5;
-      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV5Template;
-      //   this.appRegistrationSpecification.compose.forEach((component) => {
-      //     const ports = this.getRandomPort();
-      //     // eslint-disable-next-line no-param-reassign
-      //     component.ports = ports;
-      //   });
-      // } else if (this.currentHeight < 1420000) {
-      //   this.specificationVersion = 6;
-      //   this.appRegistrationSpecification = this.appRegistrationSpecificationV6Template;
-      //   this.appRegistrationSpecification.compose.forEach((component) => {
-      //     const ports = this.getRandomPort();
-      //     // eslint-disable-next-line no-param-reassign
-      //     component.ports = ports;
-      //     // eslint-disable-next-line no-param-reassign
-      //     component.domains = '[""]';
-      //   });
-      // } else {
-      this.specificationVersion = 7;
-      this.composeTemplate = this.composeTemplatev7;
-      this.appRegistrationSpecification = this.appRegistrationSpecificationV7Template;
-      this.appRegistrationSpecification.compose.forEach((component) => {
-        const ports = this.getRandomPort();
-        // eslint-disable-next-line no-param-reassign
-        component.ports = ports;
-        // eslint-disable-next-line no-param-reassign
-        component.domains = '[""]';
-      });
-      const zelidauth = localStorage.getItem('zelidauth');
-      const auth = qs.parse(zelidauth);
-      this.appRegistrationSpecification.owner = auth.zelid;
+      const daemonGetInfo = await DaemonService.getInfo();
+      if (daemonGetInfo.data.status === 'error') {
+        this.showToast('danger', daemonGetInfo.data.data.message || daemonGetInfo.data.data);
+      } else {
+        this.currentHeight = daemonGetInfo.data.data.blocks;
+        this.adjustExpireOptionsForBlockHeight();
+      }
+      if (!this.$router.currentRoute.params.appspecs) {
+        this.specificationVersion = 8;
+        this.composeTemplate = this.composeTemplatev8;
+        this.appRegistrationSpecification = this.appRegistrationSpecificationV8Template;
+        this.appRegistrationSpecification.compose.forEach((component) => {
+          const ports = this.getRandomPort();
+          // eslint-disable-next-line no-param-reassign
+          component.ports = ports;
+          // eslint-disable-next-line no-param-reassign
+          component.domains = '[""]';
+        });
+        const zelidauth = localStorage.getItem('zelidauth');
+        const auth = qs.parse(zelidauth);
+        this.appRegistrationSpecification.owner = auth.zelid;
+      }
+    },
+
+    adjustExpireOptionsForBlockHeight() {
+      // After block 2020000, the chain works 4 times faster
+      // So all expire periods (in blocks) need to be multiplied by 4x
+      if (this.currentHeight >= 2020000) {
+        this.expireOptions = [
+          {
+            value: 20000,
+            label: '1 week',
+            time: 7 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 44000,
+            label: '2 weeks',
+            time: 14 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 88000,
+            label: '1 month',
+            time: 30 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 264000,
+            label: '3 months',
+            time: 90 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 528000,
+            label: '6 months',
+            time: 180 * 24 * 60 * 60 * 1000,
+          },
+          {
+            value: 1056000,
+            label: '1 year',
+            time: 365 * 24 * 60 * 60 * 1000,
+          },
+        ];
+        this.minExpire = 20000;
+        this.maxExpire = 1056000;
+      }
     },
 
     async initSignFluxSSO() {
@@ -3037,28 +3455,65 @@ export default {
           return;
         }
         this.signature = signSSO.data.signature;
+        this.showToast('success', 'Message signed.');
       } catch (error) {
         this.showToast('warning', 'Failed to sign message, please try again.');
       }
     },
-
-    async initiateSignWS() {
-      if (this.dataToSign.length > 1800) {
-        const message = this.dataToSign;
-        // upload to flux storage
-        const data = {
-          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
-          public: message,
-        };
-        await axios.post(
-          'https://storage.runonflux.io/v1/public',
-          data,
-        );
-        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
-        window.location.href = zelProtocol;
-      } else {
-        window.location.href = `zel:?action=sign&message=${this.dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+    initZelcorePay() {
+      try {
+        const protocol = `zel:?action=pay&coin=zelcash&address=${this.deploymentAddress}&amount=${this.applicationPrice}&message=${this.registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
       }
+    },
+    async initZelcore() {
+      try {
+        const protocol = `zel:?action=sign&message=${this.dataToSign}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else if (this.dataToSign.length > 1800) {
+          const message = this.dataToSign;
+          // upload to flux storage
+          const data = {
+            publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+            public: message,
+          };
+          await axios.post(
+            'https://storage.runonflux.io/v1/public',
+            data,
+          );
+          const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = zelProtocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
+      }
+    },
+    async initiateSignWS() {
+      await this.initZelcore();
       const self = this;
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
@@ -3710,6 +4165,7 @@ export default {
      */
     async encryptMessage(message, encryptionKeys) {
       try {
+        const openpgp = await getOpenPGP();
         const publicKeys = await Promise.all(encryptionKeys.map((armoredKey) => openpgp.readKey({ armoredKey })));
         console.log(encryptionKeys);
         console.log(message);
@@ -3998,7 +4454,7 @@ export default {
             this.appRegistrationSpecification.expire = this.ensureNumber(specs.expire || 22000);
             this.expirePosition = this.getExpirePosition(this.appRegistrationSpecification.expire);
           }
-          if (this.appRegistrationSpecification.version >= 7) {
+          if (this.appRegistrationSpecification.version === 7) {
             this.appRegistrationSpecification.staticip = this.appRegistrationSpecification.staticip ?? false;
             this.appRegistrationSpecification.nodes = this.appRegistrationSpecification.nodes || [];
             if (this.appRegistrationSpecification.nodes && this.appRegistrationSpecification.nodes.length) {
@@ -4035,6 +4491,26 @@ export default {
                 }
               } else {
                 this.showToast('danger', 'Failed to load Enterprise Node List');
+              }
+            });
+          }
+          if (this.appRegistrationSpecification.version >= 8) {
+            this.appRegistrationSpecification.staticip = this.appRegistrationSpecification.staticip ?? false;
+            this.appRegistrationSpecification.nodes = this.appRegistrationSpecification.nodes || [];
+            if (this.appRegistrationSpecification.enterprise) {
+              this.isPrivateApp = true;
+              this.showToast('danger', 'This app was enterprise, all components information will not be migrated');
+            }
+            this.selectedEnterpriseNodes = [];
+            this.appRegistrationSpecification.nodes.forEach((node) => {
+              // add to selected node list
+              if (this.enterpriseNodes) {
+                const nodeFound = this.enterpriseNodes.find((entNode) => entNode.ip === node || node === `${entNode.txhash}:${entNode.outidx}`);
+                if (nodeFound) {
+                  this.selectedEnterpriseNodes.push(nodeFound);
+                }
+              } else {
+                this.showToast('danger', 'Failed to load Priority Node List');
               }
             });
           }
@@ -4386,5 +4862,10 @@ a:hover img {
     background-color: rgb(225, 224, 221);
   }
 }
+</style>
 
+<style>
+  .custom-modal-title {
+    color: #fff !important;
+  }
 </style>

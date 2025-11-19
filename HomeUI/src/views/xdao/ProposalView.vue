@@ -220,14 +220,29 @@
               <p>You haven't voted yet! You have a total of {{ myNumberOfVotes }} available.</p>
               <div>
                 <p>
-                  To vote you need to first sign a message with Zelcore with your Flux ID corresponding to your Flux Nodes.
+                  To vote you need to first sign a message with your wallet (Zelcore or SSP) with your Flux ID corresponding to your Flux Nodes.
                 </p>
-                <div>
-                  <a @click="initiateSignWS">
+                <div class="wallet-options">
+                  <a
+                    title="Sign with Zelcore"
+                    @click="initiateSignWS"
+                  >
                     <img
-                      class="zelidLogin"
+                      class="walletIcon"
                       src="@/assets/images/FluxID.svg"
                       alt="Flux ID"
+                      height="100%"
+                      width="100%"
+                    >
+                  </a>
+                  <a
+                    title="Sign with SSP"
+                    @click="initSSP"
+                  >
+                    <img
+                      class="walletIcon"
+                      :src="skin === 'dark' ? require('@/assets/images/ssp-logo-white.svg') : require('@/assets/images/ssp-logo-black.svg')"
+                      alt="SSP"
                       height="100%"
                       width="100%"
                     >
@@ -447,6 +462,10 @@ export default {
     const vm = getCurrentInstance().proxy;
     const config = computed(() => vm.$store.state.flux.config);
 
+    const {
+      skin,
+    } = useAppConfig();
+
     // Use toast
     const toast = useToast();
 
@@ -583,23 +602,72 @@ export default {
       console.log(evt);
     };
 
-    const initiateSignWS = async () => {
-      if (dataToSign.value.length > 1800) {
-        const message = dataToSign.value;
-        // upload to flux storage
-        const data = {
-          publicid: Math.floor((Math.random() * 999999999999999)).toString(),
-          public: message,
-        };
-        await axios.post(
-          'https://storage.runonflux.io/v1/public',
-          data,
-        );
-        const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`;
-        window.location.href = zelProtocol;
-      } else {
-        window.location.href = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`;
+    const showToast = (variant, title, icon = 'InfoIcon') => {
+      toast({
+        component: ToastificationContent,
+        props: {
+          title,
+          icon,
+          variant,
+        },
+      });
+    };
+
+    const initZelcore = async () => {
+      try {
+        const protocol = `zel:?action=sign&message=${dataToSign.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`;
+        if (window.zelcore) {
+          window.zelcore.protocol(protocol);
+        } else if (dataToSign.value.length > 1800) {
+          const message = dataToSign.value;
+          // upload to flux storage
+          const data = {
+            publicid: Math.floor((Math.random() * 999999999999999)).toString(),
+            public: message,
+          };
+          await axios.post(
+            'https://storage.runonflux.io/v1/public',
+            data,
+          );
+          const zelProtocol = `zel:?action=sign&message=FLUX_URL=https://storage.runonflux.io/v1/public/${data.publicid}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValueSign()}`;
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = zelProtocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocol;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        showToast('danger', error.message);
       }
+    };
+
+    const initSSP = async () => {
+      try {
+        if (!window.ssp) {
+          showToast('danger', 'SSP Wallet not installed');
+          return;
+        }
+        const responseData = await window.ssp.request('sspwid_sign_message', { message: dataToSign.value });
+        if (responseData.status === 'ERROR') {
+          throw new Error(responseData.data || responseData.result);
+        }
+        signature.value = responseData.signature;
+        userZelid.value = responseData.address;
+      } catch (error) {
+        showToast('danger', error.message);
+      }
+    };
+
+    const initiateSignWS = async () => {
+      await initZelcore();
       const { protocol, hostname, port } = window.location;
       let mybackend = '';
       mybackend += protocol;
@@ -676,17 +744,6 @@ export default {
       }
       getProposalDetails();
     });
-
-    const showToast = (variant, title, icon = 'InfoIcon') => {
-      toast({
-        component: ToastificationContent,
-        props: {
-          title,
-          icon,
-          variant,
-        },
-      });
-    };
 
     const vote = async (voteType) => {
       const data = {
@@ -855,6 +912,7 @@ export default {
       vote,
 
       initiateSignWS,
+      initSSP,
       callbackValueSign,
 
       myVote,
@@ -870,6 +928,7 @@ export default {
       onMessage,
 
       userZelid,
+      skin,
     };
   },
 };
@@ -886,6 +945,25 @@ export default {
   height: 100px;
 }
 .zelidLogin img {
+  -webkit-app-region: no-drag;
+  transition: 0.1s;
+}
+
+.wallet-options {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+.walletIcon {
+  height: 80px;
+  width: 80px;
+  padding: 5px;
+}
+
+.walletIcon img {
   -webkit-app-region: no-drag;
   transition: 0.1s;
 }

@@ -171,6 +171,7 @@ describe('idService tests', () => {
       readdirSyncStub.returns(['file1', 'file2']);
       statSyncStub.returns({
         size: 1000000,
+        isDirectory: sinon.fake(() => false),
       });
 
       const result = await fluxshareService.getFluxShareSize(dirPath, arrayOfFiles);
@@ -198,6 +199,7 @@ describe('idService tests', () => {
       readdirSyncStub.returns(['file1', 'file2']);
       statSyncStub.returns({
         size: 1000000,
+        isDirectory: sinon.fake(() => false),
       });
 
       const result = await fluxshareService.getFluxShareSpecificFolderSize(dirPath, arrayOfFiles);
@@ -1027,11 +1029,15 @@ describe('idService tests', () => {
           test: 'test2',
         },
       };
-      sinon.stub(fs.promises, 'access').throws('error');
+
+      const expected = {
+        status: 'error',
+        data: { code: undefined, name: 'Error', message: 'No File specified' },
+      };
 
       await fluxshareService.fluxShareFileExists(req, res);
 
-      sinon.assert.calledOnceWithExactly(res.json, { status: 'success', data: { fileExists: false } });
+      sinon.assert.calledOnceWithExactly(res.write, JSON.stringify(expected));
     });
   });
 
@@ -1305,6 +1311,7 @@ describe('idService tests', () => {
       sinon.stub(fs, 'readdirSync').returns(['file1', 'file2']);
       sinon.stub(fs, 'statSync').returns({
         size: 1000000,
+        isDirectory: sinon.fake(() => false),
       });
     });
 

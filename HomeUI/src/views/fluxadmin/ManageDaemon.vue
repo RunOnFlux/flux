@@ -2,6 +2,7 @@
   <div>
     <b-row class="match-height">
       <b-col
+        v-if="!isArcane"
         sm="12"
         lg="6"
       >
@@ -28,7 +29,7 @@
       </b-col>
       <b-col
         sm="12"
-        lg="6"
+        :lg="!isArcane ? 12 : 6"
       >
         <b-card title="Manage Process">
           <b-card-text class="mb-3">
@@ -191,12 +192,28 @@ export default {
   data() {
     return {
       rescanDaemonHeight: 0,
+      isArcane: false,
     };
   },
   mounted() {
     this.checkDaemonVersion();
+    this.fetchFluxInfo();
   },
   methods: {
+    async fetchFluxInfo() {
+      try {
+        const response = await FluxService.getFluxInfo();
+        const version = response?.data?.data?.flux?.arcaneVersion;
+
+        if (version) {
+          this.isArcane = true;
+        } else {
+          this.isArcane = false;
+        }
+      } catch (err) {
+        console.error('Failed to fetch Flux info:', err);
+      }
+    },
     checkDaemonVersion() {
       DaemonService.getInfo()
         .then((daemonResponse) => {

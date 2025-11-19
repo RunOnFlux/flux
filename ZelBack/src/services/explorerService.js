@@ -1,4 +1,5 @@
 const config = require('config');
+const EventEmitter = require('node:events');
 
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -6,12 +7,16 @@ const dbHelper = require('./dbHelper');
 const verificationHelper = require('./verificationHelper');
 const messageHelper = require('./messageHelper');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
+const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceAddressRpcs = require('./daemonService/daemonServiceAddressRpcs');
 const daemonServiceTransactionRpcs = require('./daemonService/daemonServiceTransactionRpcs');
-const daemonServiceControlRpcs = require('./daemonService/daemonServiceControlRpcs');
 const daemonServiceBlockchainRpcs = require('./daemonService/daemonServiceBlockchainRpcs');
-const appsService = require('./appsService');
+const chainUtilities = require('./utils/chainUtilities');
+const messageVerifier = require('./appMessaging/messageVerifier');
+const registryManager = require('./appDatabase/registryManager');
+const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const benchmarkService = require('./benchmarkService');
+const fluxNetworkhelper = require('./fluxNetworkHelper');
 
 const coinbaseFusionIndexCollection = config.database.daemon.collections.coinbaseFusionIndex; // fusion
 const utxoIndexCollection = config.database.daemon.collections.utxoIndex;
@@ -19,15 +24,49 @@ const appsHashesCollection = config.database.daemon.collections.appsHashes;
 const addressTransactionIndexCollection = config.database.daemon.collections.addressTransactionIndex;
 const scannedHeightCollection = config.database.daemon.collections.scannedHeight;
 const chainParamsMessagesCollection = config.database.chainparams.collections.chainMessages;
+
 let blockProccessingCanContinue = true;
 let someBlockIsProcessing = false;
 let isInInitiationOfBP = false;
 let operationBlocked = false;
 let initBPfromNoBlockTimeout;
 let initBPfromErrorTimeout;
+let appsTransactions = [];
+let isSynced = false;
+let cachedDaemonVersion = null; // Cache for daemon version
 
 // updateFluxAppsPeriod can be between every 4 to 9 blocks
-const updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+let updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+
+const blockEmitter = new EventEmitter();
+
+function getBlockEmitter() {
+  return blockEmitter;
+}
+
+/**
+ * To get and cache the daemon version
+ * @returns {Promise<number>} Daemon version number
+ */
+async function getDaemonVersion() {
+  if (cachedDaemonVersion !== null) {
+    return cachedDaemonVersion;
+  }
+
+  try {
+    const daemonInfo = await daemonServiceControlRpcs.getInfo();
+    if (daemonInfo.status === 'success' && daemonInfo.data && daemonInfo.data.version) {
+      cachedDaemonVersion = daemonInfo.data.version;
+      return cachedDaemonVersion;
+    }
+  } catch (error) {
+    log.warn(`Failed to get daemon version: ${error.message}`);
+  }
+
+  // Default to 0 if unable to get version
+  cachedDaemonVersion = 0;
+  return cachedDaemonVersion;
+}
 
 /**
  * To return the sender's transaction info from the daemon service.
@@ -232,7 +271,7 @@ function decodeMessage(asm) {
  * @param {string} message Already decoded message.
  */
 async function processSoftFork(txid, height, message) {
-  // let it throw to stop block processing
+  // Process soft fork messages - errors are caught in calling functions
   const splittedMess = message.split('_');
   const version = splittedMess[0];
   if (!version || splittedMess.length < 2) {
@@ -266,7 +305,6 @@ async function processSoftFork(txid, height, message) {
 async function processInsight(blockDataVerbose, database) {
   // get Block Deltas information
   const txs = blockDataVerbose.tx;
-  const appsTransactions = [];
   // go through each transaction in deltas
   // eslint-disable-next-line no-restricted-syntax
   for (const tx of txs) {
@@ -301,7 +339,7 @@ async function processInsight(blockDataVerbose, database) {
       });
       if (isFluxAppMessageValue) {
         // eslint-disable-next-line no-await-in-loop
-        const appPrices = await appsService.getChainParamsPriceUpdates();
+        const appPrices = await chainUtilities.getChainParamsPriceUpdates();
         const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
         const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         // MAY contain App transaction. Store it.
@@ -341,34 +379,77 @@ async function processInsight(blockDataVerbose, database) {
       // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
-        // eslint-disable-next-line no-await-in-loop
-        await processSoftFork(tx.txid, blockDataVerbose.height, message);
-      }
-    }
-  }
-  if (appsTransactions.length > 0) {
-    const options = {
-      ordered: false, // If false, continue with remaining inserts when one fails.
-    };
-    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
-      while (appsTransactions.length > 500) {
-        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
-      }
-      if (appsTransactions.length > 0) {
-        appsService.checkAndRequestMultipleApps(appsTransactions);
-      }
-    } else {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const tx of appsTransactions) {
-        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        } catch (error) {
+          log.error('Error processing soft fork message:', error);
+          // Continue processing other transactions even if soft fork processing fails
+        }
       }
     }
   }
 }
 
+async function insertTransactions(transactions, database) {
+  if (transactions.length > 0) {
+    log.info(`Explorer - insertTransactions - Inserting ${transactions.length} transactions to apps hashes collection`);
+    try {
+      const options = {
+        ordered: false,
+      };
+      await dbHelper.insertManyToDatabase(database, appsHashesCollection, transactions, options);
+    } catch (error) {
+      log.error(`Explorer- insertTransactions - Inserting ${transactions.length} - transactions error - ${error}`);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const transaction of transactions) {
+        try {
+          const query = { hash: transaction.hash, height: transaction.height };
+          const update = { $set: transaction };
+          const options = {
+            upsert: true,
+          };
+          // eslint-disable-next-line no-await-in-loop
+          await dbHelper.updateOneInDatabase(database, appsHashesCollection, query, update, options);
+        } catch (errorTx) {
+          log.error(`Explorer - insertTransactions - Inserting ${transaction.hash} - transaction error - ${errorTx}`);
+        }
+      }
+    }
+    appsTransactions = [];
+  }
+}
+
+/**
+ * To process transactions inserts on database and calling app messages.
+ * @param {array} apps array with appstransactions to be processed.
+ * @param {string} database Database.
+ */
+async function insertAndRequestAppHashes(apps, database) {
+  if (apps.length > 0) {
+    await insertTransactions(apps, database);
+    setTimeout(async () => {
+      const appsToRemove = [];
+      // eslint-disable-next-line no-restricted-syntax
+      for (const app of apps) {
+        // eslint-disable-next-line no-await-in-loop
+        const messageReceived = await messageVerifier.checkAndRequestApp(app.hash, app.txid, app.height, app.value, 2);
+        if (messageReceived) {
+          appsToRemove.push(app);
+        }
+      }
+      apps.filter((item) => !appsToRemove.includes(item));
+      while (apps.length > 500) {
+        messageVerifier.checkAndRequestMultipleApps(apps.splice(0, 500));
+        // eslint-disable-next-line no-await-in-loop
+        await serviceHelper.delay(30 * 1000); // delay 30 seconds
+      }
+      if (apps.length > 0) {
+        messageVerifier.checkAndRequestMultipleApps(apps);
+      }
+    }, 1);
+  }
+}
 /**
  * To process verbose block data for entry to database.
  * @param {object} blockDataVerbose Verbose block data.
@@ -377,7 +458,6 @@ async function processInsight(blockDataVerbose, database) {
 async function processStandard(blockDataVerbose, database) {
   // get Block transactions information
   const transactions = await processBlockTransactions(blockDataVerbose.tx, blockDataVerbose.height);
-  const appsTransactions = [];
   // now we have verbose transactions of the block extended for senders - object of
   // utxoDetail = { txid, vout, height, address, satoshis, scriptPubKey )
   // and can create addressTransactionIndex.
@@ -427,7 +507,7 @@ async function processStandard(blockDataVerbose, database) {
         await dbHelper.updateOneInDatabase(database, addressTransactionIndexCollection, query, update, options);
       }));
       if (isFluxAppMessageValue) {
-        const appPrices = await appsService.getChainParamsPriceUpdates();
+        const appPrices = await chainUtilities.getChainParamsPriceUpdates();
         const intervals = appPrices.filter((i) => i.height < blockDataVerbose.height);
         const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
         // MAY contain App transaction. Store it.
@@ -466,31 +546,15 @@ async function processStandard(blockDataVerbose, database) {
       // check for softForks
       const isSoftFork = isSenderFoundation && isReceiverFounation && message;
       if (isSoftFork) {
-        await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        try {
+          await processSoftFork(tx.txid, blockDataVerbose.height, message);
+        } catch (error) {
+          log.error('Error processing soft fork message:', error);
+          // Continue processing other transactions even if soft fork processing fails
+        }
       }
     }
   }));
-  if (appsTransactions.length > 0) {
-    const options = {
-      ordered: false, // If false, continue with remaining inserts when one fails.
-    };
-    await dbHelper.insertManyToDatabase(database, appsHashesCollection, appsTransactions, options);
-    if (blockDataVerbose.height >= config.fluxapps.fluxAppRequestV2) {
-      while (appsTransactions.length > 500) {
-        appsService.checkAndRequestMultipleApps(appsTransactions.splice(0, 500));
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay((5 + (Math.random() * 5)) * 1000); // delay random from 5 to up 10 seconds
-      }
-      if (appsTransactions.length > 0) {
-        appsService.checkAndRequestMultipleApps(appsTransactions);
-      }
-    } else {
-      // eslint-disable-next-line no-restricted-syntax
-      for (const tx of appsTransactions) {
-        appsService.checkAndRequestApp(tx.hash, tx.txid, tx.height, tx.value);
-      }
-    }
-  }
 }
 
 /**
@@ -517,13 +581,20 @@ async function processBlock(blockHeight, isInsightExplorer) {
     if (blockDataVerbose.height % 50 === 0) {
       log.info(`Processing Explorer Block Height: ${blockDataVerbose.height}`);
     }
+    if (isInsightExplorer && blockDataVerbose.height > 699420 && blockDataVerbose.height < 862002) {
+      // speed up sync as there were no app messages between these two blocks
+      processBlock(862002, isInsightExplorer);
+      return;
+    }
     if (isInsightExplorer) {
       // only process Flux transactions
       await processInsight(blockDataVerbose, database);
     } else {
       await processStandard(blockDataVerbose, database);
     }
-    if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
+    // After fork block, chain runs 4x faster, so multiply periods by 4
+    const speedMultiplier = blockHeight >= config.fluxapps.daemonPONFork ? 4 : 1;
+    if (blockHeight % (config.fluxapps.expireFluxAppsPeriod * speedMultiplier) === 0) {
       if (!isInsightExplorer) {
         const result = await dbHelper.collectionStats(database, utxoIndexCollection);
         const resultB = await dbHelper.collectionStats(database, addressTransactionIndexCollection);
@@ -533,40 +604,7 @@ async function processBlock(blockHeight, isInsightExplorer) {
         log.info(`Fusion documents: ${resultFusion.size}, ${resultFusion.count}, ${resultFusion.avgObjSize}`);
       }
     }
-    // this should run only when node is synced
-    const isSynced = !(blockDataVerbose.confirmations >= 2);
-    if (isSynced) {
-      if (blockHeight % config.fluxapps.expireFluxAppsPeriod === 0) {
-        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-          appsService.expireGlobalApplications();
-        }
-      }
-      if (blockHeight % config.fluxapps.removeFluxAppsPeriod === 0) {
-        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-          appsService.checkAndRemoveApplicationInstance();
-        }
-      }
-      if (blockHeight % updateFluxAppsPeriod === 0) {
-        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
-          appsService.reinstallOldApplications();
-        }
-      }
-      if (blockDataVerbose.height % config.fluxapps.reconstructAppMessagesHashPeriod === 0) {
-        try {
-          appsService.reconstructAppMessagesHashCollection();
-          log.info('Validation of App Messages Hash Collection');
-        } catch (error) {
-          log.error(error);
-        }
-      }
-      if (blockDataVerbose.height % config.fluxapps.benchUpnpPeriod === 0) {
-        try {
-          benchmarkService.executeUpnpBench();
-        } catch (error) {
-          log.error(error);
-        }
-      }
-    }
+
     const scannedHeight = blockDataVerbose.height;
     // update scanned Height in scannedBlockHeightCollection
     const query = { generalScannedHeight: { $gte: 0 } };
@@ -574,17 +612,79 @@ async function processBlock(blockHeight, isInsightExplorer) {
     const options = {
       upsert: true,
     };
-    await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    // this should run only when node is synced
+    isSynced = !(blockDataVerbose.confirmations >= 2);
+    if (isSynced) {
+      blockEmitter.emit('blockReceived', scannedHeight);
+
+      if (blockHeight % (2 * speedMultiplier) === 0) {
+        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+          await registryManager.expireGlobalApplications();
+        }
+      }
+      if (blockHeight % (config.fluxapps.removeFluxAppsPeriod * speedMultiplier) === 0) {
+        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+          advancedWorkflows.checkAndRemoveApplicationInstance();
+        }
+      }
+      if (blockHeight % (updateFluxAppsPeriod * speedMultiplier) === 0) {
+        if (blockDataVerbose.height >= config.fluxapps.epochstart) {
+          advancedWorkflows.reinstallOldApplications();
+          updateFluxAppsPeriod = Math.floor(Math.random() * 6 + 4);
+        }
+      }
+      if (blockDataVerbose.height % (config.fluxapps.reconstructAppMessagesHashPeriod * speedMultiplier) === 0) {
+        try {
+          registryManager.reconstructAppMessagesHashCollection();
+          log.info('Validation of App Messages Hash Collection');
+        } catch (error) {
+          log.error(error);
+        }
+      }
+      if (blockDataVerbose.height % (config.fluxapps.benchUpnpPeriod * speedMultiplier) === 0) {
+        try {
+          // every node behind the same ip will benchmark at the same time. I.e.
+          // we spread the network out (grouped by ip) over 4 hours so we don't
+          // absolutely hammer the speedtest servers at the same time.
+          const maxBenchDelay = 4 * 3_600_000;
+          const socketAddress = await fluxNetworkhelper.getMyFluxIPandPort();
+
+          // socketAddress can be null. If it is, we just use an empty string. This
+          // has the effect of creating an initializer of just the block number. If
+          // this happens, every node on the network that uses the block number will
+          // run the bench at the same time. However this is an extreme edge case, as
+          // all nodes should just return the ip.
+          const ip = socketAddress ? socketAddress.split(':')[0] : '';
+          // This is: string + number = string
+          const initializer = ip + blockDataVerbose.height;
+          const benchDelayMs = serviceHelper.randomDelayMs(maxBenchDelay, { initializer });
+          const benchDelayS = Math.round((benchDelayMs / 1000) * 100) / 100;
+
+          log.info(`Random seed: ${initializer}. Starting multiport bench in: ${benchDelayS}s`);
+
+          setTimeout(benchmarkService.executeUpnpBench, benchDelayMs);
+        } catch (error) {
+          log.error(error);
+        }
+      }
+      await insertAndRequestAppHashes(appsTransactions, database, true);
+      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    } else if (blockDataVerbose.height % 500 === 0) {
+      log.info(`Processing Explorer Number of Transactions: ${appsTransactions.length}.`);
+      await registryManager.expireGlobalApplications(); // in case node was shutdown for a while and it is started
+      await insertTransactions(appsTransactions, database);
+      await dbHelper.updateOneInDatabase(database, scannedHeightCollection, query, update, options);
+    }
     someBlockIsProcessing = false;
     if (blockProccessingCanContinue) {
       if (blockDataVerbose.confirmations > 1) {
         processBlock(blockDataVerbose.height + 1, isInsightExplorer);
       } else {
-        const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
-        let daemonHeight = 0;
-        if (daemonGetInfo.status === 'success') {
-          daemonHeight = daemonGetInfo.data.blocks;
+        const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
+        if (daemonBlockCount.status !== 'success') {
+          throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
         }
+        const daemonHeight = daemonBlockCount.data;
         if (daemonHeight > blockDataVerbose.height) {
           processBlock(blockDataVerbose.height + 1, isInsightExplorer);
         } else {
@@ -652,6 +752,7 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
   return true;
 }
 
+let lastchainTipCheck = 0;
 /**
  * To start the block processor.
  * @param {boolean} restoreDatabase True if database is to be restored.
@@ -679,16 +780,21 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
     }
     // fix for a node if they have corrupted global app list
     if (scannedBlockHeight >= config.fluxapps.epochstart) {
-      const globalAppsSpecs = await appsService.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
+      const globalAppsSpecs = await registryManager.getAllGlobalApplications(['height']); // already sorted from oldest lowest height to newest highest height
+
       if (globalAppsSpecs.length >= 2) {
-        const defaultExpire = config.fluxapps.blocksLasting;
+        // Account for PON fork - chain is 4x faster after fork
+        const defaultExpire = scannedBlockHeight >= config.fluxapps.daemonPONFork
+          ? config.fluxapps.blocksLasting * 4
+          : config.fluxapps.blocksLasting;
         const minBlockheightDifference = defaultExpire * 0.9; // it is highly unlikely that there was no app registration or an update for default of 2200 blocks ~3days
-        const blockDifference = globalAppsSpecs[globalAppsSpecs.length - 1] - globalAppsSpecs[0]; // most recent app - oldest app
+        const oldestAppHeight = globalAppsSpecs[0].height;
+        const youngestAppHeight = globalAppsSpecs.pop().height;
+        const blockDifference = youngestAppHeight - oldestAppHeight;
+
         if (blockDifference < minBlockheightDifference) {
-          await appsService.reindexGlobalAppsInformation();
+          await registryManager.reindexGlobalAppsInformation();
         }
-      } else {
-        await appsService.reindexGlobalAppsInformation();
       }
     }
     const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
@@ -702,13 +808,11 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       return;
     }
     isInInitiationOfBP = true;
-    const daemonGetInfo = await daemonServiceControlRpcs.getInfo();
-    let daemonHeight = 0;
-    if (daemonGetInfo.status === 'success') {
-      daemonHeight = daemonGetInfo.data.blocks;
-    } else {
-      throw new Error(daemonGetInfo.data.message || daemonGetInfo.data);
+    const daemonBlockCount = await daemonServiceBlockchainRpcs.getBlockCount();
+    if (daemonBlockCount.status !== 'success') {
+      throw new Error(daemonBlockCount.data.message || daemonBlockCount.data);
     }
+    const daemonHeight = daemonBlockCount.data;
     // get scanned height from our database;
     // get height from blockchain?
     if (scannedBlockHeight === 0) {
@@ -782,7 +886,17 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
             throw error;
           }
         });
-        log.info(resultE, resultF, resultG);
+        const resultH = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingLocations).catch((error) => {
+          if (error.message !== 'ns not found') {
+            throw error;
+          }
+        });
+        const resultI = await dbHelper.dropCollection(databaseGlobal, config.database.appsglobal.collections.appsInstallingErrorsLocations).catch((error) => {
+          if (error.message !== 'ns not found') {
+            throw error;
+          }
+        });
+        log.info(resultE, resultF, resultG, resultH, resultI);
       }
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ hash: 1 }, { name: 'query for getting zelapp message based on hash', unique: true });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ txid: 1 }, { name: 'query for getting zelapp message based on txid' });
@@ -793,6 +907,8 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.name': 1 }, { name: 'query for getting app message based on zelapp specs name' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.owner': 1 }, { name: 'query for getting app message based on zelapp specs owner' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.repotag': 1 }, { name: 'query for getting app message based on image' });
+      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.version': 1 }, { name: 'query for getting app message based on version' });
+      await databaseGlobal.collection(config.database.appsglobal.collections.appsMessages).createIndex({ 'appSpecifications.nodes': 1 }, { name: 'query for getting app message based on nodes' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ name: 1 }, { name: 'query for getting zelapp based on zelapp specs name' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ owner: 1 }, { name: 'query for getting zelapp based on zelapp specs owner' });
       await databaseGlobal.collection(config.database.appsglobal.collections.appsInformation).createIndex({ repotag: 1 }, { name: 'query for getting zelapp based on image' });
@@ -803,6 +919,11 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ ip: 1 }, { name: 'query for getting zelapp location based on ip' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting app based on ip and name' });
       await database.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1, ip: 1, broadcastedAt: 1 }, { name: 'query for getting app to ensure we possess a message' });
+      await database.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp install location based on zelapp specs name' });
+      await database.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
+      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install errors location based on specs name' });
+      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash' });
+      await database.collection(config.database.appsglobal.collections.appsInstallingErrorsLocations).createIndex({ name: 1, hash: 1, ip: 1 }, { name: 'query for getting flux app install errors location based on specs name and hash and node ip' });
       // what if 2 app adjustment come in the same block?
       // log.info(resultE, resultF);
       log.info('Preparation done');
@@ -831,41 +952,6 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
           log.error('Error restoring database!');
           throw e;
         }
-      } else if (scannedBlockHeight > config.daemon.chainValidHeight) {
-        const daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
-        if (daemonGetChainTips.status !== 'success') {
-          throw new Error(daemonGetChainTips.data.message || daemonGetInfo.data);
-        }
-        const reorganisations = daemonGetChainTips.data;
-        // database can be off for up to 2 blocks compared to daemon
-        const reorgDepth = scannedBlockHeight - 2;
-        const reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height === reorgDepth);
-        let rescanDepth = 0;
-        // if more valid forks on the same height. Restore from the longest one
-        reorgs.forEach((reorg) => {
-          if (reorg.branchlen > rescanDepth) {
-            rescanDepth = reorg.branchlen;
-          }
-        });
-        if (rescanDepth > 0) {
-          try {
-            // restore rescanDepth + 2 more blocks back
-            rescanDepth += 2;
-            log.warn(`Potential chain reorganisation spotted at height ${reorgDepth}. Rescanning last ${rescanDepth} blocks...`);
-            scannedBlockHeight = Math.max(scannedBlockHeight - rescanDepth, 0);
-            await restoreDatabaseToBlockheightState(scannedBlockHeight, reindexOrRescanGlobalApps);
-            const queryHeight = { generalScannedHeight: { $gte: 0 } };
-            const update = { $set: { generalScannedHeight: scannedBlockHeight } };
-            const options = {
-              upsert: true,
-            };
-            await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, update, options);
-            log.info('Database restored OK');
-          } catch (e) {
-            log.error('Error restoring database!');
-            throw e;
-          }
-        }
       }
       isInInitiationOfBP = false;
       const isInsightExplorer = daemonServiceMiscRpcs.isInsightExplorer();
@@ -877,11 +963,85 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
         }
       }
       processBlock(scannedBlockHeight + 1, isInsightExplorer);
+    } else if (scannedBlockHeight >= config.daemon.chainValidHeight && lastchainTipCheck !== 0 && lastchainTipCheck + 100 < scannedBlockHeight) {
+      log.info(`Explorer - Checking for chain reorganisations - lastchainTipCheck: ${lastchainTipCheck} scannedBlockHeight: ${scannedBlockHeight}`);
+
+      // Check daemon version and conditionally pass parameter to getChainTips
+      const daemonVersion = await getDaemonVersion();
+      let daemonGetChainTips;
+
+      if (daemonVersion > 7020050) {
+        // For newer daemon versions, pass the minheight parameter
+        const req = {
+          params: {
+            minheight: lastchainTipCheck + 1,
+          },
+        };
+        daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips(req);
+      } else {
+        // For older versions, call without parameters
+        daemonGetChainTips = await daemonServiceBlockchainRpcs.getChainTips();
+      }
+
+      if (daemonGetChainTips.status !== 'success') {
+        throw new Error(daemonGetChainTips.data.message || daemonGetChainTips.data);
+      }
+
+      const reorganisations = daemonGetChainTips.data;
+      let reorgs = reorganisations.filter((reorg) => reorg.status === 'valid-fork' && reorg.height >= lastchainTipCheck + 1);
+      let rescanDepth = 0;
+      if (reorgs.length > 1) {
+        reorgs = reorgs.sort((a, b) => a.height - b.height);
+      }
+
+      let reorgBlockHeight;
+      let finished = false;
+      let index = 0;
+      // if more valid forks on the same height. Restore from the longest one
+      while (!finished && index < reorgs.length) {
+        const reorg = reorgs[index];
+        if (!reorgBlockHeight || (reorg.height === reorgBlockHeight && reorg.branchlen > rescanDepth)) {
+          rescanDepth = reorg.branchlen;
+          reorgBlockHeight = reorg.height;
+        } else {
+          finished = true;
+        }
+        index += 1;
+      }
+      if (rescanDepth > 0) {
+        try {
+          // restore rescanDepth + 2 more blocks back
+          rescanDepth += 2;
+          log.warn(`Potential chain reorganisation spotted at height ${reorgBlockHeight}. Rescanning last ${rescanDepth} blocks...`);
+          const blockToRescan = Math.max(reorgBlockHeight - rescanDepth, 0);
+          // eslint-disable-next-line no-use-before-define
+          await restoreDatabaseToBlockheightState(blockToRescan, reindexOrRescanGlobalApps);
+          const queryHeight = { generalScannedHeight: { $gte: 0 } };
+          const updateAux = { $set: { generalScannedHeight: blockToRescan } };
+          const optionsAux = {
+            upsert: true,
+          };
+          await dbHelper.updateOneInDatabase(database, scannedHeightCollection, queryHeight, updateAux, optionsAux);
+          log.info('Database restored OK');
+        } catch (e) {
+          log.error('Error restoring database!');
+          throw e;
+        }
+      }
+      isInInitiationOfBP = false;
+      lastchainTipCheck = scannedBlockHeight;
+      initBPfromNoBlockTimeout = setTimeout(() => {
+        // eslint-disable-next-line no-use-before-define
+        initiateBlockProcessor(false, false);
+      }, 5 * 1000);
     } else {
+      if (lastchainTipCheck === 0) {
+        lastchainTipCheck = scannedBlockHeight - 1;
+      }
       isInInitiationOfBP = false;
       initBPfromNoBlockTimeout = setTimeout(() => {
         initiateBlockProcessor(false, false);
-      }, 5000);
+      }, 5 * 1000);
     }
   } catch (error) {
     log.error(error);
@@ -1029,8 +1189,8 @@ async function getAllAddresses(req, res) {
  */
 async function getAddressUtxos(req, res) {
   try {
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
-    address = address || req.query.address;
+    let { address } = req?.params || {}; // we accept both help/command and help?command=getinfo
+    address = address || req?.query?.address;
     if (!address) {
       throw new Error('No address provided');
     }
@@ -1098,8 +1258,8 @@ async function getAddressFusionCoinbase(req, res) {
     if (isInsightExplorer) {
       throw new Error('Data unavailable. Deprecated');
     }
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
-    address = address || req.query.address;
+    let { address } = req?.params || {}; // we accept both help/command and help?command=getinfo
+    address = address || req?.query?.address;
     if (!address) {
       throw new Error('No address provided');
     }
@@ -1135,7 +1295,7 @@ async function getAddressFusionCoinbase(req, res) {
  */
 async function getAddressTransactions(req, res) {
   try {
-    let { address } = req.params; // we accept both help/command and help?command=getinfo
+    let { address } = req.params || {}; // we accept both help/command and help?command=getinfo
     address = address || req.query.address;
     if (!address) {
       throw new Error('No address provided');
@@ -1289,8 +1449,8 @@ async function reindexExplorer(req, res) {
   if (authorized === true) {
     // stop block processing
     const i = 0;
-    let { reindexapps } = req.params;
-    reindexapps = reindexapps ?? req.query.rescanapps ?? false;
+    let { reindexapps } = req?.params || {};
+    reindexapps = reindexapps ?? req?.query?.rescanapps ?? false;
     reindexapps = serviceHelper.ensureBoolean(reindexapps);
     checkBlockProcessingStopped(i, async (response) => {
       if (response.status === 'error') {
@@ -1384,8 +1544,8 @@ async function rescanExplorer(req, res) {
     const authorized = await verificationHelper.verifyPrivilege('adminandfluxteam', req);
     if (authorized === true) {
       // since what blockheight
-      let { blockheight } = req.params; // we accept both help/command and help?command=getinfo
-      blockheight = blockheight || req.query.blockheight;
+      let { blockheight } = req?.params || {}; // we accept both help/command and help?command=getinfo
+      blockheight = blockheight || req?.query?.blockheight;
       if (!blockheight) {
         const errMessage = messageHelper.createErrorMessage('No blockheight provided');
         res.json(errMessage);
@@ -1410,8 +1570,8 @@ async function rescanExplorer(req, res) {
       if (blockheight < 0) {
         throw new Error('BlockHeight lower than 0');
       }
-      let { rescanapps } = req.params;
-      rescanapps = rescanapps ?? req.query.rescanapps ?? false;
+      let { rescanapps } = req?.params || {};
+      rescanapps = rescanapps ?? req?.query?.rescanapps ?? false;
       rescanapps = serviceHelper.ensureBoolean(rescanapps);
       // stop block processing
       const i = 0;
@@ -1502,6 +1662,16 @@ async function getAddressBalance(req, res) {
   }
 }
 
+/**
+ * To get if explorer is synced.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function isExplorerSynced(req, res) {
+  const resMessage = messageHelper.createDataMessage(isSynced);
+  res.json(resMessage);
+}
+
 // testing purposes
 function setBlockProccessingCanContinue(value) {
   blockProccessingCanContinue = value;
@@ -1528,6 +1698,7 @@ module.exports = {
   getScannedHeight,
   getAllFusionCoinbase,
   getAddressFusionCoinbase,
+  getBlockEmitter,
 
   // exports for testing puproses
   getSenderTransactionFromDaemon,
@@ -1544,4 +1715,5 @@ module.exports = {
 
   // temporary function
   fixExplorer,
+  isExplorerSynced,
 };

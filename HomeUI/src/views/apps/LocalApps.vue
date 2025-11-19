@@ -507,6 +507,7 @@
                       <b-button-toolbar>
                         <b-button-group size="sm">
                           <b-button
+                            v-if="isFluxAdminLoggedIn()"
                             :id="`start-installed-app-${row.item.name}`"
                             v-b-tooltip.hover.top="'Start App'"
                             :disabled="isAppInList(row.item.name, tableconfig.running.apps)"
@@ -527,6 +528,7 @@
                             @confirm="startApp(row.item.name)"
                           />
                           <b-button
+                            v-if="isFluxAdminLoggedIn()"
                             :id="`stop-installed-app-${row.item.name}`"
                             v-b-tooltip.hover.top="'Stop App'"
                             size="sm"
@@ -547,6 +549,7 @@
                             @confirm="stopApp(row.item.name)"
                           />
                           <b-button
+                            v-if="isFluxAdminLoggedIn()"
                             :id="`restart-installed-app-${row.item.name}`"
                             v-b-tooltip.hover.top="'Restart App'"
                             size="sm"
@@ -677,6 +680,7 @@
                     :items="tableconfig.globalAvailable.apps"
                     :fields="isFluxAdminLoggedIn() ? tableconfig.globalAvailable.loggedInFields : tableconfig.globalAvailable.fields"
                     :filter="tableconfig.globalAvailable.filter"
+                    :filter-included-fields="['name']"
                     show-empty
                     sort-icon-left
                     empty-text="No Flux Apps Globally Available"
@@ -1243,6 +1247,7 @@
                     :sort-desc.sync="tableconfig.local.sortDesc"
                     :sort-direction="tableconfig.local.sortDirection"
                     :filter="tableconfig.local.filter"
+                    :filter-included-fields="['name']"
                     show-empty
                     sort-icon-left
                     :empty-text="'No Local Apps owned.'"
@@ -2276,12 +2281,26 @@ export default {
       if (this.daemonBlockCount === -1) {
         return 'Not possible to calculate expiration';
       }
-      const expires = expire || 22000;
-      const blocksToExpire = height + expires - this.daemonBlockCount;
+      const forkBlock = 2020000;
+      // After PON fork, default expire is 88000 blocks (4x22000)
+      const defaultExpire = height >= forkBlock ? 88000 : 22000;
+      const expires = expire || defaultExpire;
+      let effectiveExpiry = height + expires;
+
+      // If app was registered before the fork (block 2020000) and we're currently past the fork,
+      // adjust the expiry calculation since the blockchain moves 4x faster post-fork
+      if (height < forkBlock && this.daemonBlockCount >= forkBlock && effectiveExpiry > forkBlock) {
+        const remainingBlocksAfterFork = effectiveExpiry - forkBlock;
+        effectiveExpiry = forkBlock + (remainingBlocksAfterFork * 4);
+      }
+
+      const blocksToExpire = effectiveExpiry - this.daemonBlockCount;
       if (blocksToExpire < 1) {
         return 'Application Expired';
       }
-      const minutesRemaining = blocksToExpire * 2;
+      // Block time: 2 minutes before fork (block 2020000), 30 seconds (0.5 minutes) after fork
+      const minutesPerBlock = this.daemonBlockCount >= forkBlock ? 0.5 : 2;
+      const minutesRemaining = blocksToExpire * minutesPerBlock;
       const result = this.minutesToString(minutesRemaining);
       if (result.length > 2) {
         return `${result[0]}, ${result[1]}, ${result[2]}`;
@@ -2293,14 +2312,11 @@ export default {
     },
     async appsGetListGlobalApps() {
       this.tableconfig.globalAvailable.loading = true;
-      console.log('CALL1');
       const response = await AppsService.globalAppSpecifications();
       console.log(response);
-      console.log('CALL2');
       // remove marketplace apps from the list and extract
       // marketplace apps to parse the title
       const apps = response.data.data.sort((a, b) => (a.name.toLowerCase() > b.name.toLowerCase() ? 1 : -1));
-      console.log('CALL3');
       this.tableconfig.globalAvailable.apps = apps;
       this.tableconfig.globalAvailable.loading = false;
       this.tableconfig.globalAvailable.status = response.data.status;
@@ -2932,5 +2948,8 @@ export default {
   padding: 0.1em 0.6em;
   font-weight: 800;
   color: #FF0000;
+}
+.no-wrap {
+  white-space: nowrap !important;
 }
 </style>

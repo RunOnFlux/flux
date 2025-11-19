@@ -1,185 +1,198 @@
-/* eslint-disable no-underscore-dangle */
-const { LRUCache } = require('lru-cache');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
 const verificationHelper = require('./verificationHelper');
-const daemonServiceFluxnodeRpcs = require('./daemonService/daemonServiceFluxnodeRpcs');
-// default cache
-const LRUoptions = {
-  max: 20000, // currently 20000 nodes
-  ttl: 1000 * 240, // 240 seconds, allow up to 2 blocks
-  maxAge: 1000 * 240, // 240 seconds, allow up to 2 blocks
-};
-
-const myCache = new LRUCache(LRUoptions);
-
-let addingNodesToCache = false;
+const networkStateService = require('./networkStateService');
 
 /**
- * To constantly update deterministic Flux list every 2 minutes so we always trigger cache and have up to date value
+ * @typedef {{
+ *   version: number,
+ *   timestamp: number,
+ *   pubKey: string,
+ *   signature: string,
+ *   data : object,
+ * }} FluxNetworkMessage
  */
-async function constantlyUpdateDeterministicFluxList() {
-  try {
-    while (addingNodesToCache) {
-      // prevent several instances filling the cache at the same time.
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(100);
-    }
-    addingNodesToCache = true;
-    const request = {
-      params: {},
-      query: {},
-    };
-    const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(request);
-    if (daemonFluxNodesList.status === 'success') {
-      const generalFluxList = daemonFluxNodesList.data || [];
-      myCache.set('fluxList', generalFluxList);
-    }
-    addingNodesToCache = false;
-    await serviceHelper.delay(2 * 60 * 1000); // 2 minutes
-    constantlyUpdateDeterministicFluxList();
-  } catch (error) {
-    addingNodesToCache = false;
-    log.error(error);
-    await serviceHelper.delay(2 * 60 * 1000); // 2 minutes
-    constantlyUpdateDeterministicFluxList();
-  }
-}
 
 /**
- * To get deterministc Flux list from cache.
+ * To get deterministc Flux list from network state manager
  * @param {string} filter Filter. Can only be a publicKey.
- * @returns {(*|*)} Value of any type or an empty array of any type.
+ * @param {{filter?: string, sort?: boolean, addressOnly?: boolean}} options
+ * @returns {Promise<Array<Fluxnode>}
  */
-async function deterministicFluxList(filter) {
-  try {
-    while (addingNodesToCache) {
-      // prevent several instances filling the cache at the same time.
-      // eslint-disable-next-line no-await-in-loop
-      await serviceHelper.delay(100);
-    }
-    let fluxList;
-    if (filter) {
-      fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
-    } else {
-      fluxList = myCache.get('fluxList');
-    }
-    if (!fluxList) {
-      let generalFluxList = myCache.get('fluxList');
-      addingNodesToCache = true;
-      if (!generalFluxList) {
-        const request = {
-          params: {},
-          query: {},
-        };
-        const daemonFluxNodesList = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(request);
-        if (daemonFluxNodesList.status === 'success') {
-          generalFluxList = daemonFluxNodesList.data || [];
-          myCache.set('fluxList', generalFluxList);
-          if (filter) {
-            const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
-            myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
-          }
-        }
-      } else { // surely in filtered branch too
-        const filterFluxList = generalFluxList.filter((node) => node.pubkey === filter);
-        myCache.set(`fluxList${serviceHelper.ensureString(filter)}`, filterFluxList);
-      }
-      addingNodesToCache = false;
-      if (filter) {
-        fluxList = myCache.get(`fluxList${serviceHelper.ensureString(filter)}`);
-      } else {
-        fluxList = myCache.get('fluxList');
-      }
-    }
-    return fluxList || [];
-  } catch (error) {
-    log.error(error);
-    return [];
+async function deterministicFluxList(options = {}) {
+  const filter = options.filter || '';
+  const sort = options.sort || false;
+  const addressOnly = options.addressOnly || false;
+
+  await networkStateService.waitStarted();
+
+  if (!filter) {
+    const state = networkStateService.networkState({ sort });
+
+    if (!addressOnly) return state;
+
+    return state.reduce((filtered, node) => {
+      if (node.ip) filtered.push(node.ip);
+
+      return filtered;
+    }, []);
   }
+
+  const filtered = await networkStateService.getFluxnodesByPubkey(filter);
+
+  if (!filtered) return [];
+
+  const asArray = Array.from(filtered.values());
+
+  return asArray;
+}
+
+async function getNodeCount() {
+  await networkStateService.waitStarted();
+
+  const count = networkStateService.nodeCount();
+
+  return count;
 }
 
 /**
- * To verify Flux broadcast.
- * @param {object} data Data containing public key, timestamp, signature and version.
- * @param {object[]} obtainedFluxNodesList List of FluxNodes.
- * @param {number} currentTimeStamp Current timestamp.
- * @returns {boolean} False unless message is successfully verified.
+ *
+ * @param {string} socketAddress
+ * @returns {Proimse<Fluxnode | null}
  */
-async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp) {
-  const dataObj = serviceHelper.ensureObject(data);
-  const { pubKey } = dataObj;
-  const { timestamp } = dataObj; // ms
-  const { signature } = dataObj;
-  const { version } = dataObj;
-  // only version 1 is active
-  if (version !== 1) {
-    return false;
-  }
-  const message = serviceHelper.ensureString(dataObj.data);
-  // is timestamp valid ?
-  // eslint-disable-next-line no-param-reassign
-  currentTimeStamp = currentTimeStamp || Date.now(); // ms
-  if (currentTimeStamp < (timestamp - 120000)) { // message was broadcasted in the future. Allow 120 sec clock sync
-    log.error('Message from future');
+async function getFluxnodeFromFluxList(socketAddress) {
+  await networkStateService.waitStarted();
+
+  const node = await networkStateService.getFluxnodeBySocketAddress(socketAddress);
+
+  return node;
+}
+
+/**
+ *
+ * @param {string} socketAddress
+ * @returns {Proimse<boolean>}
+ */
+async function socketAddressInFluxList(socketAddress) {
+  await networkStateService.waitStarted();
+
+  const found = await networkStateService.socketAddressInNetworkState(socketAddress);
+
+  return found;
+}
+
+let counter = 0;
+let lastUpdate = 0;
+
+/**
+ * To verify a Flux broadcast message.
+ * @param {FluxNetworkMessage} broadcast Flux network layer message containing public key, timestamp, signature and version.
+ * @returns {Promise<boolean>} False unless message is successfully verified.
+ */
+async function verifyFluxBroadcast(broadcast) {
+  const {
+    pubKey, timestamp, signature, version, data: payload,
+  } = broadcast;
+
+  if (version !== 1) return false;
+
+  const message = serviceHelper.ensureString(payload);
+
+  if (!message) return false;
+
+  const { type: msgType } = payload;
+
+  if (!msgType) return false;
+
+  const now = Date.now();
+
+  // message was broadcasted in the future. Allow 120 sec clock sync
+  if (now < timestamp - 120_000) {
+    log.error('VerifyBroadcast: Message from future, rejecting');
     return false;
   }
 
-  let node = null;
-  if (obtainedFluxNodesList) { // for test purposes.
-    node = obtainedFluxNodesList.find((key) => key.pubkey === pubKey);
-    if (!node) {
-      return false;
+  counter += 1;
+  if (!lastUpdate) lastUpdate = process.hrtime.bigint();
+
+  // log message rate every 1000 messages. As of 090725 - approx 1-2 MSG/s
+  if (counter % 1000 === 0) {
+    counter = 0;
+    const nowHrtime = process.hrtime.bigint();
+    const elapsed = Number(nowHrtime - lastUpdate) / 1000_000_000;
+    const rate = 1000 / elapsed;
+    // rounds to 2dp
+    const rounded = Math.round((rate + Number.EPSILON) * 100) / 100;
+    lastUpdate = nowHrtime;
+
+    log.info(`Receiving broadcast message rate: ${rounded} MSG/s`);
+  }
+
+  let error = '';
+  let target = '';
+
+  switch (msgType) {
+    case 'fluxapprunning':
+      target = payload.ip;
+      // most of invalids are caused because our deterministic list is cached for couple of minutes
+      error = `Invalid fluxapprunning message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
+    case 'fluxappinstalling':
+      target = payload.ip;
+      error = `Invalid fluxappinstalling message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
+    case 'fluxappinstallingerror':
+      target = payload.ip;
+      error = `Invalid fluxappinstallingerror message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
+    case 'fluxipchanged':
+      target = payload.oldIP;
+      error = `Invalid fluxipchanged message, oldIP: ${payload.oldIP} pubkey: ${pubKey}`;
+      break;
+
+    case 'fluxappremoved':
+      target = payload.ip;
+      error = `Invalid fluxappremoved message, ip: ${payload.ip} pubkey: ${pubKey}`;
+      break;
+
+    // zelappregister zelappupdate fluxappregister fluxappupdate fluxapprequest
+    default: {
+      // this used to just take the first node. I.e:
+      //   node = zl.find((key) => key.pubkey === pubKey);
+      // however, that doesn't prove anything. So if we find the pubkey, good enough
+      // ideally - every message should also have the source ip
+      target = await networkStateService.getFluxnodesByPubkey(pubKey);
+      error = `No node belonging to ${pubKey} found for ${msgType}`;
     }
   }
-  if (!node) {
-    // node that broadcasted the message has to be on list
-    // pubkey of the broadcast has to be on the list
-    let zl = await deterministicFluxList(pubKey);
-    if (dataObj.data && dataObj.data.type === 'fluxapprunning') {
-      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-      if (!node) {
-        zl = await deterministicFluxList();
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          log.warn(`Invalid fluxapprunning message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`); // most of invalids are caused because our deterministic list is cached for couple of minutes
-          return false;
-        }
-      }
-    } else if (dataObj.data && dataObj.data.type === 'fluxipchanged') {
-      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.oldIP && dataObj.data.oldIP === key.ip); // check ip is on the network and belongs to broadcasted public key
-      if (!node) {
-        zl = await deterministicFluxList();
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.oldIP === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          log.warn(`Invalid fluxipchanged message, oldIP: ${dataObj.data.oldIP} pubkey: ${pubKey}`);
-          return false;
-        }
-      }
-    } else if (dataObj.data && dataObj.data.type === 'fluxappremoved') {
-      node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-      if (!node) {
-        zl = await deterministicFluxList();
-        node = zl.find((key) => key.pubkey === pubKey && dataObj.data.ip === key.ip); // check ip is on the network and belongs to broadcasted public key
-        if (!node) {
-          log.warn(`Invalid fluxappremoved message, ip: ${dataObj.data.ip} pubkey: ${pubKey}`);
-          return false;
-        }
-      }
-    } else {
-      node = zl.find((key) => key.pubkey === pubKey);
-    }
-  }
-  if (!node) {
-    log.warn(`No node belonging to ${pubKey} found`);
+
+  // no public key found in cache
+  if (target === null) {
+    log.warn(error);
     return false;
   }
-  const messageToVerify = version + message + timestamp;
-  const verified = verificationHelper.verifyMessage(messageToVerify, pubKey, signature);
-  if (verified === true) {
-    return true;
+
+  // if we get a map, we have hit the default case and searched for pubkeys
+  const found = target instanceof Map
+    ? true
+    : Boolean(await networkStateService.getFluxnodeBySocketAddress(target));
+
+  if (!found) {
+    log.warn(error);
+    return false;
   }
-  return false;
+
+  const messageToVerify = version + message + timestamp;
+  const verified = verificationHelper.verifyMessage(
+    messageToVerify,
+    pubKey,
+    signature,
+  );
+
+  return verified;
 }
 
 /**
@@ -188,16 +201,23 @@ async function verifyFluxBroadcast(data, obtainedFluxNodesList, currentTimeStamp
  * @param {number} currentTimeStamp Current timestamp.
  * @returns {boolean} False unless current timestamp is within 5 minutes of the data object's timestamp.
  */
-function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300000) {
+function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300_000) {
   // eslint-disable-next-line no-param-reassign
   const dataObj = serviceHelper.ensureObject(data);
   const { timestamp } = dataObj; // ms
+
+  if (!timestamp) return false;
+
   // eslint-disable-next-line no-param-reassign
   currentTimeStamp = currentTimeStamp || Date.now(); // ms
   if (currentTimeStamp < (timestamp + maxOld)) { // not older than 5 mins
     return true;
   }
-  log.warn(`Timestamp ${timestamp} of message is too old ${currentTimeStamp}}`);
+  const age = Math.round((currentTimeStamp - timestamp) / 1_000);
+  const maxAge = maxOld / 1_000;
+  log.warn('Unable to verify mesage. Timestamp '
+    + `${timestamp} is too old: ${age}s, Max: ${maxAge}`);
+
   return false;
 }
 
@@ -206,21 +226,23 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300000)
  * @param {object} data Data.
  * @param {object[]} obtainedFluxNodeList List of FluxNodes.
  * @param {number} currentTimeStamp Current timestamp.
- * @returns {boolean} False unless message is successfully verified.
+ * @returns {Promise<boolean>} False unless message is successfully verified.
  */
-async function verifyOriginalFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp) {
+async function verifyOriginalFluxBroadcast(data, currentTimeStamp) {
   const timeStampOK = verifyTimestampInFluxBroadcast(data, currentTimeStamp);
   if (timeStampOK) {
-    const broadcastOK = await verifyFluxBroadcast(data, obtainedFluxNodeList, currentTimeStamp);
+    const broadcastOK = await verifyFluxBroadcast(data);
     return broadcastOK;
   }
   return false;
 }
 
 module.exports = {
-  constantlyUpdateDeterministicFluxList,
+  getNodeCount,
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,
   deterministicFluxList,
+  socketAddressInFluxList,
+  getFluxnodeFromFluxList,
   verifyFluxBroadcast,
 };

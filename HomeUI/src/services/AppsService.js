@@ -122,6 +122,9 @@ export default {
   globalAppSpecifications() {
     return Api().get('/apps/globalappsspecifications');
   },
+  myGlobalAppSpecifications(owner) {
+    return Api().get(`/apps/globalappsspecifications?owner=${owner}`);
+  },
   permanentMessagesOwner(owner) {
     return Api().get(`/apps/permanentmessages?owner=${owner}`);
   },
@@ -130,6 +133,15 @@ export default {
   },
   getAppSpecifics(name) {
     return Api().get(`/apps/appspecifications/${name}`);
+  },
+  getAppEncryptedSpecifics(name, zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+        'enterprise-key': data,
+      },
+    };
+    return Api().get(`/apps/appspecifications/${name}/true`, axiosConfig);
   },
   getAppOwner(name) {
     return Api().get(`/apps/appowner/${name}`);
@@ -286,6 +298,17 @@ export default {
   },
   appRegistrationVerificaiton(data) {
     return Api().post('/apps/verifyappregistrationspecifications', JSON.stringify(data));
+  },
+  getAppPublicKey(zelidauthHeader, data) {
+    const axiosConfig = {
+      headers: {
+        zelidauth: zelidauthHeader,
+      },
+    };
+    return Api().post('/apps/getpublickey', JSON.stringify(data), axiosConfig);
+  },
+  getAppOriginalOwner(app) {
+    return Api().get(`/apps/apporiginalowner/${app}`);
   },
   appUpdateVerification(data) {
     return Api().post('/apps/verifyappupdatespecifications', JSON.stringify(data));

@@ -161,7 +161,6 @@
           </b-card-text>
           <div class="loginRow">
             <a
-              :href="`zel:?action=sign&message=${loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${callbackValue}`"
               title="Login with Zelcore"
               @click="initiateLoginWS"
             >
@@ -687,6 +686,7 @@ export default {
     },
     initiateLoginWS() {
       const self = this;
+      this.initZelcore();
       let backendURL = this.backendURL();
       backendURL = backendURL.replace('https://', 'wss://');
       backendURL = backendURL.replace('http://', 'ws://');
@@ -959,6 +959,24 @@ export default {
         this.siwe(this.loginPhrase, account);
       } catch (error) {
         this.showToast('danger', error.message);
+      }
+    },
+    initZelcore() {
+      try {
+        const protocolUrl = `zel:?action=sign&message=${this.loginPhrase}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2FzelID.svg&callback=${this.callbackValue}`;
+
+        if (window.zelcore) {
+          window.zelcore.protocol(protocolUrl);
+        } else {
+          const hiddenLink = document.createElement('a');
+          hiddenLink.href = protocolUrl;
+          hiddenLink.style.display = 'none';
+          document.body.appendChild(hiddenLink);
+          hiddenLink.click();
+          document.body.removeChild(hiddenLink);
+        }
+      } catch (error) {
+        this.showToast('warning', 'Failed to sign message, please try again.');
       }
     },
     async initSSP() {

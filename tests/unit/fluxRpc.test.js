@@ -42,7 +42,7 @@ describe('fluxRpc tests', () => {
     sinon.assert.calledOnceWithExactly(createStub, {
       baseURL: goodUrl,
       auth: null,
-      timeout: 10_000,
+      timeout: 60_000,
     });
   });
 

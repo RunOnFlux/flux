@@ -19,11 +19,10 @@ const axios = require('axios').default;
 const config = require('config');
 const hash = require('object-hash');
 
+const serviceManager = require('./ZelBack/src/services/serviceManager');
 const fluxServer = require('./ZelBack/src/lib/fluxServer');
-
 const log = require('./ZelBack/src/lib/log');
 
-const serviceManager = require('./ZelBack/src/services/serviceManager');
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
@@ -152,6 +151,27 @@ function setAxiosDefaults(socketIoServers) {
   );
 }
 
+/**
+ * Utility function to log error before exiting. As the logging is async, if
+ * we don't wait a while, the process exits bofore the logging takes place
+ *
+ * @param {string} msg
+ * @param {{delay?: number, exitCode?: number}} options
+ */
+async function logErrorAndExit(msg, options = {}) {
+  const delay = options.delay || 1_000;
+  const exitCode = options.exitCode || 0;
+
+  if (msg) log.error(msg);
+
+  const delayS = Math.round((delay / 1000) * 100) / 100;
+
+  log.info(`Waiting: ${delayS}s, before exiting with code: ${exitCode}`);
+
+  await new Promise((r) => { setTimeout(r, delay); });
+  process.exit(exitCode);
+}
+
 async function loadUpnpIfRequired() {
   try {
     let verifyUpnp = false;
@@ -164,12 +184,16 @@ async function loadUpnpIfRequired() {
     }
     if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
       if (verifyUpnp !== true) {
-        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`);
-        process.exit();
+        await logErrorAndExit(
+          `Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`,
+          { exitCode: 1, delay: 120_000 },
+        );
       }
       if (setupUpnp !== true) {
-        log.error(`Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`);
-        process.exit();
+        await logErrorAndExit(
+          `Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`,
+          { exitCode: 1, delay: 120_000 },
+        );
       }
     }
   } catch (error) {
@@ -207,38 +231,27 @@ async function configReload() {
  *
  * @returns {Promise<String>}
  */
-
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
-    log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
-    process.exit();
+    await logErrorAndExit(`Flux port ${apiPort} is not supported. Shutting down.`);
   }
 
   process.on('uncaughtException', (err) => {
     const dnsErrors = ['ENOTFOUND', 'EAI_AGAIN', 'ESERVFAIL'];
-    // the express server port in use is uncatchable for some reason
-    // remove this in future
-    if (err.code === 'EADDRINUSE') {
-      log.error('Flux api server port in use, shutting down.');
-      // if shutting down clean, nodemon won't restart
-      process.exit();
-    } else if (dnsErrors.includes(err.code) && err.hostname) {
+    if (dnsErrors.includes(err.code) && err.hostname) {
       log.error('Uncaught DNS Lookup Error!!, swallowing.');
       log.error(err);
       return;
     }
 
-    log.error(err);
-    process.exit(1);
+    logErrorAndExit(err, { exitCode: 1 });
   });
 
   await createDnsCache();
 
   await loadUpnpIfRequired();
 
-  setInterval(async () => {
-    configReload();
-  }, 2 * 1000);
+  setImmediate(configReload);
 
   const appRoot = process.cwd();
   // ToDo: move this to async
@@ -259,10 +272,23 @@ async function initiate() {
     mode: 'https', key, cert, expressApp: httpServer.app,
   });
 
-  await httpServer.listen(apiPort);
-  log.info(`Flux listening on port ${apiPort}!`);
+  const httpError = await httpServer.listen(apiPort).catch((err) => err);
 
-  await httpsServer.listen(apiPortHttps);
+  if (httpError) {
+    // if shutting down clean, nodemon won't restart
+    logErrorAndExit(`Flux api server unable to start. ${httpError}`);
+    return '';
+  }
+
+  const httpsError = await httpsServer.listen(apiPortHttps).catch((err) => err);
+
+  if (httpsError) {
+    // if shutting down clean, nodemon won't restart
+    logErrorAndExit(`Flux api server unable to start. ${httpsError}`);
+    return '';
+  }
+
+  log.info(`Flux listening on port ${apiPort}!`);
   log.info(`Flux https listening on port ${apiPortHttps}!`);
 
   setAxiosDefaults([httpServer.socketIo, httpsServer.socketIo]);

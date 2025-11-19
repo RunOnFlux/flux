@@ -10,6 +10,8 @@ const levels = {
   debug: 3,
 };
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 const logLevel = config && config.logLevel ? config.logLevel : levels.debug;
 
 const homeDirPath = path.join(__dirname, '../../../');
@@ -70,7 +72,7 @@ function debug(args) {
     return;
   }
   try {
-    console.log(args);
+    if (!isArcane) console.log(args);
     // write to file
     const filepath = `${homeDirPath}debug.log`;
     writeToFile(filepath, args);

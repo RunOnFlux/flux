@@ -1,5 +1,3 @@
-const { LRUCache } = require('lru-cache');
-
 const asyncLock = require('../utils/asyncLock');
 const fluxRpc = require('../utils/fluxRpc');
 const daemonConfig = require('../utils/daemonConfig');
@@ -8,6 +6,7 @@ const messageHelper = require('../messageHelper');
 
 const config = require('config');
 const userconfig = require('../../../../config/userconfig');
+const cacheManager = require('../utils/cacheManager').default;
 
 const { initial: { testnet: isTestnet } } = userconfig;
 
@@ -19,30 +18,9 @@ let fluxdClient = null;
  */
 const lock = new asyncLock.AsyncLock();
 
-// default cache
-const LRUoptions = {
-  max: 500, // store 500 values for up to 20 seconds of other daemon calls
-  ttl: 1000 * 20, // 20 seconds
-  maxAge: 1000 * 20, // 20 seconds
-};
-
-const cache = new LRUCache(LRUoptions);
-
-const LRUoptionsTxs = {
-  max: 30000, // store 30000 values for up to 1 hour of other daemon calls
-  ttl: 1000 * 60 * 60, // 1 hour
-  maxAge: 1000 * 60 * 60, // 1 hour
-};
-
-const rawTxCache = new LRUCache(LRUoptionsTxs); // store 30k txs in cache
-
-const LRUoptionsBlocks = {
-  max: 1500, // store 1500 values for up to 1 hour of other daemon calls
-  ttl: 1000 * 60 * 60, // 1 hour
-  maxAge: 1000 * 60 * 60, // 1 hour
-};
-
-const blockCache = new LRUCache(LRUoptionsBlocks); // store 1.5k blocks in cache
+const cache = cacheManager.daemonGenericCache;
+const rawTxCache = cacheManager.daemonTxCache;
+const blockCache = cacheManager.daemonBlockCache;
 
 async function readDaemonConfig() {
   fluxdConfig = new daemonConfig.DaemonConfig();
@@ -60,7 +38,7 @@ async function buildFluxdClient() {
   const rpcPort = fluxdConfig.rpcport || config.daemon[portId];
 
   const client = new fluxRpc.FluxRpc(`http://127.0.0.1:${rpcPort}`, {
-    auth: { username, password }, timeout: 10_000,
+    auth: { username, password }, timeout: 40_000,
   });
 
   fluxdClient = client;
@@ -72,10 +50,12 @@ async function buildFluxdClient() {
  * To execute a remote procedure call (RPC).
  * @param {string} rpc Remote procedure call.
  * @param {string[]} params RPC parameters.
+ * @param {{useCache?: boolean}} options
  * @returns {object} Message.
  */
-async function executeCall(rpc, params) {
+async function executeCall(rpc, params, options = {}) {
   const rpcparameters = params || [];
+  const useCache = options.useCache ?? true;
 
   if (!fluxdClient) await buildFluxdClient();
 
@@ -97,26 +77,26 @@ async function executeCall(rpc, params) {
    */
 
   await lock.readyTimeout(500);
-  const lockedByOther = lock.locked;
-  if (!lockedByOther) await lock.enable();
+  await lock.enable();
 
   try {
     let data;
 
-    if (rpc === 'getBlock') {
+    if (useCache && rpc === 'getBlock') {
       data = blockCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    } else if (rpc === 'getRawTransaction') {
+    } else if (useCache && rpc === 'getRawTransaction') {
       data = rawTxCache.get(rpc + serviceHelper.ensureString(rpcparameters));
-    } else {
+    } else if (useCache) {
       data = cache.get(rpc + serviceHelper.ensureString(rpcparameters));
     }
+
     if (!data) {
       data = await fluxdClient.run(rpc, { params: rpcparameters });
-      if (rpc === 'getBlock') {
+      if (useCache && rpc === 'getBlock') {
         blockCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
-      } else if (rpc === 'getRawTransaction') {
+      } else if (useCache && rpc === 'getRawTransaction') {
         rawTxCache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
-      } else {
+      } else if (useCache) {
         cache.set(rpc + serviceHelper.ensureString(rpcparameters), data);
       }
     }
@@ -126,7 +106,7 @@ async function executeCall(rpc, params) {
     const daemonError = messageHelper.createErrorMessage(error.message, error.name, error.code);
     return daemonError;
   } finally {
-    if (!lockedByOther) lock.disable();
+    lock.disable();
   }
 }
 

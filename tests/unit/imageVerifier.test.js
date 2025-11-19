@@ -226,7 +226,7 @@ describe('imageVerifier tests', () => {
     });
 
     it('should return true if registry namespace has 2 slashes and is whitelisted', async () => {
-      const repotag = 'europe-west2-docker.pkg.dev/chode-400710/mugawump/testimage:blahblah';
+      const repotag = 'us-central1-docker.pkg.dev/example-project-12345/test-repo/testimage:blahblah';
 
       const verifier = new ImageVerifier(repotag);
       const result = await verifier.isWhitelisted();
@@ -556,7 +556,8 @@ describe('imageVerifier tests', () => {
       await verifier.verifyImage();
 
       sinon.assert.calledWith(axiosGetStub, expected);
-      expect(verifier.authed).to.equal(true);
+      expect(verifier.authConfigured).to.equal(true);
+      expect(verifier.authVerified).to.equal(true);
     });
 
     it('should call auth endpoint with correct url params, and not set auth details if not authed', async () => {
@@ -583,7 +584,8 @@ describe('imageVerifier tests', () => {
       await verifier.verifyImage();
 
       sinon.assert.calledWith(axiosGetStub, expected);
-      expect(verifier.authed).to.equal(false);
+      expect(verifier.authConfigured).to.equal(false);
+      expect(verifier.authVerified).to.equal(false);
       expect(() => verifier.throwIfError()).to.throw(`Authentication rejected for: ${repotag}`);
     });
 
@@ -884,6 +886,177 @@ describe('imageVerifier tests', () => {
       expect(result).to.equal(true);
       expect(() => verifier.throwIfError()).to.not.throw();
       expect(verifier.supported).to.equal(false);
+    });
+  });
+
+  describe('errorMeta tests', () => {
+    let axiosInstanceStub;
+    // eslint-disable-next-line no-unused-vars
+    let axiosGetStub;
+
+    beforeEach(() => {
+      axiosGetStub = sinon.stub(serviceHelper, 'axiosGet').resolves(whitelistRepos);
+      axiosInstanceStub = sinon.stub(serviceHelper, 'axiosInstance');
+      ImageVerifier.resetWhitelist();
+    });
+
+    it('should return null errorMeta when no error occurs', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().resolves({ data: registryResponses.dockerManifestV2 }),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta).to.be.null;
+    });
+
+    it('should populate errorMeta with network error type', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      const networkError = new Error('Connection Error ECONNREFUSED: image not available');
+      networkError.code = 'ECONNREFUSED';
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(networkError),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta).to.not.be.null;
+      expect(verifier.errorMeta.errorType).to.equal('network');
+      expect(verifier.errorMeta.errorCode).to.equal('ECONNREFUSED');
+      expect(verifier.errorMeta.httpStatus).to.be.null;
+    });
+
+    it('should populate errorMeta with rate_limit error type for 429', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      const rateLimitError = new Error('Too many requests');
+      rateLimitError.response = { status: 429 };
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(rateLimitError),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta).to.not.be.null;
+      expect(verifier.errorMeta.errorType).to.equal('rate_limit');
+      expect(verifier.errorMeta.httpStatus).to.equal(429);
+      expect(verifier.errorMeta.errorCode).to.be.null;
+    });
+
+    it('should populate errorMeta with server_error type for 5xx', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      const serverError = new Error('Server error');
+      serverError.response = { status: 503 };
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(serverError),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta).to.not.be.null;
+      expect(verifier.errorMeta.errorType).to.equal('server_error');
+      expect(verifier.errorMeta.httpStatus).to.equal(503);
+    });
+
+    it('should populate errorMeta with not_whitelisted error type', async () => {
+      const repotag = 'notwhitelisted/image:tag';
+
+      const verifier = new ImageVerifier(repotag);
+      const result = await verifier.isWhitelisted();
+
+      expect(result).to.equal(false);
+      expect(verifier.errorMeta).to.not.be.null;
+      expect(verifier.errorMeta.errorType).to.equal('not_whitelisted');
+    });
+
+    it('should populate errorMeta with size_limit error type', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      // Create manifest with oversized image
+      const oversizedManifest = {
+        schemaVersion: 2,
+        mediaType: 'application/vnd.docker.distribution.manifest.v2+json',
+        config: {
+          digest: 'sha256:test',
+        },
+        layers: [
+          { size: 3_000_000_000 }, // 3GB - over the 2GB limit
+        ],
+      };
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().resolves({ data: oversizedManifest }),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag, { maxImageSize: 2_000_000_000 });
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta).to.not.be.null;
+      expect(verifier.errorMeta.errorType).to.equal('size_limit');
+    });
+
+    it('should populate errorMeta with unsupported_architecture error type', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      // Create manifest list with only arm64
+      const arm64OnlyIndex = {
+        schemaVersion: 2,
+        mediaType: 'application/vnd.docker.distribution.manifest.list.v2+json',
+        manifests: [
+          {
+            digest: 'sha256:test',
+            platform: { architecture: 'arm64' },
+          },
+        ],
+      };
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().resolves({ data: arm64OnlyIndex }),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag, { architectureSet: ['amd64'] }); // Only allow amd64
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta).to.not.be.null;
+      expect(verifier.errorMeta.errorType).to.equal('unsupported_architecture');
+    });
+
+    it('should reset errorMeta when resetErrors is called', async () => {
+      const repotag = 'megachips/ipshow:web';
+
+      const networkError = new Error('Connection Error');
+      networkError.code = 'ECONNREFUSED';
+
+      axiosInstanceStub.returns({
+        get: sinon.stub().rejects(networkError),
+        interceptors: { request: { use: sinon.stub() } },
+      });
+
+      const verifier = new ImageVerifier(repotag);
+      await verifier.verifyImage();
+
+      expect(verifier.errorMeta).to.not.be.null;
+
+      verifier.resetErrors();
+
+      expect(verifier.errorMeta).to.be.null;
     });
   });
 });

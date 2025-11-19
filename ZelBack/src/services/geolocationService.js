@@ -15,13 +15,17 @@ async function setNodeGeolocation() {
   try {
     const myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (!myIP) {
-      throw new Error('Flux IP not detected. Flux geolocation service is awaiting');
+      log.error('Flux IP not detected. Flux geolocation service is awaiting');
+      setTimeout(() => {
+        setNodeGeolocation();
+      }, 10 * 1000);
+      return;
     }
     if (!storedGeolocation || myIP !== storedIp || execution % 4 === 0) {
       log.info(`Checking geolocation of ${myIP}`);
       storedIp = myIP;
       // consider another service failover or stats db
-      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp`;
+      const ipApiUrl = `http://ip-api.com/json/${myIP.split(':')[0]}?fields=status,continent,continentCode,country,countryCode,region,regionName,lat,lon,query,org,isp,proxy,hosting`;
       const ipRes = await serviceHelper.axiosGet(ipApiUrl);
       if (ipRes.data.status === 'success' && ipRes.data.query !== '') {
         storedGeolocation = {
@@ -35,6 +39,7 @@ async function setNodeGeolocation() {
           lat: ipRes.data.lat,
           lon: ipRes.data.lon,
           org: ipRes.data.org || ipRes.data.isp,
+          static: ipRes.data.proxy || ipRes.data.hosting,
         };
       } else {
         const statsApiUrl = `https://stats.runonflux.io/fluxlocation/${myIP.split(':')[0]}`;
@@ -51,6 +56,7 @@ async function setNodeGeolocation() {
             lat: statsRes.data.data.lat,
             lon: statsRes.data.data.lon,
             org: statsRes.data.data.org,
+            static: statsRes.data.data.static,
           };
         } else {
           throw new Error(`Geolocation of IP ${myIP} is unavailable`);
@@ -58,17 +64,21 @@ async function setNodeGeolocation() {
       }
     }
     log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
-    for (let i = 0; i < staticIpOrgs.length; i += 1) {
-      const org = staticIpOrgs[i];
-      if (storedGeolocation.org.toLowerCase().includes(org)) {
-        staticIp = true;
-        break;
+    if (storedGeolocation.static) {
+      staticIp = true;
+    } else {
+      for (let i = 0; i < staticIpOrgs.length; i += 1) {
+        const org = staticIpOrgs[i];
+        if (storedGeolocation.org.toLowerCase().includes(org)) {
+          staticIp = true;
+          break;
+        }
       }
     }
     execution += 1;
-    setTimeout(() => { // executes again in 12h
+    setTimeout(() => { // executes again in 24h
       setNodeGeolocation();
-    }, 12 * 60 * 60 * 1000);
+    }, 24 * 60 * 60 * 1000);
   } catch (error) {
     log.error(`Failed to get Geolocation with ${error}`);
     log.error(error);

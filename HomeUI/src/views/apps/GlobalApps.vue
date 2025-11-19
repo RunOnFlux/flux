@@ -74,6 +74,7 @@
                   :sort-desc.sync="tableconfig.active.sortDesc"
                   :sort-direction="tableconfig.active.sortDirection"
                   :filter="tableconfig.active.filter"
+                  :filter-included-fields="['name']"
                   sort-icon-left
                   show-empty
                   empty-text="No Flux Apps are active"
@@ -161,7 +162,7 @@
                           <span style="margin-left: 10px;">Application Information</span>
                         </kbd>
                       </h3>
-                      <div class="ml-1">
+                      <div class="ml-1 wrap-text-info">
                         <list-entry
                           v-if="row.item.owner"
                           title="Owner"
@@ -336,7 +337,7 @@
                                 class="ml-1"
                               /> &nbsp;{{ component.name }}&nbsp;</kbd>
                           </h3>
-                          <div class="ml-1">
+                          <div class="ml-1 wrap-text-info">
                             <list-entry
                               title="Name"
                               :data="component.name"
@@ -686,6 +687,7 @@
                   :per-page="tableconfig.active_marketplace.perPage"
                   :current-page="tableconfig.active_marketplace.currentPage"
                   :filter="tableconfig.active_marketplace.filter"
+                  :filter-included-fields="['name']"
                   show-empty
                   sort-icon-left
                   empty-text="No Flux Marketplace Apps are active"
@@ -774,7 +776,7 @@
                           <span style="margin-left: 10px;">Application Information</span>
                         </kbd>
                       </h3>
-                      <div class="ml-1">
+                      <div class="ml-1 wrap-text-info">
                         <list-entry
                           v-if="row.item.owner"
                           title="Owner"
@@ -949,7 +951,7 @@
                                 class="ml-1"
                               /> &nbsp;{{ component.name }}&nbsp;</kbd>
                           </h3>
-                          <div class="ml-1">
+                          <div class="ml-1 wrap-text-info">
                             <list-entry
                               title="Name"
                               :data="component.name"
@@ -1433,12 +1435,26 @@ export default {
       if (this.daemonBlockCount === -1) {
         return 'Not possible to calculate expiration';
       }
-      const expires = expire || 22000;
-      const blocksToExpire = height + expires - this.daemonBlockCount;
+      const forkBlock = 2020000;
+      // After PON fork, default expire is 88000 blocks (4x22000)
+      const defaultExpire = height >= forkBlock ? 88000 : 22000;
+      const expires = expire || defaultExpire;
+      let effectiveExpiry = height + expires;
+
+      // If app was registered before the fork (block 2020000) and we're currently past the fork,
+      // adjust the expiry calculation since the blockchain moves 4x faster post-fork
+      if (height < forkBlock && this.daemonBlockCount >= forkBlock && effectiveExpiry > forkBlock) {
+        const remainingBlocksAfterFork = effectiveExpiry - forkBlock;
+        effectiveExpiry = forkBlock + (remainingBlocksAfterFork * 4);
+      }
+
+      const blocksToExpire = effectiveExpiry - this.daemonBlockCount;
       if (blocksToExpire < 1) {
         return 'Application Expired';
       }
-      const minutesRemaining = blocksToExpire * 2;
+      // Block time: 2 minutes before fork (block 2020000), 30 seconds (0.5 minutes) after fork
+      const minutesPerBlock = this.daemonBlockCount >= forkBlock ? 0.5 : 2;
+      const minutesRemaining = blocksToExpire * minutesPerBlock;
       const result = this.minutesToString(minutesRemaining);
       if (result.length > 2) {
         return `${result[0]}, ${result[1]}, ${result[2]}`;
@@ -1492,7 +1508,6 @@ export default {
         const zelidauth = localStorage.getItem('zelidauth');
         const auth = qs.parse(zelidauth);
         if (!auth.zelid) {
-          this.tableconfig.my_expired.loading = false;
           return;
         }
         const response = await AppsService.permanentMessagesOwner(auth.zelid);
@@ -1521,8 +1536,6 @@ export default {
             expiredApps.push(app);
           }
         }
-        this.tableconfig.my_expired.apps = expiredApps;
-        this.tableconfig.my_expired.loading = false;
       } catch (error) {
         console.log(error);
       }
@@ -1810,5 +1823,13 @@ export default {
   padding: 0.1em 0.6em;
    font-weight: 800;
    color: #FF0000;
+}
+.wrap-text-info {
+  white-space: normal !important;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.no-wrap {
+  white-space: nowrap !important;
 }
 </style>

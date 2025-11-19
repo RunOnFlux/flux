@@ -168,6 +168,7 @@
 
     <!-- Proposal View/Detail -->
     <app-view
+      ref="appViewRef"
       :class="{ show: isAppViewActive }"
       :app-data="app"
       :zelid="zelid"
@@ -191,6 +192,7 @@
         :zelid="zelid"
         @close-left-sidebar="showDetailSidebar = false"
         @close-app-view="isAppViewActive = false; isSharedNodesViewActive = false;"
+        @scroll-app-view="scrollAppViewToTop"
       />
     </portal>
   </div>
@@ -245,7 +247,6 @@ export default {
     BMediaBody,
     BBadge,
     BAvatar,
-
     AppView,
     SharedNodesView,
     CategorySidebar,
@@ -260,6 +261,35 @@ export default {
     const appListRef = ref(null);
     const zelid = ref(null);
     const tier = ref('');
+    const appViewRef = ref(null);
+    const scrollAppViewToTop = async () => {
+      await nextTick();
+      await new Promise((resolve) => { setTimeout(resolve, 100); });
+      if (appListRef.value) {
+        const psInstance = appListRef.value.ps;
+        if (psInstance) {
+          psInstance.update();
+          appListRef.value.$el.scrollTop = 0;
+          setTimeout(() => {
+          }, 300);
+        } else {
+          const scrollbarContainer = appListRef.value.$el;
+          if (scrollbarContainer) {
+            scrollbarContainer.scrollTo({
+              top: 0,
+              behavior: 'smooth',
+            });
+            setTimeout(() => {
+              console.log('Final scrollTop (native):', scrollbarContainer.scrollTop);
+            }, 300);
+          } else {
+            console.warn('Cannot find scrollbar container');
+          }
+        }
+      } else {
+        console.warn('appListRef is NULL. Skipping scroll.');
+      }
+    };
 
     const { route, router } = useRouter();
     const isAppViewActive = ref(false);
@@ -282,12 +312,21 @@ export default {
     const resolveHdd = (app) => app.compose.reduce((total, component) => total + component.hdd, 0);
 
     const adjustPeriod = (app) => {
+      // Handle old values (before block 2020000)
       if (app.expire === 264000) {
         return '1 year';
       } if (app.expire === 66000) {
         return '3 months';
       } if (app.expire === 132000) {
         return '6 months';
+      }
+      // Handle new 4x multiplied values (after block 2020000 when chain works 4x faster)
+      if (app.expire === 1056000) { // 264000 * 4
+        return '1 year';
+      } if (app.expire === 528000) { // 132000 * 4
+        return '6 months';
+      } if (app.expire === 88000) { // 22000 * 4
+        return '1 month';
       }
       return '1 month';
     };
@@ -366,14 +405,23 @@ export default {
       searchQuery.value = val;
     });
 
-    const updateRouteQuery = (val) => {
-      const currentRouteQuery = JSON.parse(JSON.stringify(route.value.query));
-
-      if (val) currentRouteQuery.q = val;
-      else delete currentRouteQuery.q;
-
-      router.replace({ name: route.name, query: currentRouteQuery });
+    const debounce = (fn, delay = 300) => {
+      let timer;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
     };
+
+    const updateRouteQuery = debounce((val) => {
+      const currentRouteQuery = { ...route.value.query };
+      if (val) {
+        currentRouteQuery.q = val;
+      } else {
+        delete currentRouteQuery.q;
+      }
+      router.replace({ name: route.name, query: currentRouteQuery }).catch(() => {});
+    }, 300);
 
     const getCategory = (categoryToFind) => {
       const foundCategory = categories.find((category) => category.name === categoryToFind);
@@ -422,7 +470,7 @@ export default {
                 return resolveHdd(a) - resolveHdd(b);
               }
               if (sortBy.value === 'price') {
-                return a.price - b.price;
+                return a.priceUSD - b.priceUSD;
               }
               return 0;
             });
@@ -486,6 +534,8 @@ export default {
       resolveCpu,
       resolveRam,
       adjustPeriod,
+      appViewRef,
+      scrollAppViewToTop,
     };
   },
 };

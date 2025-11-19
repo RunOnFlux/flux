@@ -2,6 +2,7 @@ const sinon = require('sinon');
 const { PassThrough } = require('stream');
 const { expect } = require('chai');
 const daemonServiceUtils = require('../../ZelBack/src/services/daemonService/daemonServiceUtils');
+const daemonServiceBlockchainRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceBlockchainRpcs');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const verificationHelper = require('../../ZelBack/src/services/verificationHelper');
 const daemonServiceTransactionRpcs = require('../../ZelBack/src/services/daemonService/daemonServiceTransactionRpcs');
@@ -16,12 +17,11 @@ const generateResponse = () => {
 describe('daemonServiceTransactionRpcs tests', () => {
   describe('createRawTransaction tests', () => {
     let daemonServiceUtilsStub;
-    let clientStub;
+    let getBlockCountStub;
     const execCallResult = 'RPC call executed';
     beforeEach(() => {
-      clientStub = sinon.stub();
-      sinon.stub(daemonServiceUtils, 'getFluxdClient').callsFake(() => ({ getBlockCount: clientStub }));
       daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves(execCallResult);
+      getBlockCountStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount');
     });
 
     afterEach(() => {
@@ -29,7 +29,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
     });
 
     it('should create a raw transaction if all parameters are set properly - response passed', async () => {
-      clientStub.resolves('5243422');
+      getBlockCountStub.resolves('5243422');
       const req = {
         params: {
           transactions: {
@@ -54,12 +54,12 @@ describe('daemonServiceTransactionRpcs tests', () => {
       ];
 
       expect(result).to.equal(`Response: ${execCallResult}`);
-      sinon.assert.calledOnce(clientStub);
+      sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
     it('should create a raw transaction if all parameters are set properly - no response passed', async () => {
-      clientStub.resolves('5243422');
+      getBlockCountStub.resolves('5243422');
       const req = {
         params: {
           transactions: {
@@ -83,12 +83,12 @@ describe('daemonServiceTransactionRpcs tests', () => {
       ];
 
       expect(result).to.equal(execCallResult);
-      sinon.assert.calledOnce(clientStub);
+      sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
     it('should create a raw transaction if all parameters are set properly, passed in query - no response passed', async () => {
-      clientStub.resolves('5243422');
+      getBlockCountStub.resolves('5243422');
       const req = {
         params: {
           param1: 'test',
@@ -115,12 +115,12 @@ describe('daemonServiceTransactionRpcs tests', () => {
       ];
 
       expect(result).to.equal(execCallResult);
-      sinon.assert.calledOnce(clientStub);
+      sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
     it('should create a raw transaction if no expiryheight is passed - no response passed', async () => {
-      clientStub.resolves('5243422');
+      getBlockCountStub.resolves('5243422');
       const req = {
         params: {
           param1: 'test',
@@ -146,12 +146,12 @@ describe('daemonServiceTransactionRpcs tests', () => {
       ];
 
       expect(result).to.equal(execCallResult);
-      sinon.assert.calledOnce(clientStub);
+      sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
     it('should create a raw transaction if no locktime is passed - no response passed', async () => {
-      clientStub.resolves('5243422');
+      getBlockCountStub.resolves('5243422');
       const req = {
         params: {
           param1: 'test',
@@ -177,12 +177,12 @@ describe('daemonServiceTransactionRpcs tests', () => {
       ];
 
       expect(result).to.equal(execCallResult);
-      sinon.assert.calledOnce(clientStub);
+      sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'createRawTransaction', expectedCallParams);
     });
 
     it('should return error message if client rejects promise', async () => {
-      clientStub.rejects('Error message!');
+      getBlockCountStub.rejects('Error message!');
       const req = {
         params: {
           param1: 'test',
@@ -211,19 +211,19 @@ describe('daemonServiceTransactionRpcs tests', () => {
       const result = await daemonServiceTransactionRpcs.createRawTransaction(req);
 
       expect(result).to.eql(expectedResult);
-      sinon.assert.calledOnce(clientStub);
+      sinon.assert.calledOnce(getBlockCountStub);
       sinon.assert.notCalled(daemonServiceUtilsStub);
     });
   });
 
   describe('createRawTransactionPost tests', () => {
     let daemonServiceUtilsStub;
-    let clientStub;
+    let getBlockCountStub;
     const execCallResult = 'RPC call executed';
     beforeEach(() => {
-      clientStub = sinon.stub();
-      sinon.stub(daemonServiceUtils, 'getFluxdClient').callsFake(() => ({ getBlockCount: clientStub }));
+      sinon.stub(daemonServiceUtils, 'getFluxdClient').callsFake(() => ({ getBlockCount: getBlockCountStub }));
       daemonServiceUtilsStub = sinon.stub(daemonServiceUtils, 'executeCall').resolves(execCallResult);
+      getBlockCountStub = sinon.stub(daemonServiceBlockchainRpcs, 'getBlockCount');
     });
 
     afterEach(() => {
@@ -231,7 +231,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
     });
 
     it('should create a raw transaction if all parameters are set properly', async () => {
-      clientStub.resolves('5243422');
+      getBlockCountStub.resolves('5243422');
       const params = {
         transactions: {
           test: 'testtransaction',
@@ -264,7 +264,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
     });
 
     it('should create a raw transaction if no expiryheight is given', async () => {
-      clientStub.resolves('5243422');
+      getBlockCountStub.resolves('5243422');
       const params = {
         transactions: {
           test: 'testtransaction',
@@ -296,7 +296,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
     });
 
     it('should create a raw transaction if no locktime is given', async () => {
-      clientStub.resolves('5243422');
+      getBlockCountStub.resolves('5243422');
       const params = {
         transactions: {
           test: 'testtransaction',
@@ -328,7 +328,7 @@ describe('daemonServiceTransactionRpcs tests', () => {
     });
 
     it('should return an error message if client rejects the promise', async () => {
-      clientStub.rejects('New Error!');
+      getBlockCountStub.rejects('New Error!');
       const params = {
         transactions: {
           test: 'testtransaction',

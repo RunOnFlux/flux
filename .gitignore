@@ -1,7 +1,9 @@
 .DS_Store
 node_modules/
 /dist/
-/docs/
+/docs/*
+# Allow markdown documentation files in docs/
+!/docs/*.md
 certs/
 npm-debug.log*
 yarn-debug.log*
@@ -372,3 +374,4 @@ tests/images/.package_hash
 
 # Local development folder
 dev/
+CLAUDE.md

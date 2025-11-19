@@ -596,19 +596,15 @@ describe('generalService tests', () => {
       sinon.restore();
     });
 
-    it('should return false if getFluxnodeStatus returns error', async () => {
-      getFluxNodeStatusStub.returns(
-        {
-          status: 'error',
-          data: {
-            message: 'This is some error!',
-          },
+    it('should return error if getFluxnodeStatus returns error', async () => {
+      const error = {
+        status: 'error',
+        data: {
+          message: 'This is some error!',
         },
-      );
-
-      const result = await generalService.isNodeStatusConfirmed();
-
-      expect(result).to.eql(false);
+      };
+      getFluxNodeStatusStub.returns(error);
+      await expect(generalService.isNodeStatusConfirmed()).to.eventually.be.rejectedWith('This is some error');
     });
 
     it('should return true if getFluxnodeStatus returns succcess and confirmed status', async () => {
@@ -657,7 +653,7 @@ describe('generalService tests', () => {
       sinon.restore();
     });
 
-    it('should return false if getFluxnodeStatus returns error', async () => {
+    it('should return false if isDaemonSynced returns false', async () => {
       isDaemonSyncedStub.returns(
         {
           data: {

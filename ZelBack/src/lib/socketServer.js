@@ -1,5 +1,6 @@
 const { match } = require('path-to-regexp');
 const WebSocketServer = require('ws').Server;
+const log = require('./log');
 
 class FluxWebsocketServer {
   static defautlErrorHandler = () => { };
@@ -8,7 +9,6 @@ class FluxWebsocketServer {
     noServer: true,
     perMessageDeflate: {
       zlibDeflateOptions: {
-      // See zlib defaults.
         chunkSize: 1024,
         memLevel: 9,
         level: 9,
@@ -16,15 +16,12 @@ class FluxWebsocketServer {
       zlibInflateOptions: {
         chunkSize: 10 * 1024,
       },
-      // Other options settable:
-      clientNoContextTakeover: true, // Defaults to negotiated value.
-      serverNoContextTakeover: true, // Defaults to negotiated value.
-      serverMaxWindowBits: 15, // Defaults to negotiated value.
-      clientMaxWindowBits: 15, // Defaults to negotiated value.
-      // Below options specified as default values.
-      concurrencyLimit: 2, // Limits zlib concurrency for perf.
-      threshold: 128, // Size (in bytes) below which messages
-    // should not be compressed if context takeover is disabled.
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true,
+      clientMaxWindowBits: true, // Allow Firefox to use default settings
+      serverMaxWindowBits: true, // Let browsers negotiate (Default 15)
+      concurrencyLimit: 2,
+      threshold: 128,
     },
   });
 
@@ -39,8 +36,13 @@ class FluxWebsocketServer {
     this.#routeMatchers = Object.entries(this.#routes).map((entry) => {
       const [route, handler] = entry;
 
-      const matcher = match(route, { decode: decodeURIComponent });
-      return { matcher, handler };
+      try {
+        const matcher = match(route, { decode: decodeURIComponent });
+        return { matcher, handler };
+      } catch (error) {
+        log.error('ERROR: Failed to create matcher for route:', JSON.stringify(route), 'Error:', error.message);
+        throw error;
+      }
     });
 
     this.#socketServer.on('connection', (ws, request) => {

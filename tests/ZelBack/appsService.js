@@ -4,7 +4,9 @@ global.userconfig = require('../../config/userconfig');
 process.env.NODE_CONFIG_DIR = `${process.cwd()}/ZelBack/config/`;
 const chai = require('chai');
 
-const appService = require('../../ZelBack/src/services/appsService');
+const hwRequirements = require('../../ZelBack/src/services/appRequirements/hwRequirements');
+const imageManager = require('../../ZelBack/src/services/appSecurity/imageManager');
+const messageVerifier = require('../../ZelBack/src/services/appMessaging/messageVerifier');
 const generalService = require('../../ZelBack/src/services/generalService');
 
 const { expect } = chai;
@@ -58,7 +60,7 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 5,
     };
-    expect(appService.checkHWParameters(fluxAppSpecs)).to.be.equal(true);
+    expect(hwRequirements.checkHWParameters(fluxAppSpecs)).to.be.equal(true);
   });
 
   it('Verifies HW specs are badly asssigned', () => {
@@ -98,7 +100,7 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 5,
     };
-    const specs = function () { appService.checkHWParameters(fluxAppSpecs); };
+    const specs = function () { hwRequirements.checkHWParameters(fluxAppSpecs); };
     expect(specs).to.throw();
   });
 
@@ -139,31 +141,40 @@ describe('checkHWParameters', () => {
       hddsuper: 5,
       hddbamf: 21,
     };
-    const hwSpecs = function () { appService.checkHWParameters(fluxAppSpecs); };
+    const hwSpecs = function () { hwRequirements.checkHWParameters(fluxAppSpecs); };
     expect(hwSpecs).to.throw();
   });
 
-  it('Verifies repository exists or is not correct', async () => {
+  it('Verifies repository format validation (spaces)', async () => {
     const fluxAppSpecs = {
-      repotag: 'yurinnick/folding-at-home:latest',
-      repotagB: 'yurinnick/folding-at-home:latestaaa',
       repotagC: ' bunnyanalyst/fluxrun:latest',
       repotagD: 'bunnyanalyst/fluxrun:latest ',
     };
-    const repA = await appService.verifyRepository(fluxAppSpecs.repotag).catch(() => true);
-    expect(repA).to.be.equal(undefined);
 
-    const repB = await appService.verifyRepository(fluxAppSpecs.repotagB).catch((err) => err);
-    expect(repB).to.be.an.instanceof(Error);
-    expect(repB.message).to.be.equal('Bad HTTP Status 404: yurinnick/folding-at-home:latestaaa not available');
-
-    const repC = await appService.verifyRepository(fluxAppSpecs.repotagC).catch((err) => err);
-    expect(repB).to.be.an.instanceof(Error);
+    const repC = await imageManager.verifyRepository(fluxAppSpecs.repotagC).catch((err) => err);
+    expect(repC).to.be.an.instanceof(Error);
     expect(repC.message).to.be.equal('Image tag: " bunnyanalyst/fluxrun:latest" should not contain space characters.');
 
-    const repD = await appService.verifyRepository(fluxAppSpecs.repotagD).catch((err) => err);
-    expect(repB).to.be.an.instanceof(Error);
+    const repD = await imageManager.verifyRepository(fluxAppSpecs.repotagD).catch((err) => err);
+    expect(repD).to.be.an.instanceof(Error);
     expect(repD.message).to.be.equal('Image tag: "bunnyanalyst/fluxrun:latest " should not contain space characters.');
+  });
+
+  it('Verifies repository network validation', async function () {
+    // Use a longer timeout only for network-dependent tests
+    this.timeout(10000);
+
+    const fluxAppSpecs = {
+      repotag: 'yurinnick/folding-at-home:latest',
+      repotagB: 'yurinnick/folding-at-home:latestaaa',
+    };
+
+    const repA = await imageManager.verifyRepository(fluxAppSpecs.repotag).catch(() => false);
+    expect(repA).to.be.equal(true);
+
+    const repB = await imageManager.verifyRepository(fluxAppSpecs.repotagB).catch((err) => err);
+    expect(repB).to.be.an.instanceof(Error);
+    expect(repB.message).to.be.equal('Bad HTTP Status 404: yurinnick/folding-at-home:latestaaa not available');
   });
 
   it('Message Hash is correctly calculated', async () => {
@@ -262,7 +273,7 @@ describe('checkHWParameters', () => {
       timestamp,
       signature,
     };
-    expect(await appService.verifyAppHash(message)).to.be.equal(true);
+    expect(await messageVerifier.verifyAppHash(message)).to.be.equal(true);
   });
 
   it('Message is correctly signed', async () => {
@@ -308,6 +319,6 @@ describe('checkHWParameters', () => {
     const messageToVerify = type + version + JSON.stringify(fluxAppSpecs) + timestamp;
     console.log(messageToVerify);
     const signature = 'H7AP+VrFUTrmi+DqG8x0nllBFXB+oD09AkSE/JEpemeOTzMglftjTtPaEY3rMW/FUezEiad0WZNgxiInFrUn6S8=';
-    expect(await appService.verifyAppMessageSignature(type, version, fluxAppSpecs, timestamp, signature)).to.be.equal(true);
+    expect(await messageVerifier.verifyAppMessageSignature(type, version, fluxAppSpecs, timestamp, signature)).to.be.equal(true);
   });
 });

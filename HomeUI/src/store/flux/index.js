@@ -16,6 +16,9 @@ export default {
     zelid: '', // logged user zelid
     fluxVersion: '',
     xdaoOpen: 0,
+    appSpecification: {
+      name: '',
+    },
   },
   getters: {
     xdaoOpen(state) {
@@ -43,6 +46,9 @@ export default {
     },
     setXDAOOpen(state, open) {
       state.xdaoOpen = open;
+    },
+    setAppName(state, appname) {
+      state.appSpecification.name = appname;
     },
   },
   actions: {},

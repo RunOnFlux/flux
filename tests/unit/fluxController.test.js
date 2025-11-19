@@ -72,7 +72,7 @@ describe('fluxController tests', () => {
     const abortPromise = waiter();
 
     // test function still sleeping
-    // watier still waiting on abort
+    // waiter still waiting on abort
     await clock.tickAsync(1000);
     expect(dummyVar).to.be.false;
     expect(fc.locked).to.be.true;

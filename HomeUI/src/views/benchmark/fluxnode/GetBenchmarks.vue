@@ -9,6 +9,14 @@
       :data="callResponse.data.status"
     />
     <list-entry
+      title="ArcaneOS"
+      :data="callResponse.data.systemsecure ? 'Yes' : 'No'"
+    />
+    <list-entry
+      title="Thunder"
+      :data="callResponse.data.thunder ? 'Yes' : 'No'"
+    />
+    <list-entry
       v-if="callResponse.data.architecture"
       title="Architecture"
       :data="callResponse.data.architecture"

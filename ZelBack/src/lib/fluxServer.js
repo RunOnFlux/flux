@@ -130,7 +130,7 @@ class FluxServer {
         })
         .once('listening', () => {
           this.server.removeAllListeners('error');
-          resolve();
+          resolve(null);
         });
       this.server.listen(port);
     });

@@ -1,3 +1,4 @@
+import './utils/webcrypto-polyfill';
 import Vue from 'vue';
 import {
   BVConfigPlugin,
@@ -20,6 +21,15 @@ import './global-components';
 import '@axios';
 import '@/libs/portal-vue';
 import '@/libs/toastification';
+import 'bootstrap-icons/font/bootstrap-icons.css';
+
+import ListEntry from '@/views/components/ListEntry.vue';
+import SmartIcon from '@/views/components/SmartIcon.vue';
+
+// eslint-disable-next-line vue/component-definition-name-casing
+Vue.component('list-entry', ListEntry);
+// eslint-disable-next-line vue/component-definition-name-casing
+Vue.component('smart-icon', SmartIcon);
 
 // BSV Plugin Registration
 // Supply complete config to the BVConfig helper plugin

@@ -336,6 +336,7 @@ export default {
       nimbusCollateral: 0,
       stratusCollateral: 0,
       latestPrice: 0,
+      currentBlockHeight: 0,
       lineChart: {
         series: [],
         chartOptions: {
@@ -430,6 +431,7 @@ export default {
       ExplorerService.getScannedHeight().then((result) => {
         if (result.data.status === 'success') {
           const blockHeight = result.data.data.generalScannedHeight;
+          this.currentBlockHeight = blockHeight;
           this.cumulusCollateral = blockHeight < 1076532 ? 10000 : 1000;
           this.nimbusCollateral = blockHeight < 1081572 ? 25000 : 12500;
           this.stratusCollateral = blockHeight < 1087332 ? 100000 : 40000;
@@ -507,6 +509,16 @@ export default {
       let perCumulusNode = 2.8125;
       let perNimbusNode = 4.6875;
       let perStratusNode = 11.2500;
+
+      // PON Fork at block 2020000: reward multipliers and chain speed change
+      // Pre-fork multipliers: Cumulus 0.075, Nimbus 0.125, Stratus 0.3
+      // Post-fork multipliers: Cumulus 0.074, Nimbus 0.259, Stratus 0.666
+      const isPostFork = this.currentBlockHeight >= 2020000;
+
+      const cumulusMultiplier = isPostFork ? 0.074 : 0.075;
+      const nimbusMultiplier = isPostFork ? 0.259 : 0.125;
+      const stratusMultiplier = isPostFork ? 0.666 : 0.300;
+
       const response = await DashboardService.blockReward();
       if (response.data.status === 'error') {
         this.$toast({
@@ -518,29 +530,35 @@ export default {
           },
         });
       } else {
-        perCumulusNode = (response.data.data.miner * 0.075).toFixed(4);
-        perNimbusNode = (response.data.data.miner * 0.125).toFixed(4);
-        perStratusNode = (response.data.data.miner * 0.300).toFixed(4);
+        perCumulusNode = (response.data.data.miner * cumulusMultiplier).toFixed(4);
+        perNimbusNode = (response.data.data.miner * nimbusMultiplier).toFixed(4);
+        perStratusNode = (response.data.data.miner * stratusMultiplier).toFixed(4);
       }
       const stratuses = fluxnodecounts['stratus-enabled'];
       const nimbuses = fluxnodecounts['nimbus-enabled'];
       const cumuluses = fluxnodecounts['cumulus-enabled'];
+
+      // PON Fork at block 2020000: chain speed increases 4x (2 min -> 30 sec blocks)
+      // Pre-fork: 720 blocks/day, Post-fork: 2880 blocks/day
+      const speedMultiplier = isPostFork ? 4 : 1;
+      const blocksPerWeek = 720 * 7 * speedMultiplier;
+
       // eslint-disable-next-line no-mixed-operators
-      const cumulusWeek = perCumulusNode * 720 * 7 / cumuluses;
+      const cumulusWeek = perCumulusNode * blocksPerWeek / cumuluses;
       // eslint-disable-next-line no-mixed-operators
-      const nimbusWeek = perNimbusNode * 720 * 7 / nimbuses;
+      const nimbusWeek = perNimbusNode * blocksPerWeek / nimbuses;
       // eslint-disable-next-line no-mixed-operators
-      const stratusWeek = perStratusNode * 720 * 7 / stratuses;
+      const stratusWeek = perStratusNode * blocksPerWeek / stratuses;
       const cumulusUSDReward = this.getFiatRate('FLUX') * perCumulusNode; // per one go
       const nimbusUSDReward = this.getFiatRate('FLUX') * perNimbusNode; // per one go
       const stratusUSDReward = this.getFiatRate('FLUX') * perStratusNode; // per one go
-      // 720 blocks per day.
+      // Blocks per week adjusted for fork (720 blocks/day pre-fork, 2880 blocks/day post-fork)
       // eslint-disable-next-line no-mixed-operators
-      const cumulusUSDRewardWeek = 7 * 720 * cumulusUSDReward / cumuluses;
+      const cumulusUSDRewardWeek = blocksPerWeek * cumulusUSDReward / cumuluses;
       // eslint-disable-next-line no-mixed-operators
-      const nimbusUSDRewardWeek = 7 * 720 * nimbusUSDReward / nimbuses;
+      const nimbusUSDRewardWeek = blocksPerWeek * nimbusUSDReward / nimbuses;
       // eslint-disable-next-line no-mixed-operators
-      const stratusUSDRewardWeek = 7 * 720 * stratusUSDReward / stratuses;
+      const stratusUSDRewardWeek = blocksPerWeek * stratusUSDReward / stratuses;
       this.cumulusWeek = cumulusWeek;
       this.nimbusWeek = nimbusWeek;
       this.stratusWeek = stratusWeek;

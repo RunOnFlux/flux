@@ -375,7 +375,7 @@ async function removeDirectory(rpath, directory = false) {
     if (directory === false) {
       execFinal = `sudo rm -rf "${rpath}"`;
     } else {
-      execFinal = `sudo rm -rf "${rpath}/*"`;
+      execFinal = `sudo find "${rpath}" -mindepth 1 -exec rm -rf {} +`;
     }
     await exec(execFinal, { maxBuffer: 1024 * 1024 * 10 });
     return true;
@@ -421,7 +421,8 @@ async function fileUpload(req, res) {
       if (type === 'backup') {
         filepath = `${appVolumePath[0].mount}/backup/upload/`;
       } else {
-        filepath = `${appVolumePath[0].mount}/appdata/${folder}`;
+        // Use appid level to access appdata and all other mount points
+        filepath = `${appVolumePath[0].mount}/${folder}`;
       }
     } else {
       throw new Error('Application volume not found');

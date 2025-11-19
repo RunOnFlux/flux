@@ -5,6 +5,7 @@ module.exports = {
   server: {
     allowedPorts: [11, 13, 16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
+    fluxNodeServiceAddress: '169.254.43.43',
   },
   database: {
     url: database,
@@ -42,6 +43,8 @@ module.exports = {
         appsInformation: 'zelappsinformation', // stores actual state of flux app configuration info - initial state and its overwrites with update messages
         appsTemporaryMessages: 'zelappstemporarymessages', // storages for all flux apps messages that are not yet confirmed on the flux network
         appsLocations: 'zelappslocation', // stores location of flux apps as documents containing name, hash, ip, obtainedAt
+        appsInstallingLocations: 'appsInstallingLocations',
+        appsInstallingErrorsLocations: 'appsInstallingErrorsLocations', // stores install errors location of flux apps as documents containing name, hash, ip, obtainedAt
       },
     },
     chainparams: {
@@ -71,8 +74,8 @@ module.exports = {
     porttestnet: 26125,
     rpcporttestnet: 26124,
   },
-  minimumFluxBenchAllowedVersion: '4.0.0',
-  minimumFluxOSAllowedVersion: '5.4.0',
+  minimumFluxBenchAllowedVersion: '5.0.0',
+  minimumFluxOSAllowedVersion: '5.43.0',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
@@ -154,10 +157,14 @@ module.exports = {
       port: 2, // additional price per enterprise port
       scope: 4, // additional price for application targetting specific nodes, private images
       staticip: 2, // additional price per application for targetting nodes that have static ip address
-      fluxmultiplier: 0.9, // discount given if payed with flux 1 would be 0%
+      fluxmultiplier: 0.95, // discount given if payed with flux 1 would be 0%
       multiplier: 1, // multiplier in case we want to increase prices globaly
       minUSDPrice: 0.99, // min. usd price that can be paid with stripe/paypal.
     },
+    teamSupportAddress: [{
+      height: 1851659, // height from which address is valid
+      address: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
+    }],
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
@@ -166,20 +173,20 @@ module.exports = {
       5: 1142000, // v5 available adding contacts, geolocation
       6: 1300000, // v6, expiration, app price, t3
       7: 1420000, // v7, nodes selection, secrets, private images (nodes selection allows secrets, private image - scope), staticip
+      8: 1932380, // v8, brings enterprise apps using arcaneOS features to run these apps. // Around June 23th
     },
     address: 't1LUs6quf7TB2zVZmexqPQdnqmrFMGZGjV6',
     addressMultisig: 't3aGJvdtd8NR6GrnqnRuVEzH6MbrXuJFLUX',
     addressMultisigB: 't3NryfAQLGeFs9jEoeqsxmBN2QLRaRKFLUX',
     addressDevelopment: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
     multisigAddressChange: 1670000,
-    fluxAppRequestV2: 1670000,
     epochstart: 694000,
     publicepochstart: 705000,
-    portMin: 31000, // ports 30000 - 30999 are reserved for local applications
-    portMax: 39999,
+    portMinLegacy: 31000, // ports 30000 - 30999 are reserved for local applications
+    portMaxLegacy: 39999,
     portBlockheightChange: 1420000,
-    portMinNew: 1,
-    portMaxNew: 65535,
+    portMin: 1,
+    portMax: 65535,
     bannedPorts: ['16100-16299', '26100-26299', '30000-30099', 8384, 27017, 22, 23, 25, 3389, 5900, 5800, 161, 512, 513, 5901, 3388, 4444, 123, 53],
     upnpBannedPorts: ['81-442', 2189],
     enterprisePorts: ['0-1023', 8080, 8081, 8443, 6667],
@@ -208,7 +215,11 @@ module.exports = {
     minBlocksAllowance: 5000, // app can be registered for a minimum of this blocks ~ 1 week
     newMinBlocksAllowance: 100, // app can be registered for a minimum of this blocks ~ 3 hours - to allow users to cancel application subscription
     newMinBlocksAllowanceBlock: 1630040, // block where we will start looking at new min blocks allowance. block expected on 26th of April 2024
+    cancel1BlockMinBlocksAllowance: 1, // app can be registered for a minimum of 1 block for cancellation purposes
+    cancel1BlockMinBlocksAllowanceBlock: 1964447, // block where we will start allowing 1 block lifetime updates - Expected August 6th 2025
     maxBlocksAllowance: 264000, // app can be registered up for a maximum of this blocks ~ 1 year
+    postPonMaxBlocksAllowance: 1056000, // after PON fork, chain works 4x faster, so max blocks is 4x higher ~ 1 year
+    daemonPONFork: 2020000, // block height where PON (Proof of Node) fork activates - chain works 4x faster after this block
     blocksAllowanceInterval: 1000, // ap differences can be in 1000s - more than 1 day
     removeBlocksAllowanceIntervalBlock: 1625000, // after this block we can start having app updates without extending subscription - block expected in April 19th 2024
     ownerAppAllowance: 1000, // in case of node owner installing some app, the app will run for this amount of blocks
@@ -221,6 +232,7 @@ module.exports = {
     hddFileSystemMinimum: 10, // right now 10, to be decreased to a minimum of 5GB of free space on hdd for docker with v8 specs activation
     defaultSwap: 2, // 2gb swap memory minimum, this is in gb
     applyMinimumPriceOn3Instances: 1691000, // after this block we use the min. usd price on prices per 3 instances.
+    applyMinimumForExtraInstances: 1890000,
   },
   lockedSystemResources: {
     cpu: 10, // 1 cpu core

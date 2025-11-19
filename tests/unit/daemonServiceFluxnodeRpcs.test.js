@@ -218,7 +218,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', []);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', []);
     });
 
     it('should trigger rpc, response passed', async () => {
@@ -238,7 +238,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', []);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', []);
     });
 
     it('should trigger rpc, data passed in params, no response passed', async () => {
@@ -256,7 +256,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', [req.params.filter]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', [req.params.filter]);
     });
 
     it('should trigger rpc, data passed in query, no response passed', async () => {
@@ -274,7 +274,7 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       const result = await daemonServiceFluxnodeRpcs.listFluxNodes(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listzelnodes', [req.query.filter]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'listfluxnodes', [req.query.filter]);
     });
   });
 
@@ -300,11 +300,12 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const expectedArgs = ['viewdeterministiczelnodelist', [], { useCache: false }];
 
       const result = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'viewdeterministiczelnodelist', []);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, ...expectedArgs);
     });
 
     it('should trigger rpc, response passed', async () => {
@@ -319,12 +320,13 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
       };
       const res = generateResponse();
       const expectedResponse = 'success';
+      const expectedArgs = ['viewdeterministiczelnodelist', [], { useCache: false }];
 
       const result = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(req, res);
 
       expect(result).to.equal(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'viewdeterministiczelnodelist', []);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, ...expectedArgs);
     });
 
     it('should trigger rpc, data passed in params, no response passed', async () => {
@@ -338,11 +340,12 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const expectedArgs = ['viewdeterministiczelnodelist', [req.params.filter], { useCache: false }];
 
       const result = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'viewdeterministiczelnodelist', [req.params.filter]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, ...expectedArgs);
     });
 
     it('should trigger rpc, data passed in query, no response passed', async () => {
@@ -356,11 +359,12 @@ describe('daemonServiceFluxnodeRpcs tests', () => {
         },
       };
       const expectedResponse = 'success';
+      const expectedArgs = ['viewdeterministiczelnodelist', [req.query.filter], { useCache: false }];
 
       const result = await daemonServiceFluxnodeRpcs.viewDeterministicFluxNodeList(req);
 
       expect(result).to.equal(expectedResponse);
-      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, 'viewdeterministiczelnodelist', [req.query.filter]);
+      sinon.assert.calledOnceWithExactly(daemonServiceUtilsStub, ...expectedArgs);
     });
   });
 

@@ -7,8 +7,10 @@ const fs = require('fs').promises;
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 
-const fluxDirPath = path.join(__dirname, '../../../');
-const appsFolder = `${fluxDirPath}ZelApps/`;
+const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
+// ToDo: Fix all the string concatenation in this file and use path.join()
+const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
+const appsFolder = `${appsFolderPath}/`;
 
 /**
  * Validates if a file path belongs to a specific set of upload types within the appsFolder.
@@ -168,7 +170,7 @@ async function getRemoteFileSize(req, res) {
       }
       const response = messageHelper.createDataMessage(fileSize);
       return res ? res.json(response) : response;
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errorResponse = messageHelper.errUnauthorizedMessage();
       return res ? res.json(errorResponse) : errorResponse;
@@ -209,7 +211,7 @@ async function removeBackupFile(req, res) {
       const output = await IOUtils.removeFile(filepath);
       const response = messageHelper.createSuccessMessage(output);
       return res.json(response);
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
@@ -252,7 +254,7 @@ async function downloadLocalFile(req, res) {
       const cmd = `sudo chmod 777 "${filepath}"`;
       await exec(cmd, { maxBuffer: 1024 * 1024 * 10 });
       return res.download(filepath, fileName);
-    // eslint-disable-next-line no-else-return
+      // eslint-disable-next-line no-else-return
     } else {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
