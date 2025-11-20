@@ -940,20 +940,44 @@ export default {
     },
     appRunningTill() {
       const blockTime = 2 * 60 * 1000;
-      // Use dynamic default expire based on block height (1 month)
-      const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
-      const defaultExpire = 22000 * multiplier;
+      const newBlockTime = 30 * 1000;
+      // Use dynamic default expire based on app registration height (1 month)
+      const appRegistrationHeight = this.callBResponse.data.height;
+      const defaultExpire = appRegistrationHeight >= FORK_BLOCK_HEIGHT ? 88000 : 22000;
       const expires = this.callBResponse.data.expire || defaultExpire;
-      const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+
+      const now = this.timestamp || Date.now();
+
+      // Calculate currentExpire accounting for fork block speed change
+      let currentExpire;
+      let currentExpireTime;
+      if (appRegistrationHeight < FORK_BLOCK_HEIGHT) {
+        // App registered before fork - need to adjust for speed change
+        const originalExpireHeight = appRegistrationHeight + expires;
+        if (originalExpireHeight > FORK_BLOCK_HEIGHT) {
+          // Expiration crosses fork boundary
+          const blocksAfterFork = originalExpireHeight - FORK_BLOCK_HEIGHT;
+          const adjustedBlocksAfterFork = blocksAfterFork * 4;
+          const adjustedExpireHeight = FORK_BLOCK_HEIGHT + adjustedBlocksAfterFork;
+          currentExpire = adjustedExpireHeight - this.daemonBlockCount;
+          currentExpireTime = (blocksAfterFork * newBlockTime) + ((FORK_BLOCK_HEIGHT - appRegistrationHeight) * blockTime) + now;
+        } else {
+          // Expiration is before fork, no adjustment needed
+          currentExpire = originalExpireHeight - this.daemonBlockCount;
+          currentExpireTime = currentExpire * blockTime + now;
+        }
+      } else {
+        // App registered after fork, no adjustment needed
+        currentExpire = appRegistrationHeight + expires - this.daemonBlockCount;
+        currentExpireTime = currentExpire * newBlockTime + now;
+      }
+
       let newExpire = currentExpire;
       if (this.extendSubscription) {
         newExpire = this.expireOptions[this.expirePosition].value;
       }
 
-      const now = this.timestamp || Date.now();
-
-      const currentExpireTime = currentExpire * blockTime + now;
-      const newExpireTime = newExpire * blockTime + now;
+      const newExpireTime = newExpire * newBlockTime + now;
 
       const runningTill = {
         current: currentExpireTime,
@@ -1500,7 +1524,7 @@ export default {
     this.getMarketPlace();
     this.getMultiplier();
     this.getEnterpriseNodes();
-    this.getDaemonBlockCount();
+    this.getDaemonBlockCount(true);
     // this.initCharts();
   },
   beforeDestroy() {
@@ -4674,8 +4698,30 @@ export default {
     },
     getExpireOptions() {
       this.expireOptions = [];
-      const expires = this.callBResponse.data.expire || 22000;
-      const currentExpire = this.callBResponse.data.height + expires - this.daemonBlockCount;
+      // Check if app was registered after fork to determine correct default expire
+      const appRegistrationHeight = this.callBResponse.data.height;
+      const defaultExpire = appRegistrationHeight >= FORK_BLOCK_HEIGHT ? 88000 : 22000;
+      const expires = this.callBResponse.data.expire || defaultExpire;
+
+      // Calculate currentExpire accounting for fork block speed change
+      let currentExpire;
+      if (appRegistrationHeight < FORK_BLOCK_HEIGHT) {
+        // App registered before fork - need to adjust for speed change
+        const originalExpireHeight = appRegistrationHeight + expires;
+        if (originalExpireHeight > FORK_BLOCK_HEIGHT) {
+          // Expiration crosses fork boundary
+          const blocksAfterFork = originalExpireHeight - FORK_BLOCK_HEIGHT;
+          const adjustedBlocksAfterFork = blocksAfterFork * 4;
+          const adjustedExpireHeight = FORK_BLOCK_HEIGHT + adjustedBlocksAfterFork;
+          currentExpire = adjustedExpireHeight - this.daemonBlockCount;
+        } else {
+          // Expiration is before fork, no adjustment needed
+          currentExpire = originalExpireHeight - this.daemonBlockCount;
+        }
+      } else {
+        // App registered after fork, no adjustment needed
+        currentExpire = appRegistrationHeight + expires - this.daemonBlockCount;
+      }
 
       // After block 2020000, the chain works 4x faster, so expire periods need to be multiplied by 4
       const multiplier = this.daemonBlockCount >= FORK_BLOCK_HEIGHT ? 4 : 1;
@@ -5216,7 +5262,7 @@ export default {
           appSpecification.geolocation = this.generateGeolocations();
         }
         if (appSpecification.version >= 6) {
-          await this.getDaemonBlockCount();
+          await this.getDaemonBlockCount(false);
           appSpecification.expire = this.convertExpire();
         }
         if (appSpecification.version >= 8) {
@@ -6685,11 +6731,13 @@ export default {
         console.log(error);
       }
     },
-    async getDaemonBlockCount() {
+    async getDaemonBlockCount(adjustExpireOptions) {
       const response = await DaemonService.getBlockCount();
       if (response.data.status === 'success') {
         this.daemonBlockCount = response.data.data;
-        this.adjustExpireOptionsForBlockHeight();
+        if (adjustExpireOptions) {
+          this.adjustExpireOptionsForBlockHeight();
+        }
       }
     },
     adjustExpireOptionsForBlockHeight() {
