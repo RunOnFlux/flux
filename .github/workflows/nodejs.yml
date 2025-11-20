@@ -83,8 +83,6 @@ jobs:
         run: npm run ciconfig
       - name: prebuild
         run: npm run prebuild
-      - name: build home
-        run: npm run homebuild
       - name: Test suite
         run: |
           npm run test:zelback

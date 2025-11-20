@@ -478,7 +478,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
     // Wait for volume file to exist (handles encrypted volumes not yet mounted after reboot)
     // This ensures @reboot cron jobs don't fail when the encrypted partition isn't ready
-    let execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
+    const execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
     await cmdAsync(`sudo mount -o loop ${volumeFile} ${appsFolder + appId}`);
     const mountingStatus2 = {
       status: 'Volume mounted',

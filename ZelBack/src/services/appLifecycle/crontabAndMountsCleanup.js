@@ -371,7 +371,7 @@ async function cleanupCrontabAndMounts() {
     }
 
     log.info(
-      `cleanupCrontabAndMounts - Cleanup complete. `
+      'cleanupCrontabAndMounts - Cleanup complete. '
       + `Crontab: Updated ${results.crontab.updated.length}, Removed ${results.crontab.removed.length}, Unchanged ${results.crontab.unchanged.length}, Errors ${results.crontab.errors.length}. `
       + `Mounts: Ensured ${results.mounts.mounted.length}, Failed ${results.mounts.failed.length}`,
     );
