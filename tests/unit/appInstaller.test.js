@@ -11,6 +11,9 @@ describe('appInstaller tests', () => {
   let configStub;
   let globalStateStub;
   let hwRequirementsStub;
+  let enterpriseHelperStub;
+  let appSpecHelpersStub;
+  let messageVerifierStub;
 
   beforeEach(() => {
     // Config stub
@@ -81,6 +84,19 @@ describe('appInstaller tests', () => {
       checkAppStaticIpRequirements: sinon.stub(),
       checkAppNodesRequirements: sinon.stub().resolves(),
       checkAppGeolocationRequirements: sinon.stub(),
+    };
+
+    enterpriseHelperStub = {
+      checkAndDecryptAppSpecs: sinon.stub().callsFake((specs) => Promise.resolve(specs)),
+    };
+
+    appSpecHelpersStub = {
+      specificationFormatter: sinon.stub().returnsArg(0),
+    };
+
+    messageVerifierStub = {
+      checkAppTemporaryMessageExistence: sinon.stub().resolves(null),
+      checkAppMessageExistence: sinon.stub().resolves(null),
     };
 
     logStub = {
@@ -176,10 +192,7 @@ describe('appInstaller tests', () => {
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
-      '../appMessaging/messageVerifier': {
-        checkAppTemporaryMessageExistence: sinon.stub().resolves(null),
-        checkAppMessageExistence: sinon.stub().resolves(null),
-      },
+      '../appMessaging/messageVerifier': messageVerifierStub,
       '../appDatabase/registryManager': {
         availableApps: sinon.stub().resolves([]),
         getApplicationGlobalSpecifications: sinon.stub().resolves(null),
@@ -188,6 +201,11 @@ describe('appInstaller tests', () => {
       '../appQuery/appQueryService': {
         installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
         listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+      },
+      '../utils/enterpriseHelper': enterpriseHelperStub,
+      '../utils/appSpecHelpers': appSpecHelpersStub,
+      '../utils/registryCredentialHelper': {
+        addCredentialsToImageVerifier: sinon.stub().resolves(),
       },
       util: {
         promisify: (fn) => fn,
@@ -359,6 +377,70 @@ describe('appInstaller tests', () => {
       await appInstaller.testAppInstall(req, res);
 
       expect(logStub.info.calledWith('testAppInstall: testapp')).to.be.true;
+    });
+
+    it('should decrypt enterprise app specs before test installation', async () => {
+      const enterpriseAppSpec = {
+        name: 'enterpriseapp',
+        version: 8,
+        enterprise: 'encryptedData',
+        compose: [], // Empty compose indicating encrypted
+        contacts: [],
+        owner: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
+      };
+
+      const decryptedAppSpec = {
+        ...enterpriseAppSpec,
+        compose: [
+          {
+            name: 'component1',
+            repotag: 'test/component:latest',
+            cpu: 0.5,
+            ram: 500,
+            hdd: 5,
+          },
+        ],
+        contacts: ['admin@example.com'],
+      };
+
+      const req = {
+        params: { appname: 'enterpriseapp' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+        setHeader: sinon.stub(),
+      };
+
+      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+      dbHelperStub.findOneInDatabase.resolves(null);
+      dbHelperStub.findInDatabase.resolves([]);
+
+      // Mock message verifier to return enterprise app with empty compose
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        appSpecifications: enterpriseAppSpec,
+      });
+
+      // Configure enterprise helper to return decrypted specs
+      enterpriseHelperStub.checkAndDecryptAppSpecs.resolves(decryptedAppSpec);
+      appSpecHelpersStub.specificationFormatter.returns(decryptedAppSpec);
+
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+      try {
+        await appInstaller.testAppInstall(req, res);
+      } catch (e) {
+        // Installation may fail, but we're testing the decryption path
+      }
+
+      // Verify that decryption was called for enterprise app
+      expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledWith(enterpriseAppSpec)).to.be.true;
+      expect(appSpecHelpersStub.specificationFormatter.calledWith(decryptedAppSpec)).to.be.true;
+      expect(logStub.info.calledWith('testAppInstall: enterpriseapp')).to.be.true;
     });
   });
 

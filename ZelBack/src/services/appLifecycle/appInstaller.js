@@ -1060,6 +1060,16 @@ async function testAppInstall(req, res) {
         throw new Error(`Application Specifications of ${appname} not found`);
       }
 
+      // Decrypt enterprise specifications if needed
+      if (
+        appSpecifications.version >= 8
+        && appSpecifications.enterprise
+        && !appSpecifications.compose.length
+      ) {
+        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+        appSpecifications = specificationFormatter(appSpecifications);
+      }
+
       // Test installation - similar to regular install but with test flag
       // Skip all requirement checks for test installations (geolocation, static IP, hardware, nodes)
       await checkAppRequirements(appSpecifications, true, true, true);
