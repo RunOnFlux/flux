@@ -25,10 +25,10 @@ const isArcane = Boolean(process.env.SYNCTHING_PATH);
 let syncthingBinaryPresent = false;
 
 /**
- * If syncthing is running okay. This does several checks. We optimistically set
- * this to true to avoid race conditions, as the webserver is started before the
- * syncthing checks. Also on Arcane, this is skipped entirely. If there is actually
- * a problem with syncthing, when the checks are run, this will be set to false.
+ * If syncthing is running okay. This does several checks. (See getDeviceId function)
+ * We optimistically set this to true to avoid race conditions, as the webserver
+ * is started before the syncthing checks. If there is actually a problem with
+ * syncthing, it will get set to false on the next iteration.
  */
 let syncthingStatusOk = true;
 
