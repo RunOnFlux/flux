@@ -126,6 +126,12 @@ describe('appInstaller tests', () => {
           data: { ipaddress: '192.168.1.1', thunder: false },
         }),
       },
+      '../daemonService/daemonServiceMiscRpcs': {
+        isDaemonSynced: sinon.stub().returns({
+          status: 'success',
+          data: { synced: true, height: 2094961 },
+        }),
+      },
       '../fluxNetworkHelper': {
         getNumberOfPeers: sinon.stub().returns(15),
         isFirewallActive: sinon.stub().resolves(false),

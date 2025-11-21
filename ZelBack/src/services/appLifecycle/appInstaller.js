@@ -9,6 +9,7 @@ const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
 const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const appUninstaller = require('./appUninstaller');
@@ -1066,7 +1067,17 @@ async function testAppInstall(req, res) {
         && appSpecifications.enterprise
         && !appSpecifications.compose.length
       ) {
-        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+        // Get current daemon height for decryption
+        const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+        if (!syncStatus.data.synced) {
+          throw new Error('Daemon not yet synced.');
+        }
+        const daemonHeight = syncStatus.data.height;
+
+        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications, {
+          daemonHeight,
+          owner: appSpecifications.owner,
+        });
         appSpecifications = specificationFormatter(appSpecifications);
       }
 
