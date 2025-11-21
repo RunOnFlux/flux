@@ -24,7 +24,13 @@ const isArcane = Boolean(process.env.SYNCTHING_PATH);
  */
 let syncthingBinaryPresent = false;
 
-let syncthingStatusOk = false;
+/**
+ * If syncthing is running okay. This does several checks. We optimistically set
+ * this to true to avoid race conditions, as the webserver is started before the
+ * syncthing checks. Also on Arcane, this is skipped entirely. If there is actually
+ * a problem with syncthing, when the checks are run, this will be set to false.
+ */
+let syncthingStatusOk = true;
 
 const parserOptions = {
   ignoreAttributes: false,
