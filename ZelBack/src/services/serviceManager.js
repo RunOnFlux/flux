@@ -28,6 +28,7 @@ const appHashSyncService = require('./appMessaging/appHashSyncService');
 const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
+const postRestartRecovery = require('./appLifecycle/postRestartRecovery');
 const globalState = require('./utils/globalState');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -213,6 +214,11 @@ async function startFluxFunctions() {
     log.info('crontab and mounts cleanup...');
     await crontabAndMountsCleanup.cleanupCrontabAndMounts().catch((error) => {
       log.error(`Crontab and mounts cleanup service error: ${error.message}`);
+    });
+    // Perform post-restart recovery - restart containers that were running before FluxOS to ensure proper mounts
+    log.info('Post-restart recovery check...');
+    await postRestartRecovery.performPostRestartRecovery().catch((error) => {
+      log.error(`Post-restart recovery service error: ${error.message}`);
     });
     syncthingService.startSyncthingSentinel();
     log.info('Syncthing service started');
