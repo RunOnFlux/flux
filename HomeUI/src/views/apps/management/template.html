@@ -5568,7 +5568,10 @@
               <h4 class="text-center mb-2">
                 Pay with Zelcore/SSP
               </h4>
-              <div class="loginRow">
+              <div
+                v-if="!paymentLoading && !paymentReceived"
+                class="loginRow"
+              >
                 <a @click="initZelcorePay">
                   <img
                     class="walletIcon"
@@ -5587,6 +5590,35 @@
                     width="100%"
                   >
                 </a>
+              </div>
+              <div
+                v-if="paymentLoading"
+                class="text-center"
+              >
+                <b-spinner
+                  variant="primary"
+                  label="Loading..."
+                  style="width: 3rem; height: 3rem;"
+                />
+                <p class="mt-2">
+                  Waiting for payment confirmation...
+                </p>
+              </div>
+              <div
+                v-if="paymentReceived"
+                class="text-center text-success"
+              >
+                <feather-icon
+                  icon="CheckCircleIcon"
+                  size="48"
+                  class="text-success"
+                />
+                <p class="mt-2">
+                  Payment Received!
+                </p>
+                <p class="small">
+                  Transaction ID: {{ transactionId }}
+                </p>
               </div>
             </b-card>
           </b-col>
