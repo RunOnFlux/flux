@@ -9,6 +9,7 @@ const dbHelper = require('../dbHelper');
 const messageHelper = require('../messageHelper');
 const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
+const daemonServiceMiscRpcs = require('../daemonService/daemonServiceMiscRpcs');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
 const geolocationService = require('../geolocationService');
 const appUninstaller = require('./appUninstaller');
@@ -1058,6 +1059,26 @@ async function testAppInstall(req, res) {
 
       if (!appSpecifications) {
         throw new Error(`Application Specifications of ${appname} not found`);
+      }
+
+      // Decrypt enterprise specifications if needed
+      if (
+        appSpecifications.version >= 8
+        && appSpecifications.enterprise
+        && !appSpecifications.compose.length
+      ) {
+        // Get current daemon height for decryption
+        const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+        if (!syncStatus.data.synced) {
+          throw new Error('Daemon not yet synced.');
+        }
+        const daemonHeight = syncStatus.data.height;
+
+        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications, {
+          daemonHeight,
+          owner: appSpecifications.owner,
+        });
+        appSpecifications = specificationFormatter(appSpecifications);
       }
 
       // Test installation - similar to regular install but with test flag

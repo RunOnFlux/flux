@@ -11,7 +11,7 @@ const messageVerifier = require('../appMessaging/messageVerifier');
 const imageManager = require('../appSecurity/imageManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 // eslint-disable-next-line no-unused-vars
-const { supportedArchitectures } = require('../utils/appConstants');
+const { supportedArchitectures, enterpriseRequiredArchitectures } = require('../utils/appConstants');
 const { specificationFormatter } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const portManager = require('../appNetwork/portManager');
@@ -1195,11 +1195,12 @@ function checkComposeHWParameters(appSpecsComposed) {
 
 /**
  * Main validation function for application specifications
+ * Validates specs including hardware requirements, architecture compatibility, and Docker compliance
  * @param {object} appSpecifications - Application specifications to validate
  * @param {number} height - Block height for validation context
- * @param {boolean} checkDockerAndWhitelist - Whether to check Docker and whitelist requirements
+ * @param {boolean} checkDockerAndWhitelist - Whether to check Docker, whitelist, and architecture requirements
  * @returns {Promise<boolean>} True if validation passes
- * @throws {Error} If validation fails
+ * @throws {Error} If validation fails (e.g., incompatible architectures, missing requirements)
  */
 async function verifyAppSpecifications(appSpecifications, height, checkDockerAndWhitelist = false) {
   if (!appSpecifications) {
@@ -1242,9 +1243,17 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
     // check blacklist
     await imageManager.checkApplicationImagesCompliance(appSpecifications);
 
+    // Architecture validation - collect architectures during verification
+    const componentArchitectures = [];
+
     if (appSpecifications.version <= 3) {
       // check repository whitelisted and repotag is available for download
-      await imageManager.verifyRepository(appSpecifications.repotag);
+      const result = await imageManager.verifyRepository(appSpecifications.repotag);
+      componentArchitectures.push({
+        name: appSpecifications.name,
+        repotag: appSpecifications.repotag,
+        architectures: result.supportedArchitectures,
+      });
     } else {
       // eslint-disable-next-line no-restricted-syntax
       for (const appComponent of appSpecifications.compose) {
@@ -1259,11 +1268,59 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
 
         // check repository whitelisted and repotag is available for download
         // eslint-disable-next-line no-await-in-loop
-        await imageManager.verifyRepository(appComponent.repotag, {
+        const result = await imageManager.verifyRepository(appComponent.repotag, {
           repoauth: appComponent.repoauth,
           specVersion: appSpecifications.version,
           appName: appSpecifications.name,
         });
+
+        componentArchitectures.push({
+          name: appComponent.name,
+          repotag: appComponent.repotag,
+          architectures: result.supportedArchitectures,
+        });
+      }
+
+      // Validate architecture requirements across all components
+      const isEnterpriseArcane = appSpecifications.version >= 8 && appSpecifications.enterprise;
+
+      if (isEnterpriseArcane) {
+        // Enterprise Arcane apps (v8+) must support amd64 on ALL components (Arcane nodes are amd64-only)
+        const componentsWithoutAmd64 = componentArchitectures.filter(
+          (comp) => !comp.architectures.includes('amd64'),
+        );
+
+        if (componentsWithoutAmd64.length > 0) {
+          const componentNames = componentsWithoutAmd64.map((c) => `${c.name} (${c.repotag})`).join(', ');
+          throw new Error(
+            `Enterprise application '${appSpecifications.name}' must support ${enterpriseRequiredArchitectures.join(', ')} `
+            + `architecture on ALL components. The following components do not support amd64: ${componentNames}. `
+            + `Arcane nodes are amd64-only.`,
+          );
+        }
+      } else {
+        // Non-enterprise apps: must have at least ONE common architecture across all components
+        const findCommonArchitectures = (compArchs) => {
+          if (compArchs.length === 0) return [];
+          if (compArchs.length === 1) return compArchs[0].architectures;
+
+          return compArchs[0].architectures.filter((arch) =>
+            compArchs.every((comp) => comp.architectures.includes(arch)),
+          );
+        };
+
+        const commonArchitectures = findCommonArchitectures(componentArchitectures);
+
+        if (commonArchitectures.length === 0) {
+          const details = componentArchitectures
+            .map((c) => `  - ${c.name} (${c.repotag}): ${c.architectures.join(', ') || 'none'}`)
+            .join('\n');
+          throw new Error(
+            `Application '${appSpecifications.name}' components do not share a common architecture. `
+            + `All components must support at least one common architecture (${supportedArchitectures.join(' or ')}). `
+            + `Component architectures:\n${details}`,
+          );
+        }
       }
     }
   }

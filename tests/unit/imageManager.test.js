@@ -42,6 +42,7 @@ describe('imageManager tests', () => {
         throwIfError: sinon.stub(),
         addCredentials: sinon.stub(),
         supported: true,
+        supportedArchitectures: ['amd64', 'arm64'],
         errorMeta: null,
       });
     });
@@ -89,7 +90,9 @@ describe('imageManager tests', () => {
         skipVerification: true,
       });
 
-      expect(result).to.be.true;
+      expect(result).to.be.an('object');
+      expect(result.verified).to.be.true;
+      expect(result.supportedArchitectures).to.be.an('array');
     });
 
     it('should throw error if architecture not supported', async () => {
@@ -130,7 +133,9 @@ describe('imageManager tests', () => {
       const cached = fluxCaching.dockerHubVerificationCache.get(cacheKey);
 
       expect(cached).to.not.be.undefined;
-      expect(cached.result).to.equal(true);
+      expect(cached.result).to.be.an('object');
+      expect(cached.result.verified).to.be.true;
+      expect(cached.result.supportedArchitectures).to.be.an('array');
       expect(cached.error).to.be.null;
     });
 

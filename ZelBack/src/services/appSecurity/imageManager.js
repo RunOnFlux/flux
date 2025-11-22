@@ -76,7 +76,11 @@ function classifyVerificationError(error, errorMeta) {
  * Verify repository and image compliance
  * @param {string} repotag - Repository tag to verify
  * @param {object} options - Verification options
- * @returns {Promise<object>} Verification result
+ * @param {string} [options.repoauth] - Repository authentication credentials
+ * @param {number} [options.specVersion] - App specification version (required with repoauth)
+ * @param {string} [options.architecture] - Specific architecture to validate support for
+ * @param {string} [options.appName] - Application name (for logging)
+ * @returns {Promise<{verified: boolean, supportedArchitectures: string[]}>} Verification result with supported architectures
  */
 async function verifyRepository(repotag, options = {}) {
   const repoauth = options.repoauth || null;
@@ -134,15 +138,23 @@ async function verifyRepository(repotag, options = {}) {
       throw new Error(`This Fluxnode's architecture ${architecture} not supported by ${repotag}`);
     }
 
+    // Extract supported architectures from the verified image
+    const supportedArchs = imgVerifier.supportedArchitectures;
+
+    const result = {
+      verified: true,
+      supportedArchitectures: supportedArchs,
+    };
+
     // Cache successful verification (uses default TTL from FluxCacheManager: 1 hour)
     fluxCaching.dockerHubVerificationCache.set(cacheKey, {
-      result: true,
+      result,
       error: null,
     });
 
     log.info(`Docker Hub verification cache MISS - cached for ${repotag} (${architecture || 'any'})`);
 
-    return true;
+    return result;
   } catch (error) {
     // Use errorMeta from imageVerifier for intelligent classification
     const { errorMeta } = imgVerifier;

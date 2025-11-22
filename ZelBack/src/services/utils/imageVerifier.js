@@ -59,6 +59,8 @@ class ImageVerifier {
 
   #architectureSupported = false;
 
+  #supportedArchitectures = [];
+
   authConfigured = false;
 
   authVerified = false;
@@ -145,6 +147,14 @@ class ImageVerifier {
    */
   get supported() {
     return this.verified && this.#architectureSupported;
+  }
+
+  /**
+   * Get all architectures supported by this image from the manifest.
+   * @returns {string[]} Array of supported architectures (e.g., ['amd64', 'arm64'])
+   */
+  get supportedArchitectures() {
+    return this.#supportedArchitectures;
   }
 
   #createAxiosInstance() {
@@ -436,6 +446,11 @@ class ImageVerifier {
         };
       }
 
+      // Store architecture for single image manifests (if not already stored)
+      if (arch && !this.#supportedArchitectures.includes(arch)) {
+        this.#supportedArchitectures.push(arch);
+      }
+
       if (this.architecture === arch) this.#architectureSupported = true;
     };
 
@@ -451,6 +466,9 @@ class ImageVerifier {
         };
         return;
       }
+
+      // Store all supported architectures from the manifest
+      this.#supportedArchitectures = images.map((img) => img.platform.architecture);
 
       // Can't remember 100% but think it's AWS that rate limits to 1/s if not authed.
       // eslint-disable-next-line no-restricted-syntax
