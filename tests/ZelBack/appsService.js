@@ -170,7 +170,9 @@ describe('checkHWParameters', () => {
     };
 
     const repA = await imageManager.verifyRepository(fluxAppSpecs.repotag).catch(() => false);
-    expect(repA).to.be.equal(true);
+    expect(repA).to.be.an('object');
+    expect(repA.verified).to.be.true;
+    expect(repA.supportedArchitectures).to.be.an('array');
 
     const repB = await imageManager.verifyRepository(fluxAppSpecs.repotagB).catch((err) => err);
     expect(repB).to.be.an.instanceof(Error);
