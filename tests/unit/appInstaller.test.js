@@ -500,7 +500,7 @@ describe('appInstaller tests', () => {
         '../messageHelper': messageHelperStub,
         '../dbHelper': dbHelperStub,
         '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
           ensureNumber: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
         },
@@ -547,7 +547,6 @@ describe('appInstaller tests', () => {
       });
 
       verificationHelperStub.verifyPrivilege.resolves(true);
-      messageHelperStub.createDataMessage.returns({ status: 'success', data: 'Test passed, skipped due to architecture' });
 
       await appInstallerForArchTest.testAppInstall(req, res);
 
@@ -557,11 +556,15 @@ describe('appInstaller tests', () => {
       // Verify success message was returned using streaming response
       expect(res.write.calledOnce).to.be.true;
       expect(res.end.calledOnce).to.be.true;
-      expect(messageHelperStub.createDataMessage.called).to.be.true;
-      const successCall = messageHelperStub.createDataMessage.getCall(0);
-      expect(successCall.args[0]).to.include('architecture incompatibility');
-      expect(successCall.args[0]).to.include('amd64');
-      expect(successCall.args[0]).to.include('arm64');
+
+      // Verify the written message contains architecture incompatibility info
+      const writeCall = res.write.getCall(0);
+      const writtenData = writeCall.args[0];
+      // ensureString converts object to JSON string, so check as string
+      expect(writtenData).to.be.a('string');
+      expect(writtenData).to.include('architecture incompatibility');
+      expect(writtenData).to.include('amd64');
+      expect(writtenData).to.include('arm64');
     });
 
     it('should proceed with installation when architecture is compatible', async () => {
@@ -613,7 +616,7 @@ describe('appInstaller tests', () => {
         '../messageHelper': messageHelperStub,
         '../dbHelper': dbHelperStub,
         '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
           ensureNumber: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
         },
@@ -727,11 +730,14 @@ describe('appInstaller tests', () => {
       expect(imageManagerStub.verifyRepository.calledWith('nginx:latest')).to.be.true;
 
       // Verify we did NOT return early with skip message
-      // (If we had skipped, createDataMessage would be called with architecture incompatibility message)
-      if (messageHelperStub.createDataMessage.called) {
-        const successCalls = messageHelperStub.createDataMessage.getCalls();
-        for (const call of successCalls) {
-          expect(call.args[0]).to.not.include('architecture incompatibility');
+      // (If we had skipped, res.write would contain architecture incompatibility message)
+      if (res.write.called) {
+        const writeCalls = res.write.getCalls();
+        for (const call of writeCalls) {
+          const data = call.args[0] || '';
+          if (data.includes && data.includes('architecture incompatibility')) {
+            expect.fail('Should not have returned early with architecture incompatibility message');
+          }
         }
       }
     });
@@ -812,7 +818,7 @@ describe('appInstaller tests', () => {
         '../messageHelper': messageHelperStub,
         '../dbHelper': dbHelperStub,
         '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
           ensureNumber: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
         },
@@ -936,7 +942,7 @@ describe('appInstaller tests', () => {
         '../messageHelper': messageHelperStub,
         '../dbHelper': dbHelperStubLocal,
         '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
           ensureNumber: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
         },
