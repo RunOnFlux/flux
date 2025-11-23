@@ -1113,6 +1113,14 @@ async function testAppInstall(req, res) {
 
       // If local architecture is not in common architectures, skip Docker operations
       if (!commonArchitectures.includes(localArch)) {
+        // Write an initial status message
+        const initMessage = {
+          status: 'Checking architecture compatibility...',
+        };
+        res.write(serviceHelper.ensureString(initMessage));
+        if (res.flush) res.flush();
+
+        // Write the skip message
         const successMessage = {
           status: `Test installation validation passed. Installation skipped due to architecture incompatibility: this node is ${localArch} but app requires [${commonArchitectures.join(', ')}]`,
         };

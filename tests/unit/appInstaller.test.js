@@ -553,12 +553,12 @@ describe('appInstaller tests', () => {
       // Verify verifyRepository was called
       expect(imageManagerStub.verifyRepository.calledWith('arm64v8/ubuntu:latest')).to.be.true;
 
-      // Verify success message was returned using streaming response
-      expect(res.write.calledOnce).to.be.true;
+      // Verify success message was returned using streaming response (2 writes: init + skip message)
+      expect(res.write.calledTwice).to.be.true;
       expect(res.end.calledOnce).to.be.true;
 
-      // Verify the written message contains architecture incompatibility info
-      const writeCall = res.write.getCall(0);
+      // Verify the second written message contains architecture incompatibility info
+      const writeCall = res.write.getCall(1); // Second call
       const writtenData = writeCall.args[0];
       // ensureString converts object to JSON string, so check as string
       expect(writtenData).to.be.a('string');
