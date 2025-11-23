@@ -1085,6 +1085,8 @@ async function testAppInstall(req, res) {
       // Skip all requirement checks for test installations (geolocation, static IP, hardware, nodes)
       await checkAppRequirements(appSpecifications, true, true, true);
 
+      res.setHeader('Content-Type', 'application/json');
+
       // Check architecture compatibility for test installations
       // Get local node architecture
       const localArch = await systemArchitecture();
