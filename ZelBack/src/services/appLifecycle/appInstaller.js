@@ -1118,7 +1118,8 @@ async function testAppInstall(req, res) {
         const successMessage = messageHelper.createDataMessage(
           `Test installation validation passed. Installation skipped due to architecture incompatibility: this node is ${localArch} but app requires [${commonArchitectures.join(', ')}]`,
         );
-        res.json(successMessage);
+        res.write(serviceHelper.ensureString(successMessage));
+        res.end();
         return;
       }
 

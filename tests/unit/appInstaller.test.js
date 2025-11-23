@@ -477,6 +477,8 @@ describe('appInstaller tests', () => {
       const res = {
         json: sinon.stub(),
         setHeader: sinon.stub(),
+        write: sinon.stub(),
+        end: sinon.stub(),
       };
 
       // Create new proxyquire instance with custom stubs for this test
@@ -552,8 +554,9 @@ describe('appInstaller tests', () => {
       // Verify verifyRepository was called
       expect(imageManagerStub.verifyRepository.calledWith('arm64v8/ubuntu:latest')).to.be.true;
 
-      // Verify success message was returned
-      expect(res.json.calledOnce).to.be.true;
+      // Verify success message was returned using streaming response
+      expect(res.write.calledOnce).to.be.true;
+      expect(res.end.calledOnce).to.be.true;
       expect(messageHelperStub.createDataMessage.called).to.be.true;
       const successCall = messageHelperStub.createDataMessage.getCall(0);
       expect(successCall.args[0]).to.include('architecture incompatibility');
