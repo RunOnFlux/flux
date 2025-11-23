@@ -1052,6 +1052,20 @@ function updateToLatestAppSpecifications(appSpec) {
   throw new Error('Original application version not recognized');
 }
 
+/**
+ * Find common architectures across all app components
+ * @param {Array<{name: string, architectures: string[]}>} componentArchitectures - Array of component architecture info
+ * @returns {string[]} Array of architecture strings common to all components
+ */
+function findCommonArchitectures(componentArchitectures) {
+  if (componentArchitectures.length === 0) return [];
+  if (componentArchitectures.length === 1) return componentArchitectures[0].architectures;
+
+  return componentArchitectures[0].architectures.filter((arch) =>
+    componentArchitectures.every((comp) => comp.architectures.includes(arch)),
+  );
+}
+
 module.exports = {
   appPricePerMonth,
   nodeFullGeolocation,
@@ -1060,4 +1074,5 @@ module.exports = {
   getAppPorts,
   specificationFormatter,
   updateToLatestAppSpecifications,
+  findCommonArchitectures,
 };

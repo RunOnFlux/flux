@@ -28,6 +28,7 @@ const upnpService = require('../upnpService');
 const globalState = require('../utils/globalState');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
+const { findCommonArchitectures } = require('../utils/appUtilities');
 const log = require('../../lib/log');
 const { appsFolder, localAppsInformation, scannedHeightCollection } = require('../utils/appConstants');
 const { checkAppTemporaryMessageExistence, checkAppMessageExistence } = require('../appMessaging/messageVerifier');
@@ -1102,15 +1103,6 @@ async function testAppInstall(req, res) {
       }
 
       // Calculate common architectures across all components
-      const findCommonArchitectures = (compArchs) => {
-        if (compArchs.length === 0) return [];
-        if (compArchs.length === 1) return compArchs[0].architectures;
-
-        return compArchs[0].architectures.filter((arch) =>
-          compArchs.every((comp) => comp.architectures.includes(arch)),
-        );
-      };
-
       const commonArchitectures = findCommonArchitectures(componentArchitectures);
 
       // If local architecture is not in common architectures, skip Docker operations

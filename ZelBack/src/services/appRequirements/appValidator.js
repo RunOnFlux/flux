@@ -12,7 +12,7 @@ const imageManager = require('../appSecurity/imageManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 // eslint-disable-next-line no-unused-vars
 const { supportedArchitectures, enterpriseRequiredArchitectures } = require('../utils/appConstants');
-const { specificationFormatter } = require('../utils/appUtilities');
+const { specificationFormatter, findCommonArchitectures } = require('../utils/appUtilities');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const portManager = require('../appNetwork/portManager');
 const {
@@ -1285,30 +1285,21 @@ async function verifyAppSpecifications(appSpecifications, height, checkDockerAnd
       const isEnterpriseArcane = appSpecifications.version >= 8 && appSpecifications.enterprise;
 
       if (isEnterpriseArcane) {
-        // Enterprise Arcane apps (v8+) must support amd64 on ALL components (Arcane nodes are amd64-only)
-        const componentsWithoutAmd64 = componentArchitectures.filter(
-          (comp) => !comp.architectures.includes('amd64'),
+        // Enterprise Arcane apps (v8+) must support required architectures on ALL components (Arcane nodes are amd64-only)
+        const componentsWithoutRequiredArchs = componentArchitectures.filter(
+          (comp) => !enterpriseRequiredArchitectures.every((arch) => comp.architectures.includes(arch)),
         );
 
-        if (componentsWithoutAmd64.length > 0) {
-          const componentNames = componentsWithoutAmd64.map((c) => `${c.name} (${c.repotag})`).join(', ');
+        if (componentsWithoutRequiredArchs.length > 0) {
+          const componentNames = componentsWithoutRequiredArchs.map((c) => `${c.name} (${c.repotag})`).join(', ');
           throw new Error(
             `Enterprise application '${appSpecifications.name}' must support ${enterpriseRequiredArchitectures.join(', ')} `
-            + `architecture on ALL components. The following components do not support amd64: ${componentNames}. `
+            + `architecture on ALL components. The following components do not support ${enterpriseRequiredArchitectures.join(', ')}: ${componentNames}. `
             + `Arcane nodes are amd64-only.`,
           );
         }
       } else {
         // Non-enterprise apps: must have at least ONE common architecture across all components
-        const findCommonArchitectures = (compArchs) => {
-          if (compArchs.length === 0) return [];
-          if (compArchs.length === 1) return compArchs[0].architectures;
-
-          return compArchs[0].architectures.filter((arch) =>
-            compArchs.every((comp) => comp.architectures.includes(arch)),
-          );
-        };
-
         const commonArchitectures = findCommonArchitectures(componentArchitectures);
 
         if (commonArchitectures.length === 0) {

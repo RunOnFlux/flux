@@ -103,6 +103,13 @@ describe('appValidator tests', () => {
       },
       '../utils/appUtilities': {
         specificationFormatter: sinon.stub().returnsArg(0),
+        findCommonArchitectures: (componentArchitectures) => {
+          if (componentArchitectures.length === 0) return [];
+          if (componentArchitectures.length === 1) return componentArchitectures[0].architectures;
+          return componentArchitectures[0].architectures.filter((arch) =>
+            componentArchitectures.every((comp) => comp.architectures.includes(arch)),
+          );
+        },
       },
       '../utils/enterpriseHelper': {
         checkAndDecryptAppSpecs: sinon.stub().returnsArg(0),
