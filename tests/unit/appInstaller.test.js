@@ -545,7 +545,7 @@ describe('appInstaller tests', () => {
       });
 
       verificationHelperStub.verifyPrivilege.resolves(true);
-      messageHelperStub.createSuccessMessage.returns({ status: 'success', data: { message: 'Test passed, skipped due to architecture' } });
+      messageHelperStub.createDataMessage.returns({ status: 'success', data: 'Test passed, skipped due to architecture' });
 
       await appInstallerForArchTest.testAppInstall(req, res);
 
@@ -554,8 +554,8 @@ describe('appInstaller tests', () => {
 
       // Verify success message was returned
       expect(res.json.calledOnce).to.be.true;
-      expect(messageHelperStub.createSuccessMessage.called).to.be.true;
-      const successCall = messageHelperStub.createSuccessMessage.getCall(0);
+      expect(messageHelperStub.createDataMessage.called).to.be.true;
+      const successCall = messageHelperStub.createDataMessage.getCall(0);
       expect(successCall.args[0]).to.include('architecture incompatibility');
       expect(successCall.args[0]).to.include('amd64');
       expect(successCall.args[0]).to.include('arm64');
@@ -724,9 +724,9 @@ describe('appInstaller tests', () => {
       expect(imageManagerStub.verifyRepository.calledWith('nginx:latest')).to.be.true;
 
       // Verify we did NOT return early with skip message
-      // (If we had skipped, createSuccessMessage would be called with architecture incompatibility message)
-      if (messageHelperStub.createSuccessMessage.called) {
-        const successCalls = messageHelperStub.createSuccessMessage.getCalls();
+      // (If we had skipped, createDataMessage would be called with architecture incompatibility message)
+      if (messageHelperStub.createDataMessage.called) {
+        const successCalls = messageHelperStub.createDataMessage.getCalls();
         for (const call of successCalls) {
           expect(call.args[0]).to.not.include('architecture incompatibility');
         }
