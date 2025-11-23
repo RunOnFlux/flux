@@ -17,7 +17,7 @@ const appUninstaller = require('./appUninstaller');
 const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
 const { storeAppRunningMessage, storeAppInstallingErrorMessage } = require('../appMessaging/messageStore');
 const { systemArchitecture } = require('../appSystem/systemIntegration');
-const { checkApplicationImagesCompliance } = require('../appSecurity/imageManager');
+const { checkApplicationImagesCompliance, verifyRepository } = require('../appSecurity/imageManager');
 const { startAppMonitoring } = require('../appManagement/appInspector');
 const imageVerifier = require('../utils/imageVerifier');
 // pgpService is used in commented out code
@@ -1086,6 +1086,41 @@ async function testAppInstall(req, res) {
       await checkAppRequirements(appSpecifications, true, true, true);
 
       res.setHeader('Content-Type', 'application/json');
+
+      // Check architecture compatibility for test installations
+      // Get local node architecture
+      const localArch = await systemArchitecture();
+
+      // Collect supported architectures from all components
+      const componentArchitectures = [];
+      for (const component of appSpecifications.compose) {
+        const repoVerification = await verifyRepository(component.repotag);
+        componentArchitectures.push({
+          name: component.name,
+          architectures: repoVerification.supportedArchitectures,
+        });
+      }
+
+      // Calculate common architectures across all components
+      const findCommonArchitectures = (compArchs) => {
+        if (compArchs.length === 0) return [];
+        if (compArchs.length === 1) return compArchs[0].architectures;
+
+        return compArchs[0].architectures.filter((arch) =>
+          compArchs.every((comp) => comp.architectures.includes(arch)),
+        );
+      };
+
+      const commonArchitectures = findCommonArchitectures(componentArchitectures);
+
+      // If local architecture is not in common architectures, skip Docker operations
+      if (!commonArchitectures.includes(localArch)) {
+        const successMessage = messageHelper.createSuccessMessage(
+          `Test installation validation passed. Installation skipped due to architecture incompatibility: this node is ${localArch} but app requires [${commonArchitectures.join(', ')}]`,
+        );
+        res.json(successMessage);
+        return;
+      }
 
       // Run test installation (registerAppLocally with test=true)
       await registerAppLocally(appSpecifications, undefined, res, true);

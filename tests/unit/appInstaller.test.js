@@ -173,6 +173,10 @@ describe('appInstaller tests', () => {
       },
       '../appSecurity/imageManager': {
         checkApplicationImagesCompliance: sinon.stub().resolves(),
+        verifyRepository: sinon.stub().resolves({
+          verified: true,
+          supportedArchitectures: ['amd64', 'arm64'],
+        }),
       },
       '../appManagement/appInspector': {
         startAppMonitoring: sinon.stub(),
@@ -447,6 +451,286 @@ describe('appInstaller tests', () => {
       expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledWith(enterpriseAppSpec)).to.be.true;
       expect(appSpecHelpersStub.specificationFormatter.calledWith(decryptedAppSpec)).to.be.true;
       expect(logStub.info.calledWith('testAppInstall: enterpriseapp')).to.be.true;
+    });
+
+    it('should skip installation when architecture is incompatible', async () => {
+      const appSpec = {
+        name: 'arm64app',
+        version: 4,
+        description: 'ARM64 only app',
+        owner: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
+        compose: [
+          {
+            name: 'component1',
+            repotag: 'arm64v8/ubuntu:latest',
+            cpu: 0.5,
+            ram: 500,
+            hdd: 5,
+          },
+        ],
+      };
+
+      const req = {
+        params: { appname: 'arm64app' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+        setHeader: sinon.stub(),
+      };
+
+      // Create new proxyquire instance with custom stubs for this test
+      const imageManagerStub = {
+        checkApplicationImagesCompliance: sinon.stub().resolves(),
+        verifyRepository: sinon.stub().resolves({
+          verified: true,
+          supportedArchitectures: ['arm64'], // ARM64 only
+        }),
+      };
+
+      const systemIntegrationStub = {
+        systemArchitecture: sinon.stub().resolves('amd64'), // Node is AMD64
+      };
+
+      const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../dbHelper': dbHelperStub,
+        '../serviceHelper': {
+          ensureString: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../generalService': {
+          nodeTier: sinon.stub().resolves('cumulus'),
+          checkSynced: sinon.stub().resolves(true),
+        },
+        '../benchmarkService': {
+          getBenchmarks: sinon.stub().resolves({
+            status: 'success',
+            data: { ipaddress: '192.168.1.1', thunder: false },
+          }),
+        },
+        '../daemonService/daemonServiceMiscRpcs': {
+          isDaemonSynced: sinon.stub().returns({
+            status: 'success',
+            data: { synced: true, height: 2094961 },
+          }),
+        },
+        '../fluxNetworkHelper': {
+          getNumberOfPeers: sinon.stub().returns(15),
+        },
+        '../dockerService': {
+          dockerListContainers: sinon.stub().resolves([]),
+        },
+        '../appSystem/systemIntegration': systemIntegrationStub,
+        '../appSecurity/imageManager': imageManagerStub,
+        '../appRequirements/hwRequirements': hwRequirementsStub,
+        '../appMessaging/messageVerifier': messageVerifierStub,
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+          getApplicationGlobalSpecifications: sinon.stub().resolves(appSpec),
+        },
+        '../utils/globalState': globalStateStub,
+        '../../lib/log': logStub,
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
+          config: configStub,
+        }),
+        '../utils/enterpriseHelper': enterpriseHelperStub,
+        '../utils/appSpecHelpers': appSpecHelpersStub,
+        util: {
+          promisify: (fn) => fn,
+        },
+      });
+
+      verificationHelperStub.verifyPrivilege.resolves(true);
+      messageHelperStub.createSuccessMessage.returns({ status: 'success', data: { message: 'Test passed, skipped due to architecture' } });
+
+      await appInstallerForArchTest.testAppInstall(req, res);
+
+      // Verify verifyRepository was called
+      expect(imageManagerStub.verifyRepository.calledWith('arm64v8/ubuntu:latest')).to.be.true;
+
+      // Verify success message was returned
+      expect(res.json.calledOnce).to.be.true;
+      expect(messageHelperStub.createSuccessMessage.called).to.be.true;
+      const successCall = messageHelperStub.createSuccessMessage.getCall(0);
+      expect(successCall.args[0]).to.include('architecture incompatibility');
+      expect(successCall.args[0]).to.include('amd64');
+      expect(successCall.args[0]).to.include('arm64');
+    });
+
+    it('should proceed with installation when architecture is compatible', async () => {
+      const appSpec = {
+        name: 'multiarchapp',
+        version: 4,
+        description: 'Multi-arch app',
+        owner: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
+        compose: [
+          {
+            name: 'component1',
+            repotag: 'nginx:latest',
+            cpu: 0.5,
+            ram: 500,
+            hdd: 5,
+          },
+        ],
+      };
+
+      const req = {
+        params: { appname: 'multiarchapp' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+        setHeader: sinon.stub(),
+        write: sinon.stub(),
+        end: sinon.stub(),
+      };
+
+      // Create new proxyquire instance with custom stubs for this test
+      const imageManagerStub = {
+        checkApplicationImagesCompliance: sinon.stub().resolves(),
+        verifyRepository: sinon.stub().resolves({
+          verified: true,
+          supportedArchitectures: ['amd64', 'arm64'], // Supports both
+        }),
+      };
+
+      const systemIntegrationStub = {
+        systemArchitecture: sinon.stub().resolves('amd64'), // Node is AMD64
+      };
+
+      const registerAppLocallyStub = sinon.stub().resolves();
+
+      const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../dbHelper': dbHelperStub,
+        '../serviceHelper': {
+          ensureString: sinon.stub().returnsArg(0),
+          ensureNumber: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../generalService': {
+          nodeTier: sinon.stub().resolves('cumulus'),
+          checkSynced: sinon.stub().resolves(true),
+        },
+        '../benchmarkService': {
+          getBenchmarks: sinon.stub().resolves({
+            status: 'success',
+            data: { ipaddress: '192.168.1.1', thunder: false },
+          }),
+        },
+        '../daemonService/daemonServiceMiscRpcs': {
+          isDaemonSynced: sinon.stub().returns({
+            status: 'success',
+            data: { synced: true, height: 2094961 },
+          }),
+        },
+        '../fluxNetworkHelper': {
+          getNumberOfPeers: sinon.stub().returns(15),
+          isFirewallActive: sinon.stub().resolves(false),
+          allowPort: sinon.stub().resolves({ status: true }),
+          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
+        },
+        '../geolocationService': {
+          isStaticIP: sinon.stub().returns(true),
+        },
+        '../dockerService': {
+          dockerListContainers: sinon.stub().resolves([]),
+          pruneContainers: sinon.stub().resolves(),
+          pruneNetworks: sinon.stub().resolves(),
+          pruneVolumes: sinon.stub().resolves(),
+          pruneImages: sinon.stub().resolves(),
+          createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
+          getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
+          appDockerCreate: sinon.stub().resolves(),
+          appDockerStart: sinon.stub().resolves('container-started'),
+          getAppIdentifier: sinon.stub().returns('multiarchapp'),
+          dockerPullStream: sinon.stub().yields(null, 'pulled'),
+        },
+        './appUninstaller': {
+          removeAppLocally: sinon.stub().resolves(),
+        },
+        './advancedWorkflows': {
+          createAppVolume: sinon.stub().resolves(),
+        },
+        '../fluxCommunicationMessagesSender': {
+          broadcastMessageToOutgoing: sinon.stub().resolves(),
+          broadcastMessageToIncoming: sinon.stub().resolves(),
+        },
+        '../appMessaging/messageStore': {
+          storeAppRunningMessage: sinon.stub().resolves(),
+          storeAppInstallingErrorMessage: sinon.stub().resolves(),
+        },
+        '../appSystem/systemIntegration': systemIntegrationStub,
+        '../appSecurity/imageManager': imageManagerStub,
+        '../appManagement/appInspector': {
+          startAppMonitoring: sinon.stub(),
+        },
+        '../utils/imageVerifier': {
+          ImageVerifier: sinon.stub().returns({
+            addCredentials: sinon.stub(),
+            verifyImage: sinon.stub().resolves(),
+            throwIfError: sinon.stub(),
+            supported: true,
+            provider: 'docker.io',
+          }),
+        },
+        '../pgpService': {
+          decryptMessage: sinon.stub().resolves('user:token'),
+        },
+        '../utils/registryCredentialHelper': {
+          addCredentialsToImageVerifier: sinon.stub().resolves(),
+        },
+        '../upnpService': {
+          isUPNP: sinon.stub().returns(false),
+          mapUpnpPort: sinon.stub().resolves(true),
+        },
+        '../appRequirements/hwRequirements': hwRequirementsStub,
+        '../appMessaging/messageVerifier': messageVerifierStub,
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+          getApplicationGlobalSpecifications: sinon.stub().resolves(appSpec),
+        },
+        '../appQuery/appQueryService': {
+          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+        },
+        '../utils/globalState': globalStateStub,
+        '../../lib/log': logStub,
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
+          config: configStub,
+        }),
+        '../utils/enterpriseHelper': enterpriseHelperStub,
+        '../utils/appSpecHelpers': appSpecHelpersStub,
+        util: {
+          promisify: (fn) => fn,
+        },
+      });
+
+      verificationHelperStub.verifyPrivilege.resolves(true);
+
+      try {
+        await appInstallerForArchTest.testAppInstall(req, res);
+      } catch (e) {
+        // Installation may fail at later stages, but we only care about architecture check passing
+      }
+
+      // Verify verifyRepository was called
+      expect(imageManagerStub.verifyRepository.calledWith('nginx:latest')).to.be.true;
+
+      // Verify we did NOT return early with skip message
+      // (If we had skipped, createSuccessMessage would be called with architecture incompatibility message)
+      if (messageHelperStub.createSuccessMessage.called) {
+        const successCalls = messageHelperStub.createSuccessMessage.getCalls();
+        for (const call of successCalls) {
+          expect(call.args[0]).to.not.include('architecture incompatibility');
+        }
+      }
     });
   });
 
