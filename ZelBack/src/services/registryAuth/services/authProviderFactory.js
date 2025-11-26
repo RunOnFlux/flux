@@ -115,7 +115,7 @@ class AuthProviderFactory {
   static createProviderFromObject(registryUrl, authConfig, appName) {
     // Explicit provider type specified
     if (authConfig.type) {
-      return this.createExplicitProvider(authConfig.type, authConfig, registryUrl, appName);
+      return this.createExplicitProvider(authConfig.type, authConfig, appName, registryUrl);
     }
 
     // Auto-detect provider based on registry URL
