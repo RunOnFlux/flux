@@ -14,46 +14,34 @@ async function initiate() {
   }
   const homePort = +apiPort - 1;
 
+  // Cloud UI static files directory
+  const cloudUI = path.join(__dirname, './CloudUI');
+
   const homeApp = express();
   homeApp.use(compression());
 
-  // Health check endpoint - no redirect
+  // Health check endpoint
   homeApp.get('/health', (req, res) => {
     res.type('text/plain');
     res.send('OK');
   });
 
-  // Robots.txt endpoint - no redirect
+  // Robots.txt endpoint
   homeApp.get('/robots.txt', (req, res) => {
     res.type('text/plain');
     res.send('User-agent: *\nDisallow: /');
   });
 
-  // Redirect all other requests to cloud.runonflux.com
+  // Serve static files from CloudUI
+  homeApp.use(express.static(cloudUI));
+
+  // SPA fallback - serve index.html for all unmatched routes
   homeApp.get('*', (req, res) => {
-    try {
-      // Get the host from the request (could be IP or domain)
-      const host = req.hostname || req.headers.host?.split(':')[0] || req.ip;
-
-      // Determine protocol - use https if the request was https, otherwise http
-      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
-
-      // Build the backend URL (protocol://host:apiPort)
-      const backendUrl = `${protocol}://${host}:${apiPort}`;
-
-      // Redirect to cloud.runonflux.com with backend parameter
-      const redirectUrl = `https://cloud.runonflux.com/?backend=${encodeURIComponent(backendUrl)}`;
-
-      log.info(`Redirecting to cloud.runonflux.com with backend: ${backendUrl}`);
-      res.redirect(302, redirectUrl);
-    } catch (error) {
-      log.error(`Error during redirect: ${error.message}`);
-      res.redirect(302, 'https://cloud.runonflux.com/');
-    }
+    res.sendFile(path.join(cloudUI, 'index.html'));
   });
 
   homeApp.listen(homePort, () => {
-    log.info(`Flux Home running on port ${homePort}! Redirecting to cloud.runonflux.com`);
+    log.info(`Flux Home running on port ${homePort}!`);
   });
 }
 
