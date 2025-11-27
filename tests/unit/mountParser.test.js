@@ -15,9 +15,9 @@ describe('mountParser tests', () => {
     it('should parse paths containing flag characters (r, g, s) without treating them as flags', () => {
       // Test common paths that contain 'r', 'g', 's' characters
       const testCases = [
-        '/var/lib/mysql',  // contains 'r' in 'var'
+        '/var/lib/mysql', // contains 'r' in 'var'
         '/usr/share/nginx', // contains 'r' in 'usr', 's' in 'usr' and 'share', 'g' in 'nginx'
-        '/storage/data',    // contains 's', 'r', 'g' in 'storage'
+        '/storage/data', // contains 's', 'r', 'g' in 'storage'
       ];
 
       testCases.forEach((path) => {
