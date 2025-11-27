@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" href="/images/logo.png" type="image/png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FluxCloud - Decentralized Web3 Cloud Infrastructure</title>
+
+  <!-- Primary Meta Tags -->
+  <meta name="title" content="FluxCloud - Decentralized Web3 Cloud Infrastructure" />
+  <meta name="description" content="Deploy applications on FluxCloud's decentralized Web3 infrastructure. Host games, WordPress sites, and custom apps on a network of 8,000+ FluxNodes worldwide. Starting at $0.99/month." />
+  <meta name="keywords" content="decentralized cloud, Web3 hosting, blockchain infrastructure, FluxNodes, decentralized apps, game server hosting, WordPress hosting" />
+  <meta name="author" content="Flux Network" />
+  <meta name="theme-color" content="#2196F3" />
+  <meta name="robots" content="index, follow" />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://home.runonflux.io/" />
+  <meta property="og:title" content="FluxCloud - Decentralized Web3 Cloud Infrastructure" />
+  <meta property="og:description" content="Deploy applications on FluxCloud's decentralized Web3 infrastructure. Host games, WordPress sites, and custom apps on a network of 8,000+ FluxNodes worldwide. Starting at $0.99/month." />
+  <meta property="og:image" content="https://home.runonflux.io/images/logo.png" />
+  <meta property="og:site_name" content="FluxCloud" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:url" content="https://home.runonflux.io/" />
+  <meta name="twitter:title" content="FluxCloud - Decentralized Web3 Cloud Infrastructure" />
+  <meta name="twitter:description" content="Deploy applications on FluxCloud's decentralized Web3 infrastructure. Host games, WordPress sites, and custom apps on a network of 8,000+ FluxNodes worldwide. Starting at $0.99/month." />
+  <meta name="twitter:image" content="https://home.runonflux.io/images/logo.png" />
+  <meta name="twitter:site" content="@RunOnFlux" />
+  <meta name="twitter:creator" content="@RunOnFlux" />
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href="https://home.runonflux.io/" />
+
+  <!-- Preconnect to critical third-party domains for better performance -->
+  <link rel="preconnect" href="https://api.runonflux.io" crossorigin />
+  <link rel="preconnect" href="https://stats.runonflux.io" crossorigin />
+
+  <!-- DNS-prefetch for third-party resources -->
+  <link rel="dns-prefetch" href="https://widget.kapa.ai" />
+  <link rel="dns-prefetch" href="https://raw.githubusercontent.com" />
+
+  <link rel="stylesheet" type="text/css" href="/loader.css" />
+  <style>
+    /* Hide reCAPTCHA error message that appears before v-overlay-container */
+    .v-overlay-container ~ div:not([id]):not([class]) {
+      display: none !important;
+    }
+    /* Alternative: hide the preceding sibling of v-overlay-container without id/class */
+    body > div:not([id]):not([class]) + .v-overlay-container {
+      & ~ div:not([id]):not([class]),
+      + div:not([id]):not([class]) {
+        display: none !important;
+      }
+    }
+    /* Target the div that contains reCAPTCHA text specifically */
+    body > div:not([id]):not([class]):has(div:only-child) {
+      display: none !important;
+    }
+  </style>
+  <script type="module" crossorigin src="/assets/index-BwGbh7KE.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/vuetify-COByHKRY.js">
+  <link rel="modulepreload" crossorigin href="/assets/monaco-D0sk5loy.js">
+  <link rel="modulepreload" crossorigin href="/assets/leaflet-core-BkStxytj.js">
+  <link rel="modulepreload" crossorigin href="/assets/crypto-metamask-FwTrKlAT.js">
+  <link rel="modulepreload" crossorigin href="/assets/leaflet-cluster-TUIETKBq.js">
+  <link rel="modulepreload" crossorigin href="/assets/crypto-walletconnect-BoPpUqP0.js">
+  <link rel="modulepreload" crossorigin href="/assets/apexcharts-C6hMdrdB.js">
+  <link rel="stylesheet" crossorigin href="/assets/monaco-WeXJsRih.css">
+  <link rel="stylesheet" crossorigin href="/assets/index-DEdtE669.css">
+</head>
+
+<body>
+  <noscript>
+    <strong>
+      We're sorry but FluxCloud doesn't work properly without
+      JavaScript enabled. Please enable it to continue.
+    </strong>
+  </noscript>
+  <div id="loading-bg" class="loading-screen">
+    <div class="loading-wrapper">
+      <div class="loading">
+        <div class="loading-logo">
+          <img src="/images/logo.png" alt="Logo" />
+        </div>
+        <div class="effect-1 effects"></div>
+        <div class="effect-2 effects"></div>
+        <div class="effect-3 effects"></div>
+      </div>
+    </div>
+    <div class="loading-text">
+      Flux, Your Gateway to a Decentralized World
+    </div>
+  </div>
+  <div id="app"></div>
+
+  <!-- Set Kapa AI disclaimer based on user language -->
+  <script>
+    (function() {
+      try {
+        // Helper function to get cookie value
+        function getCookie(name) {
+          const value = `; ${document.cookie}`
+          const parts = value.split(`; ${name}=`)
+          if (parts.length === 2) {
+            let cookieValue = parts.pop().split(';').shift()
+            // Remove quotes if present and decode URI component
+            try {
+              cookieValue = decodeURIComponent(cookieValue).replace(/^["']|["']$/g, '')
+            } catch (e) {
+              // Silent fail
+            }
+            return cookieValue
+          }
+          return null
+        }
+
+        // Get stored locale from cookie (Flux-language)
+        const storedLocale = getCookie('Flux-language') || 'en'
+        const jsonPath = `/src/plugins/i18n/locales/${storedLocale}.json`
+
+        // Load translation file and extract disclaimer
+        fetch(jsonPath)
+          .then(response => response.json())
+          .then(translations => {
+            const disclaimer = translations?.components?.fluxAIToggler?.disclaimer ||
+              'Get instant answers about Flux products, deployment, and app management. Powered by AI trained on official docs, whitepapers, and support resources.'
+
+            // Create and append Kapa script with correct disclaimer
+            const kapaScript = document.createElement('script')
+            kapaScript.defer = true
+            kapaScript.id = 'kapa-widget-script'
+            kapaScript.src = 'https://widget.kapa.ai/kapa-widget.bundle.js'
+            kapaScript.setAttribute('data-website-id', '16d7ee8e-1911-40a9-9bed-15eaadbcd99d')
+            kapaScript.setAttribute('data-project-name', 'Flux')
+            kapaScript.setAttribute('data-button-hide', 'true')
+            kapaScript.setAttribute('data-modal-override-open-id-ask-ai', 'flux-ai-button')
+            kapaScript.setAttribute('data-user-analytics-fingerprint-enabled', 'true')
+            kapaScript.setAttribute('data-search-mode-enabled', 'true')
+            kapaScript.setAttribute('data-project-logo', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
+            kapaScript.setAttribute('data-modal-image', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
+            kapaScript.setAttribute('data-modal-disclaimer', disclaimer)
+            document.body.appendChild(kapaScript)
+          })
+          .catch(error => {
+            // Fallback to English disclaimer if JSON can't be loaded
+            const disclaimer = 'Get instant answers about Flux products, deployment, and app management. Powered by AI trained on official docs, whitepapers, and support resources.'
+
+            const kapaScript = document.createElement('script')
+            kapaScript.defer = true
+            kapaScript.id = 'kapa-widget-script'
+            kapaScript.src = 'https://widget.kapa.ai/kapa-widget.bundle.js'
+            kapaScript.setAttribute('data-website-id', '16d7ee8e-1911-40a9-9bed-15eaadbcd99d')
+            kapaScript.setAttribute('data-project-name', 'Flux')
+            kapaScript.setAttribute('data-button-hide', 'true')
+            kapaScript.setAttribute('data-modal-override-open-id-ask-ai', 'flux-ai-button')
+            kapaScript.setAttribute('data-user-analytics-fingerprint-enabled', 'true')
+            kapaScript.setAttribute('data-search-mode-enabled', 'true')
+            kapaScript.setAttribute('data-project-logo', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
+            kapaScript.setAttribute('data-modal-image', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
+            kapaScript.setAttribute('data-modal-disclaimer', disclaimer)
+            document.body.appendChild(kapaScript)
+          })
+      } catch (error) {
+        // Silent fail
+      }
+    })()
+  </script>
+
+  <script>
+    const loaderColor = localStorage.getItem('vuexy-initial-loader-bg') || '#FFFFFF'
+    const primaryColor = localStorage.getItem('vuexy-initial-loader-color') || '#7367F0'
+
+    // Detect theme from stored theme or background color brightness
+    const storedTheme = localStorage.getItem('vuexy-theme') || 'light'
+
+    // Determine text color based on theme
+    const isDarkTheme = storedTheme === 'dark' || (loaderColor && loaderColor.toLowerCase() !== '#ffffff' && loaderColor.toLowerCase() !== '#fff')
+    const textColor = isDarkTheme ? 'rgba(255, 255, 255, 0.87)' : 'rgba(0, 0, 0, 0.87)'
+
+    // Convert hex to RGB for glow effects
+    function hexToRgb(hex) {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ?
+        `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` :
+        '115, 103, 240';
+    }
+
+    // Apply background and text color immediately to prevent theme flash
+    document.body.style.backgroundColor = loaderColor
+    document.body.style.color = textColor
+    document.documentElement.style.backgroundColor = loaderColor
+    document.documentElement.style.color = textColor
+
+    document.documentElement.style.setProperty('--initial-loader-bg', loaderColor)
+    document.documentElement.style.setProperty('--initial-loader-color', primaryColor)
+    document.documentElement.style.setProperty('--initial-loader-color-rgb', hexToRgb(primaryColor))
+    document.documentElement.style.setProperty('--initial-text-color', textColor)
+
+    // Set Vuetify theme colors immediately to prevent flash
+    if (isDarkTheme) {
+      document.documentElement.classList.add('v-theme--dark')
+      document.documentElement.classList.remove('v-theme--light')
+    } else {
+      document.documentElement.classList.add('v-theme--light')
+      document.documentElement.classList.remove('v-theme--dark')
+    }
+
+    // Transitions are managed by Vuetify and component styles
+    // Do not add global transitions as they interfere with Vuetify positioning
+
+    // Check if page path should skip loader
+    const skipLoaderPaths = ['/successcheckout']
+    const shouldSkipLoader = skipLoaderPaths.some(path => window.location.pathname === path)
+
+    if (shouldSkipLoader) {
+      // Remove loader immediately for specific pages
+      const loader = document.getElementById('loading-bg')
+      if (loader) loader.remove()
+    } else {
+      // Normal loader behavior for other pages
+      window.addEventListener('app-ready', () => {
+        setTimeout(() => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const loader = document.getElementById('loading-bg')
+              if (loader) {
+                loader.classList.add('fade-out')
+                setTimeout(() => loader.remove(), 800)
+              }
+            })
+          })
+        }, 500)
+      })
+    }
+  </script>
+</body>
+
+</html>

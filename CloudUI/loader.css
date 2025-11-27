@@ -1,0 +1,253 @@
+body {
+  margin: 0;
+  /* Prevent theme color flash - use dynamic theme colors */
+  background-color: var(--initial-loader-bg, #fff) !important;
+  color: var(--initial-text-color, #000) !important;
+  transition: none !important;
+}
+
+html {
+  overflow-x: hidden;
+  overflow-y: scroll;
+  background-color: var(--initial-loader-bg, #fff) !important;
+}
+
+/* Disable transitions only during initial load for body and #app to prevent flash */
+body,
+#app {
+  transition: none !important;
+}
+
+/* Prevent flash by keeping initial styles on #app during mount */
+#app {
+  background-color: var(--initial-loader-bg, #fff) !important;
+  color: var(--initial-text-color, #000) !important;
+  min-height: 100vh;
+}
+
+#loading-bg {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--initial-loader-bg, #fff);
+  block-size: 100%;
+  gap: 2rem 0;
+  inline-size: 100%;
+}
+
+.loading-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  block-size: 200px;
+  inline-size: 200px;
+}
+
+.loading .loading-logo {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fade-in-scale 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+}
+
+.loading .loading-logo img {
+  width: 80px;
+  height: auto;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.1));
+  animation: pulse-grow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-grow {
+  0%, 100% {
+    transform: scale(1);
+  }
+  
+  50% {
+    transform: scale(1.3);
+  }
+}
+
+.loading .effect-1,
+.loading .effect-2,
+.loading .effect-3 {
+  position: absolute;
+  box-sizing: border-box;
+  border: 4px solid transparent;
+  border-radius: 50%;
+  block-size: 100%;
+  inline-size: 100%;
+}
+
+.loading .effect-1 {
+  animation: rotate 2s linear infinite;
+  border-width: 4px;
+  border-color: var(--initial-loader-color, #eee) transparent transparent transparent;
+  border-style: solid;
+  box-shadow: 0 0 20px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.5),
+              inset 0 0 20px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.1);
+}
+
+.loading .effect-2 {
+  animation: rotate 3s linear infinite reverse;
+  border-width: 3px;
+  border-color: transparent transparent var(--initial-loader-color, #eee) var(--initial-loader-color, #eee);
+  opacity: 0.6;
+  transform: scale(1.15);
+  box-shadow: 0 0 30px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.4),
+              inset 0 0 15px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.1);
+  filter: blur(0.5px);
+}
+
+.loading .effect-3 {
+  animation: pulse-rotate 4s ease-in-out infinite;
+  border-width: 2px;
+  border-color: var(--initial-loader-color, #eee) transparent var(--initial-loader-color, #eee) transparent;
+  opacity: 0.4;
+  transform: scale(1.3);
+  box-shadow: 0 0 40px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.3),
+              inset 0 0 10px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.05);
+  filter: blur(1px);
+}
+
+.loading .effects {
+  transition: all 0.3s ease;
+}
+
+@keyframes rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse-rotate {
+  0% {
+    transform: scale(1.3) rotate(0deg);
+    opacity: 0.3;
+  }
+  
+  25% {
+    transform: scale(1.35) rotate(90deg);
+    opacity: 0.5;
+  }
+  
+  50% {
+    transform: scale(1.3) rotate(180deg);
+    opacity: 0.3;
+  }
+  
+  75% {
+    transform: scale(1.35) rotate(270deg);
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: scale(1.3) rotate(360deg);
+    opacity: 0.3;
+  }
+}
+
+@keyframes fade-in-scale {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--initial-loader-bg, #fff);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.8s ease;
+  backdrop-filter: blur(10px);
+}
+
+.loading-screen.fade-out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: scale(1.1);
+}
+
+/* Loading text styles */
+.loading-text {
+  margin-top: 3rem;
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, var(--initial-loader-color, #7367F0) 0%, #9c93ff 50%, var(--initial-loader-color, #7367F0) 100%);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: fade-in-up 1s ease-out 0.5s both, gradient-shift 3s ease infinite, text-glow 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 30px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.6));
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes text-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 20px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 40px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.8));
+  }
+}
+
+@keyframes pulse-opacity {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+

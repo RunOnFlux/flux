@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+        http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+
+  <!-- Homepage -->
+  <url>
+    <loc>https://home.runonflux.io/</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>1</priority>
+    <changefreq>daily</changefreq>
+  </url>
+
+  <!-- Cost Calculator -->
+  <url>
+    <loc>https://home.runonflux.io/cost-calculator</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.9</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- FluxDrive -->
+  <url>
+    <loc>https://home.runonflux.io/flux-drive</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.9</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- Games Landing Page -->
+  <url>
+    <loc>https://home.runonflux.io/marketplace/games</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.9</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- WordPress Hosting -->
+  <url>
+    <loc>https://home.runonflux.io/marketplace/wordpress</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.9</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- Flux Network Overview -->
+  <url>
+    <loc>https://home.runonflux.io/dashboards/overview</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.8</priority>
+    <changefreq>daily</changefreq>
+  </url>
+
+  <!-- Marketplace -->
+  <url>
+    <loc>https://home.runonflux.io/marketplace</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- Flux Network Resources -->
+  <url>
+    <loc>https://home.runonflux.io/dashboards/resources</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.7</priority>
+    <changefreq>daily</changefreq>
+  </url>
+
+  <!-- Flux Node Locations -->
+  <url>
+    <loc>https://home.runonflux.io/dashboards/locations</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- App Registration -->
+  <url>
+    <loc>https://home.runonflux.io/apps/register</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.7</priority>
+    <changefreq>monthly</changefreq>
+  </url>
+
+  <!-- Palworld Server Hosting -->
+  <url>
+    <loc>https://home.runonflux.io/marketplace/games/palworld</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- Minecraft Server Hosting -->
+  <url>
+    <loc>https://home.runonflux.io/marketplace/games/minecraftserver</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- Factorio Server Hosting -->
+  <url>
+    <loc>https://home.runonflux.io/marketplace/games/factorio</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- Satisfactory Server Hosting -->
+  <url>
+    <loc>https://home.runonflux.io/marketplace/games/satisfactory</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+  <!-- Enshrouded Server Hosting -->
+  <url>
+    <loc>https://home.runonflux.io/marketplace/games/enshrouded</loc>
+    <lastmod>2025-11-24</lastmod>
+    <priority>0.8</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+
+</urlset>

@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /administration/
+Disallow: /apps/manage/
+Disallow: /checkout/
+Disallow: /unauthorized
+
+Sitemap: https://home.runonflux.io/sitemap.xml
