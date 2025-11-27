@@ -13,6 +13,7 @@ const daemonServiceZcashRpcs = require('./services/daemonService/daemonServiceZc
 const daemonServiceControlRpcs = require('./services/daemonService/daemonServiceControlRpcs');
 const benchmarkService = require('./services/benchmarkService');
 const idService = require('./services/idService');
+const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
@@ -1245,6 +1246,14 @@ module.exports = (app) => {
   });
   app.post('/zelid/checkprivilege', (req, res) => { // DEPRECATED
     idService.checkLoggedUser(req, res);
+  });
+
+  // Payment request routes
+  app.get('/payment/paymentrequest', (req, res) => {
+    paymentService.paymentRequest(req, res);
+  });
+  app.post('/payment/verifypayment', (req, res) => {
+    paymentService.verifyPayment(req, res);
   });
 
   app.post('/daemon/createrawtransaction', (req, res) => {
