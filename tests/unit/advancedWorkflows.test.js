@@ -1298,28 +1298,48 @@ describe('advancedWorkflows tests', () => {
     it('should allow component count changes for version 8+ apps', async () => {
       const oldAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 8,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        enterprise: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'backend', repotag: 'repo/backend:1.0' },
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [] },
+          { name: 'backend', repotag: 'repo/backend:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [] },
         ],
       };
 
       const newAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 8,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        enterprise: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'backend', repotag: 'repo/backend:1.0' },
-          { name: 'database', repotag: 'repo/database:1.0' },
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [] },
+          { name: 'backend', repotag: 'repo/backend:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [] },
+          { name: 'database', repotag: 'repo/database:1.0', ports: ['5432'], containerPorts: ['5432'], domains: [], environmentParameters: [], commands: [] },
         ],
       };
 
+      const timestamp = Date.now();
       const messages = [
         {
           type: 'fluxappregister',
           appSpecifications: oldAppSpecs,
           height: 1000,
+          timestamp: timestamp - 1000, // Earlier than verification timestamp
         },
       ];
 
@@ -1328,7 +1348,7 @@ describe('advancedWorkflows tests', () => {
       // Should not throw error for v8+ apps with component changes
       const result = await advancedWorkflows.validateApplicationUpdateCompatibility(
         newAppSpecs,
-        Date.now(),
+        timestamp,
       );
 
       expect(result).to.be.true;
@@ -1338,27 +1358,47 @@ describe('advancedWorkflows tests', () => {
     it('should allow component name changes for version 8+ apps', async () => {
       const oldAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 8,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        enterprise: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'backend', repotag: 'repo/backend:1.0' },
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [] },
+          { name: 'backend', repotag: 'repo/backend:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [] },
         ],
       };
 
       const newAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 8,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        enterprise: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'api', repotag: 'repo/api:1.0' }, // Renamed from 'backend' to 'api'
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [] },
+          { name: 'api', repotag: 'repo/api:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [] }, // Renamed from 'backend' to 'api'
         ],
       };
 
+      const timestamp = Date.now();
       const messages = [
         {
           type: 'fluxappregister',
           appSpecifications: oldAppSpecs,
           height: 1000,
+          timestamp: timestamp - 1000, // Earlier than verification timestamp
         },
       ];
 
@@ -1367,7 +1407,7 @@ describe('advancedWorkflows tests', () => {
       // Should not throw error for v8+ apps with component name changes
       const result = await advancedWorkflows.validateApplicationUpdateCompatibility(
         newAppSpecs,
-        Date.now(),
+        timestamp,
       );
 
       expect(result).to.be.true;
@@ -1377,28 +1417,48 @@ describe('advancedWorkflows tests', () => {
     it('should reject component count changes for version 4-7 apps', async () => {
       const oldAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 7,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        repoAuth: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'backend', repotag: 'repo/backend:1.0' },
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [], tiered: false },
+          { name: 'backend', repotag: 'repo/backend:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [], tiered: false },
         ],
       };
 
       const newAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 7,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        repoAuth: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'backend', repotag: 'repo/backend:1.0' },
-          { name: 'database', repotag: 'repo/database:1.0' },
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [], tiered: false },
+          { name: 'backend', repotag: 'repo/backend:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [], tiered: false },
+          { name: 'database', repotag: 'repo/database:1.0', ports: ['5432'], containerPorts: ['5432'], domains: [], environmentParameters: [], commands: [], tiered: false },
         ],
       };
 
+      const timestamp = Date.now();
       const messages = [
         {
           type: 'fluxappregister',
           appSpecifications: oldAppSpecs,
           height: 1000,
+          timestamp: timestamp - 1000, // Earlier than verification timestamp
         },
       ];
 
@@ -1408,7 +1468,7 @@ describe('advancedWorkflows tests', () => {
       try {
         await advancedWorkflows.validateApplicationUpdateCompatibility(
           newAppSpecs,
-          Date.now(),
+          timestamp,
         );
         expect.fail('Should have thrown error');
       } catch (error) {
@@ -1421,27 +1481,47 @@ describe('advancedWorkflows tests', () => {
     it('should reject component name changes for version 4-7 apps', async () => {
       const oldAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 6,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        repoAuth: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'backend', repotag: 'repo/backend:1.0' },
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [], tiered: false },
+          { name: 'backend', repotag: 'repo/backend:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [], tiered: false },
         ],
       };
 
       const newAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 6,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        repoAuth: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'api', repotag: 'repo/api:1.0' }, // Renamed from 'backend'
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [], tiered: false },
+          { name: 'api', repotag: 'repo/api:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [], tiered: false }, // Renamed from 'backend'
         ],
       };
 
+      const timestamp = Date.now();
       const messages = [
         {
           type: 'fluxappregister',
           appSpecifications: oldAppSpecs,
           height: 1000,
+          timestamp: timestamp - 1000, // Earlier than verification timestamp
         },
       ];
 
@@ -1451,7 +1531,7 @@ describe('advancedWorkflows tests', () => {
       try {
         await advancedWorkflows.validateApplicationUpdateCompatibility(
           newAppSpecs,
-          Date.now(),
+          timestamp,
         );
         expect.fail('Should have thrown error');
       } catch (error) {
@@ -1464,27 +1544,47 @@ describe('advancedWorkflows tests', () => {
     it('should allow repotag changes for all v4+ apps', async () => {
       const oldAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 7,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        repoAuth: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:1.0' },
-          { name: 'backend', repotag: 'repo/backend:1.0' },
+          { name: 'frontend', repotag: 'repo/frontend:1.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [], tiered: false },
+          { name: 'backend', repotag: 'repo/backend:1.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [], tiered: false },
         ],
       };
 
       const newAppSpecs = {
         name: 'TestApp',
+        description: 'Test application',
+        owner: 'testowner',
         version: 7,
+        instances: 3,
+        contacts: [],
+        geolocation: [],
+        expire: 10000,
+        nodes: [],
+        staticip: false,
+        repoAuth: '',
         compose: [
-          { name: 'frontend', repotag: 'repo/frontend:2.0' }, // Changed tag
-          { name: 'backend', repotag: 'repo/backend:2.0' }, // Changed tag
+          { name: 'frontend', repotag: 'repo/frontend:2.0', ports: ['8080'], containerPorts: ['8080'], domains: [], environmentParameters: [], commands: [], tiered: false }, // Changed tag
+          { name: 'backend', repotag: 'repo/backend:2.0', ports: ['3000'], containerPorts: ['3000'], domains: [], environmentParameters: [], commands: [], tiered: false }, // Changed tag
         ],
       };
 
+      const timestamp = Date.now();
       const messages = [
         {
           type: 'fluxappregister',
           appSpecifications: oldAppSpecs,
           height: 1000,
+          timestamp: timestamp - 1000, // Earlier than verification timestamp
         },
       ];
 
@@ -1493,7 +1593,7 @@ describe('advancedWorkflows tests', () => {
       // Should allow repotag changes for v4+ apps
       const result = await advancedWorkflows.validateApplicationUpdateCompatibility(
         newAppSpecs,
-        Date.now(),
+        timestamp,
       );
 
       expect(result).to.be.true;
@@ -1501,7 +1601,8 @@ describe('advancedWorkflows tests', () => {
   });
 
   describe('softRedeploy component structure change handling tests', () => {
-    let getInstalledAppsFromDbStub;
+    let findInDatabaseStub;
+    let databaseConnectionStub;
 
     beforeEach(() => {
       // Reset global state
@@ -1511,6 +1612,11 @@ describe('advancedWorkflows tests', () => {
       globalState.installationInProgress = false;
       globalState.softRedeployInProgress = false;
       globalState.hardRedeployInProgress = false;
+
+      // Setup database connection stub
+      databaseConnectionStub = sinon.stub(dbHelper, 'databaseConnection').returns({
+        db: () => ({}),
+      });
     });
 
     afterEach(() => {
@@ -1537,35 +1643,43 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      getInstalledAppsFromDbStub = sinon.stub(advancedWorkflows, 'getInstalledAppsFromDb').resolves({
-        status: 'success',
-        data: [installedApp],
-      });
+      // Stub dbHelper.findInDatabase to return the installed app
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
+
+      // Stub appUninstaller so hardRedeploy doesn't actually try to remove the app
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      // Stub appInstaller so hardRedeploy doesn't actually try to install the app
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      sinon.stub(appInstaller, 'registerAppLocally').resolves();
+
+      // Stub serviceHelper.delay so hardRedeploy doesn't wait
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
 
       // Create a mock response object
       const res = {
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
       };
-
-      // Override for test - stub hardRedeploy to prevent full execution
-      if (typeof advancedWorkflows.hardRedeploy === 'function') {
-        sinon.stub(advancedWorkflows, 'hardRedeploy').resolves();
-      }
 
       await advancedWorkflows.softRedeploy(newAppSpecs, res);
 
-      // Should have called getInstalledAppsFromDb to check for structure changes
-      expect(getInstalledAppsFromDbStub.called).to.be.true;
+      // Should have called dbHelper.findInDatabase to check for structure changes
+      expect(findInDatabaseStub.called).to.be.true;
 
       // Should have written escalation message to response
       expect(res.write.called).to.be.true;
-      const writeCall = res.write.getCall(0);
-      if (writeCall) {
-        const message = writeCall.args[0];
-        expect(message).to.include('Component structure changed');
-        expect(message).to.include('hard redeploy');
-      }
+      const messages = res.write.getCalls().map(call => call.args[0]);
+      const escalationMessage = messages.find(msg => msg.includes('Component structure changed'));
+      expect(escalationMessage).to.exist;
+      expect(escalationMessage).to.include('hard redeploy');
     });
 
     it('should escalate to hard redeploy when component names change for v8+ app', async () => {
@@ -1587,20 +1701,42 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      getInstalledAppsFromDbStub = sinon.stub(advancedWorkflows, 'getInstalledAppsFromDb').resolves({
-        status: 'success',
-        data: [installedApp],
-      });
+      // Stub dbHelper.findInDatabase to return the installed app
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
+
+      // Stub appUninstaller so hardRedeploy doesn't actually try to remove the app
+      // eslint-disable-next-line global-require
+      const appUninstaller = require('../../ZelBack/src/services/appLifecycle/appUninstaller');
+      sinon.stub(appUninstaller, 'removeAppLocally').resolves();
+
+      // Stub appInstaller so hardRedeploy doesn't actually try to install the app
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+      sinon.stub(appInstaller, 'registerAppLocally').resolves();
+
+      // Stub serviceHelper.delay so hardRedeploy doesn't wait
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
 
       const res = {
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
       };
 
       await advancedWorkflows.softRedeploy(newAppSpecs, res);
 
-      expect(getInstalledAppsFromDbStub.called).to.be.true;
+      // Should have called dbHelper.findInDatabase to check for structure changes
+      expect(findInDatabaseStub.called).to.be.true;
+
+      // Should have written escalation message to response
       expect(res.write.called).to.be.true;
+      const messages = res.write.getCalls().map(call => call.args[0]);
+      const escalationMessage = messages.find(msg => msg.includes('Component structure changed'));
+      expect(escalationMessage).to.exist;
+      expect(escalationMessage).to.include('hard redeploy');
     });
 
     it('should proceed with normal soft redeploy when no component structure changes', async () => {
@@ -1622,10 +1758,8 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      getInstalledAppsFromDbStub = sinon.stub(advancedWorkflows, 'getInstalledAppsFromDb').resolves({
-        status: 'success',
-        data: [installedApp],
-      });
+      // Stub dbHelper.findInDatabase to return the installed app
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
       // Mock other required dependencies for soft redeploy
       sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
@@ -1634,13 +1768,14 @@ describe('advancedWorkflows tests', () => {
       const res = {
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
       };
 
       // This should proceed with normal soft redeploy, not escalate
       // We can check that softRedeployInProgress was set to true
       await advancedWorkflows.softRedeploy(newAppSpecs, res);
 
-      expect(getInstalledAppsFromDbStub.called).to.be.true;
+      expect(findInDatabaseStub.called).to.be.true;
 
       // Check that it proceeded with soft redeploy flow (didn't return early)
       // by verifying it attempted soft removal
@@ -1666,10 +1801,8 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      getInstalledAppsFromDbStub = sinon.stub(advancedWorkflows, 'getInstalledAppsFromDb').resolves({
-        status: 'success',
-        data: [installedApp],
-      });
+      // Stub dbHelper.findInDatabase to return the installed app
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
       // Mock other required dependencies
       sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
@@ -1678,13 +1811,14 @@ describe('advancedWorkflows tests', () => {
       const res = {
         write: sinon.stub(),
         flush: sinon.stub(),
+        end: sinon.stub(),
       };
 
       await advancedWorkflows.softRedeploy(newAppSpecs, res);
 
       // For v4-7 apps, should still check for component structure but not change behavior
       // since they can't have component changes anyway (blocked at validation)
-      expect(getInstalledAppsFromDbStub.called).to.be.true;
+      expect(findInDatabaseStub.called).to.be.true;
     });
   });
 

@@ -4254,6 +4254,7 @@ module.exports = {
   softRegisterAppLocally,
   softRemoveAppLocally,
   hardRedeploy,
+  softRedeploy,
   softRedeployComponent,
   hardRedeployComponent,
   redeployAPI,
