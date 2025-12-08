@@ -1220,6 +1220,40 @@ async function softRedeploy(appSpecs, res) {
       }
       return;
     }
+
+    // Check if component structure changed for version 8+ apps
+    // If so, escalate to hard redeploy automatically
+    if (appSpecs.version >= 4) {
+      const installedAppsRes = await getInstalledAppsFromDb();
+      if (installedAppsRes.status === 'success') {
+        const installedApp = installedAppsRes.data.find((app) => app.name === appSpecs.name);
+        if (installedApp && installedApp.version >= 8 && appSpecs.version >= 8) {
+          // Check if component structure changed
+          const componentCountChanged = appSpecs.compose.length !== installedApp.compose.length;
+          const componentNamesChanged = !appSpecs.compose.every(
+            (newComp) => installedApp.compose.find((oldComp) => oldComp.name === newComp.name),
+          );
+
+          if (componentCountChanged || componentNamesChanged) {
+            log.warn(`Soft redeploy requested for ${appSpecs.name}, but component structure changed.`);
+            log.warn(`Component count: ${installedApp.compose.length} -> ${appSpecs.compose.length}`);
+            log.warn('Automatically escalating to hard redeploy for component structure safety.');
+            const escalationMessage = messageHelper.createWarningMessage(
+              `Component structure changed for v${appSpecs.version} app. Escalating to hard redeploy for safety.`,
+            );
+            if (res) {
+              res.write(serviceHelper.ensureString(escalationMessage));
+              if (res.flush) res.flush();
+            }
+            // Call hardRedeploy instead
+            // eslint-disable-next-line no-use-before-define
+            await hardRedeploy(appSpecs, res);
+            return;
+          }
+        }
+      }
+    }
+
     globalState.softRedeployInProgress = true;
     log.info('Starting softRedeploy');
     try {
@@ -2546,29 +2580,37 @@ async function validateApplicationUpdateCompatibility(specifications, verificati
   if (specifications.version >= 4) {
     if (appSpecs.version >= 4) {
       // Both current and update are v4+ compositions
-      // Component count must remain constant
-      if (specifications.compose.length !== appSpecs.compose.length) {
-        throw new Error(
-          `Application update rejected: Cannot change the number of components for "${specifications.name}". `
-          + `Previous version has ${appSpecs.compose.length} component(s), new version has ${specifications.compose.length}. `
-          + 'Component count must remain constant for v4+ applications.',
-        );
-      }
 
-      // Component names must remain constant (but repotag can change)
-      appSpecs.compose.forEach((appComponent) => {
-        const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
-        if (!newSpecComponentFound) {
-          const oldNames = appSpecs.compose.map((c) => c.name).join(', ');
-          const newNames = specifications.compose.map((c) => c.name).join(', ');
+      // For version 8+, allow component count and name changes
+      if (specifications.version >= 8 && appSpecs.version >= 8) {
+        // Version 8+ allows flexible component changes
+        // Component count and names can change - will trigger hard redeploy
+        log.info(`Version 8+ app "${specifications.name}" allows component structure changes`);
+      } else {
+        // Component count must remain constant for v4-7
+        if (specifications.compose.length !== appSpecs.compose.length) {
           throw new Error(
-            `Application update rejected: Component "${appComponent.name}" not found in new specification for "${specifications.name}". `
-            + `Component names must remain constant. Previous components: [${oldNames}], New components: [${newNames}]. `
-            + 'Note: Docker image tags (repotag) can be changed, but component names cannot.',
+            `Application update rejected: Cannot change the number of components for "${specifications.name}". `
+            + `Previous version has ${appSpecs.compose.length} component(s), new version has ${specifications.compose.length}. `
+            + 'Component count must remain constant for v4-7 applications. Upgrade to version 8 to enable this feature.',
           );
         }
-        // v4+ allows for changes of repotag (Docker image tags)
-      });
+
+        // Component names must remain constant (but repotag can change) for v4-7
+        appSpecs.compose.forEach((appComponent) => {
+          const newSpecComponentFound = specifications.compose.find((appComponentNew) => appComponentNew.name === appComponent.name);
+          if (!newSpecComponentFound) {
+            const oldNames = appSpecs.compose.map((c) => c.name).join(', ');
+            const newNames = specifications.compose.map((c) => c.name).join(', ');
+            throw new Error(
+              `Application update rejected: Component "${appComponent.name}" not found in new specification for "${specifications.name}". `
+              + `Component names must remain constant for v4-7 applications. Previous components: [${oldNames}], New components: [${newNames}]. `
+              + 'Upgrade to version 8 to enable component name changes. Note: Docker image tags (repotag) can be changed.',
+            );
+          }
+          // v4+ allows for changes of repotag (Docker image tags)
+        });
+      }
     } else { // Update is v4+ and current app is v1-3
       // Node will perform hard redeploy of the app to migrate from v1-3 to v4+
     }
@@ -3201,6 +3243,41 @@ async function reinstallOldApplications() {
             const appUninstaller = require('./appUninstaller');
             // eslint-disable-next-line global-require
             const appInstaller = require('./appInstaller');
+
+            // Check if component structure changed (count or names) for version 8+ apps
+            const componentCountChanged = appSpecifications.compose.length !== installedApp.compose.length;
+            const componentNamesChanged = !appSpecifications.compose.every(
+              (newComp) => installedApp.compose.find((oldComp) => oldComp.name === newComp.name),
+            );
+            const hasComponentStructureChange = componentCountChanged || componentNamesChanged;
+
+            // For version 8+ apps with component structure changes, force full hard redeploy
+            if (appSpecifications.version >= 8 && hasComponentStructureChange) {
+              log.warn(`Application ${appSpecifications.name} (v${appSpecifications.version}) has component structure changes.`);
+              log.warn(`Component count: ${installedApp.compose.length} -> ${appSpecifications.compose.length}`);
+              log.warn('Performing full hard redeploy to handle component changes...');
+              log.warn(`REMOVAL REASON: Component structure change (v8+) - ${appSpecifications.name} component count/names changed`);
+
+              // eslint-disable-next-line no-await-in-loop
+              await appUninstaller.removeAppLocally(appSpecifications.name, null, false, false);
+              const appRedeployResponse = messageHelper.createSuccessMessage('Application removed. Awaiting installation...');
+              log.info(appRedeployResponse);
+
+              // eslint-disable-next-line no-await-in-loop
+              await serviceHelper.delay(config.fluxapps.redeploy.delay * 1000);
+
+              // verify requirements
+              // eslint-disable-next-line no-await-in-loop
+              await appInstaller.checkAppRequirements(appSpecifications);
+
+              // register
+              // eslint-disable-next-line no-await-in-loop
+              await appInstaller.registerAppLocally(appSpecifications, undefined, null, false, true);
+              log.info(`Application ${appSpecifications.name} redeployed with new component structure`);
+
+              // eslint-disable-next-line no-continue
+              continue;
+            }
 
             try {
               const reversedCompose = [...appSpecifications.compose].reverse();
@@ -4177,6 +4254,7 @@ module.exports = {
   softRegisterAppLocally,
   softRemoveAppLocally,
   hardRedeploy,
+  softRedeploy,
   softRedeployComponent,
   hardRedeployComponent,
   redeployAPI,

@@ -124,6 +124,9 @@ async function startFluxFunctions() {
     await database.collection(config.database.local.collections.loggedUsers).createIndex({ createdAt: 1 }, { expireAfterSeconds: 14 * 24 * 60 * 60 }); // 2days
     await database.collection(config.database.local.collections.activeLoginPhrases).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
     await database.collection(config.database.local.collections.activeSignatures).createIndex({ createdAt: 1 }, { expireAfterSeconds: 900 });
+    await database.collection(config.database.local.collections.activePaymentRequests).createIndex({ createdAt: 1 }, { expireAfterSeconds: 3600 }); // 1 hour
+    await database.collection(config.database.local.collections.completedPayments).createIndex({ paymentId: 1 });
+    await database.collection(config.database.local.collections.completedPayments).createIndex({ createdAt: 1 }, { expireAfterSeconds: 7 * 24 * 60 * 60 }); // 7 days
     log.info('Local database prepared');
     log.info('Preparing temporary database...');
     // no need to drop temporary messages

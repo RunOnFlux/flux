@@ -1003,6 +1003,31 @@
                     >
                   </a>
                 </div>
+                <div
+                  v-if="paymentLoading"
+                  class="mt-2 text-center"
+                >
+                  <b-spinner
+                    variant="primary"
+                    small
+                  />
+                  <div class="text-center mt-1">
+                    Waiting for payment...
+                  </div>
+                </div>
+                <div
+                  v-if="paymentReceived && transactionId"
+                  class="mt-2"
+                >
+                  <b-alert
+                    variant="success"
+                    show
+                  >
+                    <strong>Payment Received!</strong>
+                    <br>
+                    <small>Transaction ID: {{ transactionId }}</small>
+                  </b-alert>
+                </div>
               </b-card>
             </b-col>
           </b-row>
@@ -1800,6 +1825,11 @@ export default {
     const registrationHash = ref(null);
     const stripeEnabled = ref(true);
     const paypalEnabled = ref(true);
+    const paymentId = ref('');
+    const paymentWebsocket = ref(null);
+    const transactionId = ref('');
+    const paymentReceived = ref(false);
+    const paymentLoading = ref(false);
     const selectedEnterpriseNodes = ref([]);
     const enterprisePublicKeys = ref([]);
     const selectedGeolocation = ref(null);
@@ -1911,6 +1941,41 @@ export default {
       const url = `${backendURL}/id/providesign`;
       return encodeURI(url);
     };
+    const paymentCallbackValue = () => {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) {
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          vm.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          vm.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        mybackend += config.value.apiPort;
+      }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/payment/verifypayment?paymentid=${paymentId.value}`;
+      return encodeURI(url);
+    };
 
     const onError = (evt) => {
       console.log(evt);
@@ -1930,6 +1995,82 @@ export default {
     const onOpen = (evt) => {
       console.log(evt);
     };
+
+    // Payment WebSocket handlers
+    const onPaymentError = (evt) => {
+      console.log('Payment WebSocket error:', evt);
+      paymentLoading.value = false;
+    };
+    const onPaymentMessage = (evt) => {
+      const data = qs.parse(evt.data);
+      console.log('Payment WebSocket message:', data);
+
+      if (data.status === 'success' && data.data) {
+        const paymentData = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
+        transactionId.value = paymentData.txid;
+        paymentReceived.value = true;
+        paymentLoading.value = false;
+        showToast('success', `Payment received! Transaction ID: ${transactionId.value}`);
+      } else if (data.status === 'error') {
+        paymentLoading.value = false;
+        const errorMsg = typeof data.data === 'string' ? data.data : (data.data?.message || data.message || 'Payment request expired or invalid');
+        showToast('error', errorMsg);
+      }
+    };
+    const onPaymentClose = (evt) => {
+      console.log('Payment WebSocket closed:', evt);
+      if (!paymentReceived.value) {
+        paymentLoading.value = false;
+      }
+    };
+    const onPaymentOpen = (evt) => {
+      console.log('Payment WebSocket opened:', evt);
+    };
+    const initiatePaymentWS = () => {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      const wsprotocol = protocol === 'https:' ? 'wss://' : 'ws://';
+      mybackend += wsprotocol;
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) {
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          vm.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          vm.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        mybackend += config.value.apiPort;
+      }
+      let backendURL = store.get('backendURL') || mybackend;
+      // Convert HTTP/HTTPS to WebSocket protocol
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const wsuri = `${backendURL}/ws/payment/${paymentId.value}`;
+      const websocketConn = new WebSocket(wsuri);
+      paymentWebsocket.value = websocketConn;
+
+      websocketConn.onopen = onPaymentOpen;
+      websocketConn.onclose = onPaymentClose;
+      websocketConn.onmessage = onPaymentMessage;
+      websocketConn.onerror = onPaymentError;
+    };
+
     const initSignFluxSSO = async () => {
       try {
         const message = dataToSign.value;
@@ -1954,21 +2095,72 @@ export default {
         showToast('warning', 'Failed to sign message, please try again.');
       }
     };
-    const initZelcorePay = () => {
+    const initZelcorePay = async () => {
       try {
-        const protocol = `zel:?action=pay&coin=zelcash&address=${deploymentAddress.value}&amount=${appPricePerDeployment.value}&message=${registrationHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        paymentLoading.value = true;
+        paymentReceived.value = false;
+        transactionId.value = '';
+
+        // Request a payment ID from the backend
+        const { protocol, hostname, port } = window.location;
+        let mybackend = '';
+        mybackend += protocol;
+        mybackend += '//';
+        const regex = /[A-Za-z]/g;
+        if (hostname.split('-')[4]) {
+          const splitted = hostname.split('-');
+          const names = splitted[4].split('.');
+          const adjP = +names[0] + 1;
+          names[0] = adjP.toString();
+          names[2] = 'api';
+          splitted[4] = '';
+          mybackend += splitted.join('-');
+          mybackend += names.join('.');
+        } else if (hostname.match(regex)) {
+          const names = hostname.split('.');
+          names[0] = 'api';
+          mybackend += names.join('.');
+        } else {
+          if (typeof hostname === 'string') {
+            vm.$store.commit('flux/setUserIp', hostname);
+          }
+          if (+port > 16100) {
+            const apiPort = +port + 1;
+            vm.$store.commit('flux/setFluxPort', apiPort);
+          }
+          mybackend += hostname;
+          mybackend += ':';
+          mybackend += config.value.apiPort;
+        }
+        const backendURL = store.get('backendURL') || mybackend;
+
+        const paymentResponse = await axios.get(`${backendURL}/payment/paymentrequest`);
+        if (paymentResponse.data.status !== 'success') {
+          throw new Error('Failed to create payment request');
+        }
+
+        paymentId.value = paymentResponse.data.data.paymentId;
+
+        // Set up WebSocket connection for payment confirmation
+        initiatePaymentWS();
+
+        // Build ZelCore protocol URL with callback
+        const zelProtocol = `zel:?action=pay&coin=zelcash&address=${deploymentAddress.value}&amount=${appPricePerDeployment.value}&message=${registrationHash.value}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png&callback=${paymentCallbackValue()}`;
+
         if (window.zelcore) {
-          window.zelcore.protocol(protocol);
+          window.zelcore.protocol(zelProtocol);
         } else {
           const hiddenLink = document.createElement('a');
-          hiddenLink.href = protocol;
+          hiddenLink.href = zelProtocol;
           hiddenLink.style.display = 'none';
           document.body.appendChild(hiddenLink);
           hiddenLink.click();
           document.body.removeChild(hiddenLink);
         }
       } catch (error) {
-        showToast('warning', 'Failed to sign message, please try again.');
+        paymentLoading.value = false;
+        showToast('error', 'Failed to initiate ZelCore payment. Please try again.');
+        console.error(error);
       }
     };
     const initZelcore = async () => {
@@ -2119,6 +2311,10 @@ export default {
           showToast('danger', 'SSP Wallet not installed');
           return;
         }
+        paymentLoading.value = true;
+        paymentReceived.value = false;
+        transactionId.value = '';
+
         const data = {
           message: registrationHash.value,
           amount: (+appPricePerDeployment.value || 0).toString(),
@@ -2127,11 +2323,16 @@ export default {
         };
         const responseData = await window.ssp.request('pay', data);
         if (responseData.status === 'ERROR') {
+          paymentLoading.value = false;
           throw new Error(responseData.data || responseData.result);
         } else {
-          showToast('success', `${responseData.data}: ${responseData.txid}`);
+          transactionId.value = responseData.txid;
+          paymentReceived.value = true;
+          paymentLoading.value = false;
+          showToast('success', `Payment received! Transaction ID: ${responseData.txid}`);
         }
       } catch (error) {
+        paymentLoading.value = false;
         showToast('danger', error.message);
       }
     };

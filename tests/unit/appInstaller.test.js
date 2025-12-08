@@ -11,6 +11,9 @@ describe('appInstaller tests', () => {
   let configStub;
   let globalStateStub;
   let hwRequirementsStub;
+  let enterpriseHelperStub;
+  let appSpecHelpersStub;
+  let messageVerifierStub;
 
   beforeEach(() => {
     // Config stub
@@ -83,6 +86,19 @@ describe('appInstaller tests', () => {
       checkAppGeolocationRequirements: sinon.stub(),
     };
 
+    enterpriseHelperStub = {
+      checkAndDecryptAppSpecs: sinon.stub().callsFake((specs) => Promise.resolve(specs)),
+    };
+
+    appSpecHelpersStub = {
+      specificationFormatter: sinon.stub().returnsArg(0),
+    };
+
+    messageVerifierStub = {
+      checkAppTemporaryMessageExistence: sinon.stub().resolves(null),
+      checkAppMessageExistence: sinon.stub().resolves(null),
+    };
+
     logStub = {
       error: sinon.stub(),
       info: sinon.stub(),
@@ -108,6 +124,12 @@ describe('appInstaller tests', () => {
         getBenchmarks: sinon.stub().resolves({
           status: 'success',
           data: { ipaddress: '192.168.1.1', thunder: false },
+        }),
+      },
+      '../daemonService/daemonServiceMiscRpcs': {
+        isDaemonSynced: sinon.stub().returns({
+          status: 'success',
+          data: { synced: true, height: 2094961 },
         }),
       },
       '../fluxNetworkHelper': {
@@ -151,6 +173,10 @@ describe('appInstaller tests', () => {
       },
       '../appSecurity/imageManager': {
         checkApplicationImagesCompliance: sinon.stub().resolves(),
+        verifyRepository: sinon.stub().resolves({
+          verified: true,
+          supportedArchitectures: ['amd64', 'arm64'],
+        }),
       },
       '../appManagement/appInspector': {
         startAppMonitoring: sinon.stub(),
@@ -176,10 +202,7 @@ describe('appInstaller tests', () => {
       '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
         config: configStub,
       }),
-      '../appMessaging/messageVerifier': {
-        checkAppTemporaryMessageExistence: sinon.stub().resolves(null),
-        checkAppMessageExistence: sinon.stub().resolves(null),
-      },
+      '../appMessaging/messageVerifier': messageVerifierStub,
       '../appDatabase/registryManager': {
         availableApps: sinon.stub().resolves([]),
         getApplicationGlobalSpecifications: sinon.stub().resolves(null),
@@ -188,6 +211,11 @@ describe('appInstaller tests', () => {
       '../appQuery/appQueryService': {
         installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
         listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+      },
+      '../utils/enterpriseHelper': enterpriseHelperStub,
+      '../utils/appSpecHelpers': appSpecHelpersStub,
+      '../utils/registryCredentialHelper': {
+        addCredentialsToImageVerifier: sinon.stub().resolves(),
       },
       util: {
         promisify: (fn) => fn,
@@ -360,6 +388,359 @@ describe('appInstaller tests', () => {
 
       expect(logStub.info.calledWith('testAppInstall: testapp')).to.be.true;
     });
+
+    it('should decrypt enterprise app specs before test installation', async () => {
+      const enterpriseAppSpec = {
+        name: 'enterpriseapp',
+        version: 8,
+        enterprise: 'encryptedData',
+        compose: [], // Empty compose indicating encrypted
+        contacts: [],
+        owner: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
+      };
+
+      const decryptedAppSpec = {
+        ...enterpriseAppSpec,
+        compose: [
+          {
+            name: 'component1',
+            repotag: 'test/component:latest',
+            cpu: 0.5,
+            ram: 500,
+            hdd: 5,
+          },
+        ],
+        contacts: ['admin@example.com'],
+      };
+
+      const req = {
+        params: { appname: 'enterpriseapp' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+        setHeader: sinon.stub(),
+      };
+
+      verificationHelperStub.verifyPrivilege.withArgs('user', req).resolves(true);
+      verificationHelperStub.verifyPrivilege.withArgs('adminandfluxteam', req).resolves(true);
+
+      const mockDb = { db: sinon.stub().returns('database') };
+      dbHelperStub.databaseConnection.returns(mockDb);
+      dbHelperStub.findOneInDatabase.resolves(null);
+      dbHelperStub.findInDatabase.resolves([]);
+
+      // Mock message verifier to return enterprise app with empty compose
+      messageVerifierStub.checkAppTemporaryMessageExistence.resolves({
+        appSpecifications: enterpriseAppSpec,
+      });
+
+      // Configure enterprise helper to return decrypted specs
+      enterpriseHelperStub.checkAndDecryptAppSpecs.resolves(decryptedAppSpec);
+      appSpecHelpersStub.specificationFormatter.returns(decryptedAppSpec);
+
+      messageHelperStub.createErrorMessage.returns({ status: 'error' });
+
+      try {
+        await appInstaller.testAppInstall(req, res);
+      } catch (e) {
+        // Installation may fail, but we're testing the decryption path
+      }
+
+      // Verify that decryption was called for enterprise app
+      expect(enterpriseHelperStub.checkAndDecryptAppSpecs.calledWith(enterpriseAppSpec)).to.be.true;
+      expect(appSpecHelpersStub.specificationFormatter.calledWith(decryptedAppSpec)).to.be.true;
+      expect(logStub.info.calledWith('testAppInstall: enterpriseapp')).to.be.true;
+    });
+
+    it('should skip installation when architecture is incompatible', async () => {
+      const appSpec = {
+        name: 'arm64app',
+        version: 4,
+        description: 'ARM64 only app',
+        owner: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
+        compose: [
+          {
+            name: 'component1',
+            repotag: 'arm64v8/ubuntu:latest',
+            cpu: 0.5,
+            ram: 500,
+            hdd: 5,
+          },
+        ],
+      };
+
+      const req = {
+        params: { appname: 'arm64app' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+        setHeader: sinon.stub(),
+        write: sinon.stub(),
+        end: sinon.stub(),
+      };
+
+      // Create new proxyquire instance with custom stubs for this test
+      const imageManagerStub = {
+        checkApplicationImagesCompliance: sinon.stub().resolves(),
+        verifyRepository: sinon.stub().resolves({
+          verified: true,
+          supportedArchitectures: ['arm64'], // ARM64 only
+        }),
+      };
+
+      const systemIntegrationStub = {
+        systemArchitecture: sinon.stub().resolves('amd64'), // Node is AMD64
+      };
+
+      const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../dbHelper': dbHelperStub,
+        '../serviceHelper': {
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
+          ensureNumber: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../generalService': {
+          nodeTier: sinon.stub().resolves('cumulus'),
+          checkSynced: sinon.stub().resolves(true),
+        },
+        '../benchmarkService': {
+          getBenchmarks: sinon.stub().resolves({
+            status: 'success',
+            data: { ipaddress: '192.168.1.1', thunder: false },
+          }),
+        },
+        '../daemonService/daemonServiceMiscRpcs': {
+          isDaemonSynced: sinon.stub().returns({
+            status: 'success',
+            data: { synced: true, height: 2094961 },
+          }),
+        },
+        '../fluxNetworkHelper': {
+          getNumberOfPeers: sinon.stub().returns(15),
+        },
+        '../dockerService': {
+          dockerListContainers: sinon.stub().resolves([]),
+        },
+        '../appSystem/systemIntegration': systemIntegrationStub,
+        '../appSecurity/imageManager': imageManagerStub,
+        '../appRequirements/hwRequirements': hwRequirementsStub,
+        '../appMessaging/messageVerifier': messageVerifierStub,
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+          getApplicationGlobalSpecifications: sinon.stub().resolves(appSpec),
+        },
+        '../utils/globalState': globalStateStub,
+        '../../lib/log': logStub,
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
+          config: configStub,
+        }),
+        '../utils/enterpriseHelper': enterpriseHelperStub,
+        '../utils/appSpecHelpers': appSpecHelpersStub,
+        util: {
+          promisify: (fn) => fn,
+        },
+      });
+
+      verificationHelperStub.verifyPrivilege.resolves(true);
+
+      await appInstallerForArchTest.testAppInstall(req, res);
+
+      // Verify verifyRepository was called
+      expect(imageManagerStub.verifyRepository.calledWith('arm64v8/ubuntu:latest')).to.be.true;
+
+      // Verify success message was returned using streaming response (2 writes: init + skip message)
+      expect(res.write.calledTwice).to.be.true;
+      expect(res.end.calledOnce).to.be.true;
+
+      // Verify the second written message contains architecture incompatibility info
+      const writeCall = res.write.getCall(1); // Second call
+      const writtenData = writeCall.args[0];
+      // ensureString converts object to JSON string, so check as string
+      expect(writtenData).to.be.a('string');
+      expect(writtenData).to.include('architecture incompatibility');
+      expect(writtenData).to.include('amd64');
+      expect(writtenData).to.include('arm64');
+    });
+
+    it('should proceed with installation when architecture is compatible', async () => {
+      const appSpec = {
+        name: 'multiarchapp',
+        version: 4,
+        description: 'Multi-arch app',
+        owner: '1K6nyw2VjV6jEN1f1CkbKn9htWnYkQabbR',
+        compose: [
+          {
+            name: 'component1',
+            repotag: 'nginx:latest',
+            cpu: 0.5,
+            ram: 500,
+            hdd: 5,
+          },
+        ],
+      };
+
+      const req = {
+        params: { appname: 'multiarchapp' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+        setHeader: sinon.stub(),
+        write: sinon.stub(),
+        end: sinon.stub(),
+      };
+
+      // Create new proxyquire instance with custom stubs for this test
+      const imageManagerStub = {
+        checkApplicationImagesCompliance: sinon.stub().resolves(),
+        verifyRepository: sinon.stub().resolves({
+          verified: true,
+          supportedArchitectures: ['amd64', 'arm64'], // Supports both
+        }),
+      };
+
+      const systemIntegrationStub = {
+        systemArchitecture: sinon.stub().resolves('amd64'), // Node is AMD64
+      };
+
+      const registerAppLocallyStub = sinon.stub().resolves();
+
+      const appInstallerForArchTest = proxyquire('../../ZelBack/src/services/appLifecycle/appInstaller', {
+        config: configStub,
+        '../verificationHelper': verificationHelperStub,
+        '../messageHelper': messageHelperStub,
+        '../dbHelper': dbHelperStub,
+        '../serviceHelper': {
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
+          ensureNumber: sinon.stub().returnsArg(0),
+          delay: sinon.stub().resolves(),
+        },
+        '../generalService': {
+          nodeTier: sinon.stub().resolves('cumulus'),
+          checkSynced: sinon.stub().resolves(true),
+        },
+        '../benchmarkService': {
+          getBenchmarks: sinon.stub().resolves({
+            status: 'success',
+            data: { ipaddress: '192.168.1.1', thunder: false },
+          }),
+        },
+        '../daemonService/daemonServiceMiscRpcs': {
+          isDaemonSynced: sinon.stub().returns({
+            status: 'success',
+            data: { synced: true, height: 2094961 },
+          }),
+        },
+        '../fluxNetworkHelper': {
+          getNumberOfPeers: sinon.stub().returns(15),
+          isFirewallActive: sinon.stub().resolves(false),
+          allowPort: sinon.stub().resolves({ status: true }),
+          removeDockerContainerAccessToNonRoutable: sinon.stub().resolves(true),
+        },
+        '../geolocationService': {
+          isStaticIP: sinon.stub().returns(true),
+        },
+        '../dockerService': {
+          dockerListContainers: sinon.stub().resolves([]),
+          pruneContainers: sinon.stub().resolves(),
+          pruneNetworks: sinon.stub().resolves(),
+          pruneVolumes: sinon.stub().resolves(),
+          pruneImages: sinon.stub().resolves(),
+          createFluxAppDockerNetwork: sinon.stub().resolves('network-created'),
+          getFluxDockerNetworkPhysicalInterfaceNames: sinon.stub().resolves([]),
+          appDockerCreate: sinon.stub().resolves(),
+          appDockerStart: sinon.stub().resolves('container-started'),
+          getAppIdentifier: sinon.stub().returns('multiarchapp'),
+          dockerPullStream: sinon.stub().yields(null, 'pulled'),
+        },
+        './appUninstaller': {
+          removeAppLocally: sinon.stub().resolves(),
+        },
+        './advancedWorkflows': {
+          createAppVolume: sinon.stub().resolves(),
+        },
+        '../fluxCommunicationMessagesSender': {
+          broadcastMessageToOutgoing: sinon.stub().resolves(),
+          broadcastMessageToIncoming: sinon.stub().resolves(),
+        },
+        '../appMessaging/messageStore': {
+          storeAppRunningMessage: sinon.stub().resolves(),
+          storeAppInstallingErrorMessage: sinon.stub().resolves(),
+        },
+        '../appSystem/systemIntegration': systemIntegrationStub,
+        '../appSecurity/imageManager': imageManagerStub,
+        '../appManagement/appInspector': {
+          startAppMonitoring: sinon.stub(),
+        },
+        '../utils/imageVerifier': {
+          ImageVerifier: sinon.stub().returns({
+            addCredentials: sinon.stub(),
+            verifyImage: sinon.stub().resolves(),
+            throwIfError: sinon.stub(),
+            supported: true,
+            provider: 'docker.io',
+          }),
+        },
+        '../pgpService': {
+          decryptMessage: sinon.stub().resolves('user:token'),
+        },
+        '../utils/registryCredentialHelper': {
+          addCredentialsToImageVerifier: sinon.stub().resolves(),
+        },
+        '../upnpService': {
+          isUPNP: sinon.stub().returns(false),
+          mapUpnpPort: sinon.stub().resolves(true),
+        },
+        '../appRequirements/hwRequirements': hwRequirementsStub,
+        '../appMessaging/messageVerifier': messageVerifierStub,
+        '../appDatabase/registryManager': {
+          availableApps: sinon.stub().resolves([]),
+          getApplicationGlobalSpecifications: sinon.stub().resolves(appSpec),
+        },
+        '../appQuery/appQueryService': {
+          installedApps: sinon.stub().resolves({ status: 'success', data: [] }),
+          listRunningApps: sinon.stub().resolves({ status: 'success', data: [] }),
+        },
+        '../utils/globalState': globalStateStub,
+        '../../lib/log': logStub,
+        '../utils/appConstants': proxyquire('../../ZelBack/src/services/utils/appConstants', {
+          config: configStub,
+        }),
+        '../utils/enterpriseHelper': enterpriseHelperStub,
+        '../utils/appSpecHelpers': appSpecHelpersStub,
+        util: {
+          promisify: (fn) => fn,
+        },
+      });
+
+      verificationHelperStub.verifyPrivilege.resolves(true);
+
+      try {
+        await appInstallerForArchTest.testAppInstall(req, res);
+      } catch (e) {
+        // Installation may fail at later stages, but we only care about architecture check passing
+      }
+
+      // Verify verifyRepository was called
+      expect(imageManagerStub.verifyRepository.calledWith('nginx:latest')).to.be.true;
+
+      // Verify we did NOT return early with skip message
+      // (If we had skipped, res.write would contain architecture incompatibility message)
+      if (res.write.called) {
+        const writeCalls = res.write.getCalls();
+        for (const call of writeCalls) {
+          const data = call.args[0] || '';
+          if (data.includes && data.includes('architecture incompatibility')) {
+            expect.fail('Should not have returned early with architecture incompatibility message');
+          }
+        }
+      }
+    });
   });
 
   describe('registerAppLocally tests', () => {
@@ -437,7 +818,7 @@ describe('appInstaller tests', () => {
         '../messageHelper': messageHelperStub,
         '../dbHelper': dbHelperStub,
         '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
           ensureNumber: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
         },
@@ -561,7 +942,7 @@ describe('appInstaller tests', () => {
         '../messageHelper': messageHelperStub,
         '../dbHelper': dbHelperStubLocal,
         '../serviceHelper': {
-          ensureString: sinon.stub().returnsArg(0),
+          ensureString: sinon.stub().callsFake((param) => (typeof param === 'string' ? param : JSON.stringify(param))),
           ensureNumber: sinon.stub().returnsArg(0),
           delay: sinon.stub().resolves(),
         },

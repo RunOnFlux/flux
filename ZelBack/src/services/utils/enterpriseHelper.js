@@ -194,10 +194,12 @@ async function checkAndDecryptAppSpecs(appSpec, options = {}) {
     const lastUpdate = allPermanentAppMessage[allPermanentAppMessage.length - 1];
 
     if (!lastUpdate) {
-      throw new Error(`App: ${appSpecs.name} does not exist in global messages`);
+      // Not found in permanent messages, use height 0 (for test apps in temporary messages)
+      log.info(`App ${appSpecs.name} not found in permanent messages, using height 0 for decryption`);
+      daemonHeight = 0;
+    } else {
+      daemonHeight = lastUpdate.height;
     }
-
-    daemonHeight = lastUpdate.height;
   }
 
   const enterprise = await decryptEnterpriseFromSession(

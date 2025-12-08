@@ -2059,6 +2059,31 @@
                 >
               </a>
             </div>
+            <div
+              v-if="paymentLoading"
+              class="mt-2 text-center"
+            >
+              <b-spinner
+                variant="primary"
+                small
+              />
+              <div class="text-center mt-1">
+                Waiting for payment...
+              </div>
+            </div>
+            <div
+              v-if="paymentReceived && transactionId"
+              class="mt-2"
+            >
+              <b-alert
+                variant="success"
+                show
+              >
+                <strong>Payment Received!</strong>
+                <br>
+                <small>Transaction ID: {{ transactionId }}</small>
+              </b-alert>
+            </div>
           </b-card>
         </b-col>
       </b-row>
@@ -2806,6 +2831,11 @@ export default {
       stripeEnabled: true,
       paypalEnabled: true,
       testError: false,
+      paymentId: '',
+      paymentWebsocket: null,
+      transactionId: '',
+      paymentReceived: false,
+      paymentLoading: false,
       testFinished: false,
     };
   },
@@ -2884,6 +2914,41 @@ export default {
       }
       const backendURL = store.get('backendURL') || mybackend;
       const url = `${backendURL}/id/providesign`;
+      return encodeURI(url);
+    },
+    paymentCallbackValue() {
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      mybackend += protocol;
+      mybackend += '//';
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) { // node specific domain
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) { // home.runonflux.io -> api.runonflux.io
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          this.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          this.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
+      }
+      const backendURL = store.get('backendURL') || mybackend;
+      const url = `${backendURL}/payment/verifypayment?paymentid=${this.paymentId}`;
       return encodeURI(url);
     },
     getExpireLabel() {
@@ -3460,21 +3525,72 @@ export default {
         this.showToast('warning', 'Failed to sign message, please try again.');
       }
     },
-    initZelcorePay() {
+    async initZelcorePay() {
       try {
-        const protocol = `zel:?action=pay&coin=zelcash&address=${this.deploymentAddress}&amount=${this.applicationPrice}&message=${this.registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png`;
+        this.paymentLoading = true;
+        this.paymentReceived = false;
+        this.transactionId = '';
+
+        // Request a payment ID from the backend
+        const { protocol, hostname, port } = window.location;
+        let mybackend = '';
+        mybackend += protocol;
+        mybackend += '//';
+        const regex = /[A-Za-z]/g;
+        if (hostname.split('-')[4]) {
+          const splitted = hostname.split('-');
+          const names = splitted[4].split('.');
+          const adjP = +names[0] + 1;
+          names[0] = adjP.toString();
+          names[2] = 'api';
+          splitted[4] = '';
+          mybackend += splitted.join('-');
+          mybackend += names.join('.');
+        } else if (hostname.match(regex)) {
+          const names = hostname.split('.');
+          names[0] = 'api';
+          mybackend += names.join('.');
+        } else {
+          if (typeof hostname === 'string') {
+            this.$store.commit('flux/setUserIp', hostname);
+          }
+          if (+port > 16100) {
+            const apiPort = +port + 1;
+            this.$store.commit('flux/setFluxPort', apiPort);
+          }
+          mybackend += hostname;
+          mybackend += ':';
+          mybackend += this.config.apiPort;
+        }
+        const backendURL = store.get('backendURL') || mybackend;
+
+        const paymentResponse = await axios.get(`${backendURL}/payment/paymentrequest`);
+        if (paymentResponse.data.status !== 'success') {
+          throw new Error('Failed to create payment request');
+        }
+
+        this.paymentId = paymentResponse.data.data.paymentId;
+
+        // Set up WebSocket connection for payment confirmation
+        this.initiatePaymentWS();
+
+        // Build ZelCore protocol URL with callback
+        const zelProtocol = `zel:?action=pay&coin=zelcash&address=${this.deploymentAddress}&amount=${this.applicationPrice}&message=${this.registrationHash}&icon=https%3A%2F%2Fraw.githubusercontent.com%2Frunonflux%2Fflux%2Fmaster%2Fflux_banner.png&callback=${this.paymentCallbackValue}`;
+
         if (window.zelcore) {
-          window.zelcore.protocol(protocol);
+          window.zelcore.protocol(zelProtocol);
         } else {
           const hiddenLink = document.createElement('a');
-          hiddenLink.href = protocol;
+          hiddenLink.href = zelProtocol;
           hiddenLink.style.display = 'none';
           document.body.appendChild(hiddenLink);
           hiddenLink.click();
           document.body.removeChild(hiddenLink);
         }
       } catch (error) {
-        this.showToast('warning', 'Failed to sign message, please try again.');
+        this.paymentLoading = false;
+        this.showToast('error', 'Failed to initiate ZelCore payment. Please try again.');
+        console.error(error);
       }
     },
     async initZelcore() {
@@ -3575,6 +3691,81 @@ export default {
     },
     onOpen(evt) {
       console.log(evt);
+    },
+    async initiatePaymentWS() {
+      const self = this;
+      const { protocol, hostname, port } = window.location;
+      let mybackend = '';
+      const wsprotocol = protocol === 'https:' ? 'wss://' : 'ws://';
+      mybackend += wsprotocol;
+      const regex = /[A-Za-z]/g;
+      if (hostname.split('-')[4]) {
+        const splitted = hostname.split('-');
+        const names = splitted[4].split('.');
+        const adjP = +names[0] + 1;
+        names[0] = adjP.toString();
+        names[2] = 'api';
+        splitted[4] = '';
+        mybackend += splitted.join('-');
+        mybackend += names.join('.');
+      } else if (hostname.match(regex)) {
+        const names = hostname.split('.');
+        names[0] = 'api';
+        mybackend += names.join('.');
+      } else {
+        if (typeof hostname === 'string') {
+          this.$store.commit('flux/setUserIp', hostname);
+        }
+        if (+port > 16100) {
+          const apiPort = +port + 1;
+          this.$store.commit('flux/setFluxPort', apiPort);
+        }
+        mybackend += hostname;
+        mybackend += ':';
+        mybackend += this.config.apiPort;
+      }
+      let backendURL = store.get('backendURL') || mybackend;
+      // Convert HTTP/HTTPS to WebSocket protocol
+      backendURL = backendURL.replace('https://', 'wss://');
+      backendURL = backendURL.replace('http://', 'ws://');
+      const wsuri = `${backendURL}/ws/payment/${this.paymentId}`;
+      const websocket = new WebSocket(wsuri);
+      this.paymentWebsocket = websocket;
+
+      websocket.onopen = (evt) => { self.onPaymentOpen(evt); };
+      websocket.onclose = (evt) => { self.onPaymentClose(evt); };
+      websocket.onmessage = (evt) => { self.onPaymentMessage(evt); };
+      websocket.onerror = (evt) => { self.onPaymentError(evt); };
+    },
+    onPaymentError(evt) {
+      console.log('Payment WebSocket error:', evt);
+      this.paymentLoading = false;
+    },
+    onPaymentMessage(evt) {
+      const data = qs.parse(evt.data);
+      console.log('Payment WebSocket message:', data);
+
+      if (data.status === 'success' && data.data) {
+        // Payment received - extract nested data object
+        const paymentData = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
+        this.transactionId = paymentData.txid;
+        this.paymentReceived = true;
+        this.paymentLoading = false;
+        this.showToast('success', `Payment received! Transaction ID: ${this.transactionId}`);
+      } else if (data.status === 'error') {
+        this.paymentLoading = false;
+        const errorMsg = typeof data.data === 'string' ? data.data : (data.data?.message || data.message || 'Payment request expired or invalid');
+        this.showToast('error', errorMsg);
+      }
+    },
+    onPaymentClose(evt) {
+      console.log('Payment WebSocket closed:', evt);
+      if (!this.paymentReceived) {
+        this.paymentLoading = false;
+      }
+    },
+    onPaymentOpen(evt) {
+      console.log('Payment WebSocket opened:', evt);
     },
 
     async register() {
@@ -4268,6 +4459,10 @@ export default {
           this.showToast('danger', 'SSP Wallet not installed');
           return;
         }
+        this.paymentLoading = true;
+        this.paymentReceived = false;
+        this.transactionId = '';
+
         const data = {
           message: this.registrationHash,
           amount: (+this.applicationPrice || 0).toString(),
@@ -4276,11 +4471,16 @@ export default {
         };
         const responseData = await window.ssp.request('pay', data);
         if (responseData.status === 'ERROR') {
+          this.paymentLoading = false;
           throw new Error(responseData.data || responseData.result);
         } else {
-          this.showToast('success', `${responseData.data}: ${responseData.txid}`);
+          this.transactionId = responseData.txid;
+          this.paymentReceived = true;
+          this.paymentLoading = false;
+          this.showToast('success', `Payment received! Transaction ID: ${responseData.txid}`);
         }
       } catch (error) {
+        this.paymentLoading = false;
         this.showToast('danger', error.message);
       }
     },
