@@ -200,6 +200,7 @@ module.exports = {
     upnpBannedPorts: [],
     maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
+    minimumInstancesV8: 1,
     maximumInstances: 100,
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,

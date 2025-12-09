@@ -194,6 +194,7 @@ module.exports = {
     enterprisePorts: ['0-1023', 8080, 8081, 8443, 6667],
     maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
+    minimumInstancesV8: 1,
     maximumInstances: 100,
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
