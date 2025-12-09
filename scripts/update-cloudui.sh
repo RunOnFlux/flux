@@ -7,6 +7,11 @@
 # Usage: npm run update:cloudui
 #        or: bash scripts/update-cloudui.sh
 #
+# Output:
+# - CloudUI/ folder with the latest frontend build
+# - CloudUI/version file containing the SHA256 hash of the installed version
+#   (used by external projects to verify nodes have the latest version)
+#
 # Requirements:
 # - curl
 # - sha256sum or shasum (for checksum verification)
@@ -163,6 +168,11 @@ echo ""
 echo "7. Removing unnecessary files..."
 rm -f "$CLOUDUI_DIR/stats.html" 2>/dev/null || true
 rm -f "$CLOUDUI_DIR/_redirects" 2>/dev/null || true
+
+echo ""
+echo "8. Creating version file..."
+echo "$EXPECTED_SHA256" > "$CLOUDUI_DIR/version"
+echo "   Version file created with SHA256: $EXPECTED_SHA256"
 
 echo ""
 echo "=========================================="
