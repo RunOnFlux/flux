@@ -17,34 +17,202 @@
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://home.runonflux.io/" />
+  <meta property="og:url" content="https://cloud.runonflux.com/" />
   <meta property="og:title" content="FluxCloud - Decentralized Web3 Cloud Infrastructure" />
   <meta property="og:description" content="Deploy applications on FluxCloud's decentralized Web3 infrastructure. Host games, WordPress sites, and custom apps on a network of 8,000+ FluxNodes worldwide. Starting at $0.99/month." />
-  <meta property="og:image" content="https://home.runonflux.io/images/logo.png" />
+  <meta property="og:image" content="https://cloud.runonflux.com/images/logo.png" />
   <meta property="og:site_name" content="FluxCloud" />
   <meta property="og:locale" content="en_US" />
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:url" content="https://home.runonflux.io/" />
+  <meta name="twitter:url" content="https://cloud.runonflux.com/" />
   <meta name="twitter:title" content="FluxCloud - Decentralized Web3 Cloud Infrastructure" />
   <meta name="twitter:description" content="Deploy applications on FluxCloud's decentralized Web3 infrastructure. Host games, WordPress sites, and custom apps on a network of 8,000+ FluxNodes worldwide. Starting at $0.99/month." />
-  <meta name="twitter:image" content="https://home.runonflux.io/images/logo.png" />
+  <meta name="twitter:image" content="https://cloud.runonflux.com/images/logo.png" />
   <meta name="twitter:site" content="@RunOnFlux" />
   <meta name="twitter:creator" content="@RunOnFlux" />
 
   <!-- Canonical URL -->
-  <link rel="canonical" href="https://home.runonflux.io/" />
+  <link rel="canonical" href="https://cloud.runonflux.com/" />
 
   <!-- Preconnect to critical third-party domains for better performance -->
   <link rel="preconnect" href="https://api.runonflux.io" crossorigin />
   <link rel="preconnect" href="https://stats.runonflux.io" crossorigin />
 
-  <!-- DNS-prefetch for third-party resources -->
-  <link rel="dns-prefetch" href="https://widget.kapa.ai" />
-  <link rel="dns-prefetch" href="https://raw.githubusercontent.com" />
+  <!-- Preconnect for third-party resources that will be used -->
+  <link rel="preconnect" href="https://widget.kapa.ai" crossorigin />
+  <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />
 
-  <link rel="stylesheet" type="text/css" href="/loader.css" />
+  <!-- DNS-prefetch for additional resources -->
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+  <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+
+  <!-- Critical CSS inlined to avoid render-blocking request -->
+  <style>
+    /* Loader CSS - Critical for initial loading screen */
+    body {
+      margin: 0;
+      background-color: var(--initial-loader-bg, #fff) !important;
+      color: var(--initial-text-color, #000) !important;
+      transition: none !important;
+    }
+    html {
+      overflow-x: hidden;
+      overflow-y: scroll;
+      background-color: var(--initial-loader-bg, #fff) !important;
+    }
+    body, #app {
+      transition: none !important;
+    }
+    #app {
+      background-color: var(--initial-loader-bg, #fff) !important;
+      color: var(--initial-text-color, #000) !important;
+      min-height: 100vh;
+    }
+    #loading-bg {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--initial-loader-bg, #fff);
+      block-size: 100%;
+      gap: 2rem 0;
+      inline-size: 100%;
+    }
+    .loading-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .loading {
+      position: relative;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      block-size: 200px;
+      inline-size: 200px;
+    }
+    .loading .loading-logo {
+      position: absolute;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fade-in-scale 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+    }
+    .loading .loading-logo img {
+      width: 80px;
+      height: auto;
+      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.1));
+      animation: pulse-grow 2s ease-in-out infinite;
+    }
+    @keyframes pulse-grow {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.3); }
+    }
+    .loading .effect-1, .loading .effect-2, .loading .effect-3 {
+      position: absolute;
+      box-sizing: border-box;
+      border: 4px solid transparent;
+      border-radius: 50%;
+      block-size: 100%;
+      inline-size: 100%;
+    }
+    .loading .effect-1 {
+      animation: rotate 2s linear infinite;
+      border-width: 4px;
+      border-color: var(--initial-loader-color, #eee) transparent transparent transparent;
+      border-style: solid;
+      box-shadow: 0 0 20px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.5),
+                  inset 0 0 20px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.1);
+    }
+    .loading .effect-2 {
+      animation: rotate 3s linear infinite reverse;
+      border-width: 3px;
+      border-color: transparent transparent var(--initial-loader-color, #eee) var(--initial-loader-color, #eee);
+      opacity: 0.6;
+      transform: scale(1.15);
+      box-shadow: 0 0 30px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.4),
+                  inset 0 0 15px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.1);
+      filter: blur(0.5px);
+    }
+    .loading .effect-3 {
+      animation: pulse-rotate 4s ease-in-out infinite;
+      border-width: 2px;
+      border-color: var(--initial-loader-color, #eee) transparent var(--initial-loader-color, #eee) transparent;
+      opacity: 0.4;
+      transform: scale(1.3);
+      box-shadow: 0 0 40px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.3),
+                  inset 0 0 10px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.05);
+      filter: blur(1px);
+    }
+    .loading .effects { transition: all 0.3s ease; }
+    @keyframes rotate {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    @keyframes pulse-rotate {
+      0% { transform: scale(1.3) rotate(0deg); opacity: 0.3; }
+      25% { transform: scale(1.35) rotate(90deg); opacity: 0.5; }
+      50% { transform: scale(1.3) rotate(180deg); opacity: 0.3; }
+      75% { transform: scale(1.35) rotate(270deg); opacity: 0.5; }
+      100% { transform: scale(1.3) rotate(360deg); opacity: 0.3; }
+    }
+    @keyframes fade-in-scale {
+      0% { opacity: 0; transform: scale(0.5); }
+      100% { opacity: 1; transform: scale(1); }
+    }
+    .loading-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: var(--initial-loader-bg, #fff);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.8s ease;
+      backdrop-filter: blur(10px);
+    }
+    .loading-screen.fade-out {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: scale(1.1);
+    }
+    .loading-text {
+      margin-top: 3rem;
+      text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 1.2rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      background: linear-gradient(135deg, var(--initial-loader-color, #7367F0) 0%, #9c93ff 50%, var(--initial-loader-color, #7367F0) 100%);
+      background-size: 200% 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: fade-in-up 1s ease-out 0.5s both, gradient-shift 3s ease infinite, text-glow 2s ease-in-out infinite;
+      filter: drop-shadow(0 0 30px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.6));
+    }
+    @keyframes fade-in-up {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes gradient-shift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    @keyframes text-glow {
+      0%, 100% { filter: drop-shadow(0 0 20px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.5)); }
+      50% { filter: drop-shadow(0 0 40px rgba(var(--initial-loader-color-rgb, 115, 103, 240), 0.8)); }
+    }
+  </style>
   <style>
     /* Hide reCAPTCHA error message that appears before v-overlay-container */
     .v-overlay-container ~ div:not([id]):not([class]) {
@@ -61,17 +229,41 @@
     body > div:not([id]):not([class]):has(div:only-child) {
       display: none !important;
     }
+    /* Ensure reCAPTCHA invisible badge doesn't block clicks */
+    .grecaptcha-badge {
+      z-index: 1 !important;
+      pointer-events: none;
+    }
+    /* Prevent invisible reCAPTCHA iframe from blocking UI */
+    iframe[src*="recaptcha"][style*="visibility: hidden"],
+    iframe[src*="recaptcha"][style*="opacity: 0"] {
+      pointer-events: none !important;
+    }
   </style>
-  <script type="module" crossorigin src="/assets/index-BwGbh7KE.js"></script>
-  <link rel="modulepreload" crossorigin href="/assets/vuetify-COByHKRY.js">
-  <link rel="modulepreload" crossorigin href="/assets/monaco-D0sk5loy.js">
-  <link rel="modulepreload" crossorigin href="/assets/leaflet-core-BkStxytj.js">
-  <link rel="modulepreload" crossorigin href="/assets/crypto-metamask-FwTrKlAT.js">
-  <link rel="modulepreload" crossorigin href="/assets/leaflet-cluster-TUIETKBq.js">
-  <link rel="modulepreload" crossorigin href="/assets/crypto-walletconnect-BoPpUqP0.js">
-  <link rel="modulepreload" crossorigin href="/assets/apexcharts-C6hMdrdB.js">
-  <link rel="stylesheet" crossorigin href="/assets/monaco-WeXJsRih.css">
-  <link rel="stylesheet" crossorigin href="/assets/index-DEdtE669.css">
+  <script type="module" crossorigin src="/assets/index-QPPWK7xw.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/ansi-utils-ChIB8aIv.js">
+  <link rel="modulepreload" crossorigin href="/assets/socketio-BDGyx5_k.js">
+  <link rel="modulepreload" crossorigin href="/assets/uuid-B49X2dQj.js">
+  <link rel="modulepreload" crossorigin href="/assets/crypto-metamask-D6vz180a.js">
+  <link rel="modulepreload" crossorigin href="/assets/apexcharts-nIAyciCq.js">
+  <link rel="modulepreload" crossorigin href="/assets/i18n-Bm8bpAAW.js">
+  <link rel="modulepreload" crossorigin href="/assets/vuetify-_4u1He_j.js">
+  <link rel="modulepreload" crossorigin href="/assets/unhead-DEOrWl0D.js">
+  <link rel="modulepreload" crossorigin href="/assets/vueuse-Bid7ZbHY.js">
+  <link rel="modulepreload" crossorigin href="/assets/vue-core-CU9AIURn.js">
+  <link rel="modulepreload" crossorigin href="/assets/cookie-BfmCf_44.js">
+  <link rel="modulepreload" crossorigin href="/assets/unjs-utils-GcjLqAqW.js">
+  <link rel="modulepreload" crossorigin href="/assets/http-BZQDkn3h.js">
+  <link rel="modulepreload" crossorigin href="/assets/query-parser-C3-dT-Rr.js">
+  <link rel="modulepreload" crossorigin href="/assets/casl-DNC8KRD8.js">
+  <link rel="modulepreload" crossorigin href="/assets/scrollbar-CXs_Utq1.js">
+  <link rel="modulepreload" crossorigin href="/assets/icons-mdi-_QP0sdRJ.js">
+  <link rel="modulepreload" crossorigin href="/assets/sanitizer-DAUAC_Zc.js">
+  <link rel="modulepreload" crossorigin href="/assets/lodash-C_Sw0jJq.js">
+  <link rel="modulepreload" crossorigin href="/assets/element-plus-Cr1Qs4Q_.js">
+  <link rel="stylesheet" crossorigin href="/assets/vuetify-BqjjTxSh.css">
+  <link rel="stylesheet" crossorigin href="/assets/element-plus-H5mEkztP.css">
+  <link rel="stylesheet" crossorigin href="/assets/index-D7n2qfYx.css">
 </head>
 
 <body>
@@ -98,76 +290,89 @@
   </div>
   <div id="app"></div>
 
-  <!-- Set Kapa AI disclaimer based on user language -->
+  <!-- Node.js polyfills - Load Buffer locally (must block) -->
+  <script src="/polyfills/buffer.min.js"></script>
+  <script>
+    // Set window.Buffer from bundled buffer exports
+    if (typeof bufferExports !== 'undefined') {
+      window.Buffer = bufferExports.Buffer;
+    }
+  </script>
+
+  <!-- Set global and process polyfills -->
+  <script>
+    // Polyfills MUST be available before any module loads (including async chunks)
+    (function() {
+      'use strict';
+
+      // Global
+      if (typeof window.global === 'undefined') {
+        window.global = window.globalThis || window;
+      }
+
+      // Process polyfill - inline minimal implementation
+      if (typeof window.process === 'undefined') {
+        window.process = {
+          env: {},
+          version: 'v16.0.0',
+          platform: 'browser',
+          browser: true,
+          cwd: function() { return '/'; },
+          nextTick: function(fn) {
+            var args = Array.prototype.slice.call(arguments, 1);
+            Promise.resolve().then(function() { fn.apply(null, args); });
+          }
+        };
+      }
+    })();
+  </script>
+
+
+  <!-- Kapa AI widget - deferred loading after app is ready -->
   <script>
     (function() {
-      try {
-        // Helper function to get cookie value
-        function getCookie(name) {
-          const value = `; ${document.cookie}`
-          const parts = value.split(`; ${name}=`)
-          if (parts.length === 2) {
-            let cookieValue = parts.pop().split(';').shift()
-            // Remove quotes if present and decode URI component
-            try {
-              cookieValue = decodeURIComponent(cookieValue).replace(/^["']|["']$/g, '')
-            } catch (e) {
-              // Silent fail
-            }
-            return cookieValue
-          }
-          return null
-        }
+      // Default English disclaimer (fallback)
+      const defaultDisclaimer = 'Get instant answers about Flux products, deployment, and app management. Powered by AI trained on official docs, whitepapers, and support resources.'
 
-        // Get stored locale from cookie (Flux-language)
-        const storedLocale = getCookie('Flux-language') || 'en'
-        const jsonPath = `/src/plugins/i18n/locales/${storedLocale}.json`
-
-        // Load translation file and extract disclaimer
-        fetch(jsonPath)
-          .then(response => response.json())
-          .then(translations => {
-            const disclaimer = translations?.components?.fluxAIToggler?.disclaimer ||
-              'Get instant answers about Flux products, deployment, and app management. Powered by AI trained on official docs, whitepapers, and support resources.'
-
-            // Create and append Kapa script with correct disclaimer
-            const kapaScript = document.createElement('script')
-            kapaScript.defer = true
-            kapaScript.id = 'kapa-widget-script'
-            kapaScript.src = 'https://widget.kapa.ai/kapa-widget.bundle.js'
-            kapaScript.setAttribute('data-website-id', '16d7ee8e-1911-40a9-9bed-15eaadbcd99d')
-            kapaScript.setAttribute('data-project-name', 'Flux')
-            kapaScript.setAttribute('data-button-hide', 'true')
-            kapaScript.setAttribute('data-modal-override-open-id-ask-ai', 'flux-ai-button')
-            kapaScript.setAttribute('data-user-analytics-fingerprint-enabled', 'true')
-            kapaScript.setAttribute('data-search-mode-enabled', 'true')
-            kapaScript.setAttribute('data-project-logo', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
-            kapaScript.setAttribute('data-modal-image', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
-            kapaScript.setAttribute('data-modal-disclaimer', disclaimer)
-            document.body.appendChild(kapaScript)
-          })
-          .catch(error => {
-            // Fallback to English disclaimer if JSON can't be loaded
-            const disclaimer = 'Get instant answers about Flux products, deployment, and app management. Powered by AI trained on official docs, whitepapers, and support resources.'
-
-            const kapaScript = document.createElement('script')
-            kapaScript.defer = true
-            kapaScript.id = 'kapa-widget-script'
-            kapaScript.src = 'https://widget.kapa.ai/kapa-widget.bundle.js'
-            kapaScript.setAttribute('data-website-id', '16d7ee8e-1911-40a9-9bed-15eaadbcd99d')
-            kapaScript.setAttribute('data-project-name', 'Flux')
-            kapaScript.setAttribute('data-button-hide', 'true')
-            kapaScript.setAttribute('data-modal-override-open-id-ask-ai', 'flux-ai-button')
-            kapaScript.setAttribute('data-user-analytics-fingerprint-enabled', 'true')
-            kapaScript.setAttribute('data-search-mode-enabled', 'true')
-            kapaScript.setAttribute('data-project-logo', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
-            kapaScript.setAttribute('data-modal-image', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
-            kapaScript.setAttribute('data-modal-disclaimer', disclaimer)
-            document.body.appendChild(kapaScript)
-          })
-      } catch (error) {
-        // Silent fail
+      // Function to initialize Kapa widget with disclaimer
+      function initKapaWidget(disclaimer) {
+        if (document.getElementById('kapa-widget-script')) return
+        const kapaScript = document.createElement('script')
+        kapaScript.defer = true
+        kapaScript.id = 'kapa-widget-script'
+        kapaScript.src = 'https://widget.kapa.ai/kapa-widget.bundle.js'
+        kapaScript.setAttribute('data-website-id', '16d7ee8e-1911-40a9-9bed-15eaadbcd99d')
+        kapaScript.setAttribute('data-project-name', 'Flux')
+        kapaScript.setAttribute('data-button-hide', 'true')
+        kapaScript.setAttribute('data-modal-override-open-id-ask-ai', 'flux-ai-button')
+        kapaScript.setAttribute('data-user-analytics-fingerprint-enabled', 'true')
+        kapaScript.setAttribute('data-search-mode-enabled', 'true')
+        kapaScript.setAttribute('data-project-logo', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
+        kapaScript.setAttribute('data-modal-image', 'https://raw.githubusercontent.com/RunOnFlux/media-logos/refs/heads/master/Flux_Asset_SVG/Flux%20Logo/Symbol/Round%20Symbol/SVG/Flux_symbol_blue-white.svg')
+        kapaScript.setAttribute('data-modal-disclaimer', disclaimer)
+        document.body.appendChild(kapaScript)
       }
+
+      // Wait for app-ready event before loading Kapa (non-blocking)
+      window.addEventListener('app-ready', function() {
+        // Use requestIdleCallback if available, otherwise setTimeout
+        const scheduleLoad = window.requestIdleCallback || function(cb) { setTimeout(cb, 1) }
+        scheduleLoad(function() {
+          // Listen for i18n ready event from Vue app
+          const handleI18nReady = function(event) {
+            initKapaWidget(event.detail?.disclaimer || defaultDisclaimer)
+            window.removeEventListener('i18n-ready', handleI18nReady)
+          }
+          window.addEventListener('i18n-ready', handleI18nReady)
+
+          // Fallback: if i18n doesn't fire within 2 seconds after app-ready, use default
+          setTimeout(function() {
+            if (!document.getElementById('kapa-widget-script')) {
+              initKapaWidget(defaultDisclaimer)
+            }
+          }, 2000)
+        })
+      })
     })()
   </script>
 

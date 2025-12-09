@@ -6,122 +6,310 @@
 
   <!-- Homepage -->
   <url>
-    <loc>https://home.runonflux.io/</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>1</priority>
     <changefreq>daily</changefreq>
   </url>
-
   <!-- Cost Calculator -->
   <url>
-    <loc>https://home.runonflux.io/cost-calculator</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/cost-calculator</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.9</priority>
     <changefreq>weekly</changefreq>
   </url>
-
   <!-- FluxDrive -->
   <url>
-    <loc>https://home.runonflux.io/flux-drive</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/flux-drive</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.9</priority>
     <changefreq>weekly</changefreq>
   </url>
-
   <!-- Games Landing Page -->
   <url>
-    <loc>https://home.runonflux.io/marketplace/games</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/marketplace/games</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.9</priority>
     <changefreq>weekly</changefreq>
   </url>
-
   <!-- WordPress Hosting -->
   <url>
-    <loc>https://home.runonflux.io/marketplace/wordpress</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/marketplace/wordpress</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.9</priority>
     <changefreq>weekly</changefreq>
   </url>
-
   <!-- Flux Network Overview -->
   <url>
-    <loc>https://home.runonflux.io/dashboards/overview</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/dashboards/overview</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.8</priority>
     <changefreq>daily</changefreq>
   </url>
-
   <!-- Marketplace -->
   <url>
-    <loc>https://home.runonflux.io/marketplace</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/marketplace</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.8</priority>
     <changefreq>weekly</changefreq>
   </url>
-
   <!-- Flux Network Resources -->
   <url>
-    <loc>https://home.runonflux.io/dashboards/resources</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/dashboards/resources</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.7</priority>
     <changefreq>daily</changefreq>
   </url>
-
   <!-- Flux Node Locations -->
   <url>
-    <loc>https://home.runonflux.io/dashboards/locations</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/dashboards/locations</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.7</priority>
     <changefreq>weekly</changefreq>
   </url>
-
   <!-- App Registration -->
   <url>
-    <loc>https://home.runonflux.io/apps/register</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/apps/register</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.7</priority>
     <changefreq>monthly</changefreq>
   </url>
-
-  <!-- Palworld Server Hosting -->
+  <!-- Marketplace App: RavenNode -->
   <url>
-    <loc>https://home.runonflux.io/marketplace/games/palworld</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/marketplace/RavenNode</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: PreSearch Node Legacy -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/PresearchNodeLegacy</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: IronFIshNode -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/IronFishNode</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: DogecoinNode -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/DogecoinNode</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: DesoNode -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/DesoNode</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Pangolin -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/Pangolin</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Gmx -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/Gmx</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: KusamaNode -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/KusamaNode</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Folding@Home -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/FoldingAtFluxCloud</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Yearn -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/Yearn</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: PIVX Node -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/PIVXMN</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: DashNode -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/DashNode</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: AlephiumNode -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/AlephiumNode</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Dopex -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/Dopex</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: BittensorFN -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/BittensorFN</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: PreSearch Node -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/PresearchNode</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Neoxa Node -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/NeoxaMN</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Sushiswap -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/Sushiswap</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: BLOCX Node -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/BLOCXMN</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Firo Node -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/FiroMN</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: StreamrMainnetNode -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/StreamrMainnet</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: UptimeKuma -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/UptimeKuma</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Timpi Collector -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/TimpiCollector</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Timpi Geocore -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/TimpiGeocore</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Kaspa Node 16GB RAM -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/KaspaNode16GB</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Kaspa Node 24GB RAM -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/KaspaNode24GB</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Kaspa Testnet Node 24GB RAM -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/KaspaTestnet24GB</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Kaspa Testnet Node 16GB RAM -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/KaspaTestnet16GB</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Marketplace App: Cyberfly -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/Cyberfly</loc>
+    <lastmod>2025-12-09</lastmod>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <!-- Game Server: Minecraft -->
+  <url>
+    <loc>https://cloud.runonflux.com/marketplace/games/MinecraftServer</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.8</priority>
     <changefreq>weekly</changefreq>
   </url>
-
-  <!-- Minecraft Server Hosting -->
+  <!-- Game Server: Factorio -->
   <url>
-    <loc>https://home.runonflux.io/marketplace/games/minecraftserver</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/marketplace/games/Factorio</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.8</priority>
     <changefreq>weekly</changefreq>
   </url>
-
-  <!-- Factorio Server Hosting -->
+  <!-- Game Server: Satisfactory -->
   <url>
-    <loc>https://home.runonflux.io/marketplace/games/factorio</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/marketplace/games/Satisfactory</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.8</priority>
     <changefreq>weekly</changefreq>
   </url>
-
-  <!-- Satisfactory Server Hosting -->
+  <!-- Game Server: Enshrouded -->
   <url>
-    <loc>https://home.runonflux.io/marketplace/games/satisfactory</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/marketplace/games/Enshrouded</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.8</priority>
     <changefreq>weekly</changefreq>
   </url>
-
-  <!-- Enshrouded Server Hosting -->
+  <!-- Game Server: Palworld -->
   <url>
-    <loc>https://home.runonflux.io/marketplace/games/enshrouded</loc>
-    <lastmod>2025-11-24</lastmod>
+    <loc>https://cloud.runonflux.com/marketplace/games/PalWorld</loc>
+    <lastmod>2025-12-09</lastmod>
     <priority>0.8</priority>
     <changefreq>weekly</changefreq>
   </url>
-
 </urlset>
