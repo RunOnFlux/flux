@@ -1,1 +1,0 @@
-import{r}from"./apexcharts-nIAyciCq.js";const s=r({show:!1,message:"",color:"success",timeout:3e3,icon:""});function h(){return{snackbar:s,showSnackbar:(a,c="success",e=3e3,o="")=>{s.value={show:!0,message:a,color:c,icon:o,timeout:e}},hideSnackbar:()=>{s.value.show=!1}}}export{h as u};
