@@ -548,23 +548,6 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
-    if (syncthingApp) {
-      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
-        await serviceHelper.delay(shortDelayTime);
-        trySpawningGlobalApplication();
-        return;
-      }
-      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
-        await serviceHelper.delay(shortDelayTime);
-        trySpawningGlobalApplication();
-        return;
-      }
-    }
-
     // an application was selected and checked that it can run on this node. try to install and run it locally
     // lets broadcast to the network the app is going to be installed on this node, so we don't get lot's of intances installed when it's not needed
     let broadcastedAt = Date.now();
@@ -604,6 +587,23 @@ async function trySpawningGlobalApplication() {
       const index = installingAppList.findIndex((x) => x.ip === myIP);
       if (runningAppList.length + index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances, my instance is number ${runningAppList.length + index + 1}`);
+        await serviceHelper.delay(shortDelayTime);
+        trySpawningGlobalApplication();
+        return;
+      }
+    }
+
+    if (syncthingApp) {
+      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
+      if (sameIpRangeNode) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
+        await serviceHelper.delay(shortDelayTime);
+        trySpawningGlobalApplication();
+        return;
+      }
+      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
+      if (sameIpRangeNode) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
         await serviceHelper.delay(shortDelayTime);
         trySpawningGlobalApplication();
         return;
