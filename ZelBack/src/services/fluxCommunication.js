@@ -29,6 +29,19 @@ const testListCache = new LRUCache(LRUTest); */
 
 let numberOfFluxNodes = 0;
 
+/**
+ * Extracts the /16 subnet prefix (first 2 octets) from an IP address.
+ * @param {string} ip IP address (e.g., "192.168.1.100")
+ * @returns {string} Subnet prefix (e.g., "192.168")
+ */
+function getIpSubnet(ip) {
+  const parts = ip.split('.');
+  if (parts.length >= 2) {
+    return `${parts[0]}.${parts[1]}`;
+  }
+  return ip;
+}
+
 const privateIpsList = [
   '192.168.', '10.',
   '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.28.', '172.29.', '172.30.', '172.31.',
@@ -1213,6 +1226,7 @@ async function fluxDiscovery() {
 
     await serviceHelper.delay(500);
     let index = 0;
+    const currentSubnetsConnTried = [];
     while ((outgoingConnections.length < 14 || [...new Set(outgoingConnections.map((client) => client.ip))].length < 9) && index < 100) { // Max of 14 outgoing connections - 8 possible deterministic + min. 6 random
       index += 1;
       // eslint-disable-next-line no-await-in-loop
@@ -1226,6 +1240,20 @@ async function fluxDiscovery() {
           continue;
         }
 
+        // check subnet diversity - skip nodes in same subnet as my node or already connected
+        const ipSubnet = getIpSubnet(ipInc);
+        const mySubnet = getIpSubnet(myIP.split(':')[0]);
+        if (ipSubnet === mySubnet) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        const connectedSubnets = outgoingConnections.map((client) => getIpSubnet(client.ip));
+        const subnetAlreadyConnected = connectedSubnets.includes(ipSubnet) || currentSubnetsConnTried.includes(ipSubnet);
+        if (subnetAlreadyConnected) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
         const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
@@ -1233,6 +1261,7 @@ async function fluxDiscovery() {
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Adding random Flux peer: ${connection}`);
           currentIpsConnTried.push(connection);
+          currentSubnetsConnTried.push(ipSubnet);
           initiateAndHandleConnection(connection);
         }
       }
@@ -1240,6 +1269,7 @@ async function fluxDiscovery() {
       await serviceHelper.delay(500);
     }
     index = 0;
+    const currentIncomingSubnetsConnTried = [];
     while ((incomingConnections.length < 12 || [...new Set(incomingConnections.map((client) => client.ip))].length < 5) && index < 100) { // Max of 12 incoming connections - 8 possible deterministic + min. 4 random (we will get more random as others nodes have more random outgoing connections)
       index += 1;
       // eslint-disable-next-line no-await-in-loop
@@ -1252,6 +1282,20 @@ async function fluxDiscovery() {
           continue;
         }
 
+        // check subnet diversity - skip nodes in same subnet as my node or already connected
+        const ipSubnet = getIpSubnet(ipInc);
+        const mySubnet = getIpSubnet(myIP.split(':')[0]);
+        if (ipSubnet === mySubnet) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        const connectedSubnets = incomingConnections.map((client) => getIpSubnet(client.ip));
+        const subnetAlreadyConnected = connectedSubnets.includes(ipSubnet) || currentIncomingSubnetsConnTried.includes(ipSubnet);
+        if (subnetAlreadyConnected) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+
         // additional precaution
         const sameConnectedIp = currentIpsConnTried.find((connectedIP) => connectedIP === ipInc);
         const clientExists = outgoingConnections.find((client) => client.ip === ipInc && client.port === portInc);
@@ -1259,6 +1303,7 @@ async function fluxDiscovery() {
         if (!sameConnectedIp && !clientExists && !clientIncomingExists) {
           log.info(`Asking random Flux ${connection} to add us as a peer`);
           currentIpsConnTried.push(connection);
+          currentIncomingSubnetsConnTried.push(ipSubnet);
           // eslint-disable-next-line no-await-in-loop
           await serviceHelper.axiosGet(
             `http://${ipInc}:${portInc}/flux/addoutgoingpeer/${myIP}`,
