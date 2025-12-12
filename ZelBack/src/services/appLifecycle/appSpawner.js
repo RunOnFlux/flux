@@ -449,12 +449,12 @@ async function trySpawningGlobalApplication() {
       const isArcane = Boolean(process.env.FLUXOS_PATH);
       if (!appToRunAux.enterprise && isArcane) {
         const appToCheck = {
-          timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
         };
-        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around 1h if instances are still missing`);
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around 30 if instances are still missing`);
         globalState.appsToBeCheckedLater.push(appToCheck);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         delay = true;
