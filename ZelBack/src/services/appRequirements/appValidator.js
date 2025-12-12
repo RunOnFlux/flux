@@ -787,7 +787,7 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   }
 
   if (appSpecifications.version >= 3) {
-    const minInstances = appSpecifications.version >= 8
+    const minInstances = appSpecifications.version >= 8 && height >= config.fluxapps.minimumInstancesV8Block
       ? config.fluxapps.minimumInstancesV8
       : config.fluxapps.minimumInstances;
     if (appSpecifications.instances < minInstances) {

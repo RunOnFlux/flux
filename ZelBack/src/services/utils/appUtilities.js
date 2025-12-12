@@ -28,7 +28,7 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   const intervals = appPrices.filter((i) => i.height < height);
   const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   let instancesAdditional = 0;
-  const isV8OrAbove = dataForAppRegistration.version >= 8;
+  const isV8OrAbove = dataForAppRegistration.version >= 8 && height >= config.fluxapps.minimumInstancesV8Block;
   const baseInstances = isV8OrAbove ? 1 : 3;
   if (dataForAppRegistration.instances) {
     // spec of version >= 3

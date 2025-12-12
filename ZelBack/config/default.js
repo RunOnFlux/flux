@@ -201,6 +201,7 @@ module.exports = {
     maxImageSize: 2000000000, // 2000mb
     minimumInstances: 3,
     minimumInstancesV8: 1,
+    minimumInstancesV8Block: 2176519, // block height where v8+ apps can have 1 instance - expected around December 19th 2025
     maximumInstances: 100,
     minOutgoing: 8,
     minUniqueIpsOutgoing: 7,
