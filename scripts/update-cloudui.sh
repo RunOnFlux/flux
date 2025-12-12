@@ -180,10 +180,4 @@ echo "  CloudUI updated successfully!"
 echo "=========================================="
 echo ""
 echo "Version: $TAG_NAME"
-FOLDER_SIZE=$(du -sh "$CLOUDUI_DIR" | cut -f1)
-echo "CloudUI folder size: $FOLDER_SIZE"
-echo ""
-echo "Files in CloudUI:"
-ls -la "$CLOUDUI_DIR"
-echo ""
-echo "Don't forget to commit the changes!"
+
