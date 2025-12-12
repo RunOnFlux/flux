@@ -374,11 +374,12 @@ async function trySpawningGlobalApplication() {
       syncthingApp = appSpecifications.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
     }
 
+    const myIpWithoutPort = myIP.split(':')[0];
+    const lastIndex = myIpWithoutPort.lastIndexOf('.');
+    const secondLastIndex = myIpWithoutPort.substring(0, lastIndex).lastIndexOf('.');
+    const ipPrefix = myIpWithoutPort.substring(0, secondLastIndex + 1); // includes the '.' e.g. "192.168."
+
     if (syncthingApp) {
-      const myIpWithoutPort = myIP.split(':')[0];
-      const lastIndex = myIpWithoutPort.lastIndexOf('.');
-      const secondLastIndex = myIpWithoutPort.substring(0, lastIndex).lastIndexOf('.');
-      const ipPrefix = myIpWithoutPort.substring(0, secondLastIndex + 1); // includes the '.' e.g. "192.168."
       let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
@@ -545,6 +546,23 @@ async function trySpawningGlobalApplication() {
       await serviceHelper.delay(shortDelayTime);
       trySpawningGlobalApplication();
       return;
+    }
+
+    if (syncthingApp) {
+      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
+      if (sameIpRangeNode) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
+        await serviceHelper.delay(shortDelayTime);
+        trySpawningGlobalApplication();
+        return;
+      }
+      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
+      if (sameIpRangeNode) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
+        await serviceHelper.delay(shortDelayTime);
+        trySpawningGlobalApplication();
+        return;
+      }
     }
 
     // an application was selected and checked that it can run on this node. try to install and run it locally
