@@ -378,14 +378,15 @@ async function trySpawningGlobalApplication() {
       const myIpWithoutPort = myIP.split(':')[0];
       const lastIndex = myIpWithoutPort.lastIndexOf('.');
       const secondLastIndex = myIpWithoutPort.substring(0, lastIndex).lastIndexOf('.');
-      let sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
+      const ipPrefix = myIpWithoutPort.substring(0, secondLastIndex + 1); // includes the '.' e.g. "192.168."
+      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
         await serviceHelper.delay(shortDelayTime);
         trySpawningGlobalApplication();
         return;
       }
-      sameIpRangeNode = installingAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
+      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
         await serviceHelper.delay(shortDelayTime);
