@@ -1176,7 +1176,7 @@ async function fluxDiscovery() {
     }
     // established deterministic 8 incoming connections
     for (let i = 1; i <= minDeterministicOutPeers; i += 1) {
-      const fixedIndex = fluxNodeIndex - i > 0 ? fluxNodeIndex - i : sortedNodeList.length - fluxNodeIndex - i;
+      const fixedIndex = fluxNodeIndex - i >= 0 ? fluxNodeIndex - i : sortedNodeList.length + fluxNodeIndex - i;
       const ip = sortedNodeList[fixedIndex];
       const ipInc = ip.split(':')[0];
       if (!ipInc || ipInc === myIP.split(':')[0]) {
