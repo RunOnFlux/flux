@@ -787,8 +787,11 @@ function verifyRestrictionCorrectnessOfApp(appSpecifications, height) {
   }
 
   if (appSpecifications.version >= 3) {
-    if (appSpecifications.instances < config.fluxapps.minimumInstances) {
-      throw new Error(`Minimum number of instances is ${config.fluxapps.minimumInstances}`);
+    const minInstances = appSpecifications.version >= 8 && height >= config.fluxapps.minimumInstancesV8Block
+      ? config.fluxapps.minimumInstancesV8
+      : config.fluxapps.minimumInstances;
+    if (appSpecifications.instances < minInstances) {
+      throw new Error(`Minimum number of instances is ${minInstances}`);
     }
     if (appSpecifications.instances > config.fluxapps.maximumInstances) {
       throw new Error(`Maximum number of instances is ${config.fluxapps.maximumInstances}`);
