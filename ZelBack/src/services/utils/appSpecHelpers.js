@@ -321,6 +321,12 @@ async function getAppFiatAndFluxPrice(req, res) {
           actualPriceToPay -= (perc * previousSpecsPrice);
         }
       }
+      const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecFormatted, 'bamf');
+      if (appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+        actualPriceToPay *= 0.8;
+      } else if (appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+        actualPriceToPay *= 0.9;
+      }
       let gSyncthgApp = false;
       if (appSpecFormatted.version <= 3) {
         gSyncthgApp = appSpecFormatted.containerData.includes('g:');
