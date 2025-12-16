@@ -92,6 +92,21 @@ async function getAppFluxOnChainPrice(appSpecification) {
         actualPriceToPay -= (perc * previousSpecsPrice);
       }
     }
+    const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecFormatted, 'bamf');
+    if (appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+      actualPriceToPay *= 0.8;
+    } else if (appHWrequirements.cpu < 7 && appHWrequirements.ram < 29000 && appHWrequirements.hdd < 370) {
+      actualPriceToPay *= 0.9;
+    }
+    let gSyncthgApp = false;
+    if (appSpecFormatted.version <= 3) {
+      gSyncthgApp = appSpecFormatted.containerData.includes('g:');
+    } else {
+      gSyncthgApp = appSpecFormatted.compose.find((comp) => comp.containerData.includes('g:'));
+    }
+    if (gSyncthgApp) {
+      actualPriceToPay *= 0.8;
+    }
     actualPriceToPay = Number(Math.ceil(actualPriceToPay * 100) / 100);
     if (actualPriceToPay < priceSpecifications.minPrice) {
       actualPriceToPay = priceSpecifications.minPrice;
