@@ -244,6 +244,43 @@ async function getAppsInstallingLocations(req, res) {
   }
 }
 
+/**
+ * To get count of app messages by owner.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ */
+async function getAppsMessagesCount(req, res) {
+  try {
+    let { appowner } = req.params;
+    appowner = appowner || req.query.appowner;
+    if (!appowner) {
+      throw new Error('No Application Owner specified');
+    }
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+
+    // Query for both appSpecifications.owner and zelAppSpecifications.owner (legacy)
+    const query = {
+      $or: [
+        { 'appSpecifications.owner': appowner },
+        { 'zelAppSpecifications.owner': appowner },
+      ],
+    };
+
+    const count = await dbHelper.countInDatabase(database, globalAppsMessages, query);
+    const countResponse = messageHelper.createDataMessage(count);
+    res.json(countResponse);
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    res.json(errorResponse);
+  }
+}
+
 module.exports = {
   installedApps,
   decryptEnterpriseApps,
@@ -252,4 +289,5 @@ module.exports = {
   getlatestApplicationSpecificationAPI,
   getApplicationOriginalOwner,
   getAppsInstallingLocations,
+  getAppsMessagesCount,
 };
