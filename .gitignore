@@ -375,3 +375,6 @@ tests/images/.package_hash
 # Local development folder
 dev/
 CLAUDE.md
+
+# CloudUI - Pre-built frontend (downloaded via npm run update:cloudui)
+CloudUI/

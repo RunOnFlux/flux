@@ -13,25 +13,31 @@ async function initiate() {
     return;
   }
   const homePort = +apiPort - 1;
-  // Flux Home configuration
-  const home = path.join(__dirname, './HomeUI/dist');
+
+  // Cloud UI static files directory
+  const cloudUI = path.join(__dirname, './CloudUI');
 
   const homeApp = express();
   homeApp.use(compression());
-  homeApp.use(express.static(home));
 
-  homeApp.get('/robots.txt', (req, res) => {
-    res.type('text/plain');
-    res.send('User-agent: *\nDisallow: /');
-  });
-
+  // Health check endpoint
   homeApp.get('/health', (req, res) => {
     res.type('text/plain');
     res.send('OK');
   });
 
+  // Robots.txt endpoint
+  homeApp.get('/robots.txt', (req, res) => {
+    res.type('text/plain');
+    res.send('User-agent: *\nDisallow: /');
+  });
+
+  // Serve static files from CloudUI
+  homeApp.use(express.static(cloudUI));
+
+  // SPA fallback - serve index.html for all unmatched routes
   homeApp.get('*', (req, res) => {
-    res.sendFile(path.join(home, 'index.html'));
+    res.sendFile(path.join(cloudUI, 'index.html'));
   });
 
   homeApp.listen(homePort, () => {

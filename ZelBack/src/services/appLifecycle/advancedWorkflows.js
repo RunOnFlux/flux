@@ -478,7 +478,7 @@ async function createAppVolume(appSpecifications, appName, isComponent, res) {
     }
     // Wait for volume file to exist (handles encrypted volumes not yet mounted after reboot)
     // This ensures @reboot cron jobs don't fail when the encrypted partition isn't ready
-    let execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
+    const execMount = `while [ ! -f ${volumeFile} ]; do sleep 5; done && sudo mount -o loop ${volumeFile} ${appsFolder + appId}`;
     await cmdAsync(`sudo mount -o loop ${volumeFile} ${appsFolder + appId}`);
     const mountingStatus2 = {
       status: 'Volume mounted',
@@ -2821,7 +2821,7 @@ async function updateAppGlobalyApi(req, res) {
       if (!appInfo) {
         throw new Error('Flux App update received but application to update does not exist!');
       }
-      if (appInfo.version <= 3 && appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
+      if (appInfo.version <= 3 && appSpecFormatted.version <= 3 && appInfo.repotag !== appSpecFormatted.repotag) { // this is OK. <= v3 cannot change, v4 can but does not have this in specifications as its compose
         throw new Error('Flux App update of repotag is not allowed');
       }
       const appOwner = appInfo.owner; // ensure previous app owner is signing this message

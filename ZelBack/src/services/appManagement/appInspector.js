@@ -439,6 +439,10 @@ function startAppMonitoring(appName, appsMonitored) {
 
   // eslint-disable-next-line no-param-reassign
   log.info('Initialize Monitoring...');
+  // Clear previous interval for this app to prevent multiple intervals
+  if (appsMonitored[appName] && appsMonitored[appName].oneMinuteInterval) {
+    clearInterval(appsMonitored[appName].oneMinuteInterval);
+  }
   // eslint-disable-next-line no-param-reassign
   appsMonitored[appName] = {}; // Initialize the app's monitoring object
   if (!appsMonitored[appName].statsStore) {
@@ -449,8 +453,6 @@ function startAppMonitoring(appName, appsMonitored) {
     // eslint-disable-next-line no-param-reassign
     appsMonitored[appName].lastHourstatsStore = [];
   }
-  // Clear previous interval for this app to prevent multiple intervals
-  clearInterval(appsMonitored[appName].oneMinuteInterval);
   // eslint-disable-next-line no-param-reassign
   appsMonitored[appName].run = 0;
   // eslint-disable-next-line no-param-reassign

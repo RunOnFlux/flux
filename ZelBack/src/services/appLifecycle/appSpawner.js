@@ -374,18 +374,20 @@ async function trySpawningGlobalApplication() {
       syncthingApp = appSpecifications.compose.find((comp) => comp.containerData.includes('g:') || comp.containerData.includes('r:') || comp.containerData.includes('s:'));
     }
 
+    const myIpWithoutPort = myIP.split(':')[0];
+    const lastIndex = myIpWithoutPort.lastIndexOf('.');
+    const secondLastIndex = myIpWithoutPort.substring(0, lastIndex).lastIndexOf('.');
+    const ipPrefix = myIpWithoutPort.substring(0, secondLastIndex + 1); // includes the '.' e.g. "192.168."
+
     if (syncthingApp) {
-      const myIpWithoutPort = myIP.split(':')[0];
-      const lastIndex = myIpWithoutPort.lastIndexOf('.');
-      const secondLastIndex = myIpWithoutPort.substring(0, lastIndex).lastIndexOf('.');
-      let sameIpRangeNode = runningAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
+      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
         await serviceHelper.delay(shortDelayTime);
         trySpawningGlobalApplication();
         return;
       }
-      sameIpRangeNode = installingAppList.find((location) => location.ip.includes(myIpWithoutPort.substring(0, secondLastIndex)));
+      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
         await serviceHelper.delay(shortDelayTime);
@@ -448,12 +450,12 @@ async function trySpawningGlobalApplication() {
       const isArcane = Boolean(process.env.FLUXOS_PATH);
       if (!appToRunAux.enterprise && isArcane) {
         const appToCheck = {
-          timeToCheck: Date.now() + 0.95 * 60 * 60 * 1000,
+          timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
           appName: appToRun,
           hash: appHash,
           required: minInstances,
         };
-        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around 1h if instances are still missing`);
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around 30 if instances are still missing`);
         globalState.appsToBeCheckedLater.push(appToCheck);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         delay = true;
@@ -468,7 +470,9 @@ async function trySpawningGlobalApplication() {
         globalState.appsToBeCheckedLater.push(appToCheck);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         delay = true;
-      } else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
+      } else if (appToRunAux.nodes.length > 0 && appToRunAux.nodes.find((ip) => ip === myIP)) {
+        log.info(`trySpawningGlobalApplication - App ${appToRun} specs have this node as target ip`);
+      }else if (appToRunAux.nodes.length === 0 && tier === 'bamf' && appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
         const appToCheck = {
           timeToCheck: appToRunAux.enterprise ? Date.now() + 0.5 * 60 * 60 * 1000 : Date.now() + 1.95 * 60 * 60 * 1000,
           appName: appToRun,
@@ -583,6 +587,23 @@ async function trySpawningGlobalApplication() {
       const index = installingAppList.findIndex((x) => x.ip === myIP);
       if (runningAppList.length + index + 1 > minInstances) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} is already spawned or being installed on ${runningAppList.length + installingAppList.length} instances, my instance is number ${runningAppList.length + index + 1}`);
+        await serviceHelper.delay(shortDelayTime);
+        trySpawningGlobalApplication();
+        return;
+      }
+    }
+
+    if (syncthingApp) {
+      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
+      if (sameIpRangeNode) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
+        await serviceHelper.delay(shortDelayTime);
+        trySpawningGlobalApplication();
+        return;
+      }
+      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
+      if (sameIpRangeNode) {
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
         await serviceHelper.delay(shortDelayTime);
         trySpawningGlobalApplication();
         return;

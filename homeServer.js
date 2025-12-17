@@ -7,25 +7,36 @@ const express = require('express');
 const log = require('./ZelBack/src/lib/log');
 const upnpService = require('./ZelBack/src/services/upnpService');
 
-const home = path.join(__dirname, './HomeUI/dist');
-
 const userconfig = require('./config/userconfig');
+
+// Cloud UI static files directory
+const cloudUI = path.join(__dirname, './CloudUI');
 
 const homeApp = express();
 homeApp.use(compression());
-homeApp.use(express.static(home));
 
+const apiPort = userconfig.initial.apiport || config.server.apiport;
+const homePort = apiPort - 1;
+
+// Health check endpoint
+homeApp.get('/health', (req, res) => {
+  res.type('text/plain');
+  res.send('OK');
+});
+
+// Robots.txt endpoint
 homeApp.get('/robots.txt', (req, res) => {
   res.type('text/plain');
   res.send('User-agent: *\nDisallow: /');
 });
 
-homeApp.get('*', (req, res) => {
-  res.sendFile(path.join(home, 'index.html'));
-});
+// Serve static files from CloudUI
+homeApp.use(express.static(cloudUI));
 
-const apiPort = userconfig.initial.apiport || config.server.apiport;
-const homePort = apiPort - 1;
+// SPA fallback - serve index.html for all unmatched routes
+homeApp.get('*', (req, res) => {
+  res.sendFile(path.join(cloudUI, 'index.html'));
+});
 
 async function initiate() {
   if (!config.server.allowedPorts.includes(+apiPort)) {
@@ -51,7 +62,7 @@ async function initiate() {
     }
   }
   homeApp.listen(homePort, () => {
-    console.log(`Flux Home running on port ${homePort}!`);
+    log.info(`Flux Home running on port ${homePort}!`);
   });
 }
 
