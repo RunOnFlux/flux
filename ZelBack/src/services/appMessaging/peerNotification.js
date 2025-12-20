@@ -13,6 +13,7 @@ const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('../appManagement/appInspector');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const log = require('../../lib/log');
+const globalState = require('../utils/globalState');
 
 // Database collections
 const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
@@ -290,6 +291,13 @@ async function checkAndNotifyPeersOfRunningApps(
       log.error(err);
       // removeAppLocally(stoppedApp);
     }
+    // Update the running apps cache with the current state
+    const runningAppsCache = globalState.runningAppsCache;
+    runningAppsCache.clear();
+    apps.forEach((app) => {
+      runningAppsCache.add(app.name);
+    });
+    log.info(`Running Apps cache updated with ${runningAppsCache.size} apps`);
     log.info('Running Apps broadcasted');
   } catch (error) {
     log.error(error);

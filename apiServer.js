@@ -26,6 +26,9 @@ const log = require('./ZelBack/src/lib/log');
 const serviceHelper = require('./ZelBack/src/services/serviceHelper');
 const upnpService = require('./ZelBack/src/services/upnpService');
 const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory');
+const globalState = require('./ZelBack/src/services/utils/globalState');
+const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
+const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -297,6 +300,55 @@ async function initiate() {
 
   return apiPort;
 }
+
+/**
+ * Handle SIGTERM signal for graceful shutdown.
+ * If the node was running apps, broadcast a fluxnodesigterm message to peers.
+ */
+async function handleSigterm() {
+  log.info('SIGTERM received, initiating graceful shutdown...');
+
+  try {
+    const { runningAppsCache } = globalState;
+
+    if (runningAppsCache.size > 0) {
+      log.info(`Node was running ${runningAppsCache.size} apps, broadcasting shutdown notification to peers...`);
+
+      const ip = await fluxNetworkHelper.getMyFluxIPandPort();
+      if (ip) {
+        const sigtermMessage = {
+          type: 'fluxnodesigterm',
+          version: 1,
+          ip,
+          broadcastedAt: Date.now(),
+        };
+
+        log.info(`Broadcasting fluxnodesigterm message: ${JSON.stringify(sigtermMessage)}`);
+
+        await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(sigtermMessage);
+        await serviceHelper.delay(500);
+        await fluxCommunicationMessagesSender.broadcastMessageToIncoming(sigtermMessage);
+
+        log.info('Shutdown notification broadcasted successfully');
+      } else {
+        log.warn('Could not get IP address, skipping shutdown broadcast');
+      }
+    } else {
+      log.info('No running apps cached, skipping shutdown broadcast');
+    }
+  } catch (error) {
+    log.error(`Error during SIGTERM handling: ${error.message}`);
+  }
+
+  // Give some time for the broadcast to complete
+  await new Promise((resolve) => { setTimeout(resolve, 1000); });
+
+  log.info('Graceful shutdown complete, exiting...');
+  process.exit(0);
+}
+
+// Register SIGTERM handler for graceful shutdown on system reboot/shutdown
+process.on('SIGTERM', handleSigterm);
 
 if (require.main === module) {
   initiate();

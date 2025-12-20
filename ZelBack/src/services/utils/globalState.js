@@ -28,6 +28,9 @@ const receiveOnlySyncthingAppsCache = new Map();
 const syncthingDevicesIDCache = new Map();
 const folderHealthCache = new Map(); // Tracks health status for sync folders (isolation, connectivity issues)
 
+// Running apps cache - tracks app names that have been broadcasted as running
+const runningAppsCache = new Set();
+
 // Cache references - these will be initialized from cacheManager
 let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
@@ -90,6 +93,7 @@ module.exports = {
   get receiveOnlySyncthingAppsCache() { return receiveOnlySyncthingAppsCache; },
   get syncthingDevicesIDCache() { return syncthingDevicesIDCache; },
   get folderHealthCache() { return folderHealthCache; },
+  get runningAppsCache() { return runningAppsCache; },
 
   get spawnErrorsLongerAppCache() { return spawnErrorsLongerAppCache; },
   set spawnErrorsLongerAppCache(value) { spawnErrorsLongerAppCache = value; },
