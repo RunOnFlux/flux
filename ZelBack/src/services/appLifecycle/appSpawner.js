@@ -594,19 +594,30 @@ async function trySpawningGlobalApplication() {
     }
 
     if (syncthingApp) {
-      let sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
+      const sameIpRangeNode = runningAppList.find((location) => location.ip.startsWith(ipPrefix));
       if (sameIpRangeNode) {
         log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already spawned on Fluxnode with same ip range`);
         await serviceHelper.delay(shortDelayTime);
         trySpawningGlobalApplication();
         return;
       }
-      sameIpRangeNode = installingAppList.find((location) => location.ip.startsWith(ipPrefix));
-      if (sameIpRangeNode) {
-        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
-        await serviceHelper.delay(shortDelayTime);
-        trySpawningGlobalApplication();
-        return;
+      const sameIpRangeInstallingNodes = installingAppList.filter((location) => location.ip.startsWith(ipPrefix));
+      if (sameIpRangeInstallingNodes.length > 0) {
+        // Find the node with the oldest broadcastedAt (first to start installing)
+        const oldestNode = sameIpRangeInstallingNodes.reduce((oldest, current) => {
+          if (!oldest.broadcastedAt) return current;
+          if (!current.broadcastedAt) return oldest;
+          return current.broadcastedAt < oldest.broadcastedAt ? current : oldest;
+        });
+        // If our node is not the oldest one, skip - let the first node continue
+        if (oldestNode.ip !== myIP) {
+          log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing and it is already being installed on Fluxnode with same ip range`);
+          await serviceHelper.delay(shortDelayTime);
+          trySpawningGlobalApplication();
+          return;
+        }
+        // Our node is the oldest - we were first, continue with installation
+        log.info(`trySpawningGlobalApplication - Application ${appToRun} uses syncthing, we are the first node in ip range to start installing, continuing`);
       }
     }
 
