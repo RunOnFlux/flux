@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
+const { execSync } = require('node:child_process');
 const { watch } = require('node:fs/promises');
 
 const axios = require('axios').default;
@@ -302,11 +303,95 @@ async function initiate() {
 }
 
 /**
+ * Check if the system is shutting down or rebooting.
+ * Uses multiple detection methods for reliability.
+ * @returns {boolean} True if system appears to be shutting down/rebooting
+ */
+function isSystemShuttingDown() {
+  // Method 1: Check for systemd scheduled shutdown file (most reliable for scheduled shutdowns)
+  try {
+    if (fs.existsSync('/run/systemd/shutdown/scheduled')) {
+      log.info('System shutdown detected via /run/systemd/shutdown/scheduled');
+      return true;
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+
+  // Method 2: Check systemd's current state
+  try {
+    const state = execSync('systemctl is-system-running 2>/dev/null', { encoding: 'utf8', timeout: 5000 }).trim();
+    if (state === 'stopping') {
+      log.info('System shutdown detected via systemctl is-system-running (stopping)');
+      return true;
+    }
+  } catch (e) {
+    // Command failed or not available, continue checking
+  }
+
+  // Method 3: Check for active shutdown/reboot jobs in systemd
+  try {
+    const jobs = execSync('systemctl list-jobs --no-pager 2>/dev/null', { encoding: 'utf8', timeout: 5000 });
+    if (jobs.includes('shutdown.target') || jobs.includes('reboot.target') || jobs.includes('poweroff.target') || jobs.includes('halt.target')) {
+      log.info('System shutdown detected via systemctl list-jobs');
+      return true;
+    }
+  } catch (e) {
+    // Command failed or not available
+  }
+
+  // Method 4: Check for running shutdown/reboot processes
+  try {
+    execSync('pgrep -x "shutdown" 2>/dev/null', { encoding: 'utf8', timeout: 5000 });
+    log.info('System shutdown detected via running shutdown process');
+    return true;
+  } catch (e) {
+    // No shutdown process found
+  }
+
+  // Method 5: Check runlevel (0 = halt, 6 = reboot)
+  try {
+    const runlevel = execSync('runlevel 2>/dev/null', { encoding: 'utf8', timeout: 5000 }).trim();
+    if (runlevel.endsWith(' 0') || runlevel.endsWith(' 6')) {
+      log.info(`System shutdown detected via runlevel: ${runlevel}`);
+      return true;
+    }
+  } catch (e) {
+    // Command failed or not available
+  }
+
+  // Method 6: Check for /run/nologin (created during shutdown, but NOT /etc/nologin which can be manual)
+  try {
+    if (fs.existsSync('/run/nologin')) {
+      log.info('System shutdown detected via /run/nologin file');
+      return true;
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+
+  return false;
+}
+
+/**
  * Handle SIGTERM signal for graceful shutdown.
- * If the node was running apps, broadcast a fluxnodesigterm message to peers.
+ * Only broadcasts fluxnodesigterm message if the system is actually rebooting/shutting down,
+ * not when the service is just being restarted by systemd/pm2.
  */
 async function handleSigterm() {
-  log.info('SIGTERM received, initiating graceful shutdown...');
+  log.info('SIGTERM received, checking if system is shutting down...');
+
+  // Small delay to allow systemd to update its state before we check
+  await new Promise((resolve) => { setTimeout(resolve, 100); });
+
+  const systemShuttingDown = isSystemShuttingDown();
+
+  if (!systemShuttingDown) {
+    log.info('System is not shutting down (service restart detected), skipping shutdown broadcast');
+    process.exit(0);
+  }
+
+  log.info('System shutdown/reboot detected, initiating graceful shutdown with peer notification...');
 
   try {
     const { runningAppsCache } = globalState;
@@ -358,6 +443,8 @@ module.exports = {
   createDnsCache,
   getCacheable,
   getrequestHistory,
+  handleSigterm,
   initiate,
+  isSystemShuttingDown,
   resetCacheable,
 };
