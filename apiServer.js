@@ -13,7 +13,6 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
-const { execSync } = require('node:child_process');
 const { watch } = require('node:fs/promises');
 
 const axios = require('axios').default;
@@ -163,16 +162,16 @@ function setAxiosDefaults(socketIoServers) {
  * @param {{delay?: number, exitCode?: number}} options
  */
 async function logErrorAndExit(msg, options = {}) {
-  const delay = options.delay || 1_000;
+  const delayMs = options.delay || 1_000;
   const exitCode = options.exitCode || 0;
 
   if (msg) log.error(msg);
 
-  const delayS = Math.round((delay / 1000) * 100) / 100;
+  const delayS = Math.round((delayMs / 1000) * 100) / 100;
 
   log.info(`Waiting: ${delayS}s, before exiting with code: ${exitCode}`);
 
-  await new Promise((r) => { setTimeout(r, delay); });
+  await serviceHelper.delay(delayMs);
   process.exit(exitCode);
 }
 
@@ -305,9 +304,9 @@ async function initiate() {
 /**
  * Check if the system is shutting down or rebooting.
  * Uses multiple detection methods for reliability.
- * @returns {boolean} True if system appears to be shutting down/rebooting
+ * @returns {Promise<boolean>} True if system appears to be shutting down/rebooting
  */
-function isSystemShuttingDown() {
+async function isSystemShuttingDown() {
   // Method 1: Check for systemd scheduled shutdown file (most reliable for scheduled shutdowns)
   try {
     if (fs.existsSync('/run/systemd/shutdown/scheduled')) {
@@ -319,45 +318,49 @@ function isSystemShuttingDown() {
   }
 
   // Method 2: Check systemd's current state
-  try {
-    const state = execSync('systemctl is-system-running 2>/dev/null', { encoding: 'utf8', timeout: 5000 }).trim();
-    if (state === 'stopping') {
-      log.info('System shutdown detected via systemctl is-system-running (stopping)');
-      return true;
-    }
-  } catch (e) {
-    // Command failed or not available, continue checking
+  const { stdout: systemState } = await serviceHelper.runCommand('systemctl', {
+    params: ['is-system-running'],
+    timeout: 5000,
+    logError: false,
+  });
+  if (systemState && systemState.trim() === 'stopping') {
+    log.info('System shutdown detected via systemctl is-system-running (stopping)');
+    return true;
   }
 
   // Method 3: Check for active shutdown/reboot jobs in systemd
-  try {
-    const jobs = execSync('systemctl list-jobs --no-pager 2>/dev/null', { encoding: 'utf8', timeout: 5000 });
-    if (jobs.includes('shutdown.target') || jobs.includes('reboot.target') || jobs.includes('poweroff.target') || jobs.includes('halt.target')) {
-      log.info('System shutdown detected via systemctl list-jobs');
-      return true;
-    }
-  } catch (e) {
-    // Command failed or not available
+  const { stdout: jobs } = await serviceHelper.runCommand('systemctl', {
+    params: ['list-jobs', '--no-pager'],
+    timeout: 5000,
+    logError: false,
+  });
+  if (jobs && (jobs.includes('shutdown.target') || jobs.includes('reboot.target') || jobs.includes('poweroff.target') || jobs.includes('halt.target'))) {
+    log.info('System shutdown detected via systemctl list-jobs');
+    return true;
   }
 
   // Method 4: Check for running shutdown/reboot processes
-  try {
-    execSync('pgrep -x "shutdown" 2>/dev/null', { encoding: 'utf8', timeout: 5000 });
+  const { stdout: shutdownPid } = await serviceHelper.runCommand('pgrep', {
+    params: ['-x', 'shutdown'],
+    timeout: 5000,
+    logError: false,
+  });
+  if (shutdownPid && shutdownPid.trim()) {
     log.info('System shutdown detected via running shutdown process');
     return true;
-  } catch (e) {
-    // No shutdown process found
   }
 
   // Method 5: Check runlevel (0 = halt, 6 = reboot)
-  try {
-    const runlevel = execSync('runlevel 2>/dev/null', { encoding: 'utf8', timeout: 5000 }).trim();
-    if (runlevel.endsWith(' 0') || runlevel.endsWith(' 6')) {
-      log.info(`System shutdown detected via runlevel: ${runlevel}`);
+  const { stdout: runlevel } = await serviceHelper.runCommand('runlevel', {
+    timeout: 5000,
+    logError: false,
+  });
+  if (runlevel) {
+    const trimmedRunlevel = runlevel.trim();
+    if (trimmedRunlevel.endsWith(' 0') || trimmedRunlevel.endsWith(' 6')) {
+      log.info(`System shutdown detected via runlevel: ${trimmedRunlevel}`);
       return true;
     }
-  } catch (e) {
-    // Command failed or not available
   }
 
   // Method 6: Check for /run/nologin (created during shutdown, but NOT /etc/nologin which can be manual)
@@ -382,9 +385,9 @@ async function handleSigterm() {
   log.info('SIGTERM received, checking if system is shutting down...');
 
   // Small delay to allow systemd to update its state before we check
-  await new Promise((resolve) => { setTimeout(resolve, 100); });
+  await serviceHelper.delay(100);
 
-  const systemShuttingDown = isSystemShuttingDown();
+  const systemShuttingDown = await isSystemShuttingDown();
 
   if (!systemShuttingDown) {
     log.info('System is not shutting down (service restart detected), skipping shutdown broadcast');
@@ -426,7 +429,7 @@ async function handleSigterm() {
   }
 
   // Give some time for the broadcast to complete
-  await new Promise((resolve) => { setTimeout(resolve, 1000); });
+  await serviceHelper.delay(1000);
 
   log.info('Graceful shutdown complete, exiting...');
   process.exit(0);

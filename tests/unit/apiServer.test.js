@@ -8,10 +8,10 @@ const sinon = require('sinon');
 describe('apiServer SIGTERM handling tests', () => {
   describe('isSystemShuttingDown logic tests', () => {
     let fsExistsSyncStub;
-    let execSyncStub;
+    let runCommandStub;
 
-    // Recreate the isSystemShuttingDown function logic for isolated testing
-    function isSystemShuttingDown(fsModule, execSyncFn) {
+    // Recreate the isSystemShuttingDown function logic for isolated testing (async version)
+    async function isSystemShuttingDown(fsModule, runCommandFn) {
       // Method 1: Check for systemd scheduled shutdown file
       try {
         if (fsModule.existsSync('/run/systemd/shutdown/scheduled')) {
@@ -22,41 +22,45 @@ describe('apiServer SIGTERM handling tests', () => {
       }
 
       // Method 2: Check systemd's current state
-      try {
-        const state = execSyncFn('systemctl is-system-running 2>/dev/null', { encoding: 'utf8', timeout: 5000 }).trim();
-        if (state === 'stopping') {
-          return { detected: true, method: 'systemctl-stopping' };
-        }
-      } catch (e) {
-        // Command failed or not available, continue checking
+      const { stdout: systemState } = await runCommandFn('systemctl', {
+        params: ['is-system-running'],
+        timeout: 5000,
+        logError: false,
+      });
+      if (systemState && systemState.trim() === 'stopping') {
+        return { detected: true, method: 'systemctl-stopping' };
       }
 
       // Method 3: Check for active shutdown/reboot jobs in systemd
-      try {
-        const jobs = execSyncFn('systemctl list-jobs --no-pager 2>/dev/null', { encoding: 'utf8', timeout: 5000 });
-        if (jobs.includes('shutdown.target') || jobs.includes('reboot.target') || jobs.includes('poweroff.target') || jobs.includes('halt.target')) {
-          return { detected: true, method: 'list-jobs' };
-        }
-      } catch (e) {
-        // Command failed or not available
+      const { stdout: jobs } = await runCommandFn('systemctl', {
+        params: ['list-jobs', '--no-pager'],
+        timeout: 5000,
+        logError: false,
+      });
+      if (jobs && (jobs.includes('shutdown.target') || jobs.includes('reboot.target') || jobs.includes('poweroff.target') || jobs.includes('halt.target'))) {
+        return { detected: true, method: 'list-jobs' };
       }
 
       // Method 4: Check for running shutdown/reboot processes
-      try {
-        execSyncFn('pgrep -x "shutdown" 2>/dev/null', { encoding: 'utf8', timeout: 5000 });
+      const { stdout: shutdownPid } = await runCommandFn('pgrep', {
+        params: ['-x', 'shutdown'],
+        timeout: 5000,
+        logError: false,
+      });
+      if (shutdownPid && shutdownPid.trim()) {
         return { detected: true, method: 'pgrep-shutdown' };
-      } catch (e) {
-        // No shutdown process found
       }
 
       // Method 5: Check runlevel (0 = halt, 6 = reboot)
-      try {
-        const runlevel = execSyncFn('runlevel 2>/dev/null', { encoding: 'utf8', timeout: 5000 }).trim();
-        if (runlevel.endsWith(' 0') || runlevel.endsWith(' 6')) {
+      const { stdout: runlevel } = await runCommandFn('runlevel', {
+        timeout: 5000,
+        logError: false,
+      });
+      if (runlevel) {
+        const trimmedRunlevel = runlevel.trim();
+        if (trimmedRunlevel.endsWith(' 0') || trimmedRunlevel.endsWith(' 6')) {
           return { detected: true, method: 'runlevel' };
         }
-      } catch (e) {
-        // Command failed or not available
       }
 
       // Method 6: Check for /run/nologin (created during shutdown)
@@ -73,152 +77,153 @@ describe('apiServer SIGTERM handling tests', () => {
 
     beforeEach(() => {
       fsExistsSyncStub = sinon.stub();
-      execSyncStub = sinon.stub();
+      runCommandStub = sinon.stub();
 
       // Default: no shutdown indicators
       fsExistsSyncStub.returns(false);
-      execSyncStub.throws(new Error('Command not found'));
+      // Default: commands return empty/no output
+      runCommandStub.resolves({ stdout: '', stderr: '', error: null });
     });
 
     afterEach(() => {
       sinon.restore();
     });
 
-    it('should return false when no shutdown indicators are present', () => {
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+    it('should return false when no shutdown indicators are present', async () => {
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
       expect(result.detected).to.equal(false);
     });
 
-    it('should detect shutdown via /run/systemd/shutdown/scheduled', () => {
+    it('should detect shutdown via /run/systemd/shutdown/scheduled', async () => {
       fsExistsSyncStub.withArgs('/run/systemd/shutdown/scheduled').returns(true);
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(true);
       expect(result.method).to.equal('scheduled');
     });
 
-    it('should detect shutdown via systemctl is-system-running = stopping', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('stopping\n');
+    it('should detect shutdown via systemctl is-system-running = stopping', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'stopping\n', stderr: '', error: null });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(true);
       expect(result.method).to.equal('systemctl-stopping');
     });
 
-    it('should detect shutdown via systemctl list-jobs with shutdown.target', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('123 shutdown.target start waiting\n');
+    it('should detect shutdown via systemctl list-jobs with shutdown.target', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: '123 shutdown.target start waiting\n', stderr: '', error: null });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
-
-      expect(result.detected).to.equal(true);
-      expect(result.method).to.equal('list-jobs');
-    });
-
-    it('should detect shutdown via systemctl list-jobs with reboot.target', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('123 reboot.target start waiting\n');
-
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(true);
       expect(result.method).to.equal('list-jobs');
     });
 
-    it('should detect shutdown via systemctl list-jobs with poweroff.target', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('123 poweroff.target start waiting\n');
+    it('should detect shutdown via systemctl list-jobs with reboot.target', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: '123 reboot.target start waiting\n', stderr: '', error: null });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
+
+      expect(result.detected).to.equal(true);
+      expect(result.method).to.equal('list-jobs');
+    });
+
+    it('should detect shutdown via systemctl list-jobs with poweroff.target', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: '123 poweroff.target start waiting\n', stderr: '', error: null });
+
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(true);
     });
 
-    it('should detect shutdown via systemctl list-jobs with halt.target', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('123 halt.target start waiting\n');
+    it('should detect shutdown via systemctl list-jobs with halt.target', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: '123 halt.target start waiting\n', stderr: '', error: null });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(true);
     });
 
-    it('should detect shutdown via running shutdown process', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('No jobs running.\n');
-      execSyncStub.withArgs('pgrep -x "shutdown" 2>/dev/null', sinon.match.any).returns('1234\n');
+    it('should detect shutdown via running shutdown process', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: 'No jobs running.\n', stderr: '', error: null });
+      runCommandStub.withArgs('pgrep', sinon.match({ params: ['-x', 'shutdown'] })).resolves({ stdout: '1234\n', stderr: '', error: null });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(true);
       expect(result.method).to.equal('pgrep-shutdown');
     });
 
-    it('should detect shutdown via runlevel 0 (halt)', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('No jobs running.\n');
-      execSyncStub.withArgs('pgrep -x "shutdown" 2>/dev/null', sinon.match.any).throws(new Error('No process'));
-      execSyncStub.withArgs('runlevel 2>/dev/null', sinon.match.any).returns('N 0\n');
+    it('should detect shutdown via runlevel 0 (halt)', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: 'No jobs running.\n', stderr: '', error: null });
+      runCommandStub.withArgs('pgrep', sinon.match({ params: ['-x', 'shutdown'] })).resolves({ stdout: '', stderr: '', error: new Error('No process') });
+      runCommandStub.withArgs('runlevel', sinon.match.any).resolves({ stdout: 'N 0\n', stderr: '', error: null });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
-
-      expect(result.detected).to.equal(true);
-      expect(result.method).to.equal('runlevel');
-    });
-
-    it('should detect shutdown via runlevel 6 (reboot)', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('No jobs running.\n');
-      execSyncStub.withArgs('pgrep -x "shutdown" 2>/dev/null', sinon.match.any).throws(new Error('No process'));
-      execSyncStub.withArgs('runlevel 2>/dev/null', sinon.match.any).returns('N 6\n');
-
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(true);
       expect(result.method).to.equal('runlevel');
     });
 
-    it('should detect shutdown via /run/nologin file', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('No jobs running.\n');
-      execSyncStub.withArgs('pgrep -x "shutdown" 2>/dev/null', sinon.match.any).throws(new Error('No process'));
-      execSyncStub.withArgs('runlevel 2>/dev/null', sinon.match.any).returns('N 5\n');
+    it('should detect shutdown via runlevel 6 (reboot)', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: 'No jobs running.\n', stderr: '', error: null });
+      runCommandStub.withArgs('pgrep', sinon.match({ params: ['-x', 'shutdown'] })).resolves({ stdout: '', stderr: '', error: new Error('No process') });
+      runCommandStub.withArgs('runlevel', sinon.match.any).resolves({ stdout: 'N 6\n', stderr: '', error: null });
+
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
+
+      expect(result.detected).to.equal(true);
+      expect(result.method).to.equal('runlevel');
+    });
+
+    it('should detect shutdown via /run/nologin file', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: 'No jobs running.\n', stderr: '', error: null });
+      runCommandStub.withArgs('pgrep', sinon.match({ params: ['-x', 'shutdown'] })).resolves({ stdout: '', stderr: '', error: new Error('No process') });
+      runCommandStub.withArgs('runlevel', sinon.match.any).resolves({ stdout: 'N 5\n', stderr: '', error: null });
       fsExistsSyncStub.withArgs('/run/nologin').returns(true);
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(true);
       expect(result.method).to.equal('nologin');
     });
 
-    it('should return false when runlevel is 5 (normal multi-user)', () => {
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('running\n');
-      execSyncStub.withArgs('systemctl list-jobs --no-pager 2>/dev/null', sinon.match.any).returns('No jobs running.\n');
-      execSyncStub.withArgs('pgrep -x "shutdown" 2>/dev/null', sinon.match.any).throws(new Error('No process'));
-      execSyncStub.withArgs('runlevel 2>/dev/null', sinon.match.any).returns('N 5\n');
+    it('should return false when runlevel is 5 (normal multi-user)', async () => {
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'running\n', stderr: '', error: null });
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['list-jobs', '--no-pager'] })).resolves({ stdout: 'No jobs running.\n', stderr: '', error: null });
+      runCommandStub.withArgs('pgrep', sinon.match({ params: ['-x', 'shutdown'] })).resolves({ stdout: '', stderr: '', error: new Error('No process') });
+      runCommandStub.withArgs('runlevel', sinon.match.any).resolves({ stdout: 'N 5\n', stderr: '', error: null });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(false);
     });
 
-    it('should handle all errors gracefully and return false', () => {
+    it('should handle all errors gracefully and return false', async () => {
       fsExistsSyncStub.throws(new Error('Permission denied'));
-      execSyncStub.throws(new Error('Command failed'));
+      runCommandStub.resolves({ stdout: '', stderr: '', error: new Error('Command failed') });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       expect(result.detected).to.equal(false);
     });
 
-    it('should stop checking after first detection (priority order)', () => {
+    it('should stop checking after first detection (priority order)', async () => {
       // Both scheduled file and systemctl return positive
       fsExistsSyncStub.withArgs('/run/systemd/shutdown/scheduled').returns(true);
-      execSyncStub.withArgs('systemctl is-system-running 2>/dev/null', sinon.match.any).returns('stopping\n');
+      runCommandStub.withArgs('systemctl', sinon.match({ params: ['is-system-running'] })).resolves({ stdout: 'stopping\n', stderr: '', error: null });
 
-      const result = isSystemShuttingDown({ existsSync: fsExistsSyncStub }, execSyncStub);
+      const result = await isSystemShuttingDown({ existsSync: fsExistsSyncStub }, runCommandStub);
 
       // Should detect via first method (scheduled file)
       expect(result.detected).to.equal(true);
@@ -231,12 +236,12 @@ describe('apiServer SIGTERM handling tests', () => {
       const broadcastCalled = { outgoing: false, incoming: false };
       const exitCalled = { code: null };
 
-      // Mock isSystemShuttingDown returning false
-      const isSystemShuttingDown = () => false;
+      // Mock isSystemShuttingDown returning false (async)
+      const isSystemShuttingDown = async () => false;
 
       // Simplified handleSigterm logic
       async function handleSigterm(deps) {
-        const systemShuttingDown = isSystemShuttingDown();
+        const systemShuttingDown = await isSystemShuttingDown();
 
         if (!systemShuttingDown) {
           deps.exit(0);
@@ -267,11 +272,11 @@ describe('apiServer SIGTERM handling tests', () => {
       const broadcastCalled = { outgoing: false, incoming: false };
       const exitCalled = { code: null };
 
-      // Mock isSystemShuttingDown returning true
-      const isSystemShuttingDown = () => true;
+      // Mock isSystemShuttingDown returning true (async)
+      const isSystemShuttingDown = async () => true;
 
       async function handleSigterm(deps) {
-        const systemShuttingDown = isSystemShuttingDown();
+        const systemShuttingDown = await isSystemShuttingDown();
 
         if (!systemShuttingDown) {
           deps.exit(0);
@@ -302,10 +307,10 @@ describe('apiServer SIGTERM handling tests', () => {
       const broadcastCalled = { outgoing: false, incoming: false };
       const exitCalled = { code: null };
 
-      const isSystemShuttingDown = () => true;
+      const isSystemShuttingDown = async () => true;
 
       async function handleSigterm(deps) {
-        const systemShuttingDown = isSystemShuttingDown();
+        const systemShuttingDown = await isSystemShuttingDown();
 
         if (!systemShuttingDown) {
           deps.exit(0);
