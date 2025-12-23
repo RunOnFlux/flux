@@ -1483,4 +1483,181 @@ describe('fluxCommunication tests', () => {
       expect(addPeerCalls.length).to.be.at.least(1);
     }).timeout(5000);
   });
+
+  describe('handleNodeSigtermMessage tests', () => {
+    let sendToAllPeersSpy;
+    let sendToAllIncomingConnectionsSpy;
+    let dbHelperStub;
+    let findInDatabaseStub;
+    let updateInDatabaseStub;
+    let logInfoSpy;
+
+    beforeEach(async () => {
+      outgoingConnections.length = 0;
+      incomingConnections.length = 0;
+      await dbHelper.initiateDB();
+      sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
+      sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
+      sinon.stub(serviceHelper, 'delay').resolves();
+      sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced').returns({ data: { synced: true, height: 1000000 } });
+
+      // Mock database operations
+      const mockDb = {
+        db: sinon.stub().returns({
+          collection: sinon.stub(),
+        }),
+      };
+      dbHelperStub = sinon.stub(dbHelper, 'databaseConnection').returns(mockDb);
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase');
+      updateInDatabaseStub = sinon.stub(dbHelper, 'updateInDatabase').resolves();
+
+      logInfoSpy = sinon.spy(log, 'info');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should process sigterm message and rebroadcast when apps exist for the node', async () => {
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const broadcastedAt = Date.now();
+      const message = {
+        data: {
+          type: 'fluxnodesigterm',
+          ip: '192.168.1.100:16127',
+          broadcastedAt,
+          version: 1,
+        },
+        timestamp: broadcastedAt,
+      };
+
+      // Mock finding apps on the node
+      findInDatabaseStub.resolves([{ name: 'app1' }, { name: 'app2' }]);
+
+      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+      const wsOutgoing = await connectWs(wsuri);
+      wsOutgoing.port = port;
+      wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
+      outgoingConnections.push(wsOutgoing);
+
+      await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
+
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/Received SIGTERM notification from node/));
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/Found 2 apps for node/));
+      sinon.assert.calledOnce(updateInDatabaseStub);
+      sinon.assert.calledOnce(sendToAllPeersSpy);
+      sinon.assert.calledOnce(sendToAllIncomingConnectionsSpy);
+    }).timeout(10000);
+
+    it('should not rebroadcast when no apps exist for the node', async () => {
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const broadcastedAt = Date.now();
+      const message = {
+        data: {
+          type: 'fluxnodesigterm',
+          ip: '192.168.1.100:16127',
+          broadcastedAt,
+          version: 1,
+        },
+        timestamp: broadcastedAt,
+      };
+
+      // Mock finding no apps on the node
+      findInDatabaseStub.resolves([]);
+
+      await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
+
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node/));
+      sinon.assert.notCalled(updateInDatabaseStub);
+      sinon.assert.notCalled(sendToAllPeersSpy);
+      sinon.assert.notCalled(sendToAllIncomingConnectionsSpy);
+    });
+
+    it('should not rebroadcast when message timestamp is too old', async () => {
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const broadcastedAt = Date.now() - (5 * 60 * 1000); // 5 minutes ago (exceeds 4 minute limit)
+      const message = {
+        data: {
+          type: 'fluxnodesigterm',
+          ip: '192.168.1.100:16127',
+          broadcastedAt,
+          version: 1,
+        },
+        timestamp: broadcastedAt,
+      };
+
+      await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
+
+      // Should not proceed to database lookup
+      sinon.assert.notCalled(findInDatabaseStub);
+      sinon.assert.notCalled(sendToAllPeersSpy);
+    });
+
+    it('should exclude sender from rebroadcast list', async () => {
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const broadcastedAt = Date.now();
+      const message = {
+        data: {
+          type: 'fluxnodesigterm',
+          ip: '192.168.1.100:16127',
+          broadcastedAt,
+          version: 1,
+        },
+        timestamp: broadcastedAt,
+      };
+
+      findInDatabaseStub.resolves([{ name: 'app1' }]);
+
+      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+
+      // Add sender connection
+      const wsSender = await connectWs(wsuri);
+      wsSender.port = port;
+      wsSender.ip = fromIp;
+      wsSender._socket = { remoteAddress: fromIp };
+      outgoingConnections.push(wsSender);
+
+      // Add another connection
+      const wsOther = await connectWs(wsuri);
+      wsOther.port = port;
+      wsOther.ip = '127.8.8.1';
+      wsOther._socket = { remoteAddress: '127.8.8.1' };
+      outgoingConnections.push(wsOther);
+
+      await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
+
+      // Verify that sendToAllPeers was called with a list that excludes the sender
+      const wsListArg = sendToAllPeersSpy.getCall(0).args[1];
+      expect(wsListArg).to.have.lengthOf(1);
+      expect(wsListArg[0].ip).to.equal('127.8.8.1');
+    }).timeout(10000);
+
+    it('should handle null apps result gracefully', async () => {
+      const fromIp = '127.0.0.5';
+      const port = 16127;
+      const broadcastedAt = Date.now();
+      const message = {
+        data: {
+          type: 'fluxnodesigterm',
+          ip: '192.168.1.100:16127',
+          broadcastedAt,
+          version: 1,
+        },
+        timestamp: broadcastedAt,
+      };
+
+      // Mock finding null (no results)
+      findInDatabaseStub.resolves(null);
+
+      await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
+
+      sinon.assert.calledWith(logInfoSpy, sinon.match(/No apps found for node/));
+      sinon.assert.notCalled(sendToAllPeersSpy);
+    });
+  });
 });
