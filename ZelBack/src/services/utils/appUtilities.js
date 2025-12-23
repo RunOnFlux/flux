@@ -29,12 +29,12 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
   let instancesAdditional = 0;
   const isV8OrAbove = dataForAppRegistration.version >= 8 && height >= config.fluxapps.minimumInstancesV8Block;
-  const baseInstances = isV8OrAbove ? 1 : 3;
   if (dataForAppRegistration.instances) {
     // spec of version >= 3
     // specification version 3-7 is saying. 3 instances are standard, every 3 additional is double the price.
     // specification version 8+ allows 1 instance as base, pricing is per instance.
-    instancesAdditional = dataForAppRegistration.instances - baseInstances;
+    // Extra instance surcharge ($0.50 min per instance) only applies after 3 instances for all versions.
+    instancesAdditional = dataForAppRegistration.instances - 3;
   }
   if (dataForAppRegistration.version <= 3) {
     if (dataForAppRegistration.tiered) {
