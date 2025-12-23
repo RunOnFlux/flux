@@ -294,6 +294,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
       repotag,
       repoauth,
       specVersion, // Pass parent spec version for v7/v8 handling
+      appName, // Required for per-app provider caching
     );
 
     if (!credentials) {
