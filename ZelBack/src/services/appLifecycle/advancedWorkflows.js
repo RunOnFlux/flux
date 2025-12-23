@@ -3127,6 +3127,12 @@ async function reinstallOldApplications() {
                 await serviceHelper.delay(500);
                 // eslint-disable-next-line no-await-in-loop
                 await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+                // Remove app from running apps cache
+                const { runningAppsCache } = globalState;
+                if (runningAppsCache.has(appSpecifications.name)) {
+                  runningAppsCache.delete(appSpecifications.name);
+                  log.info(`Removed ${appSpecifications.name} from running apps cache`);
+                }
               }
               // Skip installation and continue to next app
               // eslint-disable-next-line no-continue
@@ -3364,6 +3370,12 @@ async function reinstallOldApplications() {
                   await serviceHelper.delay(500);
                   // eslint-disable-next-line no-await-in-loop
                   await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
+                  // Remove app from running apps cache
+                  const { runningAppsCache } = globalState;
+                  if (runningAppsCache.has(appSpecifications.name)) {
+                    runningAppsCache.delete(appSpecifications.name);
+                    log.info(`Removed ${appSpecifications.name} from running apps cache`);
+                  }
                 }
                 // Skip installation and continue to next app
                 // eslint-disable-next-line no-continue

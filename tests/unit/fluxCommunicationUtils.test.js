@@ -539,4 +539,133 @@ describe('fluxCommunicationUtils tests', () => {
       expect(isValid).to.equal(false);
     });
   });
+
+  describe('verifyFluxBroadcast fluxnodesigterm tests', () => {
+    const privKey = '5JTeg79dTLzzHXoJPALMWuoGDM8QmLj4n5f6MeFjx8dzsirvjAh';
+    const pubKey = '0474eb4690689bb408139249eda7f361b7881c4254ccbe303d3b4d58c2b48897d0f070b44944941998551f9ea0e1befd96f13adf171c07c885e62d0c2af56d3dab';
+    let networkStateStub;
+
+    beforeEach(() => {
+      networkStateStub = sinon.stub(networkStateService, 'getFluxnodeBySocketAddress');
+    });
+
+    afterEach(() => {
+      sinon.restore();
+    });
+
+    it('should return true for valid fluxnodesigterm message from known node', async () => {
+      const nodeIp = '192.168.1.100:16127';
+      const broadcastedAt = Date.now();
+      const data = {
+        type: 'fluxnodesigterm',
+        ip: nodeIp,
+        broadcastedAt,
+        version: 1,
+      };
+      const message = JSON.stringify(data);
+      const timestamp = Date.now();
+      const version = 1;
+      const messageToSign = version + message + timestamp;
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp,
+        data,
+        signature,
+      };
+
+      // Mock that node exists in network state
+      networkStateStub.withArgs(nodeIp).resolves({ ip: nodeIp, tier: 'CUMULUS' });
+
+      const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
+
+      expect(isValid).to.equal(true);
+    });
+
+    it('should return false for fluxnodesigterm message from unknown node', async () => {
+      const nodeIp = '192.168.1.100:16127';
+      const broadcastedAt = Date.now();
+      const data = {
+        type: 'fluxnodesigterm',
+        ip: nodeIp,
+        broadcastedAt,
+        version: 1,
+      };
+      const message = JSON.stringify(data);
+      const timestamp = Date.now();
+      const version = 1;
+      const messageToSign = version + message + timestamp;
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp,
+        data,
+        signature,
+      };
+
+      // Mock that node does NOT exist in network state
+      networkStateStub.withArgs(nodeIp).resolves(null);
+
+      const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
+
+      expect(isValid).to.equal(false);
+    });
+
+    it('should return false for fluxnodesigterm message with invalid signature', async () => {
+      const nodeIp = '192.168.1.100:16127';
+      const broadcastedAt = Date.now();
+      const data = {
+        type: 'fluxnodesigterm',
+        ip: nodeIp,
+        broadcastedAt,
+        version: 1,
+      };
+      const timestamp = Date.now();
+      const version = 1;
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp,
+        data,
+        signature: 'invalidsignature12345',
+      };
+
+      networkStateStub.withArgs(nodeIp).resolves({ ip: nodeIp, tier: 'CUMULUS' });
+
+      const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
+
+      expect(isValid).to.equal(false);
+    });
+
+    it('should return false for fluxnodesigterm message from future', async () => {
+      const nodeIp = '192.168.1.100:16127';
+      const broadcastedAt = Date.now();
+      const data = {
+        type: 'fluxnodesigterm',
+        ip: nodeIp,
+        broadcastedAt,
+        version: 1,
+      };
+      const message = JSON.stringify(data);
+      const timestamp = Date.now() + 300000; // 5 minutes in future
+      const version = 1;
+      const messageToSign = version + message + timestamp;
+      const signature = await fluxCommunicationMessagesSender.getFluxMessageSignature(messageToSign, privKey);
+      const dataToSend = {
+        version,
+        pubKey,
+        timestamp,
+        data,
+        signature,
+      };
+
+      networkStateStub.withArgs(nodeIp).resolves({ ip: nodeIp, tier: 'CUMULUS' });
+
+      const isValid = await fluxCommunicationUtils.verifyFluxBroadcast(dataToSend);
+
+      expect(isValid).to.equal(false);
+    });
+  });
 });

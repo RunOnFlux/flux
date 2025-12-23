@@ -382,7 +382,7 @@ async function startFluxFunctions() {
         globalState.reinstallationOfOldAppsInProgress,
         () => globalState,
         cacheManager,
-      ); // first broadcast after 4m of starting fluxos
+      ); // first broadcast after 1m of starting fluxos
       setInterval(() => { // every 60 mins messages stay on db for 65m
         peerNotification.checkAndNotifyPeersOfRunningApps(
           appQueryService.installedApps,
@@ -397,7 +397,7 @@ async function startFluxFunctions() {
           cacheManager,
         );
       }, 60 * 60 * 1000);
-    }, 2 * 60 * 1000);
+    }, 1 * 60 * 1000);
     setTimeout(() => {
       syncthingMonitor.syncthingApps(
         globalState,

@@ -11,11 +11,14 @@ const fluxCommunicationMessagesSender = require('./fluxCommunicationMessagesSend
 const fluxCommunicationUtils = require('./fluxCommunicationUtils');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const messageHelper = require('./messageHelper');
+const dbHelper = require('./dbHelper');
 const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('./utils/establishedConnections');
 const cacheManager = require('./utils/cacheManager').default;
 const networkStateService = require('./networkStateService');
+
+const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 const { messageCache, wsPeerCache } = cacheManager;
 
@@ -400,6 +403,79 @@ async function handleAppRemovedMessage(message, fromIP, port) {
 }
 
 /**
+ * To handle node sigterm messages (graceful shutdown notifications).
+ * @param {object} message Message.
+ * @param {string} fromIP Sender's IP address.
+ * @param {string} port Sender's node Api port.
+ */
+async function handleNodeSigtermMessage(message, fromIP, port) {
+  try {
+    const { ip, broadcastedAt } = message.data;
+    log.info(`Received SIGTERM notification from node ${ip} (broadcasted at ${new Date(broadcastedAt).toISOString()})`);
+
+    // Verify timestamp - only accept messages from last 4 minutes
+    const currentTimeStamp = Date.now();
+    const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(message, currentTimeStamp, 240000);
+
+    if (!timestampOK) {
+      return;
+    }
+
+    // Check if this IP has any apps running in our database
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const query = { ip };
+    const projection = { _id: 0, name: 1 };
+    const appsOnNode = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+
+    if (!appsOnNode || appsOnNode.length === 0) {
+      log.info(`No apps found for node ${ip} in locations database, not rebroadcasting sigterm`);
+      return;
+    }
+
+    log.info(`Found ${appsOnNode.length} apps for node ${ip}, updating expiration and rebroadcasting sigterm`);
+
+    // Update broadcastedAt to make records expire 7 minutes after the sigterm broadcastedAt
+    // TTL index is 7500 seconds, so set broadcastedAt = sigtermBroadcastedAt - (7500 - 420) seconds
+    const newBroadcastedAt = new Date(broadcastedAt - (7500 - 420) * 1000);
+    const update = { $set: { broadcastedAt: newBroadcastedAt } };
+    await dbHelper.updateInDatabase(database, globalAppsLocations, query, update);
+
+    // Rebroadcast to other peers
+    const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+    const daemonHeight = syncStatus.data.height || 0;
+    let messageString = serviceHelper.ensureString(message);
+    if (daemonHeight >= config.messagesBroadcastRefactorStart) {
+      const dataObj = {
+        messageHashPresent: hash(message.data),
+      };
+      messageString = JSON.stringify(dataObj);
+    }
+    const wsListOut = [];
+    outgoingConnections.forEach((client) => {
+      if (client.ip === fromIP && client.port === port) {
+        // do not broadcast to this peer
+      } else {
+        wsListOut.push(client);
+      }
+    });
+    fluxCommunicationMessagesSender.sendToAllPeers(messageString, wsListOut);
+    await serviceHelper.delay(500);
+    const wsList = [];
+    incomingConnections.forEach((client) => {
+      if (client.ip === fromIP && client.port === port) {
+        // do not broadcast to this peer
+      } else {
+        wsList.push(client);
+      }
+    });
+    fluxCommunicationMessagesSender.sendToAllIncomingConnections(messageString, wsList);
+  } catch (error) {
+    log.error(error);
+  }
+}
+
+/**
  * To handle incoming connection. Several types of verification are performed.
  * @param {object} websocket Web socket.
  * @param {object} req Request.
@@ -571,6 +647,8 @@ function handleIncomingConnection(websocket, optionalPort) {
               setImmediate(() => handleAppInstallingMessage(msgObj, peer.ip, peer.port));
             } else if (msgObj.data.type === 'fluxappinstallingerror') {
               setImmediate(() => handleAppInstallingErrorMessage(msgObj, peer.ip, peer.port));
+            } else if (msgObj.data.type === 'fluxnodesigterm') {
+              setImmediate(() => handleNodeSigtermMessage(msgObj, peer.ip, peer.port));
             } else {
               log.warn(`Unrecognised message type of ${msgObj.data.type}`);
             }
@@ -957,6 +1035,8 @@ async function initiateAndHandleConnection(connection) {
               handleAppInstallingMessage(msgObj, ip, port);
             } else if (msgObj.data.type === 'fluxappinstallingerror') {
               handleAppInstallingErrorMessage(msgObj, ip, port);
+            } else if (msgObj.data.type === 'fluxnodesigterm') {
+              handleNodeSigtermMessage(msgObj, ip, port);
             } else {
               log.warn(`Unrecognised message type of ${msgObj.data.type}`);
             }
@@ -1372,6 +1452,7 @@ module.exports = {
   handleAppRunningMessage,
   handleIPChangedMessage,
   handleAppRemovedMessage,
+  handleNodeSigtermMessage,
   initiateAndHandleConnection,
   addOutgoingPeer,
 };
