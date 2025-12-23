@@ -1099,6 +1099,7 @@ async function testAppInstall(req, res) {
           repoauth: component.repoauth,
           specVersion: appSpecifications.version,
           appName: appSpecifications.name,
+          architecture: localArch,
         });
         componentArchitectures.push({
           name: component.name,
