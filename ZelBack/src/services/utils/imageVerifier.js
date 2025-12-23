@@ -132,7 +132,8 @@ class ImageVerifier {
   }
 
   get useable() {
-    return this.parts.length === 4;
+    // Namespace is optional (only Docker Hub uses it), so check for required fields only
+    return !!this.provider && !!this.repository && !!this.tag;
   }
 
   /**
@@ -301,6 +302,20 @@ class ImageVerifier {
 
       this.authConfigured = true;
       this.authVerified = false; // Not verified yet - will be tested on retry
+      return;
+    }
+
+    // For Bearer auth with pre-obtained tokens (Azure ACR, Google GAR)
+    // These cloud providers return OAuth tokens that should be used directly
+    if (scheme === 'Bearer' && this.credentials && this.credentials.authType === 'bearer') {
+      this.#axiosInstance.interceptors.request.use((config) => {
+        // eslint-disable-next-line no-param-reassign
+        config.headers.Authorization = `Bearer ${this.credentials.password}`;
+        return config;
+      });
+
+      this.authConfigured = true;
+      this.authVerified = true; // Token already verified by cloud provider
       return;
     }
 
@@ -545,6 +560,7 @@ class ImageVerifier {
       this.credentials = {
         username: credentials.username,
         password: credentials.password,
+        authType: credentials.type, // Preserve auth type (bearer/basic)
       };
       return;
     }

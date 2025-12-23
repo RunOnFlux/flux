@@ -294,6 +294,7 @@ async function verifyAndPullImage(appSpecifications, appName, isComponent, res, 
       repotag,
       repoauth,
       specVersion, // Pass parent spec version for v7/v8 handling
+      appName, // Required for per-app provider caching
     );
 
     if (!credentials) {
@@ -1095,7 +1096,12 @@ async function testAppInstall(req, res) {
       // Collect supported architectures from all components
       const componentArchitectures = [];
       for (const component of appSpecifications.compose) {
-        const repoVerification = await verifyRepository(component.repotag);
+        const repoVerification = await verifyRepository(component.repotag, {
+          repoauth: component.repoauth,
+          specVersion: appSpecifications.version,
+          appName: appSpecifications.name,
+          architecture: localArch,
+        });
         componentArchitectures.push({
           name: component.name,
           architectures: repoVerification.supportedArchitectures,
