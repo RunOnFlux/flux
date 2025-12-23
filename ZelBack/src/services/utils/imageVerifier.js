@@ -305,6 +305,20 @@ class ImageVerifier {
       return;
     }
 
+    // For Bearer auth with pre-obtained tokens (Azure ACR, Google GAR)
+    // These cloud providers return OAuth tokens that should be used directly
+    if (scheme === 'Bearer' && this.credentials && this.credentials.authType === 'bearer') {
+      this.#axiosInstance.interceptors.request.use((config) => {
+        // eslint-disable-next-line no-param-reassign
+        config.headers.Authorization = `Bearer ${this.credentials.password}`;
+        return config;
+      });
+
+      this.authConfigured = true;
+      this.authVerified = true; // Token already verified by cloud provider
+      return;
+    }
+
     // For Bearer auth (Docker Hub, etc.), do token exchange
     const {
       data: { token },
@@ -546,6 +560,7 @@ class ImageVerifier {
       this.credentials = {
         username: credentials.username,
         password: credentials.password,
+        authType: credentials.type, // Preserve auth type (bearer/basic)
       };
       return;
     }
