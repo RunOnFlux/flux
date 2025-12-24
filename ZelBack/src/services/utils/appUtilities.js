@@ -27,26 +27,17 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   const appPrices = suppliedPrices || await getChainParamsPriceUpdates();
   const intervals = appPrices.filter((i) => i.height < height);
   const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-  let instancesAdditional = 0;
-  const isV8OrAbove = dataForAppRegistration.version >= 8 && height >= config.fluxapps.minimumInstancesV8Block;
-  if (dataForAppRegistration.instances) {
-    // spec of version >= 3
-    // specification version 3-7 is saying. 3 instances are standard, every 3 additional is double the price.
-    // specification version 8+ allows 1 instance as base, pricing is per instance.
-    // Extra instance surcharge ($0.50 min per instance) only applies after 3 instances for all versions.
-    instancesAdditional = dataForAppRegistration.instances - 3;
-  }
   if (dataForAppRegistration.version <= 3) {
     if (dataForAppRegistration.tiered) {
       const cpuTotalCount = dataForAppRegistration.cpubasic + dataForAppRegistration.cpusuper + dataForAppRegistration.cpubamf;
       const cpuPrice = cpuTotalCount * priceSpecifications.cpu * 10;
-      const cpuTotal = cpuPrice / 3;
+      const cpuTotal = cpuPrice;
       const ramTotalCount = dataForAppRegistration.rambasic + dataForAppRegistration.ramsuper + dataForAppRegistration.rambamf;
       const ramPrice = (ramTotalCount * priceSpecifications.ram) / 100;
-      const ramTotal = ramPrice / 3;
+      const ramTotal = ramPrice;
       const hddTotalCount = dataForAppRegistration.hddbasic + dataForAppRegistration.hddsuper + dataForAppRegistration.hddbamf;
       const hddPrice = hddTotalCount * priceSpecifications.hdd;
-      const hddTotal = hddPrice / 3;
+      const hddTotal = hddPrice;
       let totalPrice = cpuTotal + ramTotal + hddTotal;
       if (dataForAppRegistration.port) {
         if (fluxNetworkHelper.isPortEnterprise(dataForAppRegistration.port)) {
@@ -65,14 +56,6 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
         totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
       }
       let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
-      if (instancesAdditional > 0 && height >= config.fluxapps.applyMinimumForExtraInstances) {
-        if (appPrice < 1.50) {
-          appPrice += (instancesAdditional * 0.50);
-        } else {
-          const additionalPrice = (appPrice * instancesAdditional) / 3;
-          appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
-        }
-      }
       if (appPrice < priceSpecifications.minPrice) {
         appPrice = priceSpecifications.minPrice;
       }
@@ -96,14 +79,6 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
       totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
     }
     let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
-    if (instancesAdditional > 0 && height >= config.fluxapps.applyMinimumForExtraInstances) {
-      if (appPrice < 1.50) {
-        appPrice += (instancesAdditional * 0.50);
-      } else {
-        const additionalPrice = (appPrice * instancesAdditional) / 3;
-        appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
-      }
-    }
     if (appPrice < priceSpecifications.minPrice) {
       appPrice = priceSpecifications.minPrice;
     }
@@ -142,29 +117,22 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
   }
   totalPrice += enterprisePorts.length * priceSpecifications.port; // enterprise ports
 
-  // For v8+ apps, calculate price per instance (base price is for 3 instances, so divide by 3)
-  // then multiply by actual number of instances
-  if (isV8OrAbove) {
-    const pricePerInstance = totalPrice / 3;
-    totalPrice = pricePerInstance * dataForAppRegistration.instances;
-  }
-
-  if (priceSpecifications.minUSDPrice && height >= config.fluxapps.applyMinimumPriceOn3Instances && totalPrice < priceSpecifications.minUSDPrice) {
-    totalPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
-  }
-  let appPrice = Number(Math.ceil(totalPrice * 100) / 100);
+  const pricePerInstance = totalPrice / 3;
+  let appPrice = Number(Math.ceil(pricePerInstance * 100) / 100);
+  const instancesAdditional = dataForAppRegistration.instances - 1;
   if (instancesAdditional > 0 && height >= config.fluxapps.applyMinimumForExtraInstances) {
-    if (appPrice < 1.50) {
+    if (appPrice < 0.50 && instancesAdditional > 2) {
       appPrice += (instancesAdditional * 0.50);
     } else {
-      const additionalPrice = (appPrice * instancesAdditional) / 3;
+      const additionalPrice = appPrice * instancesAdditional;
       appPrice = (Math.ceil(additionalPrice * 100) + Math.ceil(appPrice * 100)) / 100;
     }
   }
 
-  if (appPrice < priceSpecifications.minPrice) {
-    appPrice = priceSpecifications.minPrice;
+  if (priceSpecifications.minUSDPrice && height >= config.fluxapps.applyMinimumPriceOn3Instances && appPrice < priceSpecifications.minUSDPrice) {
+    appPrice = Number(priceSpecifications.minUSDPrice).toFixed(2);
   }
+
   return appPrice;
 }
 
