@@ -3044,6 +3044,27 @@ async function reinstallOldApplications() {
           // Specs differ - log for debugging purposes
           log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
 
+          // Check if this is an enterprise app on non-arcane node
+          // Must check BEFORE any redeployment processing
+          if (appSpecifications.version >= 8
+              && appSpecifications.enterprise
+              && !isArcane) {
+            log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS.`);
+            log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
+
+            // Remove the entire app with force and BROADCAST to peers
+            // This is a permanent removal (not a redeploy), so we need to broadcast
+            // eslint-disable-next-line global-require
+            const appUninstaller = require('./appUninstaller');
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true);
+            log.info(`Successfully removed enterprise app ${appSpecifications.name} and notified peers`);
+
+            // Skip to next app
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
           // check if node is capable to run it according to specifications
           // run the verification
           // get tier and adjust specifications
@@ -3100,44 +3121,6 @@ async function reinstallOldApplications() {
             const isEnterprise = Boolean(
               appSpecifications.version >= 8 && appSpecifications.enterprise,
             );
-
-            // Check if system is running arcaneOS for enterprise apps
-            if (isEnterprise && !isArcane) {
-              log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS. Removing application and informing peers.`);
-              log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
-
-              // Send removal message to peers
-              // eslint-disable-next-line no-await-in-loop
-              const ip = await fluxNetworkHelper.getMyFluxIPandPort();
-              if (ip) {
-                const broadcastedAt = Date.now();
-                const appRemovedMessage = {
-                  type: 'fluxappremoved',
-                  version: 1,
-                  appName: appSpecifications.name,
-                  ip,
-                  broadcastedAt,
-                };
-                log.info('Broadcasting appremoved message to the network');
-                // eslint-disable-next-line global-require
-                const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-                // eslint-disable-next-line no-await-in-loop
-                await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
-                // eslint-disable-next-line no-await-in-loop
-                await serviceHelper.delay(500);
-                // eslint-disable-next-line no-await-in-loop
-                await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
-                // Remove app from running apps cache
-                const { runningAppsCache } = globalState;
-                if (runningAppsCache.has(appSpecifications.name)) {
-                  runningAppsCache.delete(appSpecifications.name);
-                  log.info(`Removed ${appSpecifications.name} from running apps cache`);
-                }
-              }
-              // Skip installation and continue to next app
-              // eslint-disable-next-line no-continue
-              continue;
-            }
 
             const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
 
@@ -3343,44 +3326,6 @@ async function reinstallOldApplications() {
               const isEnterprise = Boolean(
                 appSpecifications.version >= 8 && appSpecifications.enterprise,
               );
-
-              // Check if system is running arcaneOS for enterprise apps
-              if (isEnterprise && !isArcane) {
-                log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS. Removing application and informing peers.`);
-                log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
-
-                // Send removal message to peers
-                // eslint-disable-next-line no-await-in-loop
-                const ip = await fluxNetworkHelper.getMyFluxIPandPort();
-                if (ip) {
-                  const broadcastedAt = Date.now();
-                  const appRemovedMessage = {
-                    type: 'fluxappremoved',
-                    version: 1,
-                    appName: appSpecifications.name,
-                    ip,
-                    broadcastedAt,
-                  };
-                  log.info('Broadcasting appremoved message to the network');
-                  // eslint-disable-next-line global-require
-                  const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
-                  // eslint-disable-next-line no-await-in-loop
-                  await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(appRemovedMessage);
-                  // eslint-disable-next-line no-await-in-loop
-                  await serviceHelper.delay(500);
-                  // eslint-disable-next-line no-await-in-loop
-                  await fluxCommunicationMessagesSender.broadcastMessageToIncoming(appRemovedMessage);
-                  // Remove app from running apps cache
-                  const { runningAppsCache } = globalState;
-                  if (runningAppsCache.has(appSpecifications.name)) {
-                    runningAppsCache.delete(appSpecifications.name);
-                    log.info(`Removed ${appSpecifications.name} from running apps cache`);
-                  }
-                }
-                // Skip installation and continue to next app
-                // eslint-disable-next-line no-continue
-                continue;
-              }
 
               const dbSpecs = JSON.parse(JSON.stringify(appSpecifications));
 
