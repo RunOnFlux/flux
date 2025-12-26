@@ -3009,6 +3009,82 @@ async function reinstallOldApplications() {
         log.warn(`Application ${installedApp.name} version is obsolete.`);
         if (randomNumber === 0) {
           globalState.reinstallationOfOldAppsInProgress = true;
+
+          // Check if this is an enterprise app on non-arcane node FIRST
+          // CRITICAL: Must check BEFORE updating local database or attempting redeployment
+          // If we update the local DB with enterprise specs, we lose the container/port info needed for cleanup
+          if (appSpecifications.version >= 8
+              && appSpecifications.enterprise
+              && !isArcane) {
+            log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS.`);
+            log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
+
+            // If local DB already has encrypted specs (compose: []), we need to find the last non-enterprise version
+            // from permanent messages to get port information for proper cleanup
+            let specsForRemoval = installedApp;
+            if (installedApp.compose && installedApp.compose.length === 0) {
+              log.info(`Local DB has encrypted specs for ${installedApp.name}, searching for last non-enterprise version in permanent messages`);
+              const db = dbHelper.databaseConnection();
+              const database = db.db(config.database.appsglobal.database);
+              const query = {
+                'appSpecifications.name': installedApp.name,
+                type: { $in: ['fluxappregister', 'fluxappupdate'] },
+              };
+              const projection = {
+                projection: {
+                  _id: 0,
+                  appSpecifications: 1,
+                  hash: 1,
+                  height: 1,
+                },
+              };
+              // eslint-disable-next-line no-await-in-loop
+              const permanentMessages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+
+              // Find the last message that is NOT enterprise (reverse chronological search)
+              let lastNonEnterpriseMessage = null;
+              for (let i = permanentMessages.length - 1; i >= 0; i -= 1) {
+                const message = permanentMessages[i];
+                const specs = message.appSpecifications;
+                const msgIsEnterprise = Boolean(specs.version >= 8 && specs.enterprise);
+
+                if (!msgIsEnterprise) {
+                  lastNonEnterpriseMessage = message;
+                  break;
+                }
+              }
+
+              if (lastNonEnterpriseMessage) {
+                log.info(`Found non-enterprise version for ${installedApp.name} at height ${lastNonEnterpriseMessage.height} - using for cleanup`);
+                // Temporarily restore non-enterprise specs to local DB for proper cleanup
+                specsForRemoval = lastNonEnterpriseMessage.appSpecifications;
+                const dbopen = dbHelper.databaseConnection();
+                const appsDatabase = dbopen.db(config.database.appslocal.database);
+                const appsQuery = { name: installedApp.name };
+                const options = { upsert: true };
+                // eslint-disable-next-line no-await-in-loop
+                await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: specsForRemoval }, options);
+                log.info(`Temporarily restored non-enterprise specs to local DB for ${installedApp.name} to enable proper port cleanup`);
+              } else {
+                log.error(`No non-enterprise version found for ${installedApp.name} - cannot properly uninstall without port/container info. Skipping removal to avoid orphaned containers.`);
+                // eslint-disable-next-line no-continue
+                continue;
+              }
+            }
+
+            // Remove the entire app with force and BROADCAST to peers
+            // This is a permanent removal (not a redeploy), so we need to broadcast
+            // eslint-disable-next-line global-require
+            const appUninstaller = require('./appUninstaller');
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstaller.removeAppLocally(installedApp.name, null, true, true, true);
+            log.info(`Successfully removed enterprise app ${installedApp.name} and notified peers`);
+
+            // Skip to next app
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
           // check if the app spec was changed
           const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
           const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
@@ -3044,26 +3120,6 @@ async function reinstallOldApplications() {
           // Specs differ - log for debugging purposes
           log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
 
-          // Check if this is an enterprise app on non-arcane node
-          // Must check BEFORE any redeployment processing
-          if (appSpecifications.version >= 8
-              && appSpecifications.enterprise
-              && !isArcane) {
-            log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS.`);
-            log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
-
-            // Remove the entire app with force and BROADCAST to peers
-            // This is a permanent removal (not a redeploy), so we need to broadcast
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('./appUninstaller');
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true);
-            log.info(`Successfully removed enterprise app ${appSpecifications.name} and notified peers`);
-
-            // Skip to next app
-            // eslint-disable-next-line no-continue
-            continue;
-          }
 
           // check if node is capable to run it according to specifications
           // run the verification
