@@ -100,6 +100,77 @@ async function getStrictApplicationSpecifications(appName) {
 }
 
 /**
+ * Find and restore non-enterprise app specifications for proper removal.
+ * When local DB has encrypted enterprise specs (compose: []), we need the last non-enterprise
+ * version from permanent messages to get port/container info for proper cleanup.
+ * @param {Object} installedApp - The installed app object from local database
+ * @returns {Promise<Object|null>} App specifications to use for removal, or null if local specs are usable or no non-enterprise version found
+ */
+async function findAndRestoreNonEnterpriseSpecs(installedApp) {
+  // If compose array has data, we can use the local specs directly
+  if (!installedApp.compose || installedApp.compose.length > 0) {
+    return installedApp;
+  }
+
+  log.info(`Local DB has encrypted specs for ${installedApp.name}, searching for last non-enterprise version in permanent messages`);
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const query = {
+    'appSpecifications.name': installedApp.name,
+    type: { $in: ['fluxappregister', 'fluxappupdate'] },
+  };
+  const projection = {
+    projection: {
+      _id: 0,
+      appSpecifications: 1,
+      hash: 1,
+      height: 1,
+    },
+    sort: { height: -1 }, // Sort descending (newest first)
+  };
+
+  const permanentMessages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+
+  if (!permanentMessages || permanentMessages.length === 0) {
+    log.error(`No permanent messages found for ${installedApp.name}`);
+    return null;
+  }
+
+  // Find the first (most recent) message that is NOT enterprise
+  let lastNonEnterpriseMessage = null;
+  for (let i = 0; i < permanentMessages.length; i += 1) {
+    const message = permanentMessages[i];
+    const specs = message.appSpecifications;
+    const msgIsEnterprise = Boolean(specs.version >= 8 && specs.enterprise);
+
+    if (!msgIsEnterprise) {
+      lastNonEnterpriseMessage = message;
+      break;
+    }
+  }
+
+  if (!lastNonEnterpriseMessage) {
+    log.error(`No non-enterprise version found for ${installedApp.name} - cannot properly uninstall without port/container info. Skipping removal to avoid orphaned containers.`);
+    return null;
+  }
+
+  log.info(`Found non-enterprise version for ${installedApp.name} at height ${lastNonEnterpriseMessage.height} - using for cleanup`);
+
+  // Temporarily restore non-enterprise specs to local DB for proper cleanup
+  const specsForRemoval = lastNonEnterpriseMessage.appSpecifications;
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const appsQuery = { name: installedApp.name };
+  const options = { upsert: true };
+  await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: specsForRemoval }, options);
+  log.info(`Temporarily restored non-enterprise specs to local DB for ${installedApp.name} to enable proper port cleanup`);
+
+  return specsForRemoval;
+}
+
+/**
  * Check and remove enterprise apps (v8+) running on non-arcaneOS nodes.
  * This function runs once at startup to clean up incompatible apps.
  * @returns {Promise<void>} Completion status
@@ -127,9 +198,6 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
       return;
     }
 
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of installedApps) {
       try {
@@ -147,48 +215,16 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
         const isEnterprise = Boolean(globalSpecs.version >= 8 && globalSpecs.enterprise);
 
         if (isEnterprise) {
-          log.warn(`Found enterprise app ${installedApp.name} (v${globalSpecs.version}) on non-arcaneOS node - searching for non-enterprise version`);
+          log.warn(`Found enterprise app ${installedApp.name} (v${globalSpecs.version}) on non-arcaneOS node`);
 
-          // Query permanent app messages to find the last non-enterprise version
-          const query = {
-            'appSpecifications.name': installedApp.name,
-            type: { $in: ['fluxappregister', 'fluxappupdate'] },
-          };
-          const projection = {
-            projection: {
-              _id: 0,
-              appSpecifications: 1,
-              hash: 1,
-              height: 1,
-            },
-          };
-
+          // Find and restore non-enterprise specs if needed
           // eslint-disable-next-line no-await-in-loop
-          const permanentMessages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          const specsForRemoval = await findAndRestoreNonEnterpriseSpecs(installedApp);
 
-          if (!permanentMessages || permanentMessages.length === 0) {
-            log.error(`No permanent messages found for ${installedApp.name}`);
+          if (!specsForRemoval) {
+            log.error(`Cannot remove ${installedApp.name} - no non-enterprise specs available for proper cleanup`);
             // eslint-disable-next-line no-continue
             continue;
-          }
-
-          // Find the last message that is NOT enterprise (reverse search)
-          let lastNonEnterpriseMessage = null;
-          for (let i = permanentMessages.length - 1; i >= 0; i -= 1) {
-            const message = permanentMessages[i];
-            const specs = message.appSpecifications;
-            const msgIsEnterprise = Boolean(specs.version >= 8 && specs.enterprise);
-
-            if (!msgIsEnterprise) {
-              lastNonEnterpriseMessage = message;
-              break;
-            }
-          }
-
-          if (!lastNonEnterpriseMessage) {
-            log.warn(`No non-enterprise version found for ${installedApp.name} - will remove without replacement specs`);
-          } else {
-            log.info(`Found non-enterprise version for ${installedApp.name} at height ${lastNonEnterpriseMessage.height}`);
           }
 
           // Remove the app from the node with force and broadcast to peers
@@ -3019,57 +3055,13 @@ async function reinstallOldApplications() {
             log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS.`);
             log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
 
-            // If local DB already has encrypted specs (compose: []), we need to find the last non-enterprise version
-            // from permanent messages to get port information for proper cleanup
-            let specsForRemoval = installedApp;
-            if (installedApp.compose && installedApp.compose.length === 0) {
-              log.info(`Local DB has encrypted specs for ${installedApp.name}, searching for last non-enterprise version in permanent messages`);
-              const db = dbHelper.databaseConnection();
-              const database = db.db(config.database.appsglobal.database);
-              const query = {
-                'appSpecifications.name': installedApp.name,
-                type: { $in: ['fluxappregister', 'fluxappupdate'] },
-              };
-              const projection = {
-                projection: {
-                  _id: 0,
-                  appSpecifications: 1,
-                  hash: 1,
-                  height: 1,
-                },
-              };
-              // eslint-disable-next-line no-await-in-loop
-              const permanentMessages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+            // Find and restore non-enterprise specs if needed for proper cleanup
+            // eslint-disable-next-line no-await-in-loop
+            const specsForRemoval = await findAndRestoreNonEnterpriseSpecs(installedApp);
 
-              // Find the last message that is NOT enterprise (reverse chronological search)
-              let lastNonEnterpriseMessage = null;
-              for (let i = permanentMessages.length - 1; i >= 0; i -= 1) {
-                const message = permanentMessages[i];
-                const specs = message.appSpecifications;
-                const msgIsEnterprise = Boolean(specs.version >= 8 && specs.enterprise);
-
-                if (!msgIsEnterprise) {
-                  lastNonEnterpriseMessage = message;
-                  break;
-                }
-              }
-
-              if (lastNonEnterpriseMessage) {
-                log.info(`Found non-enterprise version for ${installedApp.name} at height ${lastNonEnterpriseMessage.height} - using for cleanup`);
-                // Temporarily restore non-enterprise specs to local DB for proper cleanup
-                specsForRemoval = lastNonEnterpriseMessage.appSpecifications;
-                const dbopen = dbHelper.databaseConnection();
-                const appsDatabase = dbopen.db(config.database.appslocal.database);
-                const appsQuery = { name: installedApp.name };
-                const options = { upsert: true };
-                // eslint-disable-next-line no-await-in-loop
-                await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: specsForRemoval }, options);
-                log.info(`Temporarily restored non-enterprise specs to local DB for ${installedApp.name} to enable proper port cleanup`);
-              } else {
-                log.error(`No non-enterprise version found for ${installedApp.name} - cannot properly uninstall without port/container info. Skipping removal to avoid orphaned containers.`);
-                // eslint-disable-next-line no-continue
-                continue;
-              }
+            if (!specsForRemoval) {
+              // eslint-disable-next-line no-continue
+              continue;
             }
 
             // Remove the entire app with force and BROADCAST to peers
