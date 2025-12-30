@@ -11,6 +11,7 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
 const { sanitizePath, validateFilename } = require('./utils/pathSecurity');
+const { validateUrl } = require('./utils/urlSecurity');
 
 /**
  * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
@@ -126,7 +127,9 @@ async function getFileSize(filePath) {
  */
 async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
   try {
-    const head = await axios.head(fileurl);
+    // Validate URL to prevent SSRF attacks
+    const validatedUrl = validateUrl(fileurl);
+    const head = await axios.head(validatedUrl);
     const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
     const fileSizeInBytes = parseInt(contentLengthHeader, 10);
     if (!Number.isFinite(fileSizeInBytes)) {
@@ -280,13 +283,15 @@ async function checkFileExists(filePath) {
  */
 async function downloadFileFromUrl(url, localpath, component, rename = false, retries = 0) {
   try {
+    // Validate URL to prevent SSRF attacks
+    const validatedUrl = validateUrl(url);
     let filepath = `${localpath}/backup_${component.toLowerCase()}.tar.gz`;
     if (!rename) {
-      const fileNameArray = url.split('/');
+      const fileNameArray = validatedUrl.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
       filepath = `${localpath}/${fileName}`;
     }
-    const response = await axios.get(url, {
+    const response = await axios.get(validatedUrl, {
       responseType: 'stream',
       maxRedirects: 5,
       timeout: 15000,
