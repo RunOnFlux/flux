@@ -14,9 +14,76 @@
 
 const { URL } = require('url');
 const dns = require('dns');
+const net = require('net');
 const { promisify } = require('util');
 
 const dnsLookup = promisify(dns.lookup);
+
+/**
+ * Normalize an IP string by removing brackets and zone identifiers.
+ * @param {string} ip - IP address to normalize
+ * @returns {string} Normalized IP address
+ */
+function normalizeIpString(ip) {
+  if (!ip || typeof ip !== 'string') {
+    return ip;
+  }
+  let normalized = ip;
+  // Strip brackets from IPv6 (URL format is [::1])
+  if (normalized.startsWith('[') && normalized.endsWith(']')) {
+    normalized = normalized.slice(1, -1);
+  }
+  // Remove zone identifier (e.g., fe80::1%eth0 -> fe80::1)
+  const zoneIndex = normalized.indexOf('%');
+  if (zoneIndex !== -1) {
+    normalized = normalized.slice(0, zoneIndex);
+  }
+  return normalized;
+}
+
+/**
+ * Convert IPv6-mapped IPv4 address to IPv4.
+ * Handles both dotted-decimal (::ffff:127.0.0.1) and hex (::ffff:7f00:1) forms.
+ * @param {string} ip - IPv6 address to check
+ * @returns {string|null} IPv4 address if mapped, null otherwise
+ */
+function ipv6MappedToIpv4(ip) {
+  if (!ip || typeof ip !== 'string') {
+    return null;
+  }
+  const normalized = ip.toLowerCase();
+
+  // Check for ::ffff: prefix (IPv6-mapped IPv4)
+  if (!normalized.startsWith('::ffff:')) {
+    return null;
+  }
+
+  const suffix = normalized.slice(7); // Remove '::ffff:'
+
+  // Dotted-decimal form: ::ffff:127.0.0.1
+  if (suffix.includes('.')) {
+    // Validate it looks like an IPv4
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(suffix)) {
+      return suffix;
+    }
+    return null;
+  }
+
+  // Hex form: ::ffff:7f00:1 -> 127.0.0.1
+  // The last 32 bits are in the format XXXX:XXXX where each X is a hex digit
+  const hexMatch = suffix.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hexMatch) {
+    const high = parseInt(hexMatch[1], 16);
+    const low = parseInt(hexMatch[2], 16);
+    const a = (high >> 8) & 0xff;
+    const b = high & 0xff;
+    const c = (low >> 8) & 0xff;
+    const d = low & 0xff;
+    return `${a}.${b}.${c}.${d}`;
+  }
+
+  return null;
+}
 
 /**
  * IPv4 private/reserved ranges that should be blocked
@@ -72,6 +139,7 @@ const ALLOWED_PROTOCOLS = ['http:', 'https:'];
 
 /**
  * Check if an IP address is in a blocked range.
+ * Handles IPv6-mapped IPv4 addresses by extracting and checking the IPv4 portion.
  *
  * @param {string} ip - IP address to check
  * @returns {boolean} True if IP is blocked
@@ -81,10 +149,21 @@ function isBlockedIP(ip) {
     return true; // Block if no IP provided
   }
 
-  // Strip brackets from IPv6 addresses (URL hostname format is [::1])
-  let normalizedIp = ip;
-  if (ip.startsWith('[') && ip.endsWith(']')) {
-    normalizedIp = ip.slice(1, -1);
+  // Normalize the IP (strip brackets, zone identifiers)
+  const normalizedIp = normalizeIpString(ip);
+
+  // Check for IPv6-mapped IPv4 addresses (e.g., ::ffff:127.0.0.1)
+  // These need to be checked against IPv4 patterns
+  const mappedIpv4 = ipv6MappedToIpv4(normalizedIp);
+  if (mappedIpv4) {
+    // Check the extracted IPv4 against IPv4 patterns
+    for (const pattern of BLOCKED_IPV4_PATTERNS) {
+      if (pattern.test(mappedIpv4)) {
+        return true;
+      }
+    }
+    // If mapped IPv4 is not blocked, it's safe
+    return false;
   }
 
   // Check IPv4 patterns
@@ -227,42 +306,41 @@ async function validateUrlWithDns(inputUrl, options = {}) {
   const parsed = new URL(validatedUrl);
   const { hostname } = parsed;
 
+  // Normalize hostname for IP checks (strip brackets from IPv6)
+  const normalizedHostname = normalizeIpString(hostname);
+
   // Skip DNS check if hostname is already an IP
-  // (already validated by validateUrl)
-  if (isBlockedIP(hostname)) {
-    // This shouldn't happen as validateUrl already checks, but double-check
+  // (already validated by validateUrl, but double-check for defense-in-depth)
+  if (!allowPrivate && isBlockedIP(normalizedHostname)) {
     throw new Error('Access to private/internal IP addresses is not allowed');
   }
 
-  // If not an IP address, resolve DNS and check the result
-  // Skip if allowPrivate is true
-  if (!allowPrivate) {
-    // Check if hostname looks like an IP address
-    const ipv4Pattern = /^(\d{1,3}\.){3}\d{1,3}$/;
-    const ipv6Pattern = /^[0-9a-fA-F:]+$/;
+  // Use net.isIP() to reliably detect if hostname is an IP address
+  // Returns 0 for hostnames, 4 for IPv4, 6 for IPv6
+  const ipVersion = net.isIP(normalizedHostname);
 
-    if (!ipv4Pattern.test(hostname) && !ipv6Pattern.test(hostname)) {
-      try {
-        const result = await dnsLookup(hostname, { all: true });
-        const addresses = Array.isArray(result) ? result : [result];
+  // If not an IP address (ipVersion === 0), resolve DNS and check the result
+  if (!allowPrivate && ipVersion === 0) {
+    try {
+      const result = await dnsLookup(hostname, { all: true });
+      const addresses = Array.isArray(result) ? result : [result];
 
-        for (const addr of addresses) {
-          const ip = addr.address || addr;
-          if (isBlockedIP(ip)) {
-            throw new Error(`Hostname '${hostname}' resolves to blocked IP address`);
-          }
+      for (const addr of addresses) {
+        const ip = addr.address || addr;
+        if (isBlockedIP(ip)) {
+          throw new Error(`Hostname '${hostname}' resolves to blocked IP address`);
         }
-      } catch (error) {
-        if (error.code === 'ENOTFOUND') {
-          throw new Error(`Hostname '${hostname}' could not be resolved`);
-        }
-        // Re-throw our own errors
-        if (error.message.includes('resolves to blocked')) {
-          throw error;
-        }
-        // For other DNS errors, allow the request to proceed
-        // (the actual HTTP request will fail if DNS is truly broken)
       }
+    } catch (error) {
+      if (error.code === 'ENOTFOUND') {
+        throw new Error(`Hostname '${hostname}' could not be resolved`);
+      }
+      // Re-throw our own errors
+      if (error.message.includes('resolves to blocked')) {
+        throw error;
+      }
+      // For other DNS errors, allow the request to proceed
+      // (the actual HTTP request will fail if DNS is truly broken)
     }
   }
 
@@ -291,6 +369,9 @@ module.exports = {
   isUrlSafe,
   isBlockedIP,
   isBlockedHostname,
+  // Helper functions for testing
+  normalizeIpString,
+  ipv6MappedToIpv4,
   // Export constants for testing
   BLOCKED_IPV4_PATTERNS,
   BLOCKED_IPV6_PATTERNS,

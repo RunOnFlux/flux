@@ -9,6 +9,8 @@ const {
   isUrlSafe,
   isBlockedIP,
   isBlockedHostname,
+  normalizeIpString,
+  ipv6MappedToIpv4,
 } = require('../../ZelBack/src/services/utils/urlSecurity');
 
 describe('urlSecurity', () => {
@@ -230,6 +232,115 @@ describe('urlSecurity', () => {
       await expect(
         validateUrlWithDns('http://127.0.0.1/'),
       ).to.be.rejectedWith('private/internal IP');
+    });
+  });
+
+  describe('normalizeIpString', () => {
+    it('should strip brackets from IPv6 addresses', () => {
+      expect(normalizeIpString('[::1]')).to.equal('::1');
+      expect(normalizeIpString('[fe80::1]')).to.equal('fe80::1');
+      expect(normalizeIpString('[::ffff:127.0.0.1]')).to.equal('::ffff:127.0.0.1');
+    });
+
+    it('should remove zone identifiers', () => {
+      expect(normalizeIpString('fe80::1%eth0')).to.equal('fe80::1');
+      expect(normalizeIpString('fe80::1234%en0')).to.equal('fe80::1234');
+    });
+
+    it('should handle both brackets and zone identifiers', () => {
+      expect(normalizeIpString('[fe80::1%eth0]')).to.equal('fe80::1');
+    });
+
+    it('should return IPv4 addresses unchanged', () => {
+      expect(normalizeIpString('127.0.0.1')).to.equal('127.0.0.1');
+      expect(normalizeIpString('10.0.0.1')).to.equal('10.0.0.1');
+    });
+
+    it('should handle null/undefined gracefully', () => {
+      expect(normalizeIpString(null)).to.equal(null);
+      expect(normalizeIpString(undefined)).to.equal(undefined);
+      expect(normalizeIpString('')).to.equal('');
+    });
+  });
+
+  describe('ipv6MappedToIpv4', () => {
+    it('should extract IPv4 from dotted-decimal mapped addresses', () => {
+      expect(ipv6MappedToIpv4('::ffff:127.0.0.1')).to.equal('127.0.0.1');
+      expect(ipv6MappedToIpv4('::ffff:10.0.0.1')).to.equal('10.0.0.1');
+      expect(ipv6MappedToIpv4('::ffff:192.168.1.1')).to.equal('192.168.1.1');
+      expect(ipv6MappedToIpv4('::ffff:169.254.169.254')).to.equal('169.254.169.254');
+    });
+
+    it('should extract IPv4 from hex-encoded mapped addresses', () => {
+      // ::ffff:7f00:1 = 127.0.0.1
+      expect(ipv6MappedToIpv4('::ffff:7f00:1')).to.equal('127.0.0.1');
+      // ::ffff:0a00:1 = 10.0.0.1
+      expect(ipv6MappedToIpv4('::ffff:a00:1')).to.equal('10.0.0.1');
+      // ::ffff:c0a8:101 = 192.168.1.1
+      expect(ipv6MappedToIpv4('::ffff:c0a8:101')).to.equal('192.168.1.1');
+    });
+
+    it('should be case-insensitive', () => {
+      expect(ipv6MappedToIpv4('::FFFF:127.0.0.1')).to.equal('127.0.0.1');
+      expect(ipv6MappedToIpv4('::FFFF:7F00:1')).to.equal('127.0.0.1');
+    });
+
+    it('should return null for non-mapped addresses', () => {
+      expect(ipv6MappedToIpv4('::1')).to.be.null;
+      expect(ipv6MappedToIpv4('fe80::1')).to.be.null;
+      expect(ipv6MappedToIpv4('127.0.0.1')).to.be.null;
+      expect(ipv6MappedToIpv4('fc00::1')).to.be.null;
+    });
+
+    it('should return null for null/undefined', () => {
+      expect(ipv6MappedToIpv4(null)).to.be.null;
+      expect(ipv6MappedToIpv4(undefined)).to.be.null;
+      expect(ipv6MappedToIpv4('')).to.be.null;
+    });
+  });
+
+  describe('IPv6-mapped IPv4 blocking', () => {
+    describe('isBlockedIP', () => {
+      it('should block IPv6-mapped loopback addresses', () => {
+        expect(isBlockedIP('::ffff:127.0.0.1')).to.be.true;
+        expect(isBlockedIP('::ffff:7f00:1')).to.be.true;
+        expect(isBlockedIP('[::ffff:127.0.0.1]')).to.be.true;
+      });
+
+      it('should block IPv6-mapped private addresses', () => {
+        expect(isBlockedIP('::ffff:10.0.0.1')).to.be.true;
+        expect(isBlockedIP('::ffff:172.16.0.1')).to.be.true;
+        expect(isBlockedIP('::ffff:192.168.1.1')).to.be.true;
+        expect(isBlockedIP('::ffff:c0a8:101')).to.be.true; // 192.168.1.1 in hex
+      });
+
+      it('should block IPv6-mapped link-local addresses', () => {
+        expect(isBlockedIP('::ffff:169.254.169.254')).to.be.true;
+        expect(isBlockedIP('::ffff:a9fe:a9fe')).to.be.true; // 169.254.169.254 in hex
+      });
+
+      it('should allow IPv6-mapped public addresses', () => {
+        expect(isBlockedIP('::ffff:8.8.8.8')).to.be.false;
+        expect(isBlockedIP('::ffff:1.1.1.1')).to.be.false;
+        expect(isBlockedIP('::ffff:808:808')).to.be.false; // 8.8.8.8 in hex
+      });
+    });
+
+    describe('validateUrl', () => {
+      it('should block URLs with IPv6-mapped loopback', () => {
+        expect(() => validateUrl('http://[::ffff:127.0.0.1]/')).to.throw('private/internal IP');
+        expect(() => validateUrl('http://[::ffff:127.0.0.1]:8080/')).to.throw('private/internal IP');
+      });
+
+      it('should block URLs with IPv6-mapped private addresses', () => {
+        expect(() => validateUrl('http://[::ffff:10.0.0.1]/')).to.throw('private/internal IP');
+        expect(() => validateUrl('http://[::ffff:192.168.1.1]/')).to.throw('private/internal IP');
+        expect(() => validateUrl('http://[::ffff:172.16.0.1]/')).to.throw('private/internal IP');
+      });
+
+      it('should block URLs with IPv6-mapped metadata addresses', () => {
+        expect(() => validateUrl('http://[::ffff:169.254.169.254]/')).to.throw('private/internal IP');
+      });
     });
   });
 });
