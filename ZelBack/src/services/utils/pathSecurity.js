@@ -5,9 +5,9 @@
  * directory traversal attacks (CWE-22) and symlink escape attacks.
  *
  * Uses a defense-in-depth approach:
- * 1. Blocklist: Explicitly block known dangerous patterns (.., null bytes)
+ * 1. Blocklist: Explicitly block known dangerous patterns (.., null bytes, backslashes)
  * 2. Allowlist: Only permit characters matching a safe pattern (optional strict mode)
- * 3. Path resolution: Verify resolved path stays within base directory
+ * 3. Path resolution: Verify resolved path stays within base directory using path.relative()
  * 4. Symlink protection: Optionally verify real path after symlink resolution
  */
 
@@ -15,18 +15,17 @@ const path = require('path');
 const fs = require('fs');
 
 /**
- * Normalize path separators to forward slashes (for cross-platform consistency).
- * On Linux, backslashes are valid filename characters, so we normalize them
- * to prevent bypass attempts.
+ * Check for backslashes in path and reject them.
+ * On Linux (the only supported platform), backslashes in paths are suspicious
+ * and likely indicate an attack attempt.
  *
- * @param {string} inputPath - Path to normalize
- * @returns {string} Path with all backslashes converted to forward slashes
+ * @param {string} inputPath - Path to check
+ * @throws {Error} If path contains backslashes
  */
-function normalizePathSeparators(inputPath) {
-  if (!inputPath || typeof inputPath !== 'string') {
-    return inputPath;
+function rejectBackslashes(inputPath) {
+  if (inputPath && typeof inputPath === 'string' && inputPath.includes('\\')) {
+    throw new Error('Invalid path: backslashes are not allowed');
   }
-  return inputPath.replace(/\\/g, '/');
 }
 
 /**
@@ -82,16 +81,16 @@ function validatePathAllowlist(userPath) {
     return; // Empty paths are handled elsewhere
   }
 
-  // Normalize path separators FIRST for consistent handling
-  const normalizedPath = normalizePathSeparators(userPath);
+  // Reject backslashes - on Linux they are suspicious
+  rejectBackslashes(userPath);
 
   // Block absolute paths (starting with /)
-  if (normalizedPath.startsWith('/')) {
+  if (userPath.startsWith('/')) {
     throw new Error('Invalid path: absolute paths not allowed');
   }
 
   // Split into components and validate each
-  const components = normalizedPath.split('/');
+  const components = userPath.split('/');
 
   for (let i = 0; i < components.length; i += 1) {
     const component = components[i];
@@ -128,15 +127,17 @@ function isTraversalComponent(component) {
  * Only blocks obvious dangerous patterns without character restrictions.
  *
  * @param {string} userPath - User-provided path
- * @throws {Error} If path contains traversal attempts
+ * @throws {Error} If path contains traversal attempts or backslashes
  */
 function validatePathBasic(userPath) {
   if (!userPath || typeof userPath !== 'string') {
     return;
   }
 
-  const normalizedPath = normalizePathSeparators(userPath);
-  const components = normalizedPath.split('/');
+  // Reject backslashes - on Linux they are suspicious
+  rejectBackslashes(userPath);
+
+  const components = userPath.split('/');
 
   for (const component of components) {
     if (isTraversalComponent(component)) {
@@ -171,9 +172,14 @@ function validatePathBasic(userPath) {
 function sanitizePath(userPath, basePath, options = {}) {
   const { strict = true } = options;
 
-  // If no user path provided, return the base path
-  if (!userPath || typeof userPath !== 'string') {
+  // Handle empty/null/undefined - return base path
+  if (userPath === null || userPath === undefined || userPath === '') {
     return basePath;
+  }
+
+  // Strict type checking: non-string values that aren't null/undefined are errors
+  if (typeof userPath !== 'string') {
+    throw new Error('Invalid path: must be a string');
   }
 
   // === LAYER 1: Blocklist checks (fast rejection of known-bad patterns) ===
@@ -183,13 +189,12 @@ function sanitizePath(userPath, basePath, options = {}) {
     throw new Error('Invalid path: null bytes not allowed');
   }
 
-  // Normalize backslashes to forward slashes BEFORE any path operations
-  // This ensures consistent handling and prevents bypass via backslashes
-  const normalizedUserPath = normalizePathSeparators(userPath);
+  // Reject backslashes - on Linux they are suspicious
+  rejectBackslashes(userPath);
 
-  // Check for traversal patterns in the normalized path
+  // Check for traversal patterns
   // We check each component separately to catch '..' as a path component
-  const components = normalizedUserPath.split('/');
+  const components = userPath.split('/');
   for (const component of components) {
     if (component === '..') {
       throw new Error('Invalid path: directory traversal not allowed');
@@ -198,22 +203,23 @@ function sanitizePath(userPath, basePath, options = {}) {
 
   // === LAYER 2: Allowlist validation (strict mode) or basic validation ===
   if (strict) {
-    validatePathAllowlist(normalizedUserPath);
+    validatePathAllowlist(userPath);
   } else {
-    validatePathBasic(normalizedUserPath);
+    validatePathBasic(userPath);
   }
 
-  // === LAYER 3: Path resolution and containment check ===
+  // === LAYER 3: Path resolution and containment check using path.relative() ===
 
   // Normalize the base path
   const normalizedBase = path.resolve(basePath);
 
-  // Resolve the full path using the NORMALIZED user path
-  const resolvedPath = path.resolve(normalizedBase, normalizedUserPath);
+  // Resolve the full path
+  const resolvedPath = path.resolve(normalizedBase, userPath);
 
-  // Final security check: ensure resolved path is within base directory
-  // The path must either equal the base or start with base + separator
-  if (resolvedPath !== normalizedBase && !resolvedPath.startsWith(normalizedBase + path.sep)) {
+  // Use path.relative() for containment check
+  // If the relative path starts with '..', the resolved path is outside the base
+  const relativePath = path.relative(normalizedBase, resolvedPath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
     throw new Error('Invalid path: access outside allowed directory denied');
   }
 
@@ -350,5 +356,5 @@ module.exports = {
   verifyRealPath,
   verifyRealPathSync,
   sanitizeAndVerifyPath,
-  normalizePathSeparators,
+  rejectBackslashes,
 };

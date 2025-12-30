@@ -1,15 +1,12 @@
 // File System Manager - Manages filesystem operations for FluxOS applications
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
-const util = require('util');
 const messageHelper = require('../messageHelper');
 const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 const { sanitizePath, verifyRealPath } = require('../utils/pathSecurity');
-
-const execShell = util.promisify(require('child_process').exec);
 
 /**
  * To create a folder in app's volume. Only accessible by app owners and above.
@@ -38,8 +35,10 @@ async function createAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo mkdir "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const mkdirResult = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: [filepath] });
+      if (mkdirResult.error) {
+        throw mkdirResult.error;
+      }
       const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
     } else {
@@ -102,8 +101,10 @@ async function renameAppsObject(req, res) {
         // Sanitize the combined path as well
         newfullpath = sanitizePath(`${renamingFolder}/${newname}`, appVolumePath[0].mount);
       }
-      const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const mvResult = await serviceHelper.runCommand('mv', { runAsRoot: true, params: ['-T', oldfullpath, newfullpath] });
+      if (mvResult.error) {
+        throw mvResult.error;
+      }
       const response = messageHelper.createSuccessMessage('Rename successful');
       res.json(response);
     } else {
@@ -156,8 +157,10 @@ async function removeAppsObject(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo rm -rf "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const rmResult = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', filepath] });
+      if (rmResult.error) {
+        throw rmResult.error;
+      }
       const response = messageHelper.createSuccessMessage('File Removed');
       res.json(response);
     } else {
@@ -288,8 +291,10 @@ async function downloadAppsFile(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo chmod 777 "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const chmodResult = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', filepath] });
+      if (chmodResult.error) {
+        throw chmodResult.error;
+      }
       // beautify name
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];

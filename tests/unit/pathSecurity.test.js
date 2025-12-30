@@ -14,7 +14,7 @@ const {
   verifyRealPath,
   verifyRealPathSync,
   sanitizeAndVerifyPath,
-  normalizePathSeparators,
+  rejectBackslashes,
 } = require('../../ZelBack/src/services/utils/pathSecurity');
 
 describe('pathSecurity', () => {
@@ -36,11 +36,22 @@ describe('pathSecurity', () => {
     it('should block directory traversal with ..', () => {
       expect(() => sanitizePath('..', basePath)).to.throw('directory traversal');
       expect(() => sanitizePath('../', basePath)).to.throw('directory traversal');
-      expect(() => sanitizePath('..\\', basePath)).to.throw('directory traversal');
       expect(() => sanitizePath('foo/..', basePath)).to.throw('directory traversal');
       expect(() => sanitizePath('../..', basePath)).to.throw('directory traversal');
       expect(() => sanitizePath('foo/../bar', basePath)).to.throw('directory traversal');
       expect(() => sanitizePath('foo/../../etc/passwd', basePath)).to.throw('directory traversal');
+    });
+
+    it('should reject backslashes', () => {
+      expect(() => sanitizePath('..\\', basePath)).to.throw('backslashes');
+      expect(() => sanitizePath('foo\\bar', basePath)).to.throw('backslashes');
+      expect(() => sanitizePath('path\\to\\file', basePath)).to.throw('backslashes');
+    });
+
+    it('should throw for non-string userPath values', () => {
+      expect(() => sanitizePath(123, basePath)).to.throw('must be a string');
+      expect(() => sanitizePath({}, basePath)).to.throw('must be a string');
+      expect(() => sanitizePath([], basePath)).to.throw('must be a string');
     });
 
     it('should block null byte injection', () => {
@@ -171,9 +182,9 @@ describe('pathSecurity', () => {
       expect(() => validatePathAllowlist('folder/')).to.not.throw();
     });
 
-    it('should handle backslashes by normalizing to forward slashes', () => {
-      // Backslashes are normalized, then validated
-      expect(() => validatePathAllowlist('foo\\bar')).to.not.throw();
+    it('should reject backslashes', () => {
+      // Backslashes are rejected on Linux - they are suspicious
+      expect(() => validatePathAllowlist('foo\\bar')).to.throw('backslashes');
     });
   });
 
@@ -216,26 +227,24 @@ describe('pathSecurity', () => {
     });
   });
 
-  describe('normalizePathSeparators', () => {
-    it('should convert backslashes to forward slashes', () => {
-      expect(normalizePathSeparators('foo\\bar')).to.equal('foo/bar');
-      expect(normalizePathSeparators('a\\b\\c')).to.equal('a/b/c');
-      expect(normalizePathSeparators('..\\..\\etc')).to.equal('../../etc');
+  describe('rejectBackslashes', () => {
+    it('should throw for paths containing backslashes', () => {
+      expect(() => rejectBackslashes('foo\\bar')).to.throw('backslashes');
+      expect(() => rejectBackslashes('a\\b\\c')).to.throw('backslashes');
+      expect(() => rejectBackslashes('..\\..\\etc')).to.throw('backslashes');
+      expect(() => rejectBackslashes('foo\\bar/baz')).to.throw('backslashes');
     });
 
-    it('should leave forward slashes unchanged', () => {
-      expect(normalizePathSeparators('foo/bar')).to.equal('foo/bar');
-      expect(normalizePathSeparators('a/b/c')).to.equal('a/b/c');
+    it('should not throw for paths without backslashes', () => {
+      expect(() => rejectBackslashes('foo/bar')).to.not.throw();
+      expect(() => rejectBackslashes('a/b/c')).to.not.throw();
+      expect(() => rejectBackslashes('simple')).to.not.throw();
     });
 
-    it('should handle mixed slashes', () => {
-      expect(normalizePathSeparators('foo\\bar/baz')).to.equal('foo/bar/baz');
-    });
-
-    it('should handle empty or null input', () => {
-      expect(normalizePathSeparators('')).to.equal('');
-      expect(normalizePathSeparators(null)).to.equal(null);
-      expect(normalizePathSeparators(undefined)).to.equal(undefined);
+    it('should not throw for empty or null input', () => {
+      expect(() => rejectBackslashes('')).to.not.throw();
+      expect(() => rejectBackslashes(null)).to.not.throw();
+      expect(() => rejectBackslashes(undefined)).to.not.throw();
     });
   });
 
