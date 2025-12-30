@@ -1,24 +1,43 @@
 const socketio = require('socket.io');
+const config = require('config');
+
+/**
+ * Builds Socket.IO CORS options from configuration (SEC-04 fix).
+ * @returns {object} - CORS options for Socket.IO.
+ */
+function buildSocketIoCorsOptions() {
+  const corsConfig = config.server.cors || {};
+  const allowedOrigins = corsConfig.allowedOrigins || '*';
+  const allowedMethods = corsConfig.allowedMethods || ['GET', 'POST'];
+
+  return {
+    origin: allowedOrigins,
+    methods: allowedMethods,
+  };
+}
 
 class FluxSocketIoServer {
   static defaultErrorHandler = () => { };
 
   static defaultTransports = ['websocket', 'polling', 'flashsocket'];
 
-  static defaultCors = { origin: '*', methods: ['GET', 'POST'] };
+  // Default CORS now uses configuration (SEC-04 fix)
+  static get defaultCors() {
+    return buildSocketIoCorsOptions();
+  }
 
   constructor(httpServer, options = {}) {
     this.handlers = options.handlers || {};
 
     const transports = options.transports || FluxSocketIoServer.defaultTransports;
-    const cors = options.cors || FluxSocketIoServer.defaultCors;
+    const corsOptions = options.cors || FluxSocketIoServer.defaultCors;
 
     const errorHandler = options.errorHandler || FluxSocketIoServer.defaultErrorHandler;
 
     this.io = new socketio.Server(httpServer, {
       allowEIO3: true,
       transports,
-      cors,
+      cors: corsOptions,
     });
 
     this.io.on('error', (err) => errorHandler(err));

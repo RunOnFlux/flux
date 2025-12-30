@@ -10,6 +10,16 @@ module.exports = {
     allowedPorts: [16127, 16137, 16147, 16157, 16167, 16177, 16187, 16197],
     apiport: 16127, // homeport is -1, ssl port is +1
     fluxNodeServiceAddress: '169.254.43.43',
+    // CORS configuration (SEC-04 fix)
+    // Set allowedOrigins to an array of specific origins to restrict cross-origin requests
+    // Use '*' only for development/testing (insecure for production)
+    // Example: ['https://dashboard.runonflux.io', 'https://home.runonflux.io']
+    cors: {
+      // In development, allow all origins. In production, this should be restricted.
+      allowedOrigins: isDevelopment ? '*' : ['https://dashboard.runonflux.io', 'https://home.runonflux.io', 'https://jetpack.runonflux.io'],
+      allowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowCredentials: false,
+    },
   },
   database: {
     url: '127.0.0.1',

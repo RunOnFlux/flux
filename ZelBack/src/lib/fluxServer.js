@@ -5,12 +5,115 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const compression = require('compression');
+const config = require('config');
 const routes = require('../routes');
 
 const socketHandlers = require('./socketHandlers');
 const socketIoHandlers = require('./socketIoHandlers');
 const { FluxWebsocketServer } = require('./socketServer');
 const { FluxSocketIoServer } = require('./socketIoServer');
+
+/**
+ * Redacts sensitive information from URLs before logging (SEC-05 fix).
+ * Masks tokens, keys, signatures, and other sensitive parameters.
+ * @param {string} url - The URL to redact.
+ * @returns {string} - The redacted URL.
+ */
+function redactSensitiveUrl(url) {
+  if (!url) return url;
+
+  // Patterns to redact in URL paths (case insensitive)
+  const sensitivePathPatterns = [
+    // Zcash secret keys in path
+    /\/(zcsecretkey|secretkey|privatekey|privkey)\/[^/]+/gi,
+    // Token in path
+    /\/token\/[^/]+/gi,
+    // Signature in path
+    /\/signature\/[^/]+/gi,
+  ];
+
+  let redactedUrl = url;
+
+  // Redact sensitive path segments
+  sensitivePathPatterns.forEach((pattern) => {
+    redactedUrl = redactedUrl.replace(pattern, (match) => {
+      const parts = match.split('/');
+      return `/${parts[1]}/[REDACTED]`;
+    });
+  });
+
+  // Redact query parameters
+  try {
+    const urlObj = new URL(redactedUrl, 'http://localhost');
+    const sensitiveParams = ['token', 'signature', 'key', 'secret', 'password', 'apikey', 'api_key', 'auth', 'zelidauth'];
+    let hasRedaction = false;
+
+    sensitiveParams.forEach((param) => {
+      if (urlObj.searchParams.has(param)) {
+        urlObj.searchParams.set(param, '[REDACTED]');
+        hasRedaction = true;
+      }
+    });
+
+    if (hasRedaction) {
+      redactedUrl = urlObj.pathname + urlObj.search;
+    }
+  } catch (e) {
+    // If URL parsing fails, continue with path-only redaction
+  }
+
+  return redactedUrl;
+}
+
+/**
+ * Custom morgan token for redacted URLs (SEC-05 fix).
+ */
+morgan.token('redacted-url', (req) => redactSensitiveUrl(req.originalUrl || req.url));
+
+/**
+ * Custom morgan format that redacts sensitive URL information.
+ * Based on 'combined' format but uses redacted URL.
+ */
+const redactedCombinedFormat = ':remote-addr - :remote-user [:date[clf]] ":method :redacted-url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"';
+
+/**
+ * Builds CORS options from configuration (SEC-04 fix).
+ * Supports both string ('*') and array of allowed origins.
+ * @returns {object} - CORS options for express cors middleware.
+ */
+function buildCorsOptions() {
+  const corsConfig = config.server.cors || {};
+  const allowedOrigins = corsConfig.allowedOrigins || '*';
+  const allowedMethods = corsConfig.allowedMethods || ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
+  const allowCredentials = corsConfig.allowCredentials || false;
+
+  // If allowedOrigins is '*', use simple configuration
+  if (allowedOrigins === '*') {
+    return {
+      origin: '*',
+      methods: allowedMethods,
+      credentials: allowCredentials,
+    };
+  }
+
+  // If allowedOrigins is an array, use dynamic origin checking
+  return {
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS policy`));
+      }
+    },
+    methods: allowedMethods,
+    credentials: allowCredentials,
+  };
+}
 
 /**
  * Combines an http(s) server, classic websocket server, and socket.io server
@@ -22,12 +125,15 @@ class FluxServer {
 
   static supportedModes = ['http', 'https'];
 
-  static defaultMiddlewares = [
-    compression(),
-    morgan('combined'),
-    express.json(),
-    cors(),
-  ];
+  // Default middlewares now uses configured CORS (SEC-04 fix) and redacted logging (SEC-05 fix)
+  static get defaultMiddlewares() {
+    return [
+      compression(),
+      morgan(redactedCombinedFormat),
+      express.json(),
+      cors(buildCorsOptions()),
+    ];
+  }
 
   static defaultRouteBuilder = routes;
 

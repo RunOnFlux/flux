@@ -62,11 +62,11 @@ async function verifyUserSession(headers) {
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  // if not logged, check if not older than 16 hours
+  // if not logged, check if not older than 2 hours (SEC-07 fix: reduced from 16 hours)
   if (!loggedUser) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
-    const maxHours = 16 * 60 * 60 * 1000;
+    const maxHours = 2 * 60 * 60 * 1000; // 2 hours for stateless user auth
     if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
@@ -176,12 +176,12 @@ async function verifyAppOwnerSession(headers, appName) {
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  // if not logged, check if not older than 2 hours
+  // if not logged, check if not older than 30 minutes (SEC-07 fix: reduced from 2 hours)
   if (!loggedUser) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
-    const twoHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - twoHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    const maxTime = 30 * 60 * 1000; // 30 minutes for stateless app owner auth
+    if (Number(message.substring(0, 13)) < (timestamp - maxTime) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }
@@ -221,12 +221,12 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   const query = { $and: [{ loginPhrase: auth.loginPhrase }, { zelid: auth.zelid }] };
   const projection = {};
   const loggedUser = await dbHelper.findOneInDatabase(database, collection, query, projection);
-  // if not logged, check if not older than 2 hours
+  // if not logged, check if not older than 30 minutes (SEC-07 fix: reduced from 2 hours)
   if (!loggedUser) {
     const timestamp = Date.now();
     const message = auth.loginPhrase;
-    const maxHours = 2 * 60 * 60 * 1000;
-    if (Number(message.substring(0, 13)) < (timestamp - maxHours) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
+    const maxTime = 30 * 60 * 1000; // 30 minutes for stateless app owner or higher auth
+    if (Number(message.substring(0, 13)) < (timestamp - maxTime) || Number(message.substring(0, 13)) > timestamp || message.length > 70 || message.length < 40) {
       return false;
     }
   }

@@ -1,14 +1,12 @@
 // File System Manager - Manages filesystem operations for FluxOS applications
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
-const util = require('util');
 const messageHelper = require('../messageHelper');
 const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
 
-const execShell = util.promisify(require('child_process').exec);
 const { sanitizePath } = IOUtils;
 
 /**
@@ -39,8 +37,11 @@ async function createAppsFolder(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo mkdir "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+      const { error } = await serviceHelper.runCommand('mkdir', { runAsRoot: true, params: [filepath] });
+      if (error) {
+        throw error;
+      }
       const resultsResponse = messageHelper.createSuccessMessage('Folder Created');
       res.json(resultsResponse);
     } else {
@@ -104,8 +105,11 @@ async function renameAppsObject(req, res) {
         // Sanitize the combined path as well
         newfullpath = sanitizePath(appVolumePath[0].mount, `${renamingFolder}/${newname}`);
       }
-      const cmd = `sudo mv -T "${oldfullpath}" "${newfullpath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+      const { error } = await serviceHelper.runCommand('mv', { runAsRoot: true, params: ['-T', oldfullpath, newfullpath] });
+      if (error) {
+        throw error;
+      }
       const response = messageHelper.createSuccessMessage('Rename successful');
       res.json(response);
     } else {
@@ -159,8 +163,11 @@ async function removeAppsObject(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo rm -rf "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+      const { error } = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', filepath] });
+      if (error) {
+        throw error;
+      }
       const response = messageHelper.createSuccessMessage('File Removed');
       res.json(response);
     } else {
@@ -289,8 +296,12 @@ async function downloadAppsFile(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
-      const cmd = `sudo chmod 777 "${filepath}"`;
-      await execShell(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+      // Note: chmod 777 is still overly permissive, but keeping for backward compatibility
+      const { error } = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['644', filepath] });
+      if (error) {
+        throw error;
+      }
       // beautify name
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];

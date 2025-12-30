@@ -6,10 +6,126 @@ const log = require('../lib/log');
 const axios = require('axios');
 const path = require('path');
 const { formidable } = require('formidable');
+const { URL } = require('url');
+const dns = require('dns').promises;
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
+
+/**
+ * Checks if an IP address is in a private/reserved range.
+ * @param {string} ip - The IP address to check.
+ * @returns {boolean} - True if the IP is private/reserved.
+ */
+function isPrivateIP(ip) {
+  // IPv4 private and reserved ranges
+  const privateRanges = [
+    /^127\./, // Loopback
+    /^10\./, // Class A private
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./, // Class B private
+    /^192\.168\./, // Class C private
+    /^169\.254\./, // Link-local
+    /^0\./, // Current network
+    /^100\.(6[4-9]|[7-9][0-9]|1[0-1][0-9]|12[0-7])\./, // Carrier-grade NAT
+    /^192\.0\.0\./, // IETF protocol assignments
+    /^192\.0\.2\./, // TEST-NET-1
+    /^198\.51\.100\./, // TEST-NET-2
+    /^203\.0\.113\./, // TEST-NET-3
+    /^192\.88\.99\./, // 6to4 relay anycast
+    /^198\.1[8-9]\./, // Benchmarking
+    /^224\./, // Multicast
+    /^240\./, // Reserved for future use
+    /^255\.255\.255\.255$/, // Broadcast
+  ];
+
+  // IPv6 private and reserved ranges
+  const ipv6PrivateRanges = [
+    /^::1$/, // Loopback
+    /^fe80:/i, // Link-local
+    /^fc00:/i, // Unique local address
+    /^fd00:/i, // Unique local address
+    /^ff00:/i, // Multicast
+    /^::ffff:127\./i, // IPv4-mapped loopback
+    /^::ffff:10\./i, // IPv4-mapped Class A
+    /^::ffff:172\.(1[6-9]|2[0-9]|3[0-1])\./i, // IPv4-mapped Class B
+    /^::ffff:192\.168\./i, // IPv4-mapped Class C
+    /^::ffff:169\.254\./i, // IPv4-mapped link-local
+  ];
+
+  const allRanges = [...privateRanges, ...ipv6PrivateRanges];
+  return allRanges.some((range) => range.test(ip));
+}
+
+/**
+ * Validates a URL to prevent SSRF attacks.
+ * Blocks private IP ranges, localhost, and metadata endpoints.
+ * @param {string} urlString - The URL to validate.
+ * @param {object} options - Validation options.
+ * @param {boolean} options.allowHttp - Whether to allow HTTP (default: false, HTTPS only).
+ * @returns {Promise<{valid: boolean, error?: string}>} - Validation result.
+ */
+async function validateUrl(urlString, options = {}) {
+  const { allowHttp = false } = options;
+
+  try {
+    const parsedUrl = new URL(urlString);
+
+    // Check protocol
+    if (parsedUrl.protocol === 'http:' && !allowHttp) {
+      return { valid: false, error: 'HTTP protocol not allowed. Use HTTPS.' };
+    }
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return { valid: false, error: `Invalid protocol: ${parsedUrl.protocol}` };
+    }
+
+    // Block common metadata endpoints
+    const blockedHostnames = [
+      'metadata.google.internal',
+      'metadata.gcp.internal',
+      '169.254.169.254', // AWS/GCP/Azure metadata
+      '169.254.170.2', // AWS ECS metadata
+      'localhost',
+      'localhost.localdomain',
+    ];
+
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (blockedHostnames.includes(hostname)) {
+      return { valid: false, error: `Blocked hostname: ${hostname}` };
+    }
+
+    // Check if hostname is already an IP
+    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+    const ipv6Regex = /^[\da-fA-F:]+$/;
+
+    if (ipv4Regex.test(hostname) || ipv6Regex.test(hostname)) {
+      if (isPrivateIP(hostname)) {
+        return { valid: false, error: `Private/reserved IP address not allowed: ${hostname}` };
+      }
+    } else {
+      // Resolve hostname to IP and check
+      try {
+        const addresses = await dns.resolve4(hostname).catch(() => []);
+        const addresses6 = await dns.resolve6(hostname).catch(() => []);
+        const allAddresses = [...addresses, ...addresses6];
+
+        // eslint-disable-next-line no-restricted-syntax
+        for (const ip of allAddresses) {
+          if (isPrivateIP(ip)) {
+            return { valid: false, error: `Hostname resolves to private IP: ${hostname} -> ${ip}` };
+          }
+        }
+      } catch (dnsError) {
+        // If DNS resolution fails, log but allow (might be a valid external host)
+        log.warn(`DNS resolution failed for ${hostname}: ${dnsError.message}`);
+      }
+    }
+
+    return { valid: true };
+  } catch (error) {
+    return { valid: false, error: `Invalid URL: ${error.message}` };
+  }
+}
 
 /**
  * Validates and sanitizes a user-provided path to prevent path traversal attacks.
@@ -149,6 +265,7 @@ async function getFileSize(filePath) {
 
 /**
  * Fetches the size of a remote file without downloading it.
+ * Validates URL to prevent SSRF attacks.
  *
  * @param {string} fileurl - The URL of the remote file.
  * @param {number} multiplier - The multiplier for converting the file size (e.g., 1024 for KB, 1048576 for MB).
@@ -157,7 +274,14 @@ async function getFileSize(filePath) {
  */
 async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
   try {
-    const head = await axios.head(fileurl);
+    // Validate URL to prevent SSRF attacks (SEC-03 fix)
+    const urlValidation = await validateUrl(fileurl, { allowHttp: true });
+    if (!urlValidation.valid) {
+      log.error(`URL validation failed: ${urlValidation.error}`);
+      return false;
+    }
+
+    const head = await axios.head(fileurl, { timeout: 10000 });
     const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
     const fileSizeInBytes = parseInt(contentLengthHeader, 10);
     if (!Number.isFinite(fileSizeInBytes)) {
@@ -302,30 +426,68 @@ async function checkFileExists(filePath) {
 
 /**
  * Downloads a file from a remote URL and saves it locally.
+ * Validates URL to prevent SSRF attacks and enforces size limits.
  *
  * @param {string} url - The URL of the file to download.
  * @param {string} localpath - The local path to save the downloaded file.
  * @param {string} component - The component name for identification.
  * @param {boolean} rename - Flag indicating whether to rename the downloaded file.
+ * @param {number} retries - Current retry count.
+ * @param {number} maxSizeBytes - Maximum allowed download size in bytes (default: 10GB).
  * @returns {boolean} - True if the file is downloaded and saved successfully, false on failure.
  */
-async function downloadFileFromUrl(url, localpath, component, rename = false, retries = 0) {
+async function downloadFileFromUrl(url, localpath, component, rename = false, retries = 0, maxSizeBytes = 10 * 1024 * 1024 * 1024) {
   try {
+    // Validate URL to prevent SSRF attacks (SEC-03 fix)
+    const urlValidation = await validateUrl(url, { allowHttp: true });
+    if (!urlValidation.valid) {
+      log.error(`URL validation failed: ${urlValidation.error}`);
+      return false;
+    }
+
     let filepath = `${localpath}/backup_${component.toLowerCase()}.tar.gz`;
     if (!rename) {
       const fileNameArray = url.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
       filepath = `${localpath}/${fileName}`;
     }
+
+    // First check the file size via HEAD request
+    try {
+      const headResponse = await axios.head(url, { timeout: 10000 });
+      const contentLength = parseInt(headResponse.headers['content-length'] || '0', 10);
+      if (contentLength > maxSizeBytes) {
+        log.error(`File too large: ${contentLength} bytes exceeds limit of ${maxSizeBytes} bytes`);
+        return false;
+      }
+    } catch (headErr) {
+      // HEAD request failed, proceed with caution but enforce size during download
+      log.warn(`HEAD request failed, will enforce size limit during download: ${headErr.message}`);
+    }
+
     const response = await axios.get(url, {
       responseType: 'stream',
       maxRedirects: 5,
       timeout: 15000,
+      maxContentLength: maxSizeBytes,
+      maxBodyLength: maxSizeBytes,
     });
     const dirPath = path.dirname(filepath);
     // Create directory if it doesn't exist
     await fs.mkdir(dirPath, { recursive: true });
     const writer = fs2.createWriteStream(filepath);
+
+    // Track downloaded bytes for size enforcement
+    let downloadedBytes = 0;
+    response.data.on('data', (chunk) => {
+      downloadedBytes += chunk.length;
+      if (downloadedBytes > maxSizeBytes) {
+        response.data.destroy();
+        writer.destroy();
+        log.error(`Download exceeded size limit at ${downloadedBytes} bytes`);
+      }
+    });
+
     response.data.pipe(writer);
 
     return new Promise((resolve, reject) => {
@@ -344,7 +506,7 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, re
       retries += 1;
       log.error(`Error downloading file, retrying download:${retries}`);
       // eslint-disable-next-line no-return-await
-      return await downloadFileFromUrl(url, localpath, component, rename, retries);
+      return await downloadFileFromUrl(url, localpath, component, rename, retries, maxSizeBytes);
     }
     log.error('Error downloading file:', err);
     return false;
@@ -352,7 +514,54 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, re
 }
 
 /**
+ * Validates tar archive contents for path traversal attacks.
+ * Checks that no archive members would extract outside the target directory.
+ * @param {string} tarFilePath - The path of the tarball to validate.
+ * @param {string} extractPath - The intended extraction directory.
+ * @returns {Promise<{safe: boolean, error?: string}>} - Validation result.
+ */
+async function validateTarArchive(tarFilePath, extractPath) {
+  try {
+    const normalizedExtractPath = path.resolve(extractPath);
+    // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+    // List archive contents without extracting
+    const { error, stdout } = await serviceHelper.runCommand('tar', {
+      params: ['-tzf', tarFilePath],
+    });
+    if (error) {
+      return { safe: false, error: `Failed to list archive: ${error.message}` };
+    }
+    const members = stdout.trim().split('\n').filter((m) => m.length > 0);
+
+    // eslint-disable-next-line no-restricted-syntax
+    for (const member of members) {
+      // Check for absolute paths
+      if (path.isAbsolute(member)) {
+        return { safe: false, error: `Archive contains absolute path: ${member}` };
+      }
+      // Resolve the full extraction path for this member
+      const resolvedMemberPath = path.resolve(normalizedExtractPath, member);
+      // Ensure it stays within the extraction directory
+      const extractPathWithSep = normalizedExtractPath.endsWith(path.sep)
+        ? normalizedExtractPath
+        : normalizedExtractPath + path.sep;
+      const isWithinExtractPath = resolvedMemberPath === normalizedExtractPath
+        || resolvedMemberPath.startsWith(extractPathWithSep);
+
+      if (!isWithinExtractPath) {
+        return { safe: false, error: `Archive member would escape extraction directory: ${member}` };
+      }
+    }
+    return { safe: true };
+  } catch (error) {
+    log.error('Error validating tar archive:', error);
+    return { safe: false, error: `Failed to validate archive: ${error.message}` };
+  }
+}
+
+/**
  * Extracts the contents of a tarball (tar.gz) file to the specified extraction path.
+ * Validates archive contents before extraction to prevent path traversal attacks.
  *
  * @param {string} extractPath - The path where the contents of the tarball will be extracted.
  * @param {string} tarFilePath - The path of the tarball (tar.gz) file to be extracted.
@@ -360,15 +569,27 @@ async function downloadFileFromUrl(url, localpath, component, rename = false, re
  */
 async function untarFile(extractPath, tarFilePath) {
   try {
+    // Validate archive contents before extraction (SEC-02 fix)
+    const validation = await validateTarArchive(tarFilePath, extractPath);
+    if (!validation.safe) {
+      log.error('Tar archive validation failed:', validation.error);
+      return { status: false, error: validation.error };
+    }
+
     await fs.mkdir(extractPath, { recursive: true });
-    const unpackCmd = `sudo tar -xvzf ${tarFilePath} -C ${extractPath}`;
-    await exec(unpackCmd, { maxBuffer: 1024 * 1024 * 10 });
+    // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+    // Use --no-same-owner to avoid ownership issues
+    const { error, stderr } = await serviceHelper.runCommand('tar', {
+      params: ['-xvzf', tarFilePath, '-C', extractPath, '--no-same-owner'],
+    });
+    if (error) {
+      log.error('Error during extraction:', error.message);
+      return { status: false, error: stderr || error.message };
+    }
     return { status: true };
   } catch (error) {
-    const stringstderr = error.stderr.replace(/\n/g, ' ');
-    const stringstdout = error.stdout.replace(/\n/g, ' ');
-    log.error('Error during extraction:', error.stderr || error.stdout);
-    return { status: false, error: stringstderr || stringstdout };
+    log.error('Error during extraction:', error.message);
+    return { status: false, error: error.message };
   }
 }
 
@@ -383,14 +604,19 @@ async function createTarGz(sourceDirectory, outputFileName) {
   try {
     const outputDirectory = outputFileName.substring(0, outputFileName.lastIndexOf('/'));
     await fs.mkdir(outputDirectory, { recursive: true });
-    const packCmd = `sudo tar -czvf ${outputFileName} -C ${sourceDirectory} .`;
-    await exec(packCmd, { maxBuffer: 1024 * 1024 * 10 });
+    // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+    const { error, stderr } = await serviceHelper.runCommand('tar', {
+      runAsRoot: true,
+      params: ['-czvf', outputFileName, '-C', sourceDirectory, '.'],
+    });
+    if (error) {
+      log.error('Error creating tarball:', error.message);
+      return { status: false, error: stderr || error.message };
+    }
     return { status: true };
   } catch (error) {
-    const stringstderr = error.stderr.replace(/\n/g, ' ');
-    const stringstdout = error.stdout.replace(/\n/g, ' ');
-    log.error('Error creating tarball:', error.stderr || error.stdout);
-    return { status: false, error: stringstderr || stringstdout };
+    log.error('Error creating tarball:', error.message);
+    return { status: false, error: error.message };
   }
 }
 
@@ -403,13 +629,24 @@ async function createTarGz(sourceDirectory, outputFileName) {
  */
 async function removeDirectory(rpath, directory = false) {
   try {
-    let execFinal;
+    // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+    let result;
     if (directory === false) {
-      execFinal = `sudo rm -rf "${rpath}"`;
+      result = await serviceHelper.runCommand('rm', {
+        runAsRoot: true,
+        params: ['-rf', rpath],
+      });
     } else {
-      execFinal = `sudo find "${rpath}" -mindepth 1 -exec rm -rf {} +`;
+      // For directory contents only, use find with -delete for safety
+      result = await serviceHelper.runCommand('find', {
+        runAsRoot: true,
+        params: [rpath, '-mindepth', '1', '-delete'],
+      });
     }
-    await exec(execFinal, { maxBuffer: 1024 * 1024 * 10 });
+    if (result.error) {
+      log.error('Error removing directory:', result.error.message);
+      return false;
+    }
     return true;
   } catch (error) {
     log.error(error);
@@ -474,8 +711,9 @@ async function fileUpload(req, res) {
       },
     };
     await fs.mkdir(filepath, { recursive: true });
-    const permission = `sudo chmod 777 "${filepath}"`;
-    await exec(permission, { maxBuffer: 1024 * 1024 * 10 });
+    // SEC-08 fix: Use runCommand with params array instead of shell string interpolation
+    // Note: chmod 755 is more secure than 777 while still allowing uploads
+    await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['755', filepath] });
     const form = formidable(options);
 
     form
@@ -558,6 +796,9 @@ module.exports = {
   convertFileSize,
   downloadFileFromUrl,
   untarFile,
+  validateTarArchive,
+  validateUrl,
+  isPrivateIP,
   createTarGz,
   removeDirectory,
   getFolderSize,
