@@ -10,6 +10,7 @@ const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
+const { sanitizePath } = require('./utils/pathSecurity');
 
 /**
  * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
@@ -407,9 +408,6 @@ async function fileUpload(req, res) {
     filename = filename || req.query.filename || '';
     let { folder } = req.params;
     folder = folder || req.query.folder || '';
-    if (folder) {
-      folder += '/';
-    }
     let { type } = req.params;
     type = type || req.query.type || '';
     if (!type || !component) {
@@ -422,7 +420,8 @@ async function fileUpload(req, res) {
         filepath = `${appVolumePath[0].mount}/backup/upload/`;
       } else {
         // Use appid level to access appdata and all other mount points
-        filepath = `${appVolumePath[0].mount}/${folder}`;
+        // Sanitize folder path to prevent directory traversal attacks
+        filepath = sanitizePath(folder, appVolumePath[0].mount);
       }
     } else {
       throw new Error('Application volume not found');

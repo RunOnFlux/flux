@@ -6,6 +6,7 @@ const IOUtils = require('./IOUtils');
 const fs = require('fs').promises;
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
+const { sanitizePath } = require('./utils/pathSecurity');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -18,10 +19,22 @@ const appsFolder = `${appsFolderPath}/`;
  * @returns {boolean} - True if the filepath is valid, otherwise false.
  */
 function pathValidation(filepath) {
+  // Security: Check for directory traversal attempts
+  if (!filepath || filepath.includes('..') || filepath.includes('\0')) {
+    return false;
+  }
+
   const pathStart = filepath.startsWith(appsFolder);
   let uploadType = null;
 
   if (pathStart) {
+    // Security: Verify the resolved path stays within appsFolder
+    const resolvedPath = path.resolve(filepath);
+    const resolvedAppsFolder = path.resolve(appsFolder);
+    if (!resolvedPath.startsWith(resolvedAppsFolder)) {
+      return false;
+    }
+
     const lastSlashIndex = filepath.lastIndexOf('/');
     const types = ['/backup/upload', '/backup/local', '/backup/remote'];
     // eslint-disable-next-line no-restricted-syntax
