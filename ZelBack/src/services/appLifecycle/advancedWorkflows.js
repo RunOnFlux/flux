@@ -100,6 +100,73 @@ async function getStrictApplicationSpecifications(appName) {
 }
 
 /**
+ * Get the FDM index based on app name first letter (distributes across 4 servers)
+ * @param {string} appName - Application name
+ * @returns {number} FDM index (1-4)
+ */
+function getFdmIndex(appName) {
+  const firstLetter = appName.substring(0, 1).toLowerCase();
+  if (firstLetter.match(/[h-n]/)) {
+    return 2;
+  }
+  if (firstLetter.match(/[o-u]/)) {
+    return 3;
+  }
+  if (firstLetter.match(/[v-z]/)) {
+    return 4;
+  }
+  return 1; // a-g or any other character
+}
+
+/**
+ * Get master IP for an app from FDM using the /appips endpoint.
+ * Tries EU, USA, and ASIA FDM servers in order until one succeeds.
+ * @param {string} appName - Application name
+ * @param {Object} axiosOptions - Axios request options
+ * @returns {Promise<{ip: string|null, fdmOk: boolean}>} The master IP (without port) and success status
+ */
+async function getMasterIpFromFdm(appName, axiosOptions) {
+  const fdmIndex = getFdmIndex(appName);
+  const fdmRegions = [
+    { name: 'EU', baseUrl: `http://fdm-fn-1-${fdmIndex}.runonflux.io:16130` },
+    { name: 'USA', baseUrl: `http://fdm-usa-1-${fdmIndex}.runonflux.io:16130` },
+    { name: 'ASIA', baseUrl: `http://fdm-sg-1-${fdmIndex}.runonflux.io:16130` },
+  ];
+
+  for (const region of fdmRegions) {
+    try {
+      const url = `${region.baseUrl}/appips/${appName}`;
+      // eslint-disable-next-line no-await-in-loop
+      const response = await serviceHelper.axiosGet(url, axiosOptions);
+
+      if (response.data && response.data.status === 'success' && response.data.data) {
+        const { ips } = response.data.data;
+        if (ips && ips.length > 0) {
+          // Return the first IP, stripping the port if present
+          const ip = ips[0].split(':')[0];
+          log.debug(`getMasterIpFromFdm: Got IP ${ip} for app ${appName} from ${region.name} FDM`);
+          return { ip, fdmOk: true };
+        }
+      }
+      // No IPs returned from this region, try next
+      log.debug(`getMasterIpFromFdm: No IPs returned from ${region.name} FDM for app ${appName}`);
+    } catch (error) {
+      if (error.response && error.response.status === 404) {
+        log.debug(`getMasterIpFromFdm: App ${appName} not found in ${region.name} FDM`);
+      } else if (error.response && error.response.status === 503) {
+        log.debug(`getMasterIpFromFdm: ${region.name} FDM service starting up for app ${appName}`);
+      } else {
+        log.error(`getMasterIpFromFdm: Failed to reach ${region.name} FDM for app ${appName}: ${error.message}`);
+      }
+      // Continue to next region
+    }
+  }
+
+  // All regions failed or returned no IPs
+  return { ip: null, fdmOk: true };
+}
+
+/**
  * Find and restore non-enterprise app specifications for proper removal.
  * When local DB has encrypted enterprise specs (compose: []), we need the last non-enterprise
  * version from permanent messages to get port/container info for proper cleanup.
@@ -3687,85 +3754,12 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         }
       }
       if (needsToBeChecked) {
-        let fdmIndex = 1;
-        const appNameFirstLetterLowerCase = installedApp.name.substring(0, 1).toLowerCase();
-        if (appNameFirstLetterLowerCase.match(/[h-n]/)) {
-          fdmIndex = 2;
-        } else if (appNameFirstLetterLowerCase.match(/[o-u]/)) {
-          fdmIndex = 3;
-        } else if (appNameFirstLetterLowerCase.match(/[v-z]/)) {
-          fdmIndex = 4;
-        }
-        let ip = null;
+        // Get master IP from FDM using the new /appips endpoint
         // eslint-disable-next-line no-await-in-loop
-        let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
-          log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
-          fdmOk = false;
-        });
-        if (fdmOk) {
-          fdmEUData = fdmEUData.data;
-          if (fdmEUData && fdmEUData.length > 0) {
-            // eslint-disable-next-line no-restricted-syntax
-            for (const fdmData of fdmEUData) {
-              const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
-              if (serviceName) {
-                const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                if (ipElement) {
-                  ip = ipElement.value.value;
-                }
-                break;
-              }
-            }
-          }
-        }
-        if (!ip) {
-          fdmOk = true;
-          // eslint-disable-next-line no-await-in-loop
-          let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
-            log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
-            fdmOk = false;
-          });
-          if (fdmOk) {
-            fdmUSAData = fdmUSAData.data;
-            if (fdmUSAData && fdmUSAData.length > 0) {
-              // eslint-disable-next-line no-restricted-syntax
-              for (const fdmData of fdmUSAData) {
-                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
-                if (serviceName) {
-                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                  if (ipElement) {
-                    ip = ipElement.value.value;
-                  }
-                  break;
-                }
-              }
-            }
-          }
-        }
-        if (!ip) {
-          fdmOk = true;
-          // eslint-disable-next-line no-await-in-loop
-          let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
-            log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
-            fdmOk = false;
-          });
-          if (fdmOk) {
-            fdmASIAData = fdmASIAData.data;
-            if (fdmASIAData && fdmASIAData.length > 0) {
-              // eslint-disable-next-line no-restricted-syntax
-              for (const fdmData of fdmASIAData) {
-                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
-                if (serviceName) {
-                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                  if (ipElement) {
-                    ip = ipElement.value.value;
-                  }
-                  break;
-                }
-              }
-            }
-          }
-        }
+        const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);
+        const { ip } = fdmResult;
+        fdmOk = fdmResult.fdmOk;
+
         if (!fdmOk) {
           log.warn(`masterSlaveApps: All FDM services failed for app:${installedApp.name}, skipping primary selection for this cycle`);
           // eslint-disable-next-line no-continue
@@ -3915,9 +3909,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       source.cancel('Operation canceled by the user.');
                     }
                   }, timeout * 2);
-                  const url = mastersRunningGSyncthingApps.get(identifier);
-                  const ipToCheckAppRunning = url.split(':')[0];
-                  const portToCheckAppRunning = url.split(':')[1] || '16127';
+                  const previousMasterIp = mastersRunningGSyncthingApps.get(identifier);
+                  // Look up the correct port from runningAppList since FDM API returns IP without port
+                  const previousMasterNode = runningAppList.find((x) => x.ip.split(':')[0] === previousMasterIp.split(':')[0]);
+                  const ipToCheckAppRunning = previousMasterIp.split(':')[0];
+                  const portToCheckAppRunning = previousMasterNode ? (previousMasterNode.ip.split(':')[1] || '16127') : '16127';
                   let previousMasterStillRunning = false;
                   try {
                     // eslint-disable-next-line no-await-in-loop
@@ -3925,11 +3921,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     isResolved = true;
                     const appsRunning = response.data.data;
                     if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
-                      log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                      log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${ipToCheckAppRunning}:${portToCheckAppRunning}`);
                       previousMasterStillRunning = true;
                     }
                   } catch (error) {
-                    log.info(`masterSlaveApps: Failed to reach previous master at ${url} for app:${installedApp.name}, will proceed with primary selection. Error: ${error.message}`);
+                    log.info(`masterSlaveApps: Failed to reach previous master at ${ipToCheckAppRunning}:${portToCheckAppRunning} for app:${installedApp.name}, will proceed with primary selection. Error: ${error.message}`);
                     isResolved = true;
                   }
                   if (previousMasterStillRunning) {
