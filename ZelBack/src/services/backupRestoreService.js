@@ -6,7 +6,7 @@ const IOUtils = require('./IOUtils');
 const fs = require('fs').promises;
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
-const { sanitizePath } = require('./utils/pathSecurity');
+const { sanitizePath, verifyRealPath } = require('./utils/pathSecurity');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -262,6 +262,8 @@ async function downloadLocalFile(req, res) {
       if (!pathValidation(filepath)) {
         throw new Error('Path validation failed..');
       }
+      // Verify real path after symlink resolution to prevent symlink escape attacks
+      await verifyRealPath(filepath, appsFolder);
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
       const cmd = `sudo chmod 777 "${filepath}"`;

@@ -10,7 +10,7 @@ const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
-const { sanitizePath } = require('./utils/pathSecurity');
+const { sanitizePath, validateFilename } = require('./utils/pathSecurity');
 
 /**
  * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
@@ -446,13 +446,17 @@ async function fileUpload(req, res) {
     form
       // eslint-disable-next-line no-unused-vars
       .on('fileBegin', (name, file) => {
+        // Validate filename to prevent path traversal via filename parameter
+        let safeFilename;
         if (!filename) {
-          // eslint-disable-next-line no-param-reassign
-          file.filepath = `${filepath}${name}`;
+          // Use form field name - validate it doesn't contain path separators
+          safeFilename = validateFilename(name);
         } else {
-          // eslint-disable-next-line no-param-reassign
-          file.filepath = `${filepath}${filename}`;
+          // Use provided filename - validate it doesn't contain path separators
+          safeFilename = validateFilename(filename);
         }
+        // eslint-disable-next-line no-param-reassign
+        file.filepath = `${filepath}/${safeFilename}`;
       })
       .on('progress', (bytesReceived, bytesExpected) => {
         try {

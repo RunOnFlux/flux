@@ -7,7 +7,7 @@ const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
-const { sanitizePath } = require('../utils/pathSecurity');
+const { sanitizePath, verifyRealPath } = require('../utils/pathSecurity');
 
 const execShell = util.promisify(require('child_process').exec);
 
@@ -208,6 +208,8 @@ async function downloadAppsFolder(req, res) {
         // Use appid level to access appdata and all other mount points
         // Sanitize folder path to prevent directory traversal attacks
         folderpath = sanitizePath(folder, appVolumePath[0].mount);
+        // Verify real path after symlink resolution to prevent symlink escape attacks
+        await verifyRealPath(folderpath, appVolumePath[0].mount);
       } else {
         throw new Error('Application volume not found');
       }
@@ -281,6 +283,8 @@ async function downloadAppsFile(req, res) {
         // Use appid level to access appdata and all other mount points
         // Sanitize file path to prevent directory traversal attacks
         filepath = sanitizePath(file, appVolumePath[0].mount);
+        // Verify real path after symlink resolution to prevent symlink escape attacks
+        await verifyRealPath(filepath, appVolumePath[0].mount);
       } else {
         throw new Error('Application volume not found');
       }
