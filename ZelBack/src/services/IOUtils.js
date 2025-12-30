@@ -12,6 +12,38 @@ const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
 
 /**
+ * Validates and sanitizes a user-provided path to prevent path traversal attacks.
+ * Ensures the resolved path stays within the allowed base directory.
+ * @param {string} basePath - The allowed base directory (e.g., app volume mount path).
+ * @param {string} userPath - The user-provided relative path to validate.
+ * @returns {string} The validated absolute path.
+ * @throws {Error} If the path would escape the base directory.
+ */
+function sanitizePath(basePath, userPath) {
+  // Normalize and resolve the base path
+  const normalizedBase = path.resolve(basePath);
+
+  // Handle empty or root-only user paths
+  if (!userPath || userPath === '/' || userPath === '.') {
+    return normalizedBase;
+  }
+
+  // Resolve the full path (this normalizes .. and . sequences)
+  const fullPath = path.resolve(normalizedBase, userPath);
+
+  // Ensure the resolved path starts with the base path
+  // Add trailing separator to prevent prefix attacks (e.g., /app vs /app-other)
+  const baseWithSep = normalizedBase.endsWith(path.sep) ? normalizedBase : normalizedBase + path.sep;
+  const isWithinBase = fullPath === normalizedBase || fullPath.startsWith(baseWithSep);
+
+  if (!isWithinBase) {
+    throw new Error('Access denied: Path traversal attempt detected');
+  }
+
+  return fullPath;
+}
+
+/**
  * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
  * @param {number | Array<{ file_size: number }>} sizes - Total size in bytes or an array of file sizes.
  * @param {string} [targetUnit='auto'] - The desired unit for the result. Use 'auto' to determine the best unit automatically.
@@ -418,11 +450,13 @@ async function fileUpload(req, res) {
     let filepath;
     const appVolumePath = await getVolumeInfo(appname, component, 'B', 'mount', 0);
     if (appVolumePath.length > 0) {
+      const basePath = appVolumePath[0].mount;
       if (type === 'backup') {
-        filepath = `${appVolumePath[0].mount}/backup/upload/`;
+        filepath = sanitizePath(basePath, 'backup/upload/');
       } else {
         // Use appid level to access appdata and all other mount points
-        filepath = `${appVolumePath[0].mount}/${folder}`;
+        // Sanitize path to prevent directory traversal attacks
+        filepath = sanitizePath(basePath, folder);
       }
     } else {
       throw new Error('Application volume not found');
@@ -528,4 +562,5 @@ module.exports = {
   removeDirectory,
   getFolderSize,
   fileUpload,
+  sanitizePath,
 };
