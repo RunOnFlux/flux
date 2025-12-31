@@ -312,11 +312,14 @@ describe('messageStore tests', () => {
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
       dbHelperStub.updateOneInDatabase.resolves();
+      dbHelperStub.removeDocumentsFromCollection.resolves();
 
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateOneInDatabase.callCount).to.equal(2);
+      // Should clean up installing records for each app
+      expect(dbHelperStub.removeDocumentsFromCollection.callCount).to.equal(2);
     });
 
     it('should handle version 2 message with empty apps array', async () => {
@@ -336,7 +339,8 @@ describe('messageStore tests', () => {
       const result = await messageStore.storeAppRunningMessage(message);
 
       expect(result).to.be.true;
-      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
+      // Called twice: once for locations, once for installing locations
+      expect(dbHelperStub.removeDocumentsFromCollection.calledTwice).to.be.true;
     });
   });
 
@@ -441,7 +445,7 @@ describe('messageStore tests', () => {
       expect(result.message).to.include('Invalid Flux App Installing Error message');
     });
 
-    it('should store valid error message', async () => {
+    it('should store valid error message and clean up installing record', async () => {
       const message = {
         type: 'fluxappinstallingerror',
         version: 1,
@@ -456,12 +460,20 @@ describe('messageStore tests', () => {
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
       dbHelperStub.updateOneInDatabase.resolves();
+      dbHelperStub.removeDocumentsFromCollection.resolves();
       dbHelperStub.countInDatabase.resolves(1);
 
       const result = await messageStore.storeAppInstallingErrorMessage(message);
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateOneInDatabase.calledOnce).to.be.true;
+      // Should clean up installing record since installation failed
+      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.calledWith(
+        'database',
+        'appsInstallingLocations',
+        { name: 'testapp', ip: '192.168.1.1' },
+      )).to.be.true;
     });
 
     it('should update cache settings when error count reaches threshold', async () => {
@@ -479,6 +491,7 @@ describe('messageStore tests', () => {
       dbHelperStub.databaseConnection.returns(mockDb);
       dbHelperStub.findOneInDatabase.resolves(null);
       dbHelperStub.updateOneInDatabase.resolves();
+      dbHelperStub.removeDocumentsFromCollection.resolves();
       dbHelperStub.countInDatabase.resolves(5);
       dbHelperStub.updateInDatabase.resolves();
 
@@ -486,6 +499,7 @@ describe('messageStore tests', () => {
 
       expect(result).to.be.true;
       expect(dbHelperStub.updateInDatabase.calledOnce).to.be.true;
+      expect(dbHelperStub.removeDocumentsFromCollection.calledOnce).to.be.true;
     });
   });
 
