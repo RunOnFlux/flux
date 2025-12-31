@@ -349,7 +349,7 @@ async function getAppFiatAndFluxPrice(req, res) {
         }
       }
       const appHWrequirements = hwRequirements.totalAppHWRequirements(appSpecFormatted, 'bamf');
-      const applyHWDiscount = appSpecFormatted.version <= 3 || appSpecFormatted.instances < 5;
+      const applyHWDiscount = appSpecFormatted.version <= 3 || appSpecFormatted.instances < 4;
       if (applyHWDiscount) {
         if (appHWrequirements.cpu < 3 && appHWrequirements.ram < 6000 && appHWrequirements.hdd < 150) {
           actualPriceToPay *= 0.8;
