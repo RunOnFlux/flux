@@ -28,7 +28,7 @@ describe('fileQueryService tests', () => {
       sinon.stub(fs, 'readdir').resolves(['file1.txt', 'file2.txt', 'folder1']);
 
       const lstatStub = sinon.stub(fs, 'lstat');
-      lstatStub.withArgs('/mnt/appvolumes/TestApp_Component1//file1.txt').resolves({
+      lstatStub.withArgs('/mnt/appvolumes/TestApp_Component1/file1.txt').resolves({
         isDirectory: () => false,
         isFile: () => true,
         isSymbolicLink: () => false,
@@ -36,7 +36,7 @@ describe('fileQueryService tests', () => {
         birthtime: new Date('2024-01-01'),
         mtime: new Date('2024-01-02'),
       });
-      lstatStub.withArgs('/mnt/appvolumes/TestApp_Component1//file2.txt').resolves({
+      lstatStub.withArgs('/mnt/appvolumes/TestApp_Component1/file2.txt').resolves({
         isDirectory: () => false,
         isFile: () => true,
         isSymbolicLink: () => false,
@@ -44,7 +44,7 @@ describe('fileQueryService tests', () => {
         birthtime: new Date('2024-01-01'),
         mtime: new Date('2024-01-02'),
       });
-      lstatStub.withArgs('/mnt/appvolumes/TestApp_Component1//folder1').resolves({
+      lstatStub.withArgs('/mnt/appvolumes/TestApp_Component1/folder1').resolves({
         isDirectory: () => true,
         isFile: () => false,
         isSymbolicLink: () => false,

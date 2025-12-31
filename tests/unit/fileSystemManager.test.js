@@ -9,7 +9,7 @@ describe('fileSystemManager tests', () => {
   let serviceHelperStub;
   let IOUtilsStub;
   let logStub;
-  let execShellStub;
+  let pathSecurityStub;
 
   beforeEach(() => {
     // Stubs
@@ -25,6 +25,7 @@ describe('fileSystemManager tests', () => {
 
     serviceHelperStub = {
       ensureString: sinon.stub().returnsArg(0),
+      runCommand: sinon.stub(),
     };
 
     IOUtilsStub = {
@@ -37,18 +38,23 @@ describe('fileSystemManager tests', () => {
       warn: sinon.stub(),
     };
 
-    execShellStub = sinon.stub();
+    pathSecurityStub = {
+      sanitizePath: sinon.stub().callsFake((userPath, basePath) => {
+        // Simple mock: if userPath is empty, return basePath, otherwise join them
+        if (!userPath) return basePath;
+        return `${basePath}/${userPath}`;
+      }),
+      verifyRealPath: sinon.stub().resolves(),
+    };
 
-    // Proxy require with util mocked
+    // Proxy require with mocked dependencies
     fileSystemManager = proxyquire('../../ZelBack/src/services/appSystem/fileSystemManager', {
       '../messageHelper': messageHelperStub,
       '../verificationHelper': verificationHelperStub,
       '../serviceHelper': serviceHelperStub,
       '../IOUtils': IOUtilsStub,
       '../../lib/log': logStub,
-      util: {
-        promisify: () => execShellStub,
-      },
+      '../utils/pathSecurity': pathSecurityStub,
     });
   });
 
@@ -68,14 +74,17 @@ describe('fileSystemManager tests', () => {
 
       verificationHelperStub.verifyPrivilege.resolves(true);
       IOUtilsStub.getVolumeInfo.resolves([{ mount: '/mnt/testapp' }]);
-      execShellStub.resolves();
+      serviceHelperStub.runCommand.resolves({});
       messageHelperStub.createSuccessMessage.returns({ status: 'success', data: { message: 'Folder Created' } });
 
       await fileSystemManager.createAppsFolder(req, res);
 
       expect(res.json.calledOnce).to.be.true;
       expect(verificationHelperStub.verifyPrivilege.calledWith('appownerabove', req, 'testapp')).to.be.true;
-      expect(execShellStub.calledOnce).to.be.true;
+      expect(serviceHelperStub.runCommand.calledOnceWithExactly('mkdir', {
+        runAsRoot: true,
+        params: ['/mnt/testapp/testfolder'],
+      })).to.be.true;
       expect(messageHelperStub.createSuccessMessage.calledWith('Folder Created')).to.be.true;
     });
 
@@ -95,7 +104,7 @@ describe('fileSystemManager tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(messageHelperStub.errUnauthorizedMessage.calledOnce).to.be.true;
-      expect(execShellStub.called).to.be.false;
+      expect(serviceHelperStub.runCommand.called).to.be.false;
     });
 
     it('should handle missing appname parameter', async () => {
@@ -151,13 +160,16 @@ describe('fileSystemManager tests', () => {
 
       verificationHelperStub.verifyPrivilege.resolves(true);
       IOUtilsStub.getVolumeInfo.resolves([{ mount: '/mnt/testapp' }]);
-      execShellStub.resolves();
+      serviceHelperStub.runCommand.resolves({});
       messageHelperStub.createSuccessMessage.returns({ status: 'success', data: { message: 'Rename successful' } });
 
       await fileSystemManager.renameAppsObject(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(execShellStub.calledOnce).to.be.true;
+      expect(serviceHelperStub.runCommand.calledOnceWithExactly('mv', {
+        runAsRoot: true,
+        params: ['-T', '/mnt/testapp/oldname', '/mnt/testapp/newname'],
+      })).to.be.true;
       expect(messageHelperStub.createSuccessMessage.calledWith('Rename successful')).to.be.true;
     });
 
@@ -179,7 +191,7 @@ describe('fileSystemManager tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(messageHelperStub.errUnauthorizedMessage.calledOnce).to.be.true;
-      expect(execShellStub.called).to.be.false;
+      expect(serviceHelperStub.runCommand.called).to.be.false;
     });
 
     it('should handle missing oldpath parameter', async () => {
@@ -237,13 +249,16 @@ describe('fileSystemManager tests', () => {
 
       verificationHelperStub.verifyPrivilege.resolves(true);
       IOUtilsStub.getVolumeInfo.resolves([{ mount: '/mnt/testapp' }]);
-      execShellStub.resolves();
+      serviceHelperStub.runCommand.resolves({});
       messageHelperStub.createSuccessMessage.returns({ status: 'success', data: { message: 'File Removed' } });
 
       await fileSystemManager.removeAppsObject(req, res);
 
       expect(res.json.calledOnce).to.be.true;
-      expect(execShellStub.calledOnce).to.be.true;
+      expect(serviceHelperStub.runCommand.calledOnceWithExactly('rm', {
+        runAsRoot: true,
+        params: ['-rf', '/mnt/testapp/testfile'],
+      })).to.be.true;
       expect(messageHelperStub.createSuccessMessage.calledWith('File Removed')).to.be.true;
     });
 
@@ -263,7 +278,7 @@ describe('fileSystemManager tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(messageHelperStub.errUnauthorizedMessage.calledOnce).to.be.true;
-      expect(execShellStub.called).to.be.false;
+      expect(serviceHelperStub.runCommand.called).to.be.false;
     });
 
     it('should handle missing object parameter', async () => {
@@ -359,12 +374,15 @@ describe('fileSystemManager tests', () => {
 
       verificationHelperStub.verifyPrivilege.resolves(true);
       IOUtilsStub.getVolumeInfo.resolves([{ mount: '/mnt/testapp' }]);
-      execShellStub.resolves();
+      serviceHelperStub.runCommand.resolves({});
 
       await fileSystemManager.downloadAppsFile(req, res);
 
-      expect(execShellStub.calledOnce).to.be.true;
-      expect(res.download.calledOnce).to.be.true;
+      expect(serviceHelperStub.runCommand.calledOnceWithExactly('chmod', {
+        runAsRoot: true,
+        params: ['777', '/mnt/testapp/testfile.txt'],
+      })).to.be.true;
+      expect(res.download.calledOnceWithExactly('/mnt/testapp/testfile.txt', 'testfile.txt')).to.be.true;
     });
 
     it('should deny unauthorized access', async () => {
