@@ -152,8 +152,16 @@ async function startFluxFunctions() {
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 7500 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsLocations).createIndex({ name: 1 }, { name: 'query for getting zelapp location based on zelapp specs name' });
     log.info('Flux Apps locations prepared');
-    // we just keep installing messages for 5 minutes
-    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 300 });
+    // we just keep installing messages for 15 minutes
+    // Update existing TTL index if it exists (for nodes that already have it created with old value)
+    await databaseTemp.command({
+      collMod: config.database.appsglobal.collections.appsInstallingLocations,
+      index: {
+        keyPattern: { broadcastedAt: 1 },
+        expireAfterSeconds: 900,
+      },
+    }).catch(() => {}); // Ignore error if index doesn't exist yet
+    await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ broadcastedAt: 1 }, { expireAfterSeconds: 900 });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1 }, { name: 'query for getting flux app install location based on specs name' });
     await databaseTemp.collection(config.database.appsglobal.collections.appsInstallingLocations).createIndex({ name: 1, ip: 1 }, { name: 'query for getting flux app install location based on specs name and node ip' });
     log.info('Flux Apps installing locations prepared');

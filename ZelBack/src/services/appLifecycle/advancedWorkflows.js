@@ -100,6 +100,144 @@ async function getStrictApplicationSpecifications(appName) {
 }
 
 /**
+ * Get the FDM index based on app name first letter (distributes across 4 servers)
+ * @param {string} appName - Application name
+ * @returns {number} FDM index (1-4)
+ */
+function getFdmIndex(appName) {
+  const firstLetter = appName.substring(0, 1).toLowerCase();
+  if (firstLetter.match(/[h-n]/)) {
+    return 2;
+  }
+  if (firstLetter.match(/[o-u]/)) {
+    return 3;
+  }
+  if (firstLetter.match(/[v-z]/)) {
+    return 4;
+  }
+  return 1; // a-g or any other character
+}
+
+/**
+ * Get master IP for an app from FDM using the /appips endpoint.
+ * Tries EU, USA, and ASIA FDM servers in order until one succeeds.
+ * @param {string} appName - Application name
+ * @param {Object} axiosOptions - Axios request options
+ * @returns {Promise<{ip: string|null, fdmOk: boolean}>} The master IP (without port) and success status
+ */
+async function getMasterIpFromFdm(appName, axiosOptions) {
+  const fdmIndex = getFdmIndex(appName);
+  const fdmRegions = [
+    { name: 'EU', baseUrl: `http://fdm-fn-1-${fdmIndex}.runonflux.io:16130` },
+    { name: 'USA', baseUrl: `http://fdm-usa-1-${fdmIndex}.runonflux.io:16130` },
+    { name: 'ASIA', baseUrl: `http://fdm-sg-1-${fdmIndex}.runonflux.io:16130` },
+  ];
+
+  for (const region of fdmRegions) {
+    try {
+      const url = `${region.baseUrl}/appips/${appName}`;
+      // eslint-disable-next-line no-await-in-loop
+      const response = await serviceHelper.axiosGet(url, axiosOptions);
+
+      if (response.data && response.data.status === 'success' && response.data.data) {
+        const { ips } = response.data.data;
+        if (ips && ips.length > 0) {
+          // Return the first IP, stripping the port if present
+          const ip = ips[0].split(':')[0];
+          log.debug(`getMasterIpFromFdm: Got IP ${ip} for app ${appName} from ${region.name} FDM`);
+          return { ip, fdmOk: true };
+        }
+      }
+      // No IPs returned from this region, try next
+      log.debug(`getMasterIpFromFdm: No IPs returned from ${region.name} FDM for app ${appName}`);
+    } catch (error) {
+      if (error.response && error.response.status === 404) {
+        log.debug(`getMasterIpFromFdm: App ${appName} not found in ${region.name} FDM`);
+      } else if (error.response && error.response.status === 503) {
+        log.debug(`getMasterIpFromFdm: ${region.name} FDM service starting up for app ${appName}`);
+      } else {
+        log.error(`getMasterIpFromFdm: Failed to reach ${region.name} FDM for app ${appName}: ${error.message}`);
+      }
+      // Continue to next region
+    }
+  }
+
+  // All regions failed or returned no IPs
+  return { ip: null, fdmOk: true };
+}
+
+/**
+ * Find and restore non-enterprise app specifications for proper removal.
+ * When local DB has encrypted enterprise specs (compose: []), we need the last non-enterprise
+ * version from permanent messages to get port/container info for proper cleanup.
+ * @param {Object} installedApp - The installed app object from local database
+ * @returns {Promise<Object|null>} App specifications to use for removal, or null if local specs are usable or no non-enterprise version found
+ */
+async function findAndRestoreNonEnterpriseSpecs(installedApp) {
+  // If compose array has data, we can use the local specs directly
+  if (!installedApp.compose || installedApp.compose.length > 0) {
+    return installedApp;
+  }
+
+  log.info(`Local DB has encrypted specs for ${installedApp.name}, searching for last non-enterprise version in permanent messages`);
+
+  const db = dbHelper.databaseConnection();
+  const database = db.db(config.database.appsglobal.database);
+
+  const query = {
+    'appSpecifications.name': installedApp.name,
+    type: { $in: ['fluxappregister', 'fluxappupdate'] },
+  };
+  const projection = {
+    projection: {
+      _id: 0,
+      appSpecifications: 1,
+      hash: 1,
+      height: 1,
+    },
+    sort: { height: -1 }, // Sort descending (newest first)
+  };
+
+  const permanentMessages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+
+  if (!permanentMessages || permanentMessages.length === 0) {
+    log.error(`No permanent messages found for ${installedApp.name}`);
+    return null;
+  }
+
+  // Find the first (most recent) message that is NOT enterprise
+  let lastNonEnterpriseMessage = null;
+  for (let i = 0; i < permanentMessages.length; i += 1) {
+    const message = permanentMessages[i];
+    const specs = message.appSpecifications;
+    const msgIsEnterprise = Boolean(specs.version >= 8 && specs.enterprise);
+
+    if (!msgIsEnterprise) {
+      lastNonEnterpriseMessage = message;
+      break;
+    }
+  }
+
+  if (!lastNonEnterpriseMessage) {
+    log.error(`No non-enterprise version found for ${installedApp.name} - cannot properly uninstall without port/container info. Skipping removal to avoid orphaned containers.`);
+    return null;
+  }
+
+  log.info(`Found non-enterprise version for ${installedApp.name} at height ${lastNonEnterpriseMessage.height} - using for cleanup`);
+
+  // Temporarily restore non-enterprise specs to local DB for proper cleanup
+  const specsForRemoval = lastNonEnterpriseMessage.appSpecifications;
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+  const appsQuery = { name: installedApp.name };
+  const options = { upsert: true };
+  await dbHelper.updateOneInDatabase(appsDatabase, localAppsInformation, appsQuery, { $set: specsForRemoval }, options);
+  log.info(`Temporarily restored non-enterprise specs to local DB for ${installedApp.name} to enable proper port cleanup`);
+
+  return specsForRemoval;
+}
+
+/**
  * Check and remove enterprise apps (v8+) running on non-arcaneOS nodes.
  * This function runs once at startup to clean up incompatible apps.
  * @returns {Promise<void>} Completion status
@@ -127,9 +265,6 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
       return;
     }
 
-    const db = dbHelper.databaseConnection();
-    const database = db.db(config.database.appsglobal.database);
-
     // eslint-disable-next-line no-restricted-syntax
     for (const installedApp of installedApps) {
       try {
@@ -147,48 +282,16 @@ async function checkAndRemoveEnterpriseAppsOnNonArcane() {
         const isEnterprise = Boolean(globalSpecs.version >= 8 && globalSpecs.enterprise);
 
         if (isEnterprise) {
-          log.warn(`Found enterprise app ${installedApp.name} (v${globalSpecs.version}) on non-arcaneOS node - searching for non-enterprise version`);
+          log.warn(`Found enterprise app ${installedApp.name} (v${globalSpecs.version}) on non-arcaneOS node`);
 
-          // Query permanent app messages to find the last non-enterprise version
-          const query = {
-            'appSpecifications.name': installedApp.name,
-            type: { $in: ['fluxappregister', 'fluxappupdate'] },
-          };
-          const projection = {
-            projection: {
-              _id: 0,
-              appSpecifications: 1,
-              hash: 1,
-              height: 1,
-            },
-          };
-
+          // Find and restore non-enterprise specs if needed
           // eslint-disable-next-line no-await-in-loop
-          const permanentMessages = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
+          const specsForRemoval = await findAndRestoreNonEnterpriseSpecs(installedApp);
 
-          if (!permanentMessages || permanentMessages.length === 0) {
-            log.error(`No permanent messages found for ${installedApp.name}`);
+          if (!specsForRemoval) {
+            log.error(`Cannot remove ${installedApp.name} - no non-enterprise specs available for proper cleanup`);
             // eslint-disable-next-line no-continue
             continue;
-          }
-
-          // Find the last message that is NOT enterprise (reverse search)
-          let lastNonEnterpriseMessage = null;
-          for (let i = permanentMessages.length - 1; i >= 0; i -= 1) {
-            const message = permanentMessages[i];
-            const specs = message.appSpecifications;
-            const msgIsEnterprise = Boolean(specs.version >= 8 && specs.enterprise);
-
-            if (!msgIsEnterprise) {
-              lastNonEnterpriseMessage = message;
-              break;
-            }
-          }
-
-          if (!lastNonEnterpriseMessage) {
-            log.warn(`No non-enterprise version found for ${installedApp.name} - will remove without replacement specs`);
-          } else {
-            log.info(`Found non-enterprise version for ${installedApp.name} at height ${lastNonEnterpriseMessage.height}`);
           }
 
           // Remove the app from the node with force and broadcast to peers
@@ -3009,6 +3112,38 @@ async function reinstallOldApplications() {
         log.warn(`Application ${installedApp.name} version is obsolete.`);
         if (randomNumber === 0) {
           globalState.reinstallationOfOldAppsInProgress = true;
+
+          // Check if this is an enterprise app on non-arcane node FIRST
+          // CRITICAL: Must check BEFORE updating local database or attempting redeployment
+          // If we update the local DB with enterprise specs, we lose the container/port info needed for cleanup
+          if (appSpecifications.version >= 8
+              && appSpecifications.enterprise
+              && !isArcane) {
+            log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS.`);
+            log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
+
+            // Find and restore non-enterprise specs if needed for proper cleanup
+            // eslint-disable-next-line no-await-in-loop
+            const specsForRemoval = await findAndRestoreNonEnterpriseSpecs(installedApp);
+
+            if (!specsForRemoval) {
+              // eslint-disable-next-line no-continue
+              continue;
+            }
+
+            // Remove the entire app with force and BROADCAST to peers
+            // This is a permanent removal (not a redeploy), so we need to broadcast
+            // eslint-disable-next-line global-require
+            const appUninstaller = require('./appUninstaller');
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstaller.removeAppLocally(installedApp.name, null, true, true, true);
+            log.info(`Successfully removed enterprise app ${installedApp.name} and notified peers`);
+
+            // Skip to next app
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
           // check if the app spec was changed
           const auxAppSpecifications = JSON.parse(JSON.stringify(appSpecifications));
           const auxInstalledApp = JSON.parse(JSON.stringify(installedApp));
@@ -3044,26 +3179,6 @@ async function reinstallOldApplications() {
           // Specs differ - log for debugging purposes
           log.info(`Application ${installedApp.name} has actual specification changes, proceeding with redeployment.`);
 
-          // Check if this is an enterprise app on non-arcane node
-          // Must check BEFORE any redeployment processing
-          if (appSpecifications.version >= 8
-              && appSpecifications.enterprise
-              && !isArcane) {
-            log.warn(`Application ${appSpecifications.name} is enterprise version >= 8 but system is not running arcaneOS.`);
-            log.warn(`REMOVAL REASON: Enterprise app v${appSpecifications.version} requires arcaneOS - ${appSpecifications.name}`);
-
-            // Remove the entire app with force and BROADCAST to peers
-            // This is a permanent removal (not a redeploy), so we need to broadcast
-            // eslint-disable-next-line global-require
-            const appUninstaller = require('./appUninstaller');
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(appSpecifications.name, null, true, true, true);
-            log.info(`Successfully removed enterprise app ${appSpecifications.name} and notified peers`);
-
-            // Skip to next app
-            // eslint-disable-next-line no-continue
-            continue;
-          }
 
           // check if node is capable to run it according to specifications
           // run the verification
@@ -3639,85 +3754,12 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
         }
       }
       if (needsToBeChecked) {
-        let fdmIndex = 1;
-        const appNameFirstLetterLowerCase = installedApp.name.substring(0, 1).toLowerCase();
-        if (appNameFirstLetterLowerCase.match(/[h-n]/)) {
-          fdmIndex = 2;
-        } else if (appNameFirstLetterLowerCase.match(/[o-u]/)) {
-          fdmIndex = 3;
-        } else if (appNameFirstLetterLowerCase.match(/[v-z]/)) {
-          fdmIndex = 4;
-        }
-        let ip = null;
+        // Get master IP from FDM using the new /appips endpoint
         // eslint-disable-next-line no-await-in-loop
-        let fdmEUData = await serviceHelper.axiosGet(`https://fdm-fn-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
-          log.error(`masterSlaveApps: Failed to reach EU FDM with error: ${error}`);
-          fdmOk = false;
-        });
-        if (fdmOk) {
-          fdmEUData = fdmEUData.data;
-          if (fdmEUData && fdmEUData.length > 0) {
-            // eslint-disable-next-line no-restricted-syntax
-            for (const fdmData of fdmEUData) {
-              const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
-              if (serviceName) {
-                const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                if (ipElement) {
-                  ip = ipElement.value.value;
-                }
-                break;
-              }
-            }
-          }
-        }
-        if (!ip) {
-          fdmOk = true;
-          // eslint-disable-next-line no-await-in-loop
-          let fdmUSAData = await serviceHelper.axiosGet(`https://fdm-usa-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
-            log.error(`masterSlaveApps: Failed to reach USA FDM with error: ${error}`);
-            fdmOk = false;
-          });
-          if (fdmOk) {
-            fdmUSAData = fdmUSAData.data;
-            if (fdmUSAData && fdmUSAData.length > 0) {
-              // eslint-disable-next-line no-restricted-syntax
-              for (const fdmData of fdmUSAData) {
-                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
-                if (serviceName) {
-                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                  if (ipElement) {
-                    ip = ipElement.value.value;
-                  }
-                  break;
-                }
-              }
-            }
-          }
-        }
-        if (!ip) {
-          fdmOk = true;
-          // eslint-disable-next-line no-await-in-loop
-          let fdmASIAData = await serviceHelper.axiosGet(`https://fdm-sg-1-${fdmIndex}.runonflux.io/fluxstatistics?scope=${installedApp.name}apprunonfluxio;json;norefresh`, axiosOptions).catch((error) => {
-            log.error(`masterSlaveApps: Failed to reach ASIA FDM with error: ${error}`);
-            fdmOk = false;
-          });
-          if (fdmOk) {
-            fdmASIAData = fdmASIAData.data;
-            if (fdmASIAData && fdmASIAData.length > 0) {
-              // eslint-disable-next-line no-restricted-syntax
-              for (const fdmData of fdmASIAData) {
-                const serviceName = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'pxname' && element.value.value.toLowerCase().startsWith(`${installedApp.name.toLowerCase()}apprunonfluxio`));
-                if (serviceName) {
-                  const ipElement = fdmData.find((element) => element.id === 1 && element.objType === 'Server' && element.field.name === 'svname');
-                  if (ipElement) {
-                    ip = ipElement.value.value;
-                  }
-                  break;
-                }
-              }
-            }
-          }
-        }
+        const fdmResult = await getMasterIpFromFdm(installedApp.name, axiosOptions);
+        const { ip } = fdmResult;
+        fdmOk = fdmResult.fdmOk;
+
         if (!fdmOk) {
           log.warn(`masterSlaveApps: All FDM services failed for app:${installedApp.name}, skipping primary selection for this cycle`);
           // eslint-disable-next-line no-continue
@@ -3867,9 +3909,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                       source.cancel('Operation canceled by the user.');
                     }
                   }, timeout * 2);
-                  const url = mastersRunningGSyncthingApps.get(identifier);
-                  const ipToCheckAppRunning = url.split(':')[0];
-                  const portToCheckAppRunning = url.split(':')[1] || '16127';
+                  const previousMasterIp = mastersRunningGSyncthingApps.get(identifier);
+                  // Look up the correct port from runningAppList since FDM API returns IP without port
+                  const previousMasterNode = runningAppList.find((x) => x.ip.split(':')[0] === previousMasterIp.split(':')[0]);
+                  const ipToCheckAppRunning = previousMasterIp.split(':')[0];
+                  const portToCheckAppRunning = previousMasterNode ? (previousMasterNode.ip.split(':')[1] || '16127') : '16127';
                   let previousMasterStillRunning = false;
                   try {
                     // eslint-disable-next-line no-await-in-loop
@@ -3877,11 +3921,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
                     isResolved = true;
                     const appsRunning = response.data.data;
                     if (appsRunning.find((app) => app.Names[0].includes(installedApp.name))) {
-                      log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${url}`);
+                      log.info(`masterSlaveApps: app:${installedApp.name} is not on fdm but previous master is running it at: ${ipToCheckAppRunning}:${portToCheckAppRunning}`);
                       previousMasterStillRunning = true;
                     }
                   } catch (error) {
-                    log.info(`masterSlaveApps: Failed to reach previous master at ${url} for app:${installedApp.name}, will proceed with primary selection. Error: ${error.message}`);
+                    log.info(`masterSlaveApps: Failed to reach previous master at ${ipToCheckAppRunning}:${portToCheckAppRunning} for app:${installedApp.name}, will proceed with primary selection. Error: ${error.message}`);
                     isResolved = true;
                   }
                   if (previousMasterStillRunning) {

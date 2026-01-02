@@ -10,6 +10,78 @@ const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
+const { URL } = require('url');
+const { sanitizePath, validateFilename } = require('./utils/pathSecurity');
+const { validateUrlWithDns } = require('./utils/urlSecurity');
+
+/**
+ * Maximum number of redirects to follow when validating each redirect target.
+ */
+const MAX_REDIRECTS = 5;
+
+/**
+ * Make an HTTP request with validated redirects.
+ * Each redirect target is validated against SSRF checks before following.
+ *
+ * @param {string} url - The URL to request
+ * @param {string} method - HTTP method ('GET' or 'HEAD')
+ * @param {object} axiosOptions - Additional axios options
+ * @returns {Promise<object>} Axios response object
+ * @throws {Error} If URL is blocked or too many redirects
+ */
+async function requestWithValidatedRedirects(url, method = 'GET', axiosOptions = {}) {
+  let currentUrl = url;
+  let redirectCount = 0;
+
+  // Validate the initial URL with DNS resolution
+  await validateUrlWithDns(currentUrl);
+
+  while (redirectCount < MAX_REDIRECTS) {
+    // Make request without following redirects
+    const response = await axios({
+      method,
+      url: currentUrl,
+      maxRedirects: 0,
+      validateStatus: (status) => status >= 200 && status < 400,
+      ...axiosOptions,
+    }).catch((error) => {
+      // Axios throws on 3xx when maxRedirects is 0, extract the response
+      if (error.response && error.response.status >= 300 && error.response.status < 400) {
+        return error.response;
+      }
+      throw error;
+    });
+
+    // If not a redirect, return the response
+    if (response.status < 300 || response.status >= 400) {
+      // Attach the final URL to the response for caller's reference
+      response.finalUrl = currentUrl;
+      return response;
+    }
+
+    // Handle redirect
+    const location = response.headers.location;
+    if (!location) {
+      throw new Error('Redirect response missing Location header');
+    }
+
+    // Resolve relative redirects
+    const redirectUrl = new URL(location, currentUrl).href;
+
+    // Validate the redirect target before following
+    await validateUrlWithDns(redirectUrl);
+
+    // Clean up stream if present (for responseType: 'stream')
+    if (response.data && typeof response.data.destroy === 'function') {
+      response.data.destroy();
+    }
+
+    currentUrl = redirectUrl;
+    redirectCount += 1;
+  }
+
+  throw new Error('Too many redirects');
+}
 
 /**
  * Converts file sizes to a specified unit or the most appropriate unit based on the total size.
@@ -125,8 +197,9 @@ async function getFileSize(filePath) {
  */
 async function getRemoteFileSize(fileurl, multiplier, decimal, number = false) {
   try {
-    const head = await axios.head(fileurl);
-    const contentLengthHeader = head.headers['content-length'] || head.headers['Content-Length'];
+    // Use validated redirect-following request to prevent SSRF via redirects
+    const response = await requestWithValidatedRedirects(fileurl, 'HEAD', { timeout: 15000 });
+    const contentLengthHeader = response.headers['content-length'] || response.headers['Content-Length'];
     const fileSizeInBytes = parseInt(contentLengthHeader, 10);
     if (!Number.isFinite(fileSizeInBytes)) {
       throw new Error('Error fetching file size');
@@ -279,17 +352,21 @@ async function checkFileExists(filePath) {
  */
 async function downloadFileFromUrl(url, localpath, component, rename = false, retries = 0) {
   try {
-    let filepath = `${localpath}/backup_${component.toLowerCase()}.tar.gz`;
-    if (!rename) {
-      const fileNameArray = url.split('/');
-      const fileName = fileNameArray[fileNameArray.length - 1];
-      filepath = `${localpath}/${fileName}`;
-    }
-    const response = await axios.get(url, {
+    // Use validated redirect-following request to prevent SSRF via redirects
+    const response = await requestWithValidatedRedirects(url, 'GET', {
       responseType: 'stream',
-      maxRedirects: 5,
       timeout: 15000,
     });
+
+    let filepath = `${localpath}/backup_${component.toLowerCase()}.tar.gz`;
+    if (!rename) {
+      // Extract filename from the final URL (after redirects)
+      const finalUrl = response.finalUrl || url;
+      const parsedUrl = new URL(finalUrl);
+      const fileName = path.basename(parsedUrl.pathname) || 'download';
+      filepath = `${localpath}/${fileName}`;
+    }
+
     const dirPath = path.dirname(filepath);
     // Create directory if it doesn't exist
     await fs.mkdir(dirPath, { recursive: true });
@@ -407,9 +484,6 @@ async function fileUpload(req, res) {
     filename = filename || req.query.filename || '';
     let { folder } = req.params;
     folder = folder || req.query.folder || '';
-    if (folder) {
-      folder += '/';
-    }
     let { type } = req.params;
     type = type || req.query.type || '';
     if (!type || !component) {
@@ -422,7 +496,8 @@ async function fileUpload(req, res) {
         filepath = `${appVolumePath[0].mount}/backup/upload/`;
       } else {
         // Use appid level to access appdata and all other mount points
-        filepath = `${appVolumePath[0].mount}/${folder}`;
+        // Sanitize folder path to prevent directory traversal attacks
+        filepath = sanitizePath(folder, appVolumePath[0].mount);
       }
     } else {
       throw new Error('Application volume not found');
@@ -447,13 +522,17 @@ async function fileUpload(req, res) {
     form
       // eslint-disable-next-line no-unused-vars
       .on('fileBegin', (name, file) => {
+        // Validate filename to prevent path traversal via filename parameter
+        let safeFilename;
         if (!filename) {
-          // eslint-disable-next-line no-param-reassign
-          file.filepath = `${filepath}${name}`;
+          // Use form field name - validate it doesn't contain path separators
+          safeFilename = validateFilename(name);
         } else {
-          // eslint-disable-next-line no-param-reassign
-          file.filepath = `${filepath}${filename}`;
+          // Use provided filename - validate it doesn't contain path separators
+          safeFilename = validateFilename(filename);
         }
+        // eslint-disable-next-line no-param-reassign
+        file.filepath = `${filepath}/${safeFilename}`;
       })
       .on('progress', (bytesReceived, bytesExpected) => {
         try {

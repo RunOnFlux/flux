@@ -2,10 +2,10 @@ const log = require('../lib/log');
 const path = require('path');
 const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
+const serviceHelper = require('./serviceHelper');
 const IOUtils = require('./IOUtils');
 const fs = require('fs').promises;
-const util = require('util');
-const exec = util.promisify(require('child_process').exec);
+const { sanitizePath, verifyRealPath } = require('./utils/pathSecurity');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 // ToDo: Fix all the string concatenation in this file and use path.join()
@@ -14,31 +14,49 @@ const appsFolder = `${appsFolderPath}/`;
 
 /**
  * Validates if a file path belongs to a specific set of upload types within the appsFolder.
+ * Uses sanitizePath for security validation, then checks for valid backup types.
  * @param {string} filepath - The file path to be validated.
- * @returns {boolean} - True if the filepath is valid, otherwise false.
+ * @returns {string|false} - The sanitized filepath if valid, otherwise false.
  */
 function pathValidation(filepath) {
-  const pathStart = filepath.startsWith(appsFolder);
+  if (!filepath || typeof filepath !== 'string') {
+    return false;
+  }
+
+  // Must start with appsFolder to be a valid backup path
+  if (!filepath.startsWith(appsFolder)) {
+    return false;
+  }
+
+  // Extract relative path from appsFolder
+  const relativePath = filepath.slice(appsFolder.length);
+
+  try {
+    // Use sanitizePath for security validation (handles traversal, null bytes, etc.)
+    sanitizePath(relativePath, appsFolder);
+  } catch (error) {
+    return false;
+  }
+
+  // Check for valid backup type in the path
+  const types = ['/backup/upload', '/backup/local', '/backup/remote'];
+  const lastSlashIndex = filepath.lastIndexOf('/');
   let uploadType = null;
 
-  if (pathStart) {
-    const lastSlashIndex = filepath.lastIndexOf('/');
-    const types = ['/backup/upload', '/backup/local', '/backup/remote'];
-    // eslint-disable-next-line no-restricted-syntax
-    for (const type of types) {
-      const typeIndex = filepath.indexOf(type);
-      if (typeIndex !== -1 && typeIndex < lastSlashIndex) {
-        // Check if the upload type is at the end of the filepath or followed by a slash
-        const nextChar = filepath[typeIndex + type.length];
-        if (nextChar === '/' || nextChar === undefined) {
-          uploadType = type.replace('/backup/', '');
-          break;
-        }
+  // eslint-disable-next-line no-restricted-syntax
+  for (const type of types) {
+    const typeIndex = filepath.indexOf(type);
+    if (typeIndex !== -1 && typeIndex < lastSlashIndex) {
+      // Check if the upload type is at the end of the filepath or followed by a slash
+      const nextChar = filepath[typeIndex + type.length];
+      if (nextChar === '/' || nextChar === undefined) {
+        uploadType = type.replace('/backup/', '');
+        break;
       }
     }
   }
-  const result = pathStart && uploadType !== null;
-  return result;
+
+  return uploadType !== null ? filepath : false;
 }
 
 /**
@@ -249,10 +267,14 @@ async function downloadLocalFile(req, res) {
       if (!pathValidation(filepath)) {
         throw new Error('Path validation failed..');
       }
+      // Verify real path after symlink resolution to prevent symlink escape attacks
+      await verifyRealPath(filepath, appsFolder);
       const fileNameArray = filepath.split('/');
       const fileName = fileNameArray[fileNameArray.length - 1];
-      const cmd = `sudo chmod 777 "${filepath}"`;
-      await exec(cmd, { maxBuffer: 1024 * 1024 * 10 });
+      const chmodResult = await serviceHelper.runCommand('chmod', { runAsRoot: true, params: ['777', filepath] });
+      if (chmodResult.error) {
+        throw chmodResult.error;
+      }
       return res.download(filepath, fileName);
       // eslint-disable-next-line no-else-return
     } else {

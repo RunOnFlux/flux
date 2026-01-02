@@ -4,6 +4,7 @@ const messageHelper = require('../messageHelper');
 const verificationHelper = require('../verificationHelper');
 const IOUtils = require('../IOUtils');
 const log = require('../../lib/log');
+const { sanitizePath } = require('../utils/pathSecurity');
 
 /**
  * To get apps folder contents.
@@ -27,7 +28,8 @@ async function getAppsFolder(req, res) {
       const appVolumePath = await IOUtils.getVolumeInfo(appname, component, 'B', 'mount', 0);
       if (appVolumePath.length > 0) {
         // Browse at appid level to show appdata and all other mount points
-        filepath = `${appVolumePath[0].mount}/${folder}`;
+        // Sanitize folder path to prevent directory traversal attacks
+        filepath = sanitizePath(folder, appVolumePath[0].mount);
       } else {
         throw new Error('Application volume not found');
       }
