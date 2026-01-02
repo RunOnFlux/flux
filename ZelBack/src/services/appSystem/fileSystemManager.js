@@ -5,8 +5,9 @@ const messageHelper = require('../messageHelper');
 const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
 const IOUtils = require('../IOUtils');
+const fs = require('fs').promises;
 const log = require('../../lib/log');
-const { sanitizePath, verifyRealPath } = require('../utils/pathSecurity');
+const { sanitizePath, verifyRealPath, verifyRealPathOfExistingPath } = require('../utils/pathSecurity');
 
 /**
  * To create a folder in app's volume. Only accessible by app owners and above.
@@ -32,6 +33,8 @@ async function createAppsFolder(req, res) {
         // Use appid level to access appdata and all other mount points
         // Sanitize folder path to prevent directory traversal attacks
         filepath = sanitizePath(folder, appVolumePath[0].mount);
+        // Verify resolved path stays within the allowed base directory
+        await verifyRealPathOfExistingPath(filepath, appVolumePath[0].mount);
       } else {
         throw new Error('Application volume not found');
       }
@@ -101,6 +104,9 @@ async function renameAppsObject(req, res) {
         // Sanitize the combined path as well
         newfullpath = sanitizePath(`${renamingFolder}/${newname}`, appVolumePath[0].mount);
       }
+      // Verify resolved paths stay within the allowed base directory
+      await verifyRealPath(oldfullpath, appVolumePath[0].mount);
+      await verifyRealPathOfExistingPath(newfullpath, appVolumePath[0].mount);
       const mvResult = await serviceHelper.runCommand('mv', { runAsRoot: true, params: ['-T', oldfullpath, newfullpath] });
       if (mvResult.error) {
         throw mvResult.error;
@@ -156,6 +162,21 @@ async function removeAppsObject(req, res) {
         filepath = sanitizePath(object, appVolumePath[0].mount);
       } else {
         throw new Error('Application volume not found');
+      }
+      // Allow removing symlinks directly (rm removes the link itself, not the target).
+      // For non-symlink targets (or symlinks in parent components), enforce real path containment.
+      let isSymbolicLink = false;
+      try {
+        const stats = await fs.lstat(filepath);
+        isSymbolicLink = stats.isSymbolicLink();
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          throw error;
+        }
+      }
+      if (!isSymbolicLink) {
+        // Verify resolved path stays within the allowed base directory
+        await verifyRealPathOfExistingPath(filepath, appVolumePath[0].mount);
       }
       const rmResult = await serviceHelper.runCommand('rm', { runAsRoot: true, params: ['-rf', filepath] });
       if (rmResult.error) {

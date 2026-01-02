@@ -265,6 +265,54 @@ async function verifyRealPath(targetPath, basePath) {
 }
 
 /**
+ * Verify that the deepest existing portion of a (sanitized) path resolves within the allowed base.
+ *
+ * This is intended for operations that may CREATE files/folders, where `targetPath`
+ * may not exist yet. In that case, `verifyRealPath()` cannot resolve symlinks and will
+ * allow the path through. By walking up until we find an existing ancestor and verifying
+ * that ancestor's real path, we ensure existing symlinks in any parent component cannot
+ * cause the resolved path to escape the allowed base directory.
+ *
+ * @param {string} targetPath - The target path to verify (should already be sanitized)
+ * @param {string} basePath - The allowed base directory
+ * @returns {Promise<string>} The verified real path of the deepest existing portion
+ * @throws {Error} If the resolved path escapes the base directory
+ */
+async function verifyRealPathOfExistingPath(targetPath, basePath) {
+  const normalizedBase = path.resolve(basePath);
+  let currentPath = path.resolve(targetPath);
+
+  // Walk up until we find an existing ancestor (or reach the base)
+  while (true) {
+    const relativePath = path.relative(normalizedBase, currentPath);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      throw new Error('Invalid path: access outside allowed directory denied');
+    }
+
+    try {
+      await fs.promises.lstat(currentPath);
+      break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        throw error;
+      }
+
+      if (currentPath === normalizedBase) {
+        break;
+      }
+
+      const parentPath = path.dirname(currentPath);
+      if (parentPath === currentPath) {
+        break;
+      }
+      currentPath = parentPath;
+    }
+  }
+
+  return verifyRealPath(currentPath, basePath);
+}
+
+/**
  * Synchronous version of verifyRealPath.
  *
  * @param {string} targetPath - The path to verify
@@ -354,6 +402,7 @@ module.exports = {
   validatePathBasic,
   isValidPathComponent,
   verifyRealPath,
+  verifyRealPathOfExistingPath,
   verifyRealPathSync,
   sanitizeAndVerifyPath,
   rejectBackslashes,

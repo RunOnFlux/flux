@@ -12,6 +12,7 @@ const {
   validatePathAllowlist,
   isValidPathComponent,
   verifyRealPath,
+  verifyRealPathOfExistingPath,
   verifyRealPathSync,
   sanitizeAndVerifyPath,
   rejectBackslashes,
@@ -287,6 +288,42 @@ describe('pathSecurity', () => {
         // If symlink creation fails (e.g., permissions), skip this test assertion
         if (err.code !== 'EPERM' && err.code !== 'EACCES') {
           throw err;
+        }
+      }
+    });
+  });
+
+  describe('verifyRealPathOfExistingPath', () => {
+    let tempDir;
+
+    before(async () => {
+      // Create a temporary directory for testing
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-existing-test-'));
+      await fs.mkdir(path.join(tempDir, 'subdir'));
+    });
+
+    after(async () => {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('should not throw when creating under an existing directory within base', async () => {
+      await expect(verifyRealPathOfExistingPath(path.join(tempDir, 'subdir', 'newdir'), tempDir)).to.be.fulfilled;
+    });
+
+    it('should throw when an existing parent is a symlink that escapes the base', async () => {
+      const symlinkPath = path.join(tempDir, 'escape-link');
+      try {
+        await fs.symlink('/etc', symlinkPath);
+        await expect(verifyRealPathOfExistingPath(path.join(symlinkPath, 'newdir'), tempDir)).to.be.rejectedWith('Symlink escape');
+      } catch (err) {
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') {
+          throw err;
+        }
+      } finally {
+        try {
+          await fs.unlink(symlinkPath);
+        } catch (e) {
+          // ignore cleanup failures
         }
       }
     });

@@ -45,6 +45,7 @@ describe('fileSystemManager tests', () => {
         return `${basePath}/${userPath}`;
       }),
       verifyRealPath: sinon.stub().resolves(),
+      verifyRealPathOfExistingPath: sinon.stub().resolves(),
     };
 
     // Proxy require with mocked dependencies
@@ -81,6 +82,7 @@ describe('fileSystemManager tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(verificationHelperStub.verifyPrivilege.calledWith('appownerabove', req, 'testapp')).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.calledOnceWithExactly('/mnt/testapp/testfolder', '/mnt/testapp')).to.be.true;
       expect(serviceHelperStub.runCommand.calledOnceWithExactly('mkdir', {
         runAsRoot: true,
         params: ['/mnt/testapp/testfolder'],
@@ -166,6 +168,8 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.renameAppsObject(req, res);
 
       expect(res.json.calledOnce).to.be.true;
+      expect(pathSecurityStub.verifyRealPath.calledOnceWithExactly('/mnt/testapp/oldname', '/mnt/testapp')).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.calledOnceWithExactly('/mnt/testapp/newname', '/mnt/testapp')).to.be.true;
       expect(serviceHelperStub.runCommand.calledOnceWithExactly('mv', {
         runAsRoot: true,
         params: ['-T', '/mnt/testapp/oldname', '/mnt/testapp/newname'],
@@ -255,6 +259,7 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.removeAppsObject(req, res);
 
       expect(res.json.calledOnce).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.calledOnceWithExactly('/mnt/testapp/testfile', '/mnt/testapp')).to.be.true;
       expect(serviceHelperStub.runCommand.calledOnceWithExactly('rm', {
         runAsRoot: true,
         params: ['-rf', '/mnt/testapp/testfile'],

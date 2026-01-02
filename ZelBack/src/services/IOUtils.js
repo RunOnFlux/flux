@@ -11,7 +11,7 @@ const messageHelper = require('./messageHelper');
 const verificationHelper = require('./verificationHelper');
 const exec = util.promisify(require('child_process').exec);
 const { URL } = require('url');
-const { sanitizePath, validateFilename } = require('./utils/pathSecurity');
+const { sanitizePath, validateFilename, verifyRealPathOfExistingPath } = require('./utils/pathSecurity');
 const { validateUrlWithDns } = require('./utils/urlSecurity');
 
 /**
@@ -502,6 +502,8 @@ async function fileUpload(req, res) {
     } else {
       throw new Error('Application volume not found');
     }
+    // Verify resolved path stays within the allowed base directory
+    await verifyRealPathOfExistingPath(filepath, appVolumePath[0].mount);
     const options = {
       multiples: true,
       uploadDir: `${filepath}`,
