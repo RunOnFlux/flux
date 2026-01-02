@@ -299,13 +299,17 @@ async function storeAppRunningMessage(message) {
     const result = await dbHelper.findInDatabase(database, globalAppsLocations, queryFind, projection);
     if (result.length > 0) {
       await dbHelper.removeDocumentsFromCollection(database, globalAppsLocations, queryFind);
+      // also clean up any installing records for this IP
+      await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
     } else {
       return false;
     }
   }
 
-  if (message.version === 1) {
-    const queryFind = { name: appsMessages[0].name, ip: message.ip };
+  // clean up installing records for all apps that are now running
+  for (const app of appsMessages) {
+    const queryFind = { name: app.name, ip: message.ip };
+    // eslint-disable-next-line no-await-in-loop
     await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, queryFind);
   }
 
@@ -488,6 +492,10 @@ async function storeAppInstallingErrorMessage(message) {
     upsert: true,
   };
   await dbHelper.updateOneInDatabase(database, globalAppsInstallingErrorsLocations, queryFind, update, options);
+
+  // clean up installing record since installation failed
+  const installingQuery = { name: newAppInstallingErrorMessage.name, ip: newAppInstallingErrorMessage.ip };
+  await dbHelper.removeDocumentsFromCollection(database, globalAppsInstallingLocations, installingQuery);
 
   queryFind = { name: newAppInstallingErrorMessage.name, hash: newAppInstallingErrorMessage.hash };
   // we already have the exact same data
