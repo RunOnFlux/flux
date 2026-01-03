@@ -47,7 +47,7 @@ async function getAppFluxOnChainPrice(appSpecification) {
     const appPrices = await getChainParamsPriceUpdates();
     const intervals = appPrices.filter((i) => i.height < daemonHeight);
     const priceSpecifications = intervals[intervals.length - 1]; // filter does not change order
-    const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+    let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
 
     // Get dynamic default expire based on whether we're past the PON fork
     // After fork, blocks are 4x faster, so 1 month = 88000 blocks instead of 22000
@@ -61,7 +61,10 @@ async function getAppFluxOnChainPrice(appSpecification) {
     actualPriceToPay *= multiplier;
     actualPriceToPay = Math.ceil(actualPriceToPay * 100) / 100;
     if (appInfo) {
-      let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+      // Decrypt enterprise app specs if needed (v8 enterprise apps have compose encrypted)
+      appInfo = await checkAndDecryptAppSpecs(appInfo, { daemonHeight });
+      const appInfoFormatted = specificationFormatter(appInfo);
+      let previousSpecsPrice = await appPricePerMonth(appInfoFormatted, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
 
       // Calculate previous expire with fork awareness
       const previousBlockHeightMultiplier = appInfo.height >= config.fluxapps.daemonPONFork ? 4 : 1;
@@ -303,9 +306,12 @@ async function getAppFiatAndFluxPrice(req, res) {
       const multiplier = expireIn / defaultExpire;
       actualPriceToPay *= multiplier;
       actualPriceToPay = Number(actualPriceToPay).toFixed(2);
-      const appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
+      let appInfo = await dbHelper.findOneInDatabase(database, globalAppsInformation, query, projection);
       if (appInfo) {
-        let previousSpecsPrice = await appPricePerMonth(appInfo, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
+        // Decrypt enterprise app specs if needed (v8 enterprise apps have compose encrypted)
+        appInfo = await checkAndDecryptAppSpecs(appInfo, { daemonHeight });
+        const appInfoFormatted = specificationFormatter(appInfo);
+        let previousSpecsPrice = await appPricePerMonth(appInfoFormatted, daemonHeight, appPrices); // calculate previous based on CURRENT height, with current interval of prices!
 
         // Calculate previous expire with fork awareness
         const previousBlockHeightMultiplier = appInfo.height >= config.fluxapps.daemonPONFork ? 4 : 1;
