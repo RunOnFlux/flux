@@ -291,6 +291,26 @@ describe('pathSecurity', () => {
         }
       }
     });
+
+    it('should allow targets under a symlinked base directory', async () => {
+      const realBase = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-realbase-'));
+      const linkParent = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-linkparent-'));
+      const baseLink = path.join(linkParent, 'base-link');
+      try {
+        await fs.symlink(realBase, baseLink);
+        await fs.mkdir(path.join(realBase, 'subdir'));
+        const result = await verifyRealPath(path.join(baseLink, 'subdir'), baseLink);
+        expect(result).to.equal(path.join(realBase, 'subdir'));
+      } catch (err) {
+        // If symlink creation fails (e.g., permissions), skip this test assertion
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') {
+          throw err;
+        }
+      } finally {
+        await fs.rm(realBase, { recursive: true, force: true });
+        await fs.rm(linkParent, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('verifyRealPathOfExistingPath', () => {

@@ -1,6 +1,7 @@
 // File System Manager - Manages filesystem operations for FluxOS applications
 const archiver = require('archiver');
 const { PassThrough } = require('stream');
+const path = require('path');
 const messageHelper = require('../messageHelper');
 const verificationHelper = require('../verificationHelper');
 const serviceHelper = require('../serviceHelper');
@@ -104,9 +105,24 @@ async function renameAppsObject(req, res) {
         // Sanitize the combined path as well
         newfullpath = sanitizePath(`${renamingFolder}/${newname}`, appVolumePath[0].mount);
       }
-      // Verify resolved paths stay within the allowed base directory
-      await verifyRealPath(oldfullpath, appVolumePath[0].mount);
-      await verifyRealPathOfExistingPath(newfullpath, appVolumePath[0].mount);
+      // Verify parent directories resolve within the allowed base directory to prevent symlink escapes.
+      await verifyRealPathOfExistingPath(path.dirname(oldfullpath), appVolumePath[0].mount);
+      await verifyRealPathOfExistingPath(path.dirname(newfullpath), appVolumePath[0].mount);
+
+      // Allow renaming symlinks directly (mv renames the link itself, not the target).
+      // For non-symlink targets, enforce full real path containment.
+      let isSymbolicLink = false;
+      try {
+        const stats = await fs.lstat(oldfullpath);
+        isSymbolicLink = stats.isSymbolicLink();
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          throw error;
+        }
+      }
+      if (!isSymbolicLink) {
+        await verifyRealPath(oldfullpath, appVolumePath[0].mount);
+      }
       const mvResult = await serviceHelper.runCommand('mv', { runAsRoot: true, params: ['-T', oldfullpath, newfullpath] });
       if (mvResult.error) {
         throw mvResult.error;
@@ -163,6 +179,9 @@ async function removeAppsObject(req, res) {
       } else {
         throw new Error('Application volume not found');
       }
+      // Verify parent directories resolve within the allowed base directory to prevent symlink escapes.
+      await verifyRealPathOfExistingPath(path.dirname(filepath), appVolumePath[0].mount);
+
       // Allow removing symlinks directly (rm removes the link itself, not the target).
       // For non-symlink targets (or symlinks in parent components), enforce real path containment.
       let isSymbolicLink = false;

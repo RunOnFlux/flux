@@ -243,13 +243,22 @@ function sanitizePath(userPath, basePath, options = {}) {
  */
 async function verifyRealPath(targetPath, basePath) {
   const normalizedBase = path.resolve(basePath);
+  let realBasePath = normalizedBase;
+  try {
+    // Base directory itself may be a symlink (e.g., mount paths). Resolve it so comparisons are accurate.
+    realBasePath = await fs.promises.realpath(normalizedBase);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
 
   try {
     // Get the real path after resolving all symlinks
     const realPath = await fs.promises.realpath(targetPath);
 
     // Check if the real path is within the base directory
-    if (realPath !== normalizedBase && !realPath.startsWith(normalizedBase + path.sep)) {
+    if (realPath !== realBasePath && !realPath.startsWith(realBasePath + path.sep)) {
       throw new Error('Symlink escape: real path is outside allowed directory');
     }
 
@@ -322,11 +331,19 @@ async function verifyRealPathOfExistingPath(targetPath, basePath) {
  */
 function verifyRealPathSync(targetPath, basePath) {
   const normalizedBase = path.resolve(basePath);
+  let realBasePath = normalizedBase;
+  try {
+    realBasePath = fs.realpathSync(normalizedBase);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
 
   try {
     const realPath = fs.realpathSync(targetPath);
 
-    if (realPath !== normalizedBase && !realPath.startsWith(normalizedBase + path.sep)) {
+    if (realPath !== realBasePath && !realPath.startsWith(realBasePath + path.sep)) {
       throw new Error('Symlink escape: real path is outside allowed directory');
     }
 
