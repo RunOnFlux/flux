@@ -296,10 +296,20 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
           const registryManager = require('../appDatabase/registryManager');
           // eslint-disable-next-line no-await-in-loop
           const existingSpec = await registryManager.getApplicationGlobalSpecifications(appSpec.name);
-          if (existingSpec && isExpireOnlyUpdate(appSpec, existingSpec)) {
-            log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
-            isValidSignature = true;
-            break;
+          if (existingSpec) {
+            // For v8+ enterprise apps, we need to decrypt the new spec before comparing
+            let newSpecToCompare = appSpec;
+            if (appSpec.version >= 8 && appSpec.enterprise) {
+              // eslint-disable-next-line global-require
+              const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+              // eslint-disable-next-line no-await-in-loop
+              newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: existingSpec.owner });
+            }
+            if (isExpireOnlyUpdate(newSpecToCompare, existingSpec)) {
+              log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
+              isValidSignature = true;
+              break;
+            }
           }
         }
       }
