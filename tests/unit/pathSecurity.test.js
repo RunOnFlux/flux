@@ -12,6 +12,7 @@ const {
   validatePathAllowlist,
   isValidPathComponent,
   verifyRealPath,
+  verifyRealPathOfExistingPath,
   verifyRealPathSync,
   sanitizeAndVerifyPath,
   rejectBackslashes,
@@ -287,6 +288,62 @@ describe('pathSecurity', () => {
         // If symlink creation fails (e.g., permissions), skip this test assertion
         if (err.code !== 'EPERM' && err.code !== 'EACCES') {
           throw err;
+        }
+      }
+    });
+
+    it('should allow targets under a symlinked base directory', async () => {
+      const realBase = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-realbase-'));
+      const linkParent = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-linkparent-'));
+      const baseLink = path.join(linkParent, 'base-link');
+      try {
+        await fs.symlink(realBase, baseLink);
+        await fs.mkdir(path.join(realBase, 'subdir'));
+        const result = await verifyRealPath(path.join(baseLink, 'subdir'), baseLink);
+        expect(result).to.equal(path.join(realBase, 'subdir'));
+      } catch (err) {
+        // If symlink creation fails (e.g., permissions), skip this test assertion
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') {
+          throw err;
+        }
+      } finally {
+        await fs.rm(realBase, { recursive: true, force: true });
+        await fs.rm(linkParent, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('verifyRealPathOfExistingPath', () => {
+    let tempDir;
+
+    before(async () => {
+      // Create a temporary directory for testing
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pathsec-existing-test-'));
+      await fs.mkdir(path.join(tempDir, 'subdir'));
+    });
+
+    after(async () => {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('should not throw when creating under an existing directory within base', async () => {
+      await expect(verifyRealPathOfExistingPath(path.join(tempDir, 'subdir', 'newdir'), tempDir)).to.be.fulfilled;
+    });
+
+    it('should throw when an existing parent is a symlink that escapes the base', async () => {
+      const symlinkPath = path.join(tempDir, 'escape-link');
+      try {
+        await fs.symlink('/etc', symlinkPath);
+        await expect(verifyRealPathOfExistingPath(path.join(symlinkPath, 'newdir'), tempDir)).to.be.rejectedWith('Symlink escape');
+      } catch (err) {
+        if (err.code !== 'EPERM' && err.code !== 'EACCES') {
+          throw err;
+        }
+      } finally {
+        try {
+          await fs.unlink(symlinkPath);
+        } catch (e) {
+          // ignore cleanup failures
         }
       }
     });

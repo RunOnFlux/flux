@@ -243,13 +243,22 @@ function sanitizePath(userPath, basePath, options = {}) {
  */
 async function verifyRealPath(targetPath, basePath) {
   const normalizedBase = path.resolve(basePath);
+  let realBasePath = normalizedBase;
+  try {
+    // Base directory itself may be a symlink (e.g., mount paths). Resolve it so comparisons are accurate.
+    realBasePath = await fs.promises.realpath(normalizedBase);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
 
   try {
     // Get the real path after resolving all symlinks
     const realPath = await fs.promises.realpath(targetPath);
 
     // Check if the real path is within the base directory
-    if (realPath !== normalizedBase && !realPath.startsWith(normalizedBase + path.sep)) {
+    if (realPath !== realBasePath && !realPath.startsWith(realBasePath + path.sep)) {
       throw new Error('Symlink escape: real path is outside allowed directory');
     }
 
@@ -265,6 +274,54 @@ async function verifyRealPath(targetPath, basePath) {
 }
 
 /**
+ * Verify that the deepest existing portion of a (sanitized) path resolves within the allowed base.
+ *
+ * This is intended for operations that may CREATE files/folders, where `targetPath`
+ * may not exist yet. In that case, `verifyRealPath()` cannot resolve symlinks and will
+ * allow the path through. By walking up until we find an existing ancestor and verifying
+ * that ancestor's real path, we ensure existing symlinks in any parent component cannot
+ * cause the resolved path to escape the allowed base directory.
+ *
+ * @param {string} targetPath - The target path to verify (should already be sanitized)
+ * @param {string} basePath - The allowed base directory
+ * @returns {Promise<string>} The verified real path of the deepest existing portion
+ * @throws {Error} If the resolved path escapes the base directory
+ */
+async function verifyRealPathOfExistingPath(targetPath, basePath) {
+  const normalizedBase = path.resolve(basePath);
+  let currentPath = path.resolve(targetPath);
+
+  // Walk up until we find an existing ancestor (or reach the base)
+  while (true) {
+    const relativePath = path.relative(normalizedBase, currentPath);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      throw new Error('Invalid path: access outside allowed directory denied');
+    }
+
+    try {
+      await fs.promises.lstat(currentPath);
+      break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        throw error;
+      }
+
+      if (currentPath === normalizedBase) {
+        break;
+      }
+
+      const parentPath = path.dirname(currentPath);
+      if (parentPath === currentPath) {
+        break;
+      }
+      currentPath = parentPath;
+    }
+  }
+
+  return verifyRealPath(currentPath, basePath);
+}
+
+/**
  * Synchronous version of verifyRealPath.
  *
  * @param {string} targetPath - The path to verify
@@ -274,11 +331,19 @@ async function verifyRealPath(targetPath, basePath) {
  */
 function verifyRealPathSync(targetPath, basePath) {
   const normalizedBase = path.resolve(basePath);
+  let realBasePath = normalizedBase;
+  try {
+    realBasePath = fs.realpathSync(normalizedBase);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
 
   try {
     const realPath = fs.realpathSync(targetPath);
 
-    if (realPath !== normalizedBase && !realPath.startsWith(normalizedBase + path.sep)) {
+    if (realPath !== realBasePath && !realPath.startsWith(realBasePath + path.sep)) {
       throw new Error('Symlink escape: real path is outside allowed directory');
     }
 
@@ -354,6 +419,7 @@ module.exports = {
   validatePathBasic,
   isValidPathComponent,
   verifyRealPath,
+  verifyRealPathOfExistingPath,
   verifyRealPathSync,
   sanitizeAndVerifyPath,
   rejectBackslashes,

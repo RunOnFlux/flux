@@ -45,6 +45,7 @@ describe('fileSystemManager tests', () => {
         return `${basePath}/${userPath}`;
       }),
       verifyRealPath: sinon.stub().resolves(),
+      verifyRealPathOfExistingPath: sinon.stub().resolves(),
     };
 
     // Proxy require with mocked dependencies
@@ -81,6 +82,7 @@ describe('fileSystemManager tests', () => {
 
       expect(res.json.calledOnce).to.be.true;
       expect(verificationHelperStub.verifyPrivilege.calledWith('appownerabove', req, 'testapp')).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.calledOnceWithExactly('/mnt/testapp/testfolder', '/mnt/testapp')).to.be.true;
       expect(serviceHelperStub.runCommand.calledOnceWithExactly('mkdir', {
         runAsRoot: true,
         params: ['/mnt/testapp/testfolder'],
@@ -166,11 +168,45 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.renameAppsObject(req, res);
 
       expect(res.json.calledOnce).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.calledTwice).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.firstCall.calledWithExactly('/mnt/testapp', '/mnt/testapp')).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.secondCall.calledWithExactly('/mnt/testapp', '/mnt/testapp')).to.be.true;
+      expect(pathSecurityStub.verifyRealPath.calledOnceWithExactly('/mnt/testapp/oldname', '/mnt/testapp')).to.be.true;
       expect(serviceHelperStub.runCommand.calledOnceWithExactly('mv', {
         runAsRoot: true,
         params: ['-T', '/mnt/testapp/oldname', '/mnt/testapp/newname'],
       })).to.be.true;
       expect(messageHelperStub.createSuccessMessage.calledWith('Rename successful')).to.be.true;
+    });
+
+    it('should rename symlink without resolving its target', async () => {
+      const req = {
+        params: {
+          appname: 'testapp', oldpath: 'oldname', newname: 'newname', component: 'testcomp',
+        },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+      };
+
+      verificationHelperStub.verifyPrivilege.resolves(true);
+      IOUtilsStub.getVolumeInfo.resolves([{ mount: '/mnt/testapp' }]);
+      serviceHelperStub.runCommand.resolves({});
+      messageHelperStub.createSuccessMessage.returns({ status: 'success', data: { message: 'Rename successful' } });
+
+      const fsPromises = require('fs').promises;
+      sinon.stub(fsPromises, 'lstat').resolves({ isSymbolicLink: () => true });
+
+      await fileSystemManager.renameAppsObject(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.calledTwice).to.be.true;
+      expect(pathSecurityStub.verifyRealPath.notCalled).to.be.true;
+      expect(serviceHelperStub.runCommand.calledOnceWithExactly('mv', {
+        runAsRoot: true,
+        params: ['-T', '/mnt/testapp/oldname', '/mnt/testapp/newname'],
+      })).to.be.true;
     });
 
     it('should deny unauthorized access', async () => {
@@ -255,11 +291,41 @@ describe('fileSystemManager tests', () => {
       await fileSystemManager.removeAppsObject(req, res);
 
       expect(res.json.calledOnce).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.calledTwice).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.firstCall.calledWithExactly('/mnt/testapp', '/mnt/testapp')).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.secondCall.calledWithExactly('/mnt/testapp/testfile', '/mnt/testapp')).to.be.true;
       expect(serviceHelperStub.runCommand.calledOnceWithExactly('rm', {
         runAsRoot: true,
         params: ['-rf', '/mnt/testapp/testfile'],
       })).to.be.true;
       expect(messageHelperStub.createSuccessMessage.calledWith('File Removed')).to.be.true;
+    });
+
+    it('should skip target realpath check when removing symlink', async () => {
+      const req = {
+        params: { appname: 'testapp', object: 'testlink', component: 'testcomp' },
+        query: {},
+      };
+      const res = {
+        json: sinon.stub(),
+      };
+
+      verificationHelperStub.verifyPrivilege.resolves(true);
+      IOUtilsStub.getVolumeInfo.resolves([{ mount: '/mnt/testapp' }]);
+      serviceHelperStub.runCommand.resolves({});
+      messageHelperStub.createSuccessMessage.returns({ status: 'success', data: { message: 'File Removed' } });
+
+      const fsPromises = require('fs').promises;
+      sinon.stub(fsPromises, 'lstat').resolves({ isSymbolicLink: () => true });
+
+      await fileSystemManager.removeAppsObject(req, res);
+
+      expect(res.json.calledOnce).to.be.true;
+      expect(pathSecurityStub.verifyRealPathOfExistingPath.calledOnceWithExactly('/mnt/testapp', '/mnt/testapp')).to.be.true;
+      expect(serviceHelperStub.runCommand.calledOnceWithExactly('rm', {
+        runAsRoot: true,
+        params: ['-rf', '/mnt/testapp/testlink'],
+      })).to.be.true;
     });
 
     it('should deny unauthorized access', async () => {
