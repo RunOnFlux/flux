@@ -167,6 +167,33 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
 }
 
 /**
+ * Check if app update only changes the expire property
+ * @param {object} newSpec - New app specifications
+ * @param {object} existingSpec - Existing app specifications
+ * @returns {boolean} True if only expire property is changed
+ */
+function isExpireOnlyUpdate(newSpec, existingSpec) {
+  if (!existingSpec || !newSpec) {
+    return false;
+  }
+
+  // Create copies to compare without expire
+  const newCopy = JSON.parse(JSON.stringify(newSpec));
+  const existingCopy = JSON.parse(JSON.stringify(existingSpec));
+
+  // Remove expire from both (and height/hash which are added by system)
+  delete newCopy.expire;
+  delete existingCopy.expire;
+  delete newCopy.height;
+  delete existingCopy.height;
+  delete newCopy.hash;
+  delete existingCopy.hash;
+
+  // Compare the rest - must be identical
+  return JSON.stringify(newCopy) === JSON.stringify(existingCopy);
+}
+
+/**
  * Verify app message update signature
  * @param {string} type - Message type
  * @param {number} version - Message version
@@ -254,6 +281,31 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     // we can just use the btc / eth verifier as v7 specs came out at 1688749251
     isValidSignature = signatureVerifier.verifySignature(messageToVerifyC, appOwner, signature);
   }
+
+  // Check if usersToExtend can sign this update (only for expire-only changes)
+  if (isValidSignature !== true) {
+    const usersToExtend = config.fluxapps.usersToExtend || [];
+    if (usersToExtend.length > 0) {
+      // Check if signature matches any of the usersToExtend addresses
+      // eslint-disable-next-line no-restricted-syntax
+      for (const userToExtend of usersToExtend) {
+        const isValidUserToExtendSignature = signatureVerifier.verifySignature(messageToVerify, userToExtend, signature);
+        if (isValidUserToExtendSignature === true) {
+          // Verify this is an expire-only update by fetching existing app specs
+          // eslint-disable-next-line global-require
+          const registryManager = require('../appDatabase/registryManager');
+          // eslint-disable-next-line no-await-in-loop
+          const existingSpec = await registryManager.getApplicationGlobalSpecifications(appSpec.name);
+          if (existingSpec && isExpireOnlyUpdate(appSpec, existingSpec)) {
+            log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
+            isValidSignature = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
   if (isValidSignature !== true) {
     log.debug(`${messageToVerify}, ${appOwner}, ${signature}`);
     const errorMessage = isValidSignature === false ? 'Received signature does not correspond with Flux App owner or Flux App specifications are not properly formatted' : isValidSignature;
@@ -896,6 +948,7 @@ module.exports = {
   verifyAppHash,
   verifyAppMessageSignature,
   verifyAppMessageUpdateSignature,
+  isExpireOnlyUpdate,
   requestAppMessage,
   requestAppsMessage,
   requestAppMessageAPI,
