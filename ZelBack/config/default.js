@@ -22,6 +22,8 @@ module.exports = {
         activeSignatures: 'activesignatures',
         activePaymentRequests: 'activepaymentrequests',
         completedPayments: 'completedpayments',
+        geolocation: 'geolocation',
+        benchmark: 'benchmark',
       },
     },
     daemon: {
