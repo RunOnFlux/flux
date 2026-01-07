@@ -134,9 +134,9 @@ async function setNodeGeolocation() {
     // Store geolocation to database for persistence across restarts
     await storeGeolocationToDb(storedGeolocation, staticIp);
     execution += 1;
-    setTimeout(() => { // executes again in 24h
+    setTimeout(() => { // executes again in 3 days
       setNodeGeolocation();
-    }, 24 * 60 * 60 * 1000);
+    }, 3 * 24 * 60 * 60 * 1000);
   } catch (error) {
     log.error(`Failed to get Geolocation with ${error}`);
     log.error(error);
