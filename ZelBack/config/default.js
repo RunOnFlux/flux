@@ -84,7 +84,7 @@ module.exports = {
     zmqport: 16123,
   },
   minimumFluxBenchAllowedVersion: '5.0.0',
-  minimumFluxOSAllowedVersion: '5.43.0',
+  minimumFluxOSAllowedVersion: '8.0.0',
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',

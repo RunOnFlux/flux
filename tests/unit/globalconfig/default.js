@@ -79,7 +79,7 @@ module.exports = {
     rpcporttestnet: 26124,
   },
   minimumFluxBenchAllowedVersion: '5.0.0',
-  minimumFluxOSAllowedVersion: '5.43.0',
+  minimumFluxOSAllowedVersion: '8.0.0',
   minimumSyncthingAllowedVersion: '1.27.6',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1NH9BP155Rp3HSf5ef6NpUbE8JcyLRruAM',
