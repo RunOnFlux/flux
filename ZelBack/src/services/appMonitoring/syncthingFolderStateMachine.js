@@ -120,31 +120,6 @@ async function verifyFolderMountSafety(appId, folderPath) {
 }
 
 /**
- * Fix permissions on all mount directories for containers
- * Critical for synced data that may have wrong ownership
- * Fixes permissions on appdata and all additional mount points
- * @param {string} appId - App ID
- * @returns {Promise<void>}
- */
-async function fixAppdataPermissions(appId) {
-  try {
-    // Fix permissions on entire app directory to cover appdata and all additional mounts
-    // (appdata, logs, config, file mounts, etc.)
-    const appPath = `${appsFolder}${appId}`;
-
-    // Recursively set 777 permissions to allow any container user to write
-    // This ensures containers running as any UID/GID can access their data
-    // Covers both appdata (primary mount) and all additional mounts at the same level
-    const fixPermissions = `sudo chmod -R 777 ${appPath}`;
-    await cmdAsync(fixPermissions);
-    log.info(`fixAppdataPermissions - Fixed permissions on ${appPath} (includes appdata and all mount points)`);
-  } catch (error) {
-    log.warn(`fixAppdataPermissions - Could not fix permissions for ${appId}: ${error.message}`);
-    // Continue anyway - container might still work
-  }
-}
-
-/**
  * Helper function to get Syncthing folder sync completion status
  * @param {string} folderId - The Syncthing folder ID
  * @returns {Promise<Object|null>} Sync status object or null if unavailable
@@ -442,9 +417,6 @@ async function handleReceiveOnlyTransition(params) {
   if (isLeader) {
     log.info(`handleReceiveOnlyTransition - ${appId} is the designated leader (elected from ${runningAppList.length} peers), starting immediately`);
 
-    // Fix permissions before changing to sendreceive - ensures correct ownership for synced data
-    await fixAppdataPermissions(appId);
-
     syncthingFolder.type = 'sendreceive';
 
     if (containerDataFlags.includes('r')) {
@@ -516,9 +488,6 @@ async function handleReceiveOnlyTransition(params) {
         log.warn(`handleReceiveOnlyTransition - ${appId} reached max wait time (${MAX_SYNC_WAIT_EXECUTIONS} executions), forcing start`);
       }
 
-      // Fix permissions before changing to sendreceive - critical for synced data
-      await fixAppdataPermissions(appId);
-
       syncthingFolder.type = 'sendreceive';
       if (containerDataFlags.includes('r')) {
         log.info(`handleReceiveOnlyTransition - starting ${appId}`);
@@ -583,9 +552,6 @@ async function handleReceiveOnlyTransition(params) {
 
     if (cache.numberOfExecutions >= numberOfExecutionsRequired) {
       log.info(`handleReceiveOnlyTransition - ${appId} reached required executions, switching to sendreceive`);
-
-      // Fix permissions before changing to sendreceive - critical for synced data
-      await fixAppdataPermissions(appId);
 
       syncthingFolder.type = 'sendreceive';
 

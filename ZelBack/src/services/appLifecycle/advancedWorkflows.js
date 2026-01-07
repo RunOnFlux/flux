@@ -2026,32 +2026,6 @@ async function changeSyncthingFolderType(folderId, folderType) {
 }
 
 /**
- * Helper function to apply permissions fix on persistent container data
- * Fixes permissions on appdata and all additional mount points
- * @param {string} appId - Application ID
- * @returns {Promise<boolean>} - true if successful, false otherwise
- */
-async function applyPermissionsFix(appId) {
-  try {
-    // Fix permissions on entire app directory to cover appdata and all additional mounts
-    const appPath = `${appsFolder}${appId}`;
-
-    log.info(`Applying permissions fix for app: ${appId}`);
-
-    // Apply 777 permissions to entire app directory recursively
-    // This covers both appdata (primary mount) and all additional mounts at the same level
-    const execPERM = `sudo chmod -R 777 ${appPath}`;
-    await cmdAsync(execPERM);
-
-    log.info(`Successfully applied permissions fix for app: ${appId} (includes appdata and all mount points)`);
-    return true;
-  } catch (error) {
-    log.error(`Error applying permissions fix for ${appId}: ${error.message}`);
-    return false;
-  }
-}
-
-/**
  * Helper function to start app docker containers
  * @param {string} appname - App name
  * @returns {Promise<void>}
@@ -2193,47 +2167,29 @@ async function appDockerRestart(appname) {
 }
 
 /**
- * Helper function to restart app with permissions fix workflow for new primary
- * This is specifically for g: mode apps becoming primary
+ * Helper function to restart app for g: mode apps becoming primary
+ * Ensures syncthing folder is in sendreceive mode before starting
  * @param {string} appname - App name
  * @param {string} appId - Application ID for syncthing folder
  * @returns {Promise<void>}
  */
 async function appDockerRestartWithPermissionsFix(appname, appId) {
   try {
-    log.info(`Starting app ${appname} with permissions fix workflow (new primary)`);
+    log.info(`Starting app ${appname} as new primary`);
 
-    // Step 1: Move syncthing folder to receiveonly
-    log.info(`Step 1: Moving syncthing folder to receiveonly for ${appname}`);
-    const toReceiveOnly = await changeSyncthingFolderType(appId, 'receiveonly');
-    if (!toReceiveOnly) {
-      log.warn(`Failed to change syncthing folder to receiveonly for ${appname}, continuing anyway...`);
-    }
-
-    // Step 2: Apply permissions fix on persistent container data
-    log.info(`Step 2: Applying permissions fix for ${appname}`);
-    const permissionsApplied = await applyPermissionsFix(appId);
-    if (!permissionsApplied) {
-      log.error(`Failed to apply permissions fix for ${appname}, aborting container start`);
-      return;
-    }
-
-    // Step 3: Move syncthing folder back to sendreceive
-    log.info(`Step 3: Moving syncthing folder to sendreceive for ${appname}`);
+    // Ensure syncthing folder is in sendreceive mode
     const toSendReceive = await changeSyncthingFolderType(appId, 'sendreceive');
     if (!toSendReceive) {
       log.error(`Failed to change syncthing folder to sendreceive for ${appname}, aborting container start - cannot become primary without sendreceive mode`);
       return;
     }
 
-    // Step 4: Start the container
-    log.info(`Step 4: Starting container for ${appname}`);
+    // Start the container
     await appDockerRestart(appname);
 
-    log.info(`Successfully completed permissions fix workflow for ${appname}`);
+    log.info(`Successfully started ${appname} as primary`);
   } catch (error) {
-    log.error(`Error in appDockerRestartWithPermissionsFix for ${appname}: ${error.message}`);
-    // Do not start the app if there was an error in the workflow
+    log.error(`Error starting ${appname} as primary: ${error.message}`);
   }
 }
 
