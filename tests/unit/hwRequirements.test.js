@@ -197,17 +197,17 @@ describe('hwRequirements tests', () => {
   });
 
   describe('checkAppGeolocationRequirements', () => {
-    it('should pass when app has no geolocation restrictions', () => {
+    it('should pass when app has no geolocation restrictions', async () => {
       const appSpecs = {
         name: 'testapp',
         geolocation: [],
       };
 
       // Should not throw
-      hwRequirements.checkAppGeolocationRequirements(appSpecs);
+      await hwRequirements.checkAppGeolocationRequirements(appSpecs);
     });
 
-    it('should throw if geolocation returns undefined', () => {
+    it('should throw if geolocation returns undefined', async () => {
       const hwRequirementsWithUndefinedGeo = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
         '../serviceHelper': serviceHelperStub,
         '../benchmarkService': {
@@ -225,7 +225,7 @@ describe('hwRequirements tests', () => {
         },
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
-          getNodeGeolocation: sinon.stub().returns(undefined),
+          getNodeGeolocation: sinon.stub().resolves(undefined),
         },
         '../fluxNetworkHelper': {
           getFluxNodeCount: sinon.stub().resolves(1000),
@@ -263,20 +263,25 @@ describe('hwRequirements tests', () => {
         geolocation: ['acEU'],
       };
 
-      expect(() => hwRequirementsWithUndefinedGeo.checkAppGeolocationRequirements(appSpec)).to.throw();
+      try {
+        await hwRequirementsWithUndefinedGeo.checkAppGeolocationRequirements(appSpec);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error).to.exist;
+      }
     });
 
-    it('should return true if app ver < 5', () => {
+    it('should return true if app ver < 5', async () => {
       const appSpec = {
         version: 4,
       };
 
-      const result = hwRequirements.checkAppGeolocationRequirements(appSpec);
+      const result = await hwRequirements.checkAppGeolocationRequirements(appSpec);
 
       expect(result).to.equal(true);
     });
 
-    it('should return true if geolocation matches', () => {
+    it('should return true if geolocation matches', async () => {
       const hwRequirementsWithMatchingGeo = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
         '../serviceHelper': serviceHelperStub,
         '../benchmarkService': {
@@ -294,7 +299,7 @@ describe('hwRequirements tests', () => {
         },
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
-          getNodeGeolocation: sinon.stub().returns({
+          getNodeGeolocation: sinon.stub().resolves({
             continentCode: 'EU',
             countryCode: 'CZ',
             regionName: 'PRG',
@@ -336,12 +341,12 @@ describe('hwRequirements tests', () => {
         geolocation: ['acEU_CZ_PRG'],
       };
 
-      const result = hwRequirementsWithMatchingGeo.checkAppGeolocationRequirements(appSpec);
+      const result = await hwRequirementsWithMatchingGeo.checkAppGeolocationRequirements(appSpec);
 
       expect(result).to.equal(true);
     });
 
-    it('should throw if geolocation is forbidden', () => {
+    it('should throw if geolocation is forbidden', async () => {
       const hwRequirementsWithForbiddenGeo = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
         '../serviceHelper': serviceHelperStub,
         '../benchmarkService': {
@@ -359,7 +364,7 @@ describe('hwRequirements tests', () => {
         },
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
-          getNodeGeolocation: sinon.stub().returns({
+          getNodeGeolocation: sinon.stub().resolves({
             continentCode: 'EU',
             countryCode: 'CZ',
             regionName: 'PRG',
@@ -401,10 +406,15 @@ describe('hwRequirements tests', () => {
         geolocation: ['a!cEU_CZ_PRG'],
       };
 
-      expect(() => hwRequirementsWithForbiddenGeo.checkAppGeolocationRequirements(appSpec)).to.throw();
+      try {
+        await hwRequirementsWithForbiddenGeo.checkAppGeolocationRequirements(appSpec);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error).to.exist;
+      }
     });
 
-    it('should throw if geolocation is not matching', () => {
+    it('should throw if geolocation is not matching', async () => {
       const hwRequirementsWithNonMatchingGeo = proxyquire('../../ZelBack/src/services/appRequirements/hwRequirements', {
         '../serviceHelper': serviceHelperStub,
         '../benchmarkService': {
@@ -422,7 +432,7 @@ describe('hwRequirements tests', () => {
         },
         '../geolocationService': {
           isStaticIP: sinon.stub().returns(true),
-          getNodeGeolocation: sinon.stub().returns({
+          getNodeGeolocation: sinon.stub().resolves({
             continentCode: 'EU',
             countryCode: 'CZ',
             regionName: 'PRG',
@@ -464,7 +474,12 @@ describe('hwRequirements tests', () => {
         geolocation: ['acEU_PL_GDA'],
       };
 
-      expect(() => hwRequirementsWithNonMatchingGeo.checkAppGeolocationRequirements(appSpec)).to.throw();
+      try {
+        await hwRequirementsWithNonMatchingGeo.checkAppGeolocationRequirements(appSpec);
+        expect.fail('Should have thrown error');
+      } catch (error) {
+        expect(error).to.exist;
+      }
     });
   });
 

@@ -320,88 +320,88 @@ describe('systemIntegration tests', () => {
   });
 
   describe('checkAppGeolocationRequirements tests', () => {
-    it('should pass if no geolocation requirements', () => {
+    it('should pass if no geolocation requirements', async () => {
       const appSpecs = { name: 'TestApp', version: 4, geolocation: [] };
 
-      const result = systemIntegration.checkAppGeolocationRequirements(appSpecs);
+      const result = await systemIntegration.checkAppGeolocationRequirements(appSpecs);
 
       expect(result).to.be.true;
     });
 
-    it('should pass if node matches continent requirement', () => {
+    it('should pass if node matches continent requirement', async () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['acEU'] };
       // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns({
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves({
         continentCode: 'EU',
         countryCode: 'FR',
         regionName: 'Paris',
       });
 
-      const result = systemIntegration.checkAppGeolocationRequirements(appSpecs);
+      const result = await systemIntegration.checkAppGeolocationRequirements(appSpecs);
 
       expect(result).to.be.true;
     });
 
-    it('should pass if node matches country requirement', () => {
+    it('should pass if node matches country requirement', async () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['acEU_FR'] };
       // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns({
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves({
         continentCode: 'EU',
         countryCode: 'FR',
         regionName: 'Paris',
       });
 
-      const result = systemIntegration.checkAppGeolocationRequirements(appSpecs);
+      const result = await systemIntegration.checkAppGeolocationRequirements(appSpecs);
 
       expect(result).to.be.true;
     });
 
-    it('should throw error if continent mismatch', () => {
+    it('should throw error if continent mismatch', async () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['acNA'] };
       // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns({
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves({
         continentCode: 'EU',
         countryCode: 'FR',
         regionName: 'Paris',
       });
 
       try {
-        systemIntegration.checkAppGeolocationRequirements(appSpecs);
+        await systemIntegration.checkAppGeolocationRequirements(appSpecs);
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('geolocation');
       }
     });
 
-    it('should throw error if node location is forbidden', () => {
+    it('should throw error if node location is forbidden', async () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['a!cEU'] };
       // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns({
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves({
         continentCode: 'EU',
         countryCode: 'FR',
         regionName: 'Paris',
       });
 
       try {
-        systemIntegration.checkAppGeolocationRequirements(appSpecs);
+        await systemIntegration.checkAppGeolocationRequirements(appSpecs);
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('forbidden');
       }
     });
 
-    it('should throw error if node geolocation not set', () => {
+    it('should throw error if node geolocation not set', async () => {
       const appSpecs = { name: 'TestApp', version: 5, geolocation: ['acEU'] };
       // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns(null);
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves(null);
 
       try {
-        systemIntegration.checkAppGeolocationRequirements(appSpecs);
+        await systemIntegration.checkAppGeolocationRequirements(appSpecs);
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('Node Geolocation not set');
@@ -410,27 +410,27 @@ describe('systemIntegration tests', () => {
   });
 
   describe('nodeFullGeolocation tests', () => {
-    it('should return full geolocation string', () => {
+    it('should return full geolocation string', async () => {
       // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns({
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves({
         continentCode: 'EU',
         countryCode: 'FR',
         regionName: 'IleDeFrance',
       });
 
-      const result = systemIntegration.nodeFullGeolocation();
+      const result = await systemIntegration.nodeFullGeolocation();
 
       expect(result).to.equal('EU_FR_IleDeFrance');
     });
 
-    it('should throw error if geolocation not set', () => {
+    it('should throw error if geolocation not set', async () => {
       // eslint-disable-next-line global-require
       const geolocationService = require('../../ZelBack/src/services/geolocationService');
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns(null);
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves(null);
 
       try {
-        systemIntegration.nodeFullGeolocation();
+        await systemIntegration.nodeFullGeolocation();
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('Node Geolocation not set');
