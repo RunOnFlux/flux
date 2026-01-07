@@ -878,6 +878,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
   const options = {
     Image: appSpecifications.repotag,
     name: getAppIdentifier(identifier),
+    User: '0:0', // Run as root to prevent UID mismatch permission issues on bind mounts
     Hostname: appSpecifications.name,
     AttachStdin: true,
     AttachStdout: true,
