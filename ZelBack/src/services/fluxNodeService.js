@@ -12,6 +12,7 @@ const geolocationService = require('./geolocationService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const generalService = require('./generalService');
 const dockerService = require('./dockerService');
+const benchmarkService = require('./benchmarkService');
 
 const express = require('express');
 
@@ -41,6 +42,22 @@ async function getHostInfo(req, res) {
         }
       } else {
         throw new Error('Host IP information not available at the moment');
+      }
+
+      const benchmarkResponse = await benchmarkService.getBenchmarks();
+      if (benchmarkResponse.status === 'success' && benchmarkResponse.data) {
+        const benchData = benchmarkResponse.data;
+        hostInfo.benchmark = {
+          vcores: benchData.cores,
+          ram: benchData.ram,
+          disk: benchData.disk,
+          diskwritespeed: benchData.diskwritespeed,
+          eps: benchData.eps,
+          download_speed: benchData.download_speed,
+          upload_speed: benchData.upload_speed,
+        };
+      } else {
+        throw new Error('Benchmark information is not available at the moment');
       }
 
       const message = messageHelper.createDataMessage(hostInfo);
