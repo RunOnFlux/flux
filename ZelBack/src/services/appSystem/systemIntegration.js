@@ -140,12 +140,12 @@ async function checkAppNodesRequirements(appSpecs) {
  * @param {object} appSpecs App specifications.
  * @returns {boolean} True if all checks passed.
  */
-function checkAppGeolocationRequirements(appSpecs) {
+async function checkAppGeolocationRequirements(appSpecs) {
   if (appSpecs.version >= 5 && appSpecs.geolocation && appSpecs.geolocation.length > 0) {
     // Import locally to avoid circular dependency
     // eslint-disable-next-line global-require
     const geolocationService = require('../geolocationService');
-    const nodeGeo = geolocationService.getNodeGeolocation();
+    const nodeGeo = await geolocationService.getNodeGeolocation();
     if (!nodeGeo) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
@@ -191,13 +191,13 @@ function checkAppGeolocationRequirements(appSpecs) {
 
 /**
  * Get full node geolocation string
- * @returns {string} Full geolocation string
+ * @returns {Promise<string>} Full geolocation string
  */
-function nodeFullGeolocation() {
+async function nodeFullGeolocation() {
   // Import locally to avoid circular dependency
   // eslint-disable-next-line global-require
   const geolocationService = require('../geolocationService');
-  const nodeGeo = geolocationService.getNodeGeolocation();
+  const nodeGeo = await geolocationService.getNodeGeolocation();
   if (!nodeGeo) {
     throw new Error('Node Geolocation not set. Aborting.');
   }
@@ -266,7 +266,7 @@ async function checkAppRequirements(appSpecs) {
   // check geolocation
   checkAppStaticIpRequirements(appSpecs);
   await checkAppNodesRequirements(appSpecs);
-  checkAppGeolocationRequirements(appSpecs);
+  await checkAppGeolocationRequirements(appSpecs);
   return true;
 }
 

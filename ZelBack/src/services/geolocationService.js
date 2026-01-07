@@ -1,12 +1,68 @@
+const config = require('config');
 const log = require('../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const serviceHelper = require('./serviceHelper');
+const dbHelper = require('./dbHelper');
+
+const geolocationCollection = 'geolocation';
 
 let storedGeolocation = null;
 let storedIp = null;
 let staticIp = false;
 let execution = 1;
 const staticIpOrgs = ['hetzner', 'ovh', 'netcup', 'hostnodes', 'contabo', 'hostslim', 'zayo', 'cogent', 'lumen'];
+
+/**
+ * Stores geolocation data to the database
+ * @param {object} geolocation - The geolocation data to store
+ * @param {boolean} isStaticIp - Whether the node has a static IP
+ */
+async function storeGeolocationToDb(geolocation, isStaticIp) {
+  try {
+    const dbClient = dbHelper.databaseConnection();
+    if (!dbClient) {
+      log.warn('Database connection not available for storing geolocation');
+      return;
+    }
+    const database = dbClient.db(config.database.local.database);
+    const query = { _id: 'nodeGeolocation' };
+    const update = {
+      $set: {
+        geolocation,
+        staticIp: isStaticIp,
+        updatedAt: Date.now(),
+      },
+    };
+    const options = { upsert: true };
+    await dbHelper.updateOneInDatabase(database, geolocationCollection, query, update, options);
+    log.info('Geolocation data stored to database');
+  } catch (error) {
+    log.error(`Failed to store geolocation to database: ${error.message}`);
+  }
+}
+
+/**
+ * Retrieves geolocation data from the database
+ * @returns {Promise<{geolocation: object|null, staticIp: boolean}>}
+ */
+async function getGeolocationFromDb() {
+  try {
+    const dbClient = dbHelper.databaseConnection();
+    if (!dbClient) {
+      return { geolocation: null, staticIp: false };
+    }
+    const database = dbClient.db(config.database.local.database);
+    const query = { _id: 'nodeGeolocation' };
+    const result = await dbHelper.findOneInDatabase(database, geolocationCollection, query);
+    if (result && result.geolocation) {
+      return { geolocation: result.geolocation, staticIp: result.staticIp || false };
+    }
+    return { geolocation: null, staticIp: false };
+  } catch (error) {
+    log.error(`Failed to retrieve geolocation from database: ${error.message}`);
+    return { geolocation: null, staticIp: false };
+  }
+}
 
 /**
  * Method responsable for setting node geolocation information
@@ -75,6 +131,8 @@ async function setNodeGeolocation() {
         }
       }
     }
+    // Store geolocation to database for persistence across restarts
+    await storeGeolocationToDb(storedGeolocation, staticIp);
     execution += 1;
     setTimeout(() => { // executes again in 24h
       setNodeGeolocation();
@@ -89,9 +147,21 @@ async function setNodeGeolocation() {
 }
 
 /**
- * Method responsible for getting stored node geolocation information
+ * Method responsible for getting stored node geolocation information.
+ * If not available in memory, attempts to retrieve from database.
+ * @returns {Promise<object|null>} The geolocation object or null
  */
-function getNodeGeolocation() {
+async function getNodeGeolocation() {
+  if (storedGeolocation) {
+    return storedGeolocation;
+  }
+  // Try to get from database if not in memory
+  const dbData = await getGeolocationFromDb();
+  if (dbData.geolocation) {
+    storedGeolocation = dbData.geolocation;
+    staticIp = dbData.staticIp;
+    log.info('Geolocation restored from database');
+  }
   return storedGeolocation;
 }
 

@@ -199,7 +199,7 @@ async function trySpawningGlobalApplication() {
       appsSyncthingToBeCheckedLater.splice(appSyncthingIndex, 1);
       appFromAppsSyncthingToBeCheckedLater = true;
     } else {
-      const myNodeLocation = systemIntegration.nodeFullGeolocation();
+      const myNodeLocation = await systemIntegration.nodeFullGeolocation();
 
       const runningApps = await appQueryService.listRunningApps();
       if (runningApps.status !== 'success') {

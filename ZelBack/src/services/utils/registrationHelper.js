@@ -24,7 +24,7 @@ async function registrationInformation(req, res) {
     }
 
     // Get node geolocation
-    const nodeGeo = geolocationService.getNodeGeolocation();
+    const nodeGeo = await geolocationService.getNodeGeolocation();
 
     // Get node specifications
     // eslint-disable-next-line global-require

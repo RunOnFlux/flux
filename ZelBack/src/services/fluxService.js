@@ -715,8 +715,8 @@ function isStaticIPapi(req, res) {
  * @param {object} res Response.
  * @returns {object} Message.
  */
-function getFluxGeolocation(req, res) {
-  const geo = geolocationService.getNodeGeolocation();
+async function getFluxGeolocation(req, res) {
+  const geo = await geolocationService.getNodeGeolocation();
   const message = messageHelper.createDataMessage(geo);
   return res ? res.json(message) : message;
 }
@@ -1202,7 +1202,7 @@ async function getFluxInfo(req, res) {
       benchmark: {},
       flux: {},
       apps: {},
-      geolocation: geolocationService.getNodeGeolocation(),
+      geolocation: await geolocationService.getNodeGeolocation(),
     };
     const versionRes = await getFluxVersion();
     if (versionRes.status === 'error') {

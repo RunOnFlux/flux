@@ -138,10 +138,10 @@ async function appPricePerMonth(dataForAppRegistration, height, suppliedPrices) 
 
 /**
  * Get node full geolocation
- * @returns {string} Full geolocation string
+ * @returns {Promise<string>} Full geolocation string
  */
-function nodeFullGeolocation() {
-  const nodeGeo = geolocationService.getNodeGeolocation();
+async function nodeFullGeolocation() {
+  const nodeGeo = await geolocationService.getNodeGeolocation();
   if (!nodeGeo) {
     throw new Error('Node Geolocation not set. Aborting.');
   }
