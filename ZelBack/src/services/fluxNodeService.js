@@ -44,9 +44,22 @@ async function getHostInfo(req, res) {
         throw new Error('Host IP information not available at the moment');
       }
 
+      const validTiers = ['CUMULUS', 'NIMBUS', 'STRATUS'];
+      let benchData = null;
+
       const benchmarkResponse = await benchmarkService.getBenchmarks();
-      if (benchmarkResponse.status === 'success' && benchmarkResponse.data) {
-        const benchData = benchmarkResponse.data;
+      if (benchmarkResponse.status === 'success' && benchmarkResponse.data && validTiers.includes(benchmarkResponse.data.status)) {
+        benchData = benchmarkResponse.data;
+      } else {
+        // Fallback to database if call failed or status is not a valid tier
+        log.info('Benchmark call failed or status not a valid tier, fetching from database');
+        const dbBenchmark = await benchmarkService.getBenchmarkFromDb();
+        if (dbBenchmark.benchmark) {
+          benchData = dbBenchmark.benchmark;
+        }
+      }
+
+      if (benchData) {
         hostInfo.benchmark = {
           vcores: benchData.cores,
           ram: benchData.ram,
