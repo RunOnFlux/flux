@@ -109,10 +109,10 @@ function totalAppHWRequirements(appSpecifications, myNodeTier) {
 
 /**
  * Get full node geolocation string
- * @returns {string} Full geolocation string
+ * @returns {Promise<string>} Full geolocation string
  */
-function nodeFullGeolocation() {
-  const nodeGeo = geolocationService.getNodeGeolocation();
+async function nodeFullGeolocation() {
+  const nodeGeo = await geolocationService.getNodeGeolocation();
   if (!nodeGeo) {
     throw new Error('Node Geolocation not set. Aborting.');
   }
@@ -137,11 +137,11 @@ function checkAppStaticIpRequirements(appSpecs) {
 /**
  * To check app requirements of geolocation restrictions for a node
  * @param {object} appSpecs App specifications.
- * @returns {boolean} True if all checks passed.
+ * @returns {Promise<boolean>} True if all checks passed.
  */
-function checkAppGeolocationRequirements(appSpecs) {
+async function checkAppGeolocationRequirements(appSpecs) {
   if (appSpecs.version >= 5 && appSpecs.geolocation && appSpecs.geolocation.length > 0) {
-    const nodeGeo = geolocationService.getNodeGeolocation();
+    const nodeGeo = await geolocationService.getNodeGeolocation();
     if (!nodeGeo) {
       throw new Error('Node Geolocation not set. Aborting.');
     }
@@ -415,7 +415,7 @@ async function checkAppRequirements(appSpecs) {
   // check geolocation
   checkAppStaticIpRequirements(appSpecs);
   await checkAppNodesRequirements(appSpecs);
-  checkAppGeolocationRequirements(appSpecs);
+  await checkAppGeolocationRequirements(appSpecs);
   return true;
 }
 

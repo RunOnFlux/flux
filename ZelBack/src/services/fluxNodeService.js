@@ -12,6 +12,7 @@ const geolocationService = require('./geolocationService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const generalService = require('./generalService');
 const dockerService = require('./dockerService');
+const benchmarkService = require('./benchmarkService');
 
 const express = require('express');
 
@@ -41,6 +42,35 @@ async function getHostInfo(req, res) {
         }
       } else {
         throw new Error('Host IP information not available at the moment');
+      }
+
+      const validTiers = ['CUMULUS', 'NIMBUS', 'STRATUS'];
+      let benchData = null;
+
+      const benchmarkResponse = await benchmarkService.getBenchmarks();
+      if (benchmarkResponse.status === 'success' && benchmarkResponse.data && validTiers.includes(benchmarkResponse.data.status)) {
+        benchData = benchmarkResponse.data;
+      } else {
+        // Fallback to database if call failed or status is not a valid tier
+        log.info('Benchmark call failed or status not a valid tier, fetching from database');
+        const dbBenchmark = await benchmarkService.getBenchmarkFromDb();
+        if (dbBenchmark.benchmark) {
+          benchData = dbBenchmark.benchmark;
+        }
+      }
+
+      if (benchData) {
+        hostInfo.benchmark = {
+          vcores: benchData.cores,
+          ram: benchData.ram,
+          disk: benchData.disk,
+          diskwritespeed: benchData.diskwritespeed,
+          eps: benchData.eps,
+          download_speed: benchData.download_speed,
+          upload_speed: benchData.upload_speed,
+        };
+      } else {
+        throw new Error('Benchmark information is not available at the moment');
       }
 
       const message = messageHelper.createDataMessage(hostInfo);

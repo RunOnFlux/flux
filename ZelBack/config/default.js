@@ -22,6 +22,8 @@ module.exports = {
         activeSignatures: 'activesignatures',
         activePaymentRequests: 'activepaymentrequests',
         completedPayments: 'completedpayments',
+        geolocation: 'geolocation',
+        benchmark: 'benchmark',
       },
     },
     daemon: {
@@ -82,7 +84,7 @@ module.exports = {
     zmqport: 16123,
   },
   minimumFluxBenchAllowedVersion: '5.0.0',
-  minimumFluxOSAllowedVersion: '5.43.0',
+  minimumFluxOSAllowedVersion: '8.0.0',
   minimumSyncthingAllowedVersion: '2.0.10',
   minimumDockerAllowedVersion: '26.1.2',
   fluxTeamFluxID: '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37',
@@ -173,6 +175,7 @@ module.exports = {
       height: 1851659, // height from which address is valid
       address: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
     }],
+    usersToExtend: ['196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH'], // addresses that can extend applications on behalf of app owners (expire-only updates) addresses cannot be deleted over time, just adding new ones
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight

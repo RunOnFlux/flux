@@ -990,7 +990,7 @@ async function checkAppRequirements(appSpecs, skipGeolocation = false, skipStati
   }
 
   if (!skipGeolocation) {
-    hwRequirements.checkAppGeolocationRequirements(appSpecs);
+    await hwRequirements.checkAppGeolocationRequirements(appSpecs);
   }
 
   return true;

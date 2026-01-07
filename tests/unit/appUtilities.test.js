@@ -14,49 +14,49 @@ describe('appUtilities tests', () => {
   });
 
   describe('nodeFullGeolocation tests', () => {
-    it('should return formatted geolocation string', () => {
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns({
+    it('should return formatted geolocation string', async () => {
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves({
         continentCode: 'NA',
         countryCode: 'US',
         regionName: 'California',
       });
 
-      const result = appUtilities.nodeFullGeolocation();
+      const result = await appUtilities.nodeFullGeolocation();
 
       expect(result).to.equal('NA_US_California');
     });
 
-    it('should throw error when geolocation not set', () => {
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns(null);
+    it('should throw error when geolocation not set', async () => {
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves(null);
 
       try {
-        appUtilities.nodeFullGeolocation();
+        await appUtilities.nodeFullGeolocation();
         expect.fail('Should have thrown error');
       } catch (error) {
         expect(error.message).to.include('Node Geolocation not set');
       }
     });
 
-    it('should handle different continent codes', () => {
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns({
+    it('should handle different continent codes', async () => {
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves({
         continentCode: 'EU',
         countryCode: 'DE',
         regionName: 'Bavaria',
       });
 
-      const result = appUtilities.nodeFullGeolocation();
+      const result = await appUtilities.nodeFullGeolocation();
 
       expect(result).to.equal('EU_DE_Bavaria');
     });
 
-    it('should format with underscores', () => {
-      sinon.stub(geolocationService, 'getNodeGeolocation').returns({
+    it('should format with underscores', async () => {
+      sinon.stub(geolocationService, 'getNodeGeolocation').resolves({
         continentCode: 'AS',
         countryCode: 'JP',
         regionName: 'Tokyo',
       });
 
-      const result = appUtilities.nodeFullGeolocation();
+      const result = await appUtilities.nodeFullGeolocation();
 
       expect(result).to.match(/^[A-Z]{2}_[A-Z]{2}_\w+$/);
       expect(result.split('_')).to.have.lengthOf(3);

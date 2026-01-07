@@ -140,7 +140,6 @@ describe('fluxController tests', () => {
 
   it('should stop a running loop when abort called', async () => {
     const clock = sinon.useFakeTimers();
-    const timeoutSpy = sinon.spy(clock, 'clearTimeout');
 
     const fc = new FluxController();
 
@@ -148,10 +147,15 @@ describe('fluxController tests', () => {
 
     fc.startLoop(runner);
 
+    expect(fc.running).to.be.true;
+
     // run some iterations
     await clock.tickAsync(1000);
 
     await fc.abort();
-    sinon.assert.calledOnce(timeoutSpy);
+
+    // Verify the loop has stopped and state is reset
+    expect(fc.running).to.be.false;
+    expect(fc.aborted).to.be.false; // Should be reset after abort completes
   });
 });

@@ -11,11 +11,17 @@ const verificationHelper = require('./verificationHelper');
 const generalService = require('./generalService');
 const upnpService = require('./upnpService');
 const fluxRpc = require('./utils/fluxRpc');
+const dbHelper = require('./dbHelper');
 
 // eslint-disable-next-line no-unused-vars
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
+const { benchmark: benchmarkCollection } = config.database.local.collections;
+const validTiers = ['CUMULUS', 'NIMBUS', 'STRATUS'];
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
 let benchdClient = null;
+let lastDbUpdateTimestamp = 0;
 
 async function buildBenchdClient() {
   // just use process.cwd() or os.homedir() or something
@@ -65,6 +71,77 @@ async function executeCall(rpc, params) {
   }
 
   return callResponse;
+}
+
+/**
+ * Stores benchmark data to the database (only if tier is valid and not updated within a day)
+ * @param {object} benchmarkData - The benchmark data to store
+ * @param {string} tierStatus - The node tier status (CUMULUS, NIMBUS, STRATUS)
+ */
+async function storeBenchmarkToDb(benchmarkData, tierStatus) {
+  try {
+
+    // Only update once per day
+    const now = Date.now();
+    if (now - lastDbUpdateTimestamp < ONE_DAY_MS) {
+      return;
+    }
+
+    // Only store if status is a valid tier
+    if (!validTiers.includes(tierStatus)) {
+      log.debug(`Benchmark status ${tierStatus} is not a valid tier, skipping database storage`);
+      return;
+    }
+
+    const dbClient = dbHelper.databaseConnection();
+    if (!dbClient) {
+      log.warn('Database connection not available for storing benchmark');
+      return;
+    }
+
+    const database = dbClient.db(config.database.local.database);
+    const query = { _id: 'nodeBenchmark' };
+    const update = {
+      $set: {
+        benchmark: benchmarkData,
+        tier: tierStatus,
+        updatedAt: now,
+      },
+    };
+    const options = { upsert: true };
+    await dbHelper.updateOneInDatabase(database, benchmarkCollection, query, update, options);
+    lastDbUpdateTimestamp = now;
+    log.info('Benchmark data stored to database');
+  } catch (error) {
+    log.error(`Failed to store benchmark to database: ${error.message}`);
+  }
+}
+
+/**
+ * Retrieves benchmark data from the database
+ * @returns {Promise<{benchmark: object|null, tier: string|null}>}
+ */
+async function getBenchmarkFromDb() {
+  try {
+    const dbClient = dbHelper.databaseConnection();
+    if (!dbClient) {
+      return { benchmark: null, tier: null };
+    }
+    const database = dbClient.db(config.database.local.database);
+    const query = { _id: 'nodeBenchmark' };
+    const result = await dbHelper.findOneInDatabase(database, benchmarkCollection, query);
+    if (result && result.benchmark) {
+      // Update lastDbUpdateTimestamp if we have a recent record
+      if (result.updatedAt && (Date.now() - result.updatedAt < ONE_DAY_MS)) {
+        lastDbUpdateTimestamp = result.updatedAt;
+      }
+      return { benchmark: result.benchmark, tier: result.tier || null };
+    }
+    return { benchmark: null, tier: null };
+  } catch (error) {
+    log.error(`Failed to retrieve benchmark from database: ${error.message}`);
+    return { benchmark: null, tier: null };
+  }
 }
 
 // == Benchmarks ==
@@ -256,6 +333,14 @@ async function getBenchmarks(req, res) {
 
   const response = await executeCall(rpccall);
 
+  // Store to database if successful and tier is valid (CUMULUS, NIMBUS, STRATUS)
+  if (response.status === 'success' && response.data && response.data.status) {
+    // Store benchmark data with tier status (only updates once per day for valid tiers)
+    storeBenchmarkToDb(response.data, response.data.status).catch((error) => {
+      log.error(`Error storing benchmark to database: ${error.message}`);
+    });
+  }
+
   return res ? res.json(response) : response;
 }
 
@@ -338,6 +423,7 @@ module.exports = {
 
   // == Fluxnode ==
   getBenchmarks,
+  getBenchmarkFromDb,
   getInfo,
   getPublicIp,
 
