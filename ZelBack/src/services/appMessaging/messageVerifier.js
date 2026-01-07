@@ -283,34 +283,27 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
   }
 
   // Check if usersToExtend can sign this update (only for expire-only changes)
-  if (isValidSignature !== true) {
-    const usersToExtend = config.fluxapps.usersToExtend || [];
-    if (usersToExtend.length > 0) {
+  const usersToExtend = config.fluxapps.usersToExtend || [];
+  if (isValidSignature !== true && usersToExtend.length > 0) {
+    // eslint-disable-next-line global-require
+    const registryManager = require('../appDatabase/registryManager');
+    const existingSpec = await registryManager.getApplicationGlobalSpecifications(appSpec.name);
+    if (existingSpec) {
+      // For v8+ enterprise apps, we need to decrypt the new spec before comparing
+      let newSpecToCompare = appSpec;
+      if (appSpec.version >= 8 && appSpec.enterprise) {
+        // eslint-disable-next-line global-require
+        const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+        newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: existingSpec.owner });
+      }
       // Check if signature matches any of the usersToExtend addresses
       // eslint-disable-next-line no-restricted-syntax
       for (const userToExtend of usersToExtend) {
         const isValidUserToExtendSignature = signatureVerifier.verifySignature(messageToVerify, userToExtend, signature);
-        if (isValidUserToExtendSignature === true) {
-          // Verify this is an expire-only update by fetching existing app specs
-          // eslint-disable-next-line global-require
-          const registryManager = require('../appDatabase/registryManager');
-          // eslint-disable-next-line no-await-in-loop
-          const existingSpec = await registryManager.getApplicationGlobalSpecifications(appSpec.name);
-          if (existingSpec) {
-            // For v8+ enterprise apps, we need to decrypt the new spec before comparing
-            let newSpecToCompare = appSpec;
-            if (appSpec.version >= 8 && appSpec.enterprise) {
-              // eslint-disable-next-line global-require
-              const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
-              // eslint-disable-next-line no-await-in-loop
-              newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: existingSpec.owner });
-            }
-            if (isExpireOnlyUpdate(newSpecToCompare, existingSpec)) {
-              log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
-              isValidSignature = true;
-              break;
-            }
-          }
+        if (isValidUserToExtendSignature === true && isExpireOnlyUpdate(newSpecToCompare, existingSpec)) {
+          log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
+          isValidSignature = true;
+          break;
         }
       }
     }
