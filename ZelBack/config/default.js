@@ -173,6 +173,7 @@ module.exports = {
       height: 1851659, // height from which address is valid
       address: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
     }],
+    usersToExtend: ['196GJWyLxzAw3MirTT7Bqs2iGpUQio29GH'], // addresses that can extend applications on behalf of app owners (expire-only updates) addresses cannot be deleted over time, just adding new ones
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight
