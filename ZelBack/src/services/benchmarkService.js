@@ -16,7 +16,7 @@ const dbHelper = require('./dbHelper');
 // eslint-disable-next-line no-unused-vars
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
-const benchmarkCollection = 'benchmark';
+const { benchmark: benchmarkCollection } = config.database.local.collections;
 const validTiers = ['CUMULUS', 'NIMBUS', 'STRATUS'];
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 

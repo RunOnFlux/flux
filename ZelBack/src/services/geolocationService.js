@@ -4,7 +4,7 @@ const fluxNetworkHelper = require('./fluxNetworkHelper');
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 
-const geolocationCollection = 'geolocation';
+const { geolocation: geolocationCollection } = config.database.local.collections;
 
 let storedGeolocation = null;
 let storedIp = null;
