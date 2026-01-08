@@ -258,6 +258,52 @@ describe('appSpecHelpers tests', () => {
       expect(result).to.be.true;
     });
 
+    it('should allow free update when components are reordered', async () => {
+      const daemonHeight = 100000;
+      const appSpecFormatted = {
+        name: 'TestApp',
+        instances: 5,
+        staticip: false,
+        nodes: [],
+        expire: 44000,
+        compose: [
+          {
+            name: 'B', cpu: 2, ram: 4000, hdd: 100,
+          },
+          {
+            name: 'A', cpu: 1, ram: 2000, hdd: 50,
+          },
+        ],
+      };
+
+      const appInfo = {
+        name: 'TestApp',
+        instances: 5,
+        staticip: false,
+        nodes: [],
+        expire: 44000,
+        height: daemonHeight + 44000 - appSpecFormatted.expire, // Height such that blocksToExtend = 0
+        compose: [
+          {
+            name: 'A', cpu: 1, ram: 2000, hdd: 50,
+          },
+          {
+            name: 'B', cpu: 2, ram: 4000, hdd: 100,
+          },
+        ],
+      };
+
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(appInfo);
+      sinon.stub(dbHelper, 'databaseConnection').returns({
+        db: () => ({}),
+      });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+
+      const result = await appSpecHelpers.checkFreeAppUpdate(appSpecFormatted, daemonHeight);
+
+      expect(result).to.be.true;
+    });
+
     it('should return false when CPU increased', async () => {
       const appSpecFormatted = {
         name: 'TestApp',
