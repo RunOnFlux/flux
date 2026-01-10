@@ -223,8 +223,6 @@ function isExpireOnlyUpdate(newSpec, existingSpec) {
   delete existingCopy.height;
   delete newCopy.hash;
   delete existingCopy.hash;
-  delete newCopy.enterprise;
-  delete existingCopy.enterprise;
 
   // Use deep equality check that ignores property order
   const isEqual = deepEqual(newCopy, existingCopy);
@@ -347,16 +345,22 @@ async function verifyAppMessageUpdateSignature(type, version, appSpec, timestamp
     if (existingSpec) {
       // For v8+ enterprise apps, we need to decrypt the new spec before comparing
       let newSpecToCompare = appSpec;
+      let newExistingSpecToCompare = existingSpec;
       if (appSpec.version >= 8 && appSpec.enterprise) {
         // eslint-disable-next-line global-require
         const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
         newSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: existingSpec.owner });
       }
+      if (existingSpec.version >= 8 && existingSpec.enterprise) {
+        // eslint-disable-next-line global-require
+        const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+        newExistingSpecToCompare = await checkAndDecryptAppSpecs(appSpec, { daemonHeight, owner: existingSpec.owner });
+      }
       // Check if signature matches any of the usersToExtend addresses
       // eslint-disable-next-line no-restricted-syntax
       for (const userToExtend of usersToExtend) {
         const isValidUserToExtendSignature = signatureVerifier.verifySignature(messageToVerify, userToExtend, signature);
-        if (isValidUserToExtendSignature === true && isExpireOnlyUpdate(newSpecToCompare, existingSpec)) {
+        if (isValidUserToExtendSignature === true && isExpireOnlyUpdate(newSpecToCompare, newExistingSpecToCompare)) {
           log.info(`App ${appSpec.name} expire extension signed by userToExtend address ${userToExtend}`);
           isValidSignature = true;
           break;
