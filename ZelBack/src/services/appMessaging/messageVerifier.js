@@ -223,14 +223,15 @@ function isExpireOnlyUpdate(newSpec, existingSpec) {
   delete existingCopy.height;
   delete newCopy.hash;
   delete existingCopy.hash;
+  delete newCopy.enterprise;
+  delete existingCopy.enterprise;
 
   // Use deep equality check that ignores property order
   const isEqual = deepEqual(newCopy, existingCopy);
-
+  log.debug('[isExpireOnlyUpdate] New spec keys:', Object.keys(newCopy).sort().join(', '));
+  log.debug('[isExpireOnlyUpdate] Existing spec keys:', Object.keys(existingCopy).sort().join(', '));
   if (!isEqual) {
     log.debug('[isExpireOnlyUpdate] Specs differ after removing expire/height/hash');
-    log.debug('[isExpireOnlyUpdate] New spec keys:', Object.keys(newCopy).sort().join(', '));
-    log.debug('[isExpireOnlyUpdate] Existing spec keys:', Object.keys(existingCopy).sort().join(', '));
     // Find differing keys
     const allKeys = new Set([...Object.keys(newCopy), ...Object.keys(existingCopy)]);
     // eslint-disable-next-line no-restricted-syntax
