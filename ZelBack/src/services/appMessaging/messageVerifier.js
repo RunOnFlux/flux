@@ -208,7 +208,7 @@ function deepEqual(a, b) {
 
 function isExpireOnlyUpdate(newSpec, existingSpec) {
   if (!existingSpec || !newSpec) {
-    log.debug('[isExpireOnlyUpdate] Missing spec - existingSpec:', !!existingSpec, 'newSpec:', !!newSpec);
+    log.info('[isExpireOnlyUpdate] Missing spec - existingSpec:', !!existingSpec, 'newSpec:', !!newSpec);
     return false;
   }
 
@@ -226,22 +226,10 @@ function isExpireOnlyUpdate(newSpec, existingSpec) {
 
   // Use deep equality check that ignores property order
   const isEqual = deepEqual(newCopy, existingCopy);
-  log.debug('[isExpireOnlyUpdate] New spec keys:', Object.keys(newCopy).sort().join(', '));
-  log.debug('[isExpireOnlyUpdate] Existing spec keys:', Object.keys(existingCopy).sort().join(', '));
   if (!isEqual) {
-    log.debug('[isExpireOnlyUpdate] Specs differ after removing expire/height/hash');
-    // Find differing keys
-    const allKeys = new Set([...Object.keys(newCopy), ...Object.keys(existingCopy)]);
-    // eslint-disable-next-line no-restricted-syntax
-    for (const key of allKeys) {
-      if (!deepEqual(newCopy[key], existingCopy[key])) {
-        log.debug(`[isExpireOnlyUpdate] Key '${key}' differs:`);
-        log.debug(`  New: ${JSON.stringify(newCopy[key])}`);
-        log.debug(`  Existing: ${JSON.stringify(existingCopy[key])}`);
-      }
-    }
+    log.info('[isExpireOnlyUpdate] Specs differ after removing expire/height/hash');
   } else {
-    log.debug(`[isExpireOnlyUpdate] Specs match for app ${newSpec.name || existingSpec.name}`);
+    log.info(`[isExpireOnlyUpdate] Specs match for app ${newSpec.name || existingSpec.name}`);
   }
 
   return isEqual;
