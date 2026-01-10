@@ -172,8 +172,43 @@ async function verifyAppMessageSignature(type, version, appSpec, timestamp, sign
  * @param {object} existingSpec - Existing app specifications
  * @returns {boolean} True if only expire property is changed
  */
+/**
+ * Deep equality check for two values, ignoring property order in objects
+ * @param {*} a - First value
+ * @param {*} b - Second value
+ * @returns {boolean} True if deeply equal
+ */
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (a === null || b === null) return a === b;
+  if (typeof a !== typeof b) return false;
+
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      if (!deepEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  if (typeof a === 'object') {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    // eslint-disable-next-line no-restricted-syntax
+    for (const key of keysA) {
+      if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+      if (!deepEqual(a[key], b[key])) return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
 function isExpireOnlyUpdate(newSpec, existingSpec) {
   if (!existingSpec || !newSpec) {
+    log.debug('[isExpireOnlyUpdate] Missing spec - existingSpec:', !!existingSpec, 'newSpec:', !!newSpec);
     return false;
   }
 
@@ -189,8 +224,28 @@ function isExpireOnlyUpdate(newSpec, existingSpec) {
   delete newCopy.hash;
   delete existingCopy.hash;
 
-  // Compare the rest - must be identical
-  return JSON.stringify(newCopy) === JSON.stringify(existingCopy);
+  // Use deep equality check that ignores property order
+  const isEqual = deepEqual(newCopy, existingCopy);
+
+  if (!isEqual) {
+    log.debug('[isExpireOnlyUpdate] Specs differ after removing expire/height/hash');
+    log.debug('[isExpireOnlyUpdate] New spec keys:', Object.keys(newCopy).sort().join(', '));
+    log.debug('[isExpireOnlyUpdate] Existing spec keys:', Object.keys(existingCopy).sort().join(', '));
+    // Find differing keys
+    const allKeys = new Set([...Object.keys(newCopy), ...Object.keys(existingCopy)]);
+    // eslint-disable-next-line no-restricted-syntax
+    for (const key of allKeys) {
+      if (!deepEqual(newCopy[key], existingCopy[key])) {
+        log.debug(`[isExpireOnlyUpdate] Key '${key}' differs:`);
+        log.debug(`  New: ${JSON.stringify(newCopy[key])}`);
+        log.debug(`  Existing: ${JSON.stringify(existingCopy[key])}`);
+      }
+    }
+  } else {
+    log.debug(`[isExpireOnlyUpdate] Specs match for app ${newSpec.name || existingSpec.name}`);
+  }
+
+  return isEqual;
 }
 
 /**
