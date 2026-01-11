@@ -5,10 +5,11 @@ const serviceHelper = require('../serviceHelper');
 const messageHelper = require('../messageHelper');
 
 const config = require('config');
-const userconfig = require('../../../../config/userconfig');
+const configManager = require('../utils/configManager');
 const cacheManager = require('../utils/cacheManager').default;
 
-const { initial: { testnet: isTestnet } } = userconfig;
+// Helper function to get testnet flag dynamically
+const isTestnet = () => configManager.getConfigValue('initial.testnet') || false;
 
 let fluxdConfig = null;
 let fluxdClient = null;
@@ -33,7 +34,7 @@ async function buildFluxdClient() {
   const username = fluxdConfig.rpcuser || 'rpcuser';
   const password = fluxdConfig.rpcpassword || 'rpcpassword';
 
-  const portId = isTestnet ? 'rpcporttestnet' : 'rpcport';
+  const portId = isTestnet() ? 'rpcporttestnet' : 'rpcport';
 
   const rpcPort = fluxdConfig.rpcport || config.daemon[portId];
 

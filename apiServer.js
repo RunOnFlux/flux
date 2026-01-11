@@ -29,6 +29,7 @@ const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory
 const globalState = require('./ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
+const configManager = require('./ZelBack/src/services/utils/configManager');
 
 const apiPort = userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -219,6 +220,9 @@ async function configReload() {
         delete require.cache[require.resolve('./config/userconfig')];
         // eslint-disable-next-line
         userconfig = require('./config/userconfig');
+        global.userconfig = userconfig;
+        // Notify configManager about the reload
+        configManager.reloadConfig();
         if (userconfig?.initial?.apiport) {
           await loadUpnpIfRequired();
         }
