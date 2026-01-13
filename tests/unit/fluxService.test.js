@@ -1106,7 +1106,15 @@ describe('fluxService tests', () => {
   });
 
   describe('getFluxZelID tests', () => {
+    let originalUserConfig;
+
+    beforeEach(() => {
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = adminConfig;
+    });
+
     afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
       sinon.restore();
     });
 
@@ -1133,7 +1141,15 @@ describe('fluxService tests', () => {
   });
 
   describe('getFluxKadena tests', () => {
+    let originalUserConfig;
+
+    beforeEach(() => {
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = adminConfig;
+    });
+
     afterEach(() => {
+      globalThis.userconfig = originalUserConfig;
       sinon.restore();
     });
 
