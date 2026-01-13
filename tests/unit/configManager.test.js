@@ -152,9 +152,9 @@ describe('configManager tests', () => {
         done();
       });
 
-      // Simulate config change
+      // Update globalThis.userconfig and call loadConfig directly
       globalThis.userconfig.initial.zelid = 'ReloadedZelID';
-      configManager.reloadConfig();
+      configManager.loadConfig(true);
     });
 
     it('should update config when reloadConfig is called', () => {
@@ -163,9 +163,9 @@ describe('configManager tests', () => {
       const oldZelid = configManager.getConfigValue('initial.zelid');
       expect(oldZelid).to.equal('1TestZelID123');
 
-      // Update globalThis.userconfig
+      // Update globalThis.userconfig and call loadConfig directly
       globalThis.userconfig.initial.zelid = 'UpdatedZelID789';
-      configManager.reloadConfig();
+      configManager.loadConfig(true);
 
       const newZelid = configManager.getConfigValue('initial.zelid');
       expect(newZelid).to.equal('UpdatedZelID789');
@@ -179,7 +179,7 @@ describe('configManager tests', () => {
       globalThis.userconfig.initial.testnet = true;
       globalThis.userconfig.initial.blockedPorts = [3000, 4000, 5000];
 
-      configManager.reloadConfig();
+      configManager.loadConfig(true);
 
       expect(configManager.getConfigValue('initial.apiport')).to.equal(16137);
       expect(configManager.getConfigValue('initial.testnet')).to.equal(true);
@@ -232,7 +232,7 @@ describe('configManager tests', () => {
       }
 
       globalThis.userconfig.initial.zelid = 'MultiListenerTest';
-      configManager.reloadConfig();
+      configManager.loadConfig(true);
     });
 
     it('should allow removing event listeners', () => {
@@ -244,20 +244,23 @@ describe('configManager tests', () => {
       configManager.on('configReloaded', listener);
 
       // First reload - listener should be called
-      configManager.reloadConfig();
+      configManager.loadConfig(true);
       expect(callCount).to.equal(1);
 
       // Remove listener
       configManager.removeListener('configReloaded', listener);
 
       // Second reload - listener should not be called
-      configManager.reloadConfig();
+      configManager.loadConfig(true);
       expect(callCount).to.equal(1);
     });
   });
 
   describe('Integration with globalThis.userconfig', () => {
     it('should use globalThis.userconfig when available', () => {
+      // Clear module cache for this specific test
+      delete require.cache[require.resolve('../../ZelBack/src/services/utils/configManager')];
+
       const testConfig = {
         initial: {
           ipaddress: '10.0.0.1',
@@ -274,6 +277,7 @@ describe('configManager tests', () => {
         },
       };
 
+      // Set globalThis.userconfig BEFORE requiring configManager
       globalThis.userconfig = testConfig;
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
@@ -297,6 +301,9 @@ describe('configManager tests', () => {
 
   describe('Edge cases', () => {
     it('should handle empty config gracefully', () => {
+      // Clear module cache for this specific test
+      delete require.cache[require.resolve('../../ZelBack/src/services/utils/configManager')];
+
       globalThis.userconfig = { initial: {} };
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
@@ -304,14 +311,28 @@ describe('configManager tests', () => {
     });
 
     it('should handle null values in config', () => {
-      globalThis.userconfig.initial.zelid = null;
+      // Clear module cache for this specific test
+      delete require.cache[require.resolve('../../ZelBack/src/services/utils/configManager')];
+
+      // Create fresh config with null zelid
+      const freshMockConfig = JSON.parse(JSON.stringify(mockUserConfig));
+      freshMockConfig.initial.zelid = null;
+      globalThis.userconfig = freshMockConfig;
+
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       expect(configManager.getConfigValue('initial.zelid')).to.be.null;
     });
 
     it('should handle undefined values in config', () => {
-      globalThis.userconfig.initial.kadena = undefined;
+      // Clear module cache for this specific test
+      delete require.cache[require.resolve('../../ZelBack/src/services/utils/configManager')];
+
+      // Create fresh config with undefined kadena
+      const freshMockConfig = JSON.parse(JSON.stringify(mockUserConfig));
+      freshMockConfig.initial.kadena = undefined;
+      globalThis.userconfig = freshMockConfig;
+
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       expect(configManager.getConfigValue('initial.kadena')).to.be.undefined;
