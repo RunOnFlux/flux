@@ -5,11 +5,7 @@
  */
 
 const config = require('config');
-const configManager = require('./utils/configManager');
 const signatureVerifier = require('./signatureVerifier');
-
-// Helper function to get current userconfig
-const getUserConfig = () => configManager.getUserConfig();
 const serviceHelper = require('./serviceHelper');
 const dbHelper = require('./dbHelper');
 // Removed registryManager to avoid circular dependency - will use dynamic require where needed
@@ -24,7 +20,7 @@ async function verifyAdminSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   if (auth.zelid !== userconfig.initial.zelid) return false;
 
   const db = dbHelper.databaseConnection();
@@ -135,7 +131,7 @@ async function verifyAdminAndFluxTeamSession(headers) {
   if (!headers || !headers.zelidauth) return false;
   const auth = serviceHelper.ensureObject(headers.zelidauth);
   if (!auth.zelid || !auth.signature || !auth.loginPhrase) return false;
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   if (auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid && auth.zelid !== config.fluxSupportTeamFluxID) return false; // admin is considered as fluxTeam
 
   const db = dbHelper.databaseConnection();
@@ -218,7 +214,7 @@ async function verifyAppOwnerOrHigherSession(headers, appName) {
   // eslint-disable-next-line global-require
   const registryManager = require('./appDatabase/registryManager');
   const ownerFluxID = await registryManager.getApplicationOwner(appName);
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   if (auth.zelid !== ownerFluxID && auth.zelid !== config.fluxTeamFluxID && auth.zelid !== userconfig.initial.zelid && auth.zelid !== config.fluxSupportTeamFluxID) return false;
 
   const db = dbHelper.databaseConnection();
