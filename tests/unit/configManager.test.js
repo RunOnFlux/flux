@@ -152,8 +152,12 @@ describe('configManager tests', () => {
         done();
       });
 
-      // Update globalThis.userconfig and call loadConfig directly
-      globalThis.userconfig.initial.zelid = 'ReloadedZelID';
+      // Update the require.cache mock before reloading
+      const userconfigPath = require.resolve('../../config/userconfig');
+      const reloadedConfig = JSON.parse(JSON.stringify(mockUserConfig));
+      reloadedConfig.initial.zelid = 'ReloadedZelID';
+      require.cache[userconfigPath].exports = reloadedConfig;
+
       configManager.loadConfig(true);
     });
 
@@ -163,8 +167,12 @@ describe('configManager tests', () => {
       const oldZelid = configManager.getConfigValue('initial.zelid');
       expect(oldZelid).to.equal('1TestZelID123');
 
-      // Update globalThis.userconfig and call loadConfig directly
-      globalThis.userconfig.initial.zelid = 'UpdatedZelID789';
+      // Update the require.cache mock before reloading
+      const userconfigPath = require.resolve('../../config/userconfig');
+      const updatedConfig = JSON.parse(JSON.stringify(mockUserConfig));
+      updatedConfig.initial.zelid = 'UpdatedZelID789';
+      require.cache[userconfigPath].exports = updatedConfig;
+
       configManager.loadConfig(true);
 
       const newZelid = configManager.getConfigValue('initial.zelid');
@@ -174,10 +182,13 @@ describe('configManager tests', () => {
     it('should update all config values on reload', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
-      // Update multiple values
-      globalThis.userconfig.initial.apiport = 16137;
-      globalThis.userconfig.initial.testnet = true;
-      globalThis.userconfig.initial.blockedPorts = [3000, 4000, 5000];
+      // Update the require.cache mock with new values before reloading
+      const userconfigPath = require.resolve('../../config/userconfig');
+      const updatedConfig = JSON.parse(JSON.stringify(mockUserConfig));
+      updatedConfig.initial.apiport = 16137;
+      updatedConfig.initial.testnet = true;
+      updatedConfig.initial.blockedPorts = [3000, 4000, 5000];
+      require.cache[userconfigPath].exports = updatedConfig;
 
       configManager.loadConfig(true);
 
@@ -231,7 +242,12 @@ describe('configManager tests', () => {
         }
       }
 
-      globalThis.userconfig.initial.zelid = 'MultiListenerTest';
+      // Update the require.cache mock before reloading
+      const userconfigPath = require.resolve('../../config/userconfig');
+      const multiListenerConfig = JSON.parse(JSON.stringify(mockUserConfig));
+      multiListenerConfig.initial.zelid = 'MultiListenerTest';
+      require.cache[userconfigPath].exports = multiListenerConfig;
+
       configManager.loadConfig(true);
     });
 
@@ -244,6 +260,12 @@ describe('configManager tests', () => {
       configManager.on('configReloaded', listener);
 
       // First reload - listener should be called
+      // Update the require.cache mock before first reload
+      const userconfigPath = require.resolve('../../config/userconfig');
+      const reload1Config = JSON.parse(JSON.stringify(mockUserConfig));
+      reload1Config.initial.zelid = 'Reload1';
+      require.cache[userconfigPath].exports = reload1Config;
+
       configManager.loadConfig(true);
       expect(callCount).to.equal(1);
 
@@ -251,6 +273,11 @@ describe('configManager tests', () => {
       configManager.removeListener('configReloaded', listener);
 
       // Second reload - listener should not be called
+      // Update the require.cache mock before second reload
+      const reload2Config = JSON.parse(JSON.stringify(mockUserConfig));
+      reload2Config.initial.zelid = 'Reload2';
+      require.cache[userconfigPath].exports = reload2Config;
+
       configManager.loadConfig(true);
       expect(callCount).to.equal(1);
     });
@@ -277,8 +304,15 @@ describe('configManager tests', () => {
         },
       };
 
-      // Set globalThis.userconfig BEFORE requiring configManager
-      globalThis.userconfig = testConfig;
+      // Mock the userconfig in require.cache with testConfig
+      const userconfigPath = require.resolve('../../config/userconfig');
+      require.cache[userconfigPath] = {
+        id: userconfigPath,
+        filename: userconfigPath,
+        loaded: true,
+        exports: testConfig,
+      };
+
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       const config = configManager.getUserConfig();
@@ -304,7 +338,17 @@ describe('configManager tests', () => {
       // Clear module cache for this specific test
       delete require.cache[require.resolve('../../ZelBack/src/services/utils/configManager')];
 
-      globalThis.userconfig = { initial: {} };
+      const emptyConfig = { initial: {} };
+
+      // Mock the userconfig in require.cache with empty config
+      const userconfigPath = require.resolve('../../config/userconfig');
+      require.cache[userconfigPath] = {
+        id: userconfigPath,
+        filename: userconfigPath,
+        loaded: true,
+        exports: emptyConfig,
+      };
+
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       expect(configManager.getUserConfig()).to.deep.equal({ initial: {} });
@@ -317,7 +361,15 @@ describe('configManager tests', () => {
       // Create fresh config with null zelid
       const freshMockConfig = JSON.parse(JSON.stringify(mockUserConfig));
       freshMockConfig.initial.zelid = null;
-      globalThis.userconfig = freshMockConfig;
+
+      // Mock the userconfig in require.cache
+      const userconfigPath = require.resolve('../../config/userconfig');
+      require.cache[userconfigPath] = {
+        id: userconfigPath,
+        filename: userconfigPath,
+        loaded: true,
+        exports: freshMockConfig,
+      };
 
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
@@ -331,7 +383,15 @@ describe('configManager tests', () => {
       // Create fresh config with undefined kadena
       const freshMockConfig = JSON.parse(JSON.stringify(mockUserConfig));
       freshMockConfig.initial.kadena = undefined;
-      globalThis.userconfig = freshMockConfig;
+
+      // Mock the userconfig in require.cache
+      const userconfigPath = require.resolve('../../config/userconfig');
+      require.cache[userconfigPath] = {
+        id: userconfigPath,
+        filename: userconfigPath,
+        loaded: true,
+        exports: freshMockConfig,
+      };
 
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
