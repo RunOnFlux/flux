@@ -1,5 +1,8 @@
 const EventEmitter = require('node:events');
 const path = require('node:path');
+const fs = require('node:fs');
+const { watch } = require('node:fs/promises');
+const hash = require('object-hash');
 
 /**
  * ConfigManager - Centralized configuration management with hot reload support
@@ -11,10 +14,10 @@ const path = require('node:path');
  * Usage:
  *   const configManager = require('./utils/configManager');
  *
- *   // Get current config
- *   const config = configManager.getUserConfig();
+ *   // Access config directly via globalThis
+ *   const apiPort = globalThis.userconfig.initial.apiport;
  *
- *   // Listen for changes
+ *   // Listen for changes (only needed for reactive services like daemon client)
  *   configManager.on('configReloaded', (newConfig) => {
  *     // Handle config change
  *   });
@@ -22,8 +25,8 @@ const path = require('node:path');
 class ConfigManager extends EventEmitter {
   constructor() {
     super();
-    this.userconfig = null;
-    this.configPath = null;
+    this.configPath = path.join(__dirname, '../../../../config/userconfig.js');
+    this.initialHash = null;
     this.loadConfig();
   }
 
@@ -33,30 +36,29 @@ class ConfigManager extends EventEmitter {
    */
   loadConfig(isReload = false) {
     try {
-      // Use global.userconfig if available (set by apiServer.js)
-      if (global.userconfig) {
-        this.userconfig = global.userconfig;
-        this.configPath = path.join(__dirname, '../../../../config/userconfig.js');
-      } else {
-        // Fallback to direct require
-        this.configPath = path.join(__dirname, '../../../../config/userconfig.js');
+      // Clear cache if reloading
+      if (isReload && require.cache[require.resolve('../../../../config/userconfig')]) {
+        delete require.cache[require.resolve('../../../../config/userconfig')];
+      }
 
-        // Clear cache if reloading
-        if (isReload && require.cache[require.resolve('../../../../config/userconfig')]) {
-          delete require.cache[require.resolve('../../../../config/userconfig')];
-        }
+      // eslint-disable-next-line global-require
+      const userconfig = require('../../../../config/userconfig');
 
-        // eslint-disable-next-line global-require
-        this.userconfig = require('../../../../config/userconfig');
+      // Set on globalThis for global access
+      globalThis.userconfig = userconfig;
+
+      // Store hash for file watching
+      if (!isReload) {
+        this.initialHash = hash(fs.readFileSync(this.configPath));
       }
 
       if (isReload) {
-        this.emit('configReloaded', this.userconfig);
+        this.emit('configReloaded', userconfig);
       }
     } catch (error) {
       console.error('Error loading userconfig:', error);
       // Initialize with defaults if load fails
-      this.userconfig = {
+      globalThis.userconfig = {
         initial: {
           ipaddress: '127.0.0.1',
           zelid: null,
@@ -79,12 +81,35 @@ class ConfigManager extends EventEmitter {
    * This should be called when the config file changes
    */
   reloadConfig() {
-    // Update from global if it was updated by apiServer
-    if (global.userconfig) {
-      this.userconfig = global.userconfig;
-      this.emit('configReloaded', this.userconfig);
-    } else {
-      this.loadConfig(true);
+    const hashCurrent = hash(fs.readFileSync(this.configPath));
+    if (hashCurrent === this.initialHash) {
+      return;
+    }
+    this.initialHash = hashCurrent;
+    this.loadConfig(true);
+  }
+
+  /**
+   * Start watching the config file for changes
+   * @param {Function} log - Logger function
+   * @param {Function} onReload - Optional callback for additional reload logic
+   */
+  async startWatching(log, onReload) {
+    try {
+      const configDir = path.join(__dirname, '../../../../config');
+      const watcher = watch(configDir);
+      // eslint-disable-next-line
+      for await (const event of watcher) {
+        if (event.eventType === 'change' && event.filename === 'userconfig.js') {
+          log.info(`Config file changed, reloading ${event.filename}...`);
+          this.reloadConfig();
+          if (onReload) {
+            await onReload(globalThis.userconfig);
+          }
+        }
+      }
+    } catch (error) {
+      log.error(`Error watching config file: ${error}`);
     }
   }
 
@@ -93,11 +118,7 @@ class ConfigManager extends EventEmitter {
    * @returns {object} Current userconfig
    */
   getUserConfig() {
-    // Always return the latest from global if available
-    if (global.userconfig) {
-      return global.userconfig;
-    }
-    return this.userconfig;
+    return globalThis.userconfig;
   }
 
   /**
@@ -106,7 +127,7 @@ class ConfigManager extends EventEmitter {
    * @returns {*} Config value
    */
   getConfigValue(path) {
-    const config = this.getUserConfig();
+    const config = globalThis.userconfig;
     const parts = path.split('.');
     let value = config;
 
@@ -126,15 +147,11 @@ class ConfigManager extends EventEmitter {
    * @returns {boolean}
    */
   isInitialized() {
-    return this.userconfig !== null;
+    return globalThis.userconfig !== null && globalThis.userconfig !== undefined;
   }
 }
 
 // Create singleton instance
 const configManager = new ConfigManager();
-
-// No polling needed - apiServer.js file watcher handles config changes
-// and calls configManager.reloadConfig() directly when userconfig.js changes
-// This works for both API changes and manual file edits
 
 module.exports = configManager;

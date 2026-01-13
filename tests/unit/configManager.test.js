@@ -7,8 +7,8 @@ describe('configManager tests', () => {
   let originalGlobalUserConfig;
 
   beforeEach(() => {
-    // Save original global.userconfig
-    originalGlobalUserConfig = global.userconfig;
+    // Save original globalThis.userconfig
+    originalGlobalUserConfig = globalThis.userconfig;
 
     // Clear the module cache to get a fresh instance for each test
     delete require.cache[require.resolve('../../ZelBack/src/services/utils/configManager')];
@@ -31,13 +31,13 @@ describe('configManager tests', () => {
       },
     };
 
-    // Set global.userconfig
-    global.userconfig = mockUserConfig;
+    // Set globalThis.userconfig
+    globalThis.userconfig = mockUserConfig;
   });
 
   afterEach(() => {
-    // Restore original global.userconfig
-    global.userconfig = originalGlobalUserConfig;
+    // Restore original globalThis.userconfig
+    globalThis.userconfig = originalGlobalUserConfig;
     sinon.restore();
   });
 
@@ -52,7 +52,7 @@ describe('configManager tests', () => {
       expect(configManager.isInitialized()).to.equal(true);
     });
 
-    it('should load config from global.userconfig', () => {
+    it('should load config from globalThis.userconfig', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
       const config = configManager.getUserConfig();
 
@@ -67,14 +67,14 @@ describe('configManager tests', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
       const config = configManager.getUserConfig();
 
-      expect(config).to.deep.equal(global.userconfig);
+      expect(config).to.deep.equal(globalThis.userconfig);
     });
 
-    it('should return fresh config after global.userconfig update', () => {
+    it('should return fresh config after globalThis.userconfig update', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
-      // Update global.userconfig
-      global.userconfig.initial.zelid = 'NewZelID456';
+      // Update globalThis.userconfig
+      globalThis.userconfig.initial.zelid = 'NewZelID456';
 
       const config = configManager.getUserConfig();
       expect(config.initial.zelid).to.equal('NewZelID456');
@@ -144,7 +144,7 @@ describe('configManager tests', () => {
       });
 
       // Simulate config change
-      global.userconfig.initial.zelid = 'ReloadedZelID';
+      globalThis.userconfig.initial.zelid = 'ReloadedZelID';
       configManager.reloadConfig();
     });
 
@@ -154,8 +154,8 @@ describe('configManager tests', () => {
       const oldZelid = configManager.getConfigValue('initial.zelid');
       expect(oldZelid).to.equal('1TestZelID123');
 
-      // Update global.userconfig
-      global.userconfig.initial.zelid = 'UpdatedZelID789';
+      // Update globalThis.userconfig
+      globalThis.userconfig.initial.zelid = 'UpdatedZelID789';
       configManager.reloadConfig();
 
       const newZelid = configManager.getConfigValue('initial.zelid');
@@ -166,9 +166,9 @@ describe('configManager tests', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       // Update multiple values
-      global.userconfig.initial.apiport = 16137;
-      global.userconfig.initial.testnet = true;
-      global.userconfig.initial.blockedPorts = [3000, 4000, 5000];
+      globalThis.userconfig.initial.apiport = 16137;
+      globalThis.userconfig.initial.testnet = true;
+      globalThis.userconfig.initial.blockedPorts = [3000, 4000, 5000];
 
       configManager.reloadConfig();
 
@@ -222,7 +222,7 @@ describe('configManager tests', () => {
         }
       }
 
-      global.userconfig.initial.zelid = 'MultiListenerTest';
+      globalThis.userconfig.initial.zelid = 'MultiListenerTest';
       configManager.reloadConfig();
     });
 
@@ -247,8 +247,8 @@ describe('configManager tests', () => {
     });
   });
 
-  describe('Integration with global.userconfig', () => {
-    it('should use global.userconfig when available', () => {
+  describe('Integration with globalThis.userconfig', () => {
+    it('should use globalThis.userconfig when available', () => {
       const testConfig = {
         initial: {
           ipaddress: '10.0.0.1',
@@ -265,7 +265,7 @@ describe('configManager tests', () => {
         },
       };
 
-      global.userconfig = testConfig;
+      globalThis.userconfig = testConfig;
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       const config = configManager.getUserConfig();
@@ -273,36 +273,36 @@ describe('configManager tests', () => {
       expect(config.initial.zelid).to.equal('GlobalConfigTest');
     });
 
-    it('should reflect changes to global.userconfig immediately', () => {
+    it('should reflect changes to globalThis.userconfig immediately', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       // Change a simple value
-      global.userconfig.initial.development = true;
+      globalThis.userconfig.initial.development = true;
       expect(configManager.getUserConfig().initial.development).to.equal(true);
 
       // Change it back
-      global.userconfig.initial.development = false;
+      globalThis.userconfig.initial.development = false;
       expect(configManager.getUserConfig().initial.development).to.equal(false);
     });
   });
 
   describe('Edge cases', () => {
     it('should handle empty config gracefully', () => {
-      global.userconfig = { initial: {} };
+      globalThis.userconfig = { initial: {} };
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       expect(configManager.getUserConfig()).to.deep.equal({ initial: {} });
     });
 
     it('should handle null values in config', () => {
-      global.userconfig.initial.zelid = null;
+      globalThis.userconfig.initial.zelid = null;
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       expect(configManager.getConfigValue('initial.zelid')).to.be.null;
     });
 
     it('should handle undefined values in config', () => {
-      global.userconfig.initial.kadena = undefined;
+      globalThis.userconfig.initial.kadena = undefined;
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
       expect(configManager.getConfigValue('initial.kadena')).to.be.undefined;

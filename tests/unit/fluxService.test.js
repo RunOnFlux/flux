@@ -2293,14 +2293,14 @@ describe('fluxService tests', () => {
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
       // Mock userconfig to match test expectations
-      originalUserConfig = global.userconfig;
-      global.userconfig = adminConfig;
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
       // Restore original userconfig
-      global.userconfig = originalUserConfig;
+      globalThis.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2369,14 +2369,14 @@ describe('fluxService tests', () => {
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
       // Mock userconfig to match test expectations
-      originalUserConfig = global.userconfig;
-      global.userconfig = adminConfig;
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
       // Restore original userconfig
-      global.userconfig = originalUserConfig;
+      globalThis.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2466,14 +2466,14 @@ describe('fluxService tests', () => {
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
       // Mock userconfig to match test expectations
-      originalUserConfig = global.userconfig;
-      global.userconfig = adminConfig;
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
       // Restore original userconfig
-      global.userconfig = originalUserConfig;
+      globalThis.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2568,14 +2568,14 @@ describe('fluxService tests', () => {
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
       // Mock userconfig to match test expectations
-      originalUserConfig = global.userconfig;
-      global.userconfig = adminConfig;
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
       // Restore original userconfig
-      global.userconfig = originalUserConfig;
+      globalThis.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {
@@ -2670,14 +2670,14 @@ describe('fluxService tests', () => {
       // Reset the shared writeFile stub for each test
       fsPromisesStubs.writeFile.resetHistory();
       // Mock userconfig to match test expectations
-      originalUserConfig = global.userconfig;
-      global.userconfig = adminConfig;
+      originalUserConfig = globalThis.userconfig;
+      globalThis.userconfig = adminConfig;
     });
 
     afterEach(() => {
       sinon.restore();
       // Restore original userconfig
-      global.userconfig = originalUserConfig;
+      globalThis.userconfig = originalUserConfig;
     });
 
     it('should return error when unauthorized ', async () => {

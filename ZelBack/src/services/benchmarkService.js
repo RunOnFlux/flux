@@ -2,11 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 
 const config = require('config');
-const configManager = require('./utils/configManager');
 const log = require('../lib/log');
-
-// Helper function to get current userconfig
-const getUserConfig = () => configManager.getUserConfig();
 
 const serviceHelper = require('./serviceHelper');
 const messageHelper = require('./messageHelper');
@@ -38,8 +34,7 @@ async function buildBenchdClient() {
   const username = `${prefix}benchuser`;
   const password = `${prefix}benchpassword`;
 
-  const userconfig = getUserConfig();
-  const { initial: { testnet: isTestnet } } = userconfig;
+  const { initial: { testnet: isTestnet } } = globalThis.userconfig;
   const portId = isTestnet ? 'rpcporttestnet' : 'rpcport';
   const rpcPort = config.benchmark[portId];
 
@@ -401,8 +396,7 @@ async function executeUpnpBench() {
     return;
   }
   const isUPNP = upnpService.isUPNP();
-  const userconfig = getUserConfig();
-  if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
+  if ((globalThis.userconfig.initial.apiport && globalThis.userconfig.initial.apiport !== config.server.apiport) || isUPNP) {
     log.info('Calling FluxBench startMultiPortBench');
     log.info(await startMultiPortBench());
   }

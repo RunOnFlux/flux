@@ -1,5 +1,5 @@
 /* eslint-disable no-underscore-dangle */
-global.userconfig = require('../../config/userconfig');
+globalThis.userconfig = require('../../config/userconfig');
 
 const chai = require('chai');
 const sinon = require('sinon');
@@ -962,9 +962,9 @@ describe('fluxNetworkHelper tests', () => {
     beforeEach(() => {
       writeFileStub = sinon.stub(fs, 'writeFile').resolves();
       // Backup original userconfig
-      originalUserConfig = global.userconfig;
+      originalUserConfig = globalThis.userconfig;
       // Mock userconfig with expected test values
-      global.userconfig = {
+      globalThis.userconfig = {
         initial: {
           ipaddress: '127.0.0.1',
           zelid: '1CbErtneaX2QVyUfwU7JGB7VzvPgrgc3uC',
@@ -983,7 +983,7 @@ describe('fluxNetworkHelper tests', () => {
     afterEach(() => {
       sinon.restore();
       // Restore original userconfig
-      global.userconfig = originalUserConfig;
+      globalThis.userconfig = originalUserConfig;
     });
 
     it('should properly write a new ip to the config', async () => {

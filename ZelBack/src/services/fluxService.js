@@ -5,10 +5,6 @@ const { promisify } = require('node:util');
 
 const config = require('config');
 const configDefault = require('../../config/default');
-const configManager = require('./utils/configManager');
-
-// Helper function to get current userconfig
-const getUserConfig = () => configManager.getUserConfig();
 
 const log = require('../lib/log');
 const packageJson = require('../../../package.json');
@@ -679,7 +675,7 @@ async function getFluxIP(req, res) {
  * @returns {object} Message.
  */
 function getFluxZelID(req, res) {
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   const zelID = userconfig.initial.zelid;
   const message = messageHelper.createDataMessage(zelID);
   return res ? res.json(message) : message;
@@ -732,7 +728,7 @@ async function getFluxGeolocation(req, res) {
  * @returns {object} Message.
  */
 function getFluxPGPidentity(req, res) {
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   const pgp = userconfig.initial.pgpPublicKey;
   const message = messageHelper.createDataMessage(pgp);
   return res ? res.json(message) : message;
@@ -745,7 +741,7 @@ function getFluxPGPidentity(req, res) {
  * @returns {object} Message.
  */
 function getFluxKadena(req, res) {
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   const kadena = userconfig.initial.kadena || null;
   const message = messageHelper.createDataMessage(kadena);
   return res ? res.json(message) : message;
@@ -758,7 +754,7 @@ function getFluxKadena(req, res) {
  * @returns {object} Message.
  */
 function getRouterIP(req, res) {
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   const routerIP = userconfig.initial.routerIP || '';
   const message = messageHelper.createDataMessage(routerIP);
   return res ? res.json(message) : message;
@@ -771,7 +767,7 @@ function getRouterIP(req, res) {
  * @returns {object} Message.
  */
 function getBlockedPorts(req, res) {
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   const blockedPorts = userconfig.initial.blockedPorts || [];
   const message = messageHelper.createDataMessage(blockedPorts);
   return res ? res.json(message) : message;
@@ -784,7 +780,7 @@ function getBlockedPorts(req, res) {
  * @returns {object} Message.
  */
 function getAPIPort(req, res) {
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   const routerIP = userconfig.initial.apiport || '16127';
   const message = messageHelper.createDataMessage(routerIP);
   return res ? res.json(message) : message;
@@ -797,7 +793,7 @@ function getAPIPort(req, res) {
  * @returns {object} Message.
  */
 function getBlockedRepositories(req, res) {
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   const blockedPorts = userconfig.initial.blockedRepositories || [];
   const message = messageHelper.createDataMessage(blockedPorts);
   return res ? res.json(message) : message;
@@ -810,7 +806,7 @@ function getBlockedRepositories(req, res) {
  * @returns {object} Message.
  */
 function getMarketplaceURL(req, res) {
-  const userconfig = getUserConfig();
+  const userconfig = globalThis.userconfig;
   const development = userconfig.initial.development || false;
   let marketPlaceUrl = 'https://stats.runonflux.io/marketplace/listapps';
   if (development) {
@@ -1278,7 +1274,7 @@ async function getFluxInfo(req, res) {
       info.flux.arcaneHumanVersion = arcaneHumanVersion;
     }
     info.flux.appsDos = dosAppsResult.data;
-    const userconfig = getUserConfig();
+    const userconfig = globalThis.userconfig;
     info.flux.development = userconfig.initial.development || false;
     const daemonInfoRes = await daemonServiceControlRpcs.getInfo();
     if (daemonInfoRes.status === 'error') {
@@ -1390,7 +1386,7 @@ async function adjustKadenaAccount(req, res) {
         throw new Error(`Invalid Chain ID ${chainid} provided.`);
       }
       const kadenaURI = `kadena:${account}?chainid=${chainid}`;
-      const userconfig = getUserConfig();
+      const userconfig = globalThis.userconfig;
       const fluxDirPath = path.join(__dirname, '../../../config/userconfig.js');
       const dataToWrite = `module.exports = {
   initial: {
@@ -1435,7 +1431,7 @@ async function adjustRouterIP(req, res) {
       let { routerip } = req.params;
       routerip = routerip || req.query.routerip || '';
 
-      const userconfig = getUserConfig();
+      const userconfig = globalThis.userconfig;
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
@@ -1491,7 +1487,7 @@ async function adjustBlockedPorts(req, res) {
     if (!Array.isArray(blockedPorts)) {
       throw new Error('Blocked Ports is not a valid array');
     }
-    const userconfig = getUserConfig();
+    const userconfig = globalThis.userconfig;
     const dataToWrite = `module.exports = {
             initial: {
               ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
@@ -1541,7 +1537,7 @@ async function adjustAPIPort(req, res) {
         return;
       }
 
-      const userconfig = getUserConfig();
+      const userconfig = globalThis.userconfig;
       const dataToWrite = `module.exports = {
         initial: {
           ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
@@ -1605,7 +1601,7 @@ async function adjustBlockedRepositories(req, res) {
       }
     });
 
-    const userconfig = getUserConfig();
+    const userconfig = globalThis.userconfig;
     const dataToWrite = `module.exports = {
             initial: {
               ipaddress: '${userconfig.initial.ipaddress || '127.0.0.1'}',
