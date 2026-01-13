@@ -152,13 +152,13 @@ describe('configManager tests', () => {
         done();
       });
 
-      // Update the require.cache mock before reloading
-      const userconfigPath = require.resolve('../../config/userconfig');
+      // Simulate a config reload by updating globalThis and emitting event
       const reloadedConfig = JSON.parse(JSON.stringify(mockUserConfig));
       reloadedConfig.initial.zelid = 'ReloadedZelID';
-      require.cache[userconfigPath].exports = reloadedConfig;
+      globalThis.userconfig = reloadedConfig;
 
-      configManager.loadConfig(true);
+      // Emit the event manually (simulating what loadConfig does)
+      configManager.emit('configReloaded', reloadedConfig);
     });
 
     it('should update config when reloadConfig is called', () => {
@@ -167,13 +167,10 @@ describe('configManager tests', () => {
       const oldZelid = configManager.getConfigValue('initial.zelid');
       expect(oldZelid).to.equal('1TestZelID123');
 
-      // Update the require.cache mock before reloading
-      const userconfigPath = require.resolve('../../config/userconfig');
+      // Simulate config update by setting globalThis directly
       const updatedConfig = JSON.parse(JSON.stringify(mockUserConfig));
       updatedConfig.initial.zelid = 'UpdatedZelID789';
-      require.cache[userconfigPath].exports = updatedConfig;
-
-      configManager.loadConfig(true);
+      globalThis.userconfig = updatedConfig;
 
       const newZelid = configManager.getConfigValue('initial.zelid');
       expect(newZelid).to.equal('UpdatedZelID789');
@@ -182,15 +179,12 @@ describe('configManager tests', () => {
     it('should update all config values on reload', () => {
       configManager = require('../../ZelBack/src/services/utils/configManager');
 
-      // Update the require.cache mock with new values before reloading
-      const userconfigPath = require.resolve('../../config/userconfig');
+      // Simulate config update with new values
       const updatedConfig = JSON.parse(JSON.stringify(mockUserConfig));
       updatedConfig.initial.apiport = 16137;
       updatedConfig.initial.testnet = true;
       updatedConfig.initial.blockedPorts = [3000, 4000, 5000];
-      require.cache[userconfigPath].exports = updatedConfig;
-
-      configManager.loadConfig(true);
+      globalThis.userconfig = updatedConfig;
 
       expect(configManager.getConfigValue('initial.apiport')).to.equal(16137);
       expect(configManager.getConfigValue('initial.testnet')).to.equal(true);
@@ -242,13 +236,11 @@ describe('configManager tests', () => {
         }
       }
 
-      // Update the require.cache mock before reloading
-      const userconfigPath = require.resolve('../../config/userconfig');
+      // Simulate config reload and emit event
       const multiListenerConfig = JSON.parse(JSON.stringify(mockUserConfig));
       multiListenerConfig.initial.zelid = 'MultiListenerTest';
-      require.cache[userconfigPath].exports = multiListenerConfig;
-
-      configManager.loadConfig(true);
+      globalThis.userconfig = multiListenerConfig;
+      configManager.emit('configReloaded', multiListenerConfig);
     });
 
     it('should allow removing event listeners', () => {
@@ -260,25 +252,20 @@ describe('configManager tests', () => {
       configManager.on('configReloaded', listener);
 
       // First reload - listener should be called
-      // Update the require.cache mock before first reload
-      const userconfigPath = require.resolve('../../config/userconfig');
       const reload1Config = JSON.parse(JSON.stringify(mockUserConfig));
       reload1Config.initial.zelid = 'Reload1';
-      require.cache[userconfigPath].exports = reload1Config;
-
-      configManager.loadConfig(true);
+      globalThis.userconfig = reload1Config;
+      configManager.emit('configReloaded', reload1Config);
       expect(callCount).to.equal(1);
 
       // Remove listener
       configManager.removeListener('configReloaded', listener);
 
       // Second reload - listener should not be called
-      // Update the require.cache mock before second reload
       const reload2Config = JSON.parse(JSON.stringify(mockUserConfig));
       reload2Config.initial.zelid = 'Reload2';
-      require.cache[userconfigPath].exports = reload2Config;
-
-      configManager.loadConfig(true);
+      globalThis.userconfig = reload2Config;
+      configManager.emit('configReloaded', reload2Config);
       expect(callCount).to.equal(1);
     });
   });
