@@ -1,9 +1,5 @@
 const config = require('config');
-const configManager = require('./utils/configManager');
 const qs = require('qs');
-
-// Helper function to get current userconfig
-const getUserConfig = () => configManager.getUserConfig();
 const os = require('os');
 const log = require('../lib/log');
 const serviceHelper = require('./serviceHelper');
@@ -307,7 +303,7 @@ async function verifyLogin(req, res) {
               createdAt,
               expireAt,
             };
-            const userconfig = getUserConfig();
+            const userconfig = globalThis.userconfig;
             let privilage = 'user';
             if (address === config.fluxTeamFluxID || address === config.fluxSupportTeamFluxID) {
               privilage = 'fluxteam';
@@ -692,7 +688,7 @@ async function wsRespondLoginPhrase(ws, loginphrase) {
       });
       if (result) {
         // user is logged, all ok
-        const userconfig = getUserConfig();
+        const userconfig = globalThis.userconfig;
         let privilage = 'user';
         if (result.zelid === config.fluxTeamFluxID || result.zelid === config.fluxSupportTeamFluxID) {
           privilage = 'fluxteam';

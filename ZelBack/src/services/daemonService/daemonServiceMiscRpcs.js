@@ -4,23 +4,19 @@ const daemonServiceBlockchainRpcs = require('./daemonServiceBlockchainRpcs');
 const log = require('../../lib/log');
 const configManager = require('../utils/configManager');
 
-// Helper function to get current userconfig
-const getUserConfig = () => configManager.getUserConfig();
-
 /**
  * Get the default daemon header based on testnet configuration
  * @returns {number} Default header height
  */
 function getDefaultDaemonHeader() {
-  const userconfig = getUserConfig();
-  const isTestnet = userconfig.initial?.testnet === true;
+  const isTestnet = globalThis.userconfig.initial?.testnet === true;
   return isTestnet ? 377006 : 1136836;
 }
 
 let currentDaemonHeight = 0;
 let currentDaemonHeader = getDefaultDaemonHeader();
 let isDaemonInsightExplorer = null;
-let previousTestnetValue = getUserConfig().initial?.testnet;
+let previousTestnetValue = globalThis.userconfig.initial?.testnet;
 
 // Listen for config changes and reset header if testnet mode changes
 configManager.on('configReloaded', (newConfig) => {
