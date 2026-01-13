@@ -2,6 +2,23 @@ const { expect } = require('chai');
 const sinon = require('sinon');
 const path = require('path');
 
+// Mock userconfig module BEFORE any other requires
+const mockUserConfig = {
+  initial: {
+    ipaddress: '127.0.0.1',
+    zelid: '1TestZelID123',
+    kadena: 'kadena:test?chainid=0',
+    testnet: false,
+    development: false,
+    apiport: 16127,
+    routerIP: '192.168.1.1',
+    pgpPrivateKey: 'test-private-key',
+    pgpPublicKey: 'test-public-key',
+    blockedPorts: [8080, 9090],
+    blockedRepositories: ['blocked/repo1', 'blocked/repo2'],
+  },
+};
+
 describe('configManager tests', () => {
   let configManager;
   let originalGlobalUserConfig;
@@ -14,25 +31,14 @@ describe('configManager tests', () => {
     delete require.cache[require.resolve('../../ZelBack/src/services/utils/configManager')];
     delete require.cache[require.resolve('../../config/userconfig')];
 
-    // Mock userconfig module
-    const mockUserConfig = {
-      initial: {
-        ipaddress: '127.0.0.1',
-        zelid: '1TestZelID123',
-        kadena: 'kadena:test?chainid=0',
-        testnet: false,
-        development: false,
-        apiport: 16127,
-        routerIP: '192.168.1.1',
-        pgpPrivateKey: 'test-private-key',
-        pgpPublicKey: 'test-public-key',
-        blockedPorts: [8080, 9090],
-        blockedRepositories: ['blocked/repo1', 'blocked/repo2'],
-      },
+    // Mock the userconfig module in require.cache BEFORE configManager loads it
+    const userconfigPath = require.resolve('../../config/userconfig');
+    require.cache[userconfigPath] = {
+      id: userconfigPath,
+      filename: userconfigPath,
+      loaded: true,
+      exports: mockUserConfig,
     };
-
-    // Set globalThis.userconfig
-    globalThis.userconfig = mockUserConfig;
   });
 
   afterEach(() => {
