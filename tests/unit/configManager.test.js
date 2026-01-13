@@ -31,13 +31,16 @@ describe('configManager tests', () => {
     delete require.cache[require.resolve('../../ZelBack/src/services/utils/configManager')];
     delete require.cache[require.resolve('../../config/userconfig')];
 
+    // Create a fresh copy of mockUserConfig for each test to avoid mutations
+    const freshMockConfig = JSON.parse(JSON.stringify(mockUserConfig));
+
     // Mock the userconfig module in require.cache BEFORE configManager loads it
     const userconfigPath = require.resolve('../../config/userconfig');
     require.cache[userconfigPath] = {
       id: userconfigPath,
       filename: userconfigPath,
       loaded: true,
-      exports: mockUserConfig,
+      exports: freshMockConfig,
     };
   });
 
