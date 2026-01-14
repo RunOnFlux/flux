@@ -229,6 +229,7 @@ async function startWatchdog() {
   await serviceHelper.runCommand('pm2', {
     params: ['delete', 'watchdog'],
     timeout: 30000,
+    logError: false, // Expected to fail if watchdog isn't running
   });
 
   // Start watchdog with pm2, using --watch flag for auto-restart on file changes
@@ -241,6 +242,7 @@ async function startWatchdog() {
       '--ignore-watch', '"./**/*.git" "./**/*node_modules" "./**/*watchdog_error.log"',
       '--watch-delay', '20',
     ],
+    cwd: watchdogPath,
     timeout: 60000,
   });
 
