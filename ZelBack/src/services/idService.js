@@ -1,5 +1,4 @@
 const config = require('config');
-const userconfig = require('../../../config/userconfig');
 const qs = require('qs');
 const os = require('os');
 const log = require('../lib/log');
@@ -304,6 +303,7 @@ async function verifyLogin(req, res) {
               createdAt,
               expireAt,
             };
+            const userconfig = globalThis.userconfig;
             let privilage = 'user';
             if (address === config.fluxTeamFluxID || address === config.fluxSupportTeamFluxID) {
               privilage = 'fluxteam';
@@ -688,6 +688,7 @@ async function wsRespondLoginPhrase(ws, loginphrase) {
       });
       if (result) {
         // user is logged, all ok
+        const userconfig = globalThis.userconfig;
         let privilage = 'user';
         if (result.zelid === config.fluxTeamFluxID || result.zelid === config.fluxSupportTeamFluxID) {
           privilage = 'fluxteam';

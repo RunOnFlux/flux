@@ -5,7 +5,6 @@ const fluxNetworkHelper = require('../fluxNetworkHelper');
 const networkStateService = require('../networkStateService');
 const verificationHelper = require('../verificationHelper');
 const log = require('../../lib/log');
-const userconfig = require('../../../../config/userconfig');
 const upnpService = require('../upnpService');
 const serviceHelper = require('../serviceHelper');
 const fluxHttpTestServer = require('../utils/fluxHttpTestServer');
@@ -228,6 +227,7 @@ async function restoreFluxPortsSupport() {
   try {
     const isUPNP = upnpService.isUPNP();
 
+    const userconfig = globalThis.userconfig;
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     const homePort = +apiPort - 1;
     const apiPortSSL = +apiPort + 1;
@@ -593,6 +593,7 @@ async function checkInstallingAppPortAvailable(portsToTest = []) {
  */
 async function callOtherNodeToKeepUpnpPortsOpen() {
   try {
+    const userconfig = globalThis.userconfig;
     const apiPort = userconfig.initial.apiport || config.server.apiport;
     let myIP = await fluxNetworkHelper.getMyFluxIPandPort();
     if (!myIP) {
