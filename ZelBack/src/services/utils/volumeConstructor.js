@@ -8,6 +8,7 @@
 const log = require('../../lib/log');
 const { MountType } = require('./mountParser');
 const { appsFolder } = require('./appConstants');
+const config = require('../../../config/default');
 
 /**
  * Get app identifier with proper flux prefix
@@ -259,8 +260,9 @@ function getRestartPolicy(flags, owner) {
   if (flags.includes('g')) {
     return 'no';
   }
-  // Specific owner gets 'always' restart policy
-  if (owner === '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW') {
+  // Owners in restartAlwaysOwners config get 'always' restart policy
+  const restartAlwaysOwners = config.fluxapps.restartAlwaysOwners || [];
+  if (owner && restartAlwaysOwners.includes(owner)) {
     return 'always';
   }
   return 'unless-stopped';
