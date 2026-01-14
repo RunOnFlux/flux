@@ -43,6 +43,7 @@ const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
 const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
+const cloudUIUpdateService = require('./cloudUIUpdateService');
 // const throughputLogger = require('./utils/throughputLogger');
 
 // Initialize globalState caches with cacheManager
@@ -76,6 +77,9 @@ async function startFluxFunctions() {
       log.error(`Flux port ${apiPort} is not supported. Shutting down.`);
       process.exit();
     }
+    // Check and update CloudUI if needed (for legacy nodes without watchdog)
+    log.info('Checking CloudUI installation...');
+    await cloudUIUpdateService.checkAndUpdateCloudUI();
     // User configured UPnP node with routerIP, UPnP has already been verified and setup
     if (userconfig.initial.routerIP) {
       setInterval(() => {
