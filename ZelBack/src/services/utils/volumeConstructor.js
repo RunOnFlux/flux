@@ -249,14 +249,19 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
 }
 
 /**
- * Get restart policy based on flags
+ * Get restart policy based on flags and owner
  * @param {string[]} flags - Primary mount flags
+ * @param {string} owner - App owner address
  * @returns {string} Docker restart policy
  */
-function getRestartPolicy(flags) {
+function getRestartPolicy(flags, owner) {
   // 'g' flag (primary/standby) requires 'no' restart policy
   if (flags.includes('g')) {
     return 'no';
+  }
+  // Specific owner gets 'always' restart policy
+  if (owner === '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW') {
+    return 'always';
   }
   return 'unless-stopped';
 }
