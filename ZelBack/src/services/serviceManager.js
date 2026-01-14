@@ -43,6 +43,7 @@ const backupRestoreService = require('./backupRestoreService');
 const systemService = require('./systemService');
 const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
+const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
 // const throughputLogger = require('./utils/throughputLogger');
 
@@ -239,6 +240,11 @@ async function startFluxFunctions() {
     log.info('Syncthing service started');
     await pgpService.generateIdentity();
     log.info('PGP service initiated');
+    // Ensure watchdog is installed and running on legacy OS (non-ArcaneOS) nodes
+    watchdogService.ensureWatchdogRunning().catch((error) => {
+      log.error(`Watchdog service error: ${error.message}`);
+    });
+    log.info('Watchdog service check initiated');
     const explorerDatabase = db.db(config.database.daemon.database);
     await dbHelper.dropCollection(explorerDatabase, fluxTransactionCollection).catch((error) => {
       if (error.message !== 'ns not found') {
