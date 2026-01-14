@@ -780,8 +780,9 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     throw error;
   }
 
-  // Determine restart policy based on flags
-  const restartPolicy = volumeConstructor.getRestartPolicy(parsedMounts.primary.flags);
+  // Determine restart policy based on flags and owner
+  const appOwner = fullAppSpecs?.owner || null;
+  const restartPolicy = volumeConstructor.getRestartPolicy(parsedMounts.primary.flags, appOwner);
 
   // Construct Docker bind mounts
   let constructedVolumes;
