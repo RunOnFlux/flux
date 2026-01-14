@@ -10,6 +10,9 @@ const PROJECT_ROOT = path.join(__dirname, '..', '..', '..');
 const CLOUDUI_DIR = path.join(PROJECT_ROOT, 'CloudUI');
 const VERSION_FILE = path.join(CLOUDUI_DIR, 'version');
 
+// ArcaneOS nodes have watchdog handling CloudUI updates
+const isArcaneOS = Boolean(process.env.FLUXOS_PATH);
+
 /**
  * Checks if CloudUI folder exists and has content
  * @returns {boolean}
@@ -133,6 +136,12 @@ function runUpdateScript() {
  */
 async function checkAndUpdateCloudUI() {
   try {
+    // Skip on ArcaneOS - watchdog handles CloudUI updates
+    if (isArcaneOS) {
+      log.info('CloudUI: Running on ArcaneOS, skipping update check (handled by watchdog)');
+      return;
+    }
+
     log.info('CloudUI: Starting update check...');
 
     // Check if CloudUI folder exists with content
@@ -206,4 +215,5 @@ module.exports = {
   // Exported for testing
   CLOUDUI_DIR,
   VERSION_FILE,
+  isArcaneOS,
 };
