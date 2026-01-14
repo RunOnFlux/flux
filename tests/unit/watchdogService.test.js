@@ -382,7 +382,26 @@ describe('watchdogService tests', () => {
         watchdogService = proxyquire('../../ZelBack/src/services/watchdogService', {});
       });
 
+      it('should return early if pm2 is not installed', async () => {
+        // pm2 --version fails
+        runCommandStub.withArgs('pm2', sinon.match({ params: ['--version'] })).resolves({
+          error: new Error('pm2: command not found'),
+        });
+
+        await watchdogService.ensureWatchdogRunning();
+
+        sinon.assert.calledWith(logInfoStub, 'Legacy OS detected, checking watchdog status...');
+        sinon.assert.calledWith(logErrorStub, 'pm2 is not installed. Watchdog requires pm2 to run. Please install pm2 first.');
+        // Should not proceed with installation
+        sinon.assert.neverCalledWith(runCommandStub, 'git', sinon.match.any);
+      });
+
       it('should install and start watchdog if not installed', async () => {
+        // pm2 --version succeeds
+        runCommandStub.withArgs('pm2', sinon.match({ params: ['--version'] })).resolves({
+          error: null,
+          stdout: '5.3.0',
+        });
         const statStub = sinon.stub(fs, 'stat');
         // isWatchdogInstalled - directory doesn't exist
         statStub.withArgs('/home/testuser/watchdog').rejects(new Error('ENOENT'));
@@ -401,6 +420,12 @@ describe('watchdogService tests', () => {
       });
 
       it('should start watchdog if installed but not running (without creating config)', async () => {
+        // pm2 --version succeeds
+        runCommandStub.withArgs('pm2', sinon.match({ params: ['--version'] })).resolves({
+          error: null,
+          stdout: '5.3.0',
+        });
+
         const statStub = sinon.stub(fs, 'stat');
         // isWatchdogInstalled - all exist
         statStub.withArgs('/home/testuser/watchdog').resolves({ isDirectory: () => true });
@@ -425,6 +450,12 @@ describe('watchdogService tests', () => {
       });
 
       it('should do nothing if watchdog is installed and running (without creating config)', async () => {
+        // pm2 --version succeeds
+        runCommandStub.withArgs('pm2', sinon.match({ params: ['--version'] })).resolves({
+          error: null,
+          stdout: '5.3.0',
+        });
+
         const statStub = sinon.stub(fs, 'stat');
         // isWatchdogInstalled - all exist
         statStub.withArgs('/home/testuser/watchdog').resolves({ isDirectory: () => true });

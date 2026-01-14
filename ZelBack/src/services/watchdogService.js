@@ -283,6 +283,18 @@ async function ensureWatchdogRunning() {
 
     log.info('Legacy OS detected, checking watchdog status...');
 
+    // Check if pm2 is installed
+    const { error: pm2Error } = await serviceHelper.runCommand('pm2', {
+      params: ['--version'],
+      timeout: 5000,
+      logError: false,
+    });
+
+    if (pm2Error) {
+      log.error('pm2 is not installed. Watchdog requires pm2 to run. Please install pm2 first.');
+      return;
+    }
+
     // Check if watchdog is installed
     const installed = await isWatchdogInstalled();
 
