@@ -323,12 +323,16 @@ describe('watchdogService tests', () => {
       const result = await watchdogService.startWatchdog();
       expect(result).to.be.true;
 
-      // Should delete any existing watchdog process first
-      sinon.assert.calledWith(runCommandStub, 'pm2', sinon.match({ params: ['delete', 'watchdog'] }));
+      // Should delete any existing watchdog process first (with logError: false)
+      sinon.assert.calledWith(runCommandStub, 'pm2', sinon.match({
+        params: ['delete', 'watchdog'],
+        logError: false,
+      }));
 
-      // Should start watchdog with correct params
+      // Should start watchdog with correct params and cwd
       sinon.assert.calledWith(runCommandStub, 'pm2', sinon.match({
         params: sinon.match.array.contains(['start', '/home/testuser/watchdog/watchdog.js', '--name', 'watchdog']),
+        cwd: '/home/testuser/watchdog',
       }));
 
       // Should save pm2 process list
