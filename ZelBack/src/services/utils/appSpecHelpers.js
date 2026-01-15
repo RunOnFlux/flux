@@ -11,6 +11,7 @@ const { getChainParamsPriceUpdates } = require('./chainUtilities');
 const registryManager = require('../appDatabase/registryManager');
 const cacheManager = require('./cacheManager').default;
 const hwRequirements = require('../appRequirements/hwRequirements');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const log = require('../../lib/log');
 
 // Database collections
@@ -122,6 +123,16 @@ async function getAppFluxOnChainPrice(appSpecification) {
 }
 
 /**
+ * Count enterprise ports in a component's ports array
+ * @param {Array} ports - Array of port numbers
+ * @returns {number} Count of enterprise ports
+ */
+function countEnterprisePorts(ports) {
+  if (!Array.isArray(ports)) return 0;
+  return ports.filter((port) => fluxNetworkHelper.isPortEnterprise(port)).length;
+}
+
+/**
  * Check if app update is free
  * @param {object} appSpecFormatted - Formatted app specification
  * @param {number} daemonHeight - Current daemon height
@@ -133,15 +144,38 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   if (appInfo && appInfo.expire && appInfo.height && appSpecFormatted.expire) {
     const blocksToExtend = (appSpecFormatted.expire + Number(daemonHeight)) - appInfo.height - appInfo.expire;
     if (((!appSpecFormatted.nodes && !appInfo.nodes) || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length))
-      && appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 2) { // free updates should not extend app subscription
-      if (appSpecFormatted.compose.length === appInfo.compose.length) {
+      && appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 8) { // free updates should not extend app subscription
+      if (Array.isArray(appSpecFormatted.compose) && Array.isArray(appInfo.compose) && appSpecFormatted.compose.length === appInfo.compose.length) {
         let changes = false;
-        for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
-          const compA = appSpecFormatted.compose[i];
-          const compB = appInfo.compose[i];
-          if (compA.cpu > compB.cpu || compA.ram > compB.ram || compA.hdd > compB.hdd) {
-            changes = true;
-            break;
+        const appSpecComponentNames = appSpecFormatted.compose
+          .map((component) => (component && typeof component.name === 'string' ? component.name : null));
+        const appInfoComponentNames = appInfo.compose
+          .map((component) => (component && typeof component.name === 'string' ? component.name : null));
+        const canCompareByName = !appSpecComponentNames.includes(null)
+          && !appInfoComponentNames.includes(null)
+          && new Set(appSpecComponentNames).size === appSpecComponentNames.length
+          && new Set(appInfoComponentNames).size === appInfoComponentNames.length;
+        if (canCompareByName) {
+          const appInfoComponentsByName = new Map(appInfo.compose.map((component) => [component.name, component]));
+          // eslint-disable-next-line no-restricted-syntax
+          for (const compA of appSpecFormatted.compose) {
+            const compB = appInfoComponentsByName.get(compA.name);
+            if (!compB || compA.cpu > compB.cpu || compA.ram > compB.ram || compA.hdd > compB.hdd
+              || countEnterprisePorts(compA.ports) > countEnterprisePorts(compB.ports)) {
+              changes = true;
+              break;
+            }
+          }
+        } else {
+          // Fall back to index comparison for legacy/test data without component names.
+          for (let i = 0; i < appSpecFormatted.compose.length; i += 1) {
+            const compA = appSpecFormatted.compose[i];
+            const compB = appInfo.compose[i];
+            if (compA.cpu > compB.cpu || compA.ram > compB.ram || compA.hdd > compB.hdd
+              || countEnterprisePorts(compA.ports) > countEnterprisePorts(compB.ports)) {
+              changes = true;
+              break;
+            }
           }
         }
         if (!changes) {

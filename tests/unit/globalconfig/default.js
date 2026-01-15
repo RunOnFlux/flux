@@ -170,6 +170,7 @@ module.exports = {
       address: '16iJqiVbHptCx87q6XQwNpKdgEZnFtKcyP',
     }],
     usersToExtend: ['1MCBJn6qsy3YRY2YasdYMYdJcdhy1ev8Rd'], // addresses that can extend applications on behalf of app owners (expire-only updates) addresses cannot be deleted over time, just adding new ones
+    restartAlwaysOwners: ['16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW'], // app owners whose containers should have restart policy 'always' instead of 'unless-stopped'
     appSpecsEnforcementHeights: {
       1: 0, // blockheight v1 is deprecated. Not possible to use api to update to its specs
       2: 0, // blockheight

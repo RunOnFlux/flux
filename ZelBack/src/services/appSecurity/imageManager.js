@@ -10,7 +10,6 @@ const dbHelper = require('../dbHelper');
 const verificationHelper = require('../verificationHelper');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
-const userconfig = require('../../../../config/userconfig');
 const { supportedArchitectures, globalAppsMessages, globalAppsInformation } = require('../utils/appConstants');
 const fluxCaching = require('../utils/cacheManager').default;
 
@@ -205,6 +204,7 @@ async function getUserBlockedRepositores() {
       return cacheUserBlockedRepos;
     }
 
+    const userconfig = globalThis.userconfig;
     const userBlockedRepos = userconfig.initial.blockedRepositories || [];
     if (userBlockedRepos.length === 0) {
       return userBlockedRepos;

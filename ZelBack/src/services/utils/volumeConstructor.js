@@ -8,6 +8,7 @@
 const log = require('../../lib/log');
 const { MountType } = require('./mountParser');
 const { appsFolder } = require('./appConstants');
+const config = require('../../../config/default');
 
 /**
  * Get app identifier with proper flux prefix
@@ -249,14 +250,20 @@ function constructVolumes(parsedMounts, identifier, appName, fullAppSpecs, appSp
 }
 
 /**
- * Get restart policy based on flags
+ * Get restart policy based on flags and owner
  * @param {string[]} flags - Primary mount flags
+ * @param {string} owner - App owner address
  * @returns {string} Docker restart policy
  */
-function getRestartPolicy(flags) {
+function getRestartPolicy(flags, owner) {
   // 'g' flag (primary/standby) requires 'no' restart policy
   if (flags.includes('g')) {
     return 'no';
+  }
+  // Owners in restartAlwaysOwners config get 'always' restart policy
+  const restartAlwaysOwners = config.fluxapps.restartAlwaysOwners || [];
+  if (owner && restartAlwaysOwners.includes(owner)) {
+    return 'always';
   }
   return 'unless-stopped';
 }

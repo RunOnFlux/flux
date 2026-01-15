@@ -1,4 +1,4 @@
-global.userconfig = require('./config/userconfig');
+const configManager = require('./ZelBack/src/services/utils/configManager');
 
 if (typeof AbortController === 'undefined') {
   // polyfill for nodeJS 14.18.1 - without having to use experimental features
@@ -13,11 +13,9 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
-const { watch } = require('node:fs/promises');
 
 const axios = require('axios').default;
 const config = require('config');
-const hash = require('object-hash');
 
 const serviceManager = require('./ZelBack/src/services/serviceManager');
 const fluxServer = require('./ZelBack/src/lib/fluxServer');
@@ -30,9 +28,8 @@ const globalState = require('./ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 
-const apiPort = userconfig.initial.apiport || config.server.apiport;
+const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
-let initialHash = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
 
 let requestHistory = null;
 let axiosDefaultsSet = false;
@@ -179,22 +176,22 @@ async function loadUpnpIfRequired() {
   try {
     let verifyUpnp = false;
     let setupUpnp = false;
-    if (userconfig.initial.apiport) {
+    if (globalThis.userconfig.initial.apiport) {
       verifyUpnp = await upnpService.verifyUPNPsupport(apiPort);
       if (verifyUpnp) {
         setupUpnp = await upnpService.setupUPNP(apiPort);
       }
     }
-    if ((userconfig.initial.apiport && userconfig.initial.apiport !== config.server.apiport) || userconfig.initial.routerIP) {
+    if ((globalThis.userconfig.initial.apiport && globalThis.userconfig.initial.apiport !== config.server.apiport) || globalThis.userconfig.initial.routerIP) {
       if (verifyUpnp !== true) {
         await logErrorAndExit(
-          `Flux port ${userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`,
+          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to verify support. Shutting down.`,
           { exitCode: 1, delay: 120_000 },
         );
       }
       if (setupUpnp !== true) {
         await logErrorAndExit(
-          `Flux port ${userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`,
+          `Flux port ${globalThis.userconfig.initial.apiport} specified but UPnP failed to map to api or home port. Shutting down.`,
           { exitCode: 1, delay: 120_000 },
         );
       }
@@ -205,28 +202,12 @@ async function loadUpnpIfRequired() {
 }
 
 async function configReload() {
-  try {
-    const watcher = watch(path.join(__dirname, '/config'));
-    // eslint-disable-next-line
-    for await (const event of watcher) {
-      if (event.eventType === 'change' && event.filename === 'userconfig.js') {
-        const hashCurrent = hash(fs.readFileSync(path.join(__dirname, '/config/userconfig.js')));
-        if (hashCurrent === initialHash) {
-          return;
-        }
-        initialHash = hashCurrent;
-        log.info(`Config file changed, reloading ${event.filename}...`);
-        delete require.cache[require.resolve('./config/userconfig')];
-        // eslint-disable-next-line
-        userconfig = require('./config/userconfig');
-        if (userconfig?.initial?.apiport) {
-          await loadUpnpIfRequired();
-        }
-      }
+  // Config watching is now handled by configManager
+  await configManager.startWatching(log, async (newConfig) => {
+    if (newConfig?.initial?.apiport) {
+      await loadUpnpIfRequired();
     }
-  } catch (error) {
-    log.error(`Error watching files: ${error}`);
-  }
+  });
 }
 
 /**
