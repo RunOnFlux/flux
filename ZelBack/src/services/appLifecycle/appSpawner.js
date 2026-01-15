@@ -5,6 +5,7 @@ const serviceHelper = require('../serviceHelper');
 const generalService = require('../generalService');
 const benchmarkService = require('../benchmarkService');
 const fluxNetworkHelper = require('../fluxNetworkHelper');
+const geolocationService = require('../geolocationService');
 const log = require('../../lib/log');
 
 // Import modular services
@@ -456,6 +457,17 @@ async function trySpawningGlobalApplication() {
           required: minInstances,
         };
         log.info(`trySpawningGlobalApplication - App ${appToRun} specs not enterprise, will check in around 30 if instances are still missing`);
+        globalState.appsToBeCheckedLater.push(appToCheck);
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+        delay = true;
+      } else if (!appSpecifications.staticip && geolocationService.isStaticIP()) {
+        const appToCheck = {
+          timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+        };
+        log.info(`trySpawningGlobalApplication - App ${appToRun} does not require static IP but node has static IP, will check in around 27m if instances are still missing`);
         globalState.appsToBeCheckedLater.push(appToCheck);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         delay = true;
