@@ -191,14 +191,14 @@ async function trySpawningGlobalApplication() {
       minInstances = appsToBeCheckedLater[appIndex].required;
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
-      appsCountAvailableToInstallOnMyNode -= 1;
+      appsCountAvailableToInstallOnMyNode = Math.max(0, appsCountAvailableToInstallOnMyNode - 1);
     } else if (appSyncthingIndex >= 0) {
       appToRun = appsSyncthingToBeCheckedLater[appSyncthingIndex].appName;
       appHash = appsSyncthingToBeCheckedLater[appSyncthingIndex].hash;
       minInstances = appsSyncthingToBeCheckedLater[appSyncthingIndex].required;
       appsSyncthingToBeCheckedLater.splice(appSyncthingIndex, 1);
       appFromAppsSyncthingToBeCheckedLater = true;
-      appsCountAvailableToInstallOnMyNode -= 1;
+      appsCountAvailableToInstallOnMyNode = Math.max(0, appsCountAvailableToInstallOnMyNode - 1);
     } else {
       const myNodeLocation = await systemIntegration.nodeFullGeolocation();
 
