@@ -22,6 +22,7 @@ const { FluxCacheManager } = require('../utils/cacheManager');
 
 let appInstaller; // Will be initialized to avoid circular dependency
 let appUninstaller; // Will be initialized to avoid circular dependency
+let appsCountAvailableToInstallOnMyNode = 0;
 
 /**
  * Initialize the module with dependencies
@@ -46,6 +47,7 @@ function initialize(deps) {
  */
 async function trySpawningGlobalApplication() {
   let shortDelayTime = 5 * 60 * 1000; // Default 5 minutes
+  let delayTime = 30 * 60 * 1000; // Default 30 minutes
   let appHash = null; // Declare outside try block to be accessible in catch
   try {
     // how do we continue with this function?
@@ -172,10 +174,6 @@ async function trySpawningGlobalApplication() {
     }
     log.info(`trySpawningGlobalApplication - Found ${numberOfGlobalApps} apps that are missing instances on the network.`);
 
-    // If there are multiple apps to process, use shorter delays
-    const delayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 30 * 60 * 1000;
-    shortDelayTime = numberOfGlobalApps > 1 ? 60 * 1000 : 5 * 60 * 1000;
-
     let appToRun = null;
     let appToRunAux = null;
     let minInstances = null;
@@ -193,12 +191,14 @@ async function trySpawningGlobalApplication() {
       minInstances = appsToBeCheckedLater[appIndex].required;
       appsToBeCheckedLater.splice(appIndex, 1);
       appFromAppsToBeCheckedLater = true;
+      appsCountAvailableToInstallOnMyNode -= 1;
     } else if (appSyncthingIndex >= 0) {
       appToRun = appsSyncthingToBeCheckedLater[appSyncthingIndex].appName;
       appHash = appsSyncthingToBeCheckedLater[appSyncthingIndex].hash;
       minInstances = appsSyncthingToBeCheckedLater[appSyncthingIndex].required;
       appsSyncthingToBeCheckedLater.splice(appSyncthingIndex, 1);
       appFromAppsSyncthingToBeCheckedLater = true;
+      appsCountAvailableToInstallOnMyNode -= 1;
     } else {
       const myNodeLocation = await systemIntegration.nodeFullGeolocation();
 
@@ -218,6 +218,9 @@ async function trySpawningGlobalApplication() {
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('a!c')).length === 0 || !app.geolocation.find((loc) => loc.startsWith('a!c') && `a!c${myNodeLocation}`.startsWith(loc.replace('_NONE', '')))));
       // filter apps that dont have geolocation or have and match my node geolocation
       globalAppNamesLocation = globalAppNamesLocation.filter((app) => (app.geolocation.length === 0 || app.geolocation.filter((loc) => loc.startsWith('ac')).length === 0 || app.geolocation.find((loc) => loc.startsWith('ac') && `ac${myNodeLocation}`.startsWith(loc))));
+
+      appsCountAvailableToInstallOnMyNode = globalAppNamesLocation.length + appsSyncthingToBeCheckedLater.length + appsToBeCheckedLater.length;
+      shortDelayTime = appsCountAvailableToInstallOnMyNode > 1 ? 60 * 1000 : 5 * 60 * 1000;
 
       if (globalAppNamesLocation.length === 0) {
         log.info('trySpawningGlobalApplication - No app currently to be processed');
@@ -256,6 +259,10 @@ async function trySpawningGlobalApplication() {
         return;
       }
     }
+
+    // If there are multiple apps to process, use shorter delays
+    delayTime = appsCountAvailableToInstallOnMyNode > 1 ? 60 * 1000 : 30 * 60 * 1000;
+    shortDelayTime = appsCountAvailableToInstallOnMyNode > 1 ? 60 * 1000 : 5 * 60 * 1000;
 
     globalState.trySpawningGlobalAppCache.set(appHash, '');
     log.info(`trySpawningGlobalApplication - App ${appToRun} hash: ${appHash}`);
