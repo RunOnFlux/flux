@@ -446,6 +446,40 @@ describe('appSpecHelpers tests', () => {
       expect(result).to.be.false;
     });
 
+    it('should treat undefined staticip as false (legacy DB records)', async () => {
+      // This tests the case where an older database record doesn't have staticip field
+      // but the new formatted spec has staticip: false (default)
+      const daemonHeight = 100000;
+      const appSpecFormatted = {
+        name: 'TestApp',
+        instances: 5,
+        staticip: false, // Default value from specificationFormatter
+        nodes: [],
+        expire: 44000,
+        compose: [{ cpu: 1, ram: 2000, hdd: 50 }],
+      };
+
+      const appInfo = {
+        name: 'TestApp',
+        instances: 5,
+        // staticip: undefined - field missing from legacy DB record
+        nodes: [],
+        expire: 44000,
+        height: daemonHeight + 44000 - appSpecFormatted.expire, // Height such that blocksToExtend = 0
+        compose: [{ cpu: 1, ram: 2000, hdd: 50 }],
+      };
+
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(appInfo);
+      sinon.stub(dbHelper, 'databaseConnection').returns({
+        db: () => ({}),
+      });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+
+      const result = await appSpecHelpers.checkFreeAppUpdate(appSpecFormatted, daemonHeight);
+
+      expect(result).to.be.true; // Should be free update since undefined === false semantically
+    });
+
     it('should return false when compose length changed', async () => {
       const appSpecFormatted = {
         name: 'TestApp',
