@@ -29,6 +29,7 @@ const imageManager = require('./appSecurity/imageManager');
 const appSpawner = require('./appLifecycle/appSpawner');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
+const stoppedAppsRecovery = require('./appLifecycle/stoppedAppsRecovery');
 const globalState = require('./utils/globalState');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -206,6 +207,14 @@ async function startFluxFunctions() {
         log.error(`Volume validation service error: ${error.message}`);
       });
     }, 45 * 1000); // Run after 45 seconds to allow system to stabilize
+
+    // Start stopped apps on boot (excluding g: syncthing mode apps which are managed by masterSlaveApps)
+    log.info('Scheduling stopped apps recovery check...');
+    setTimeout(() => {
+      stoppedAppsRecovery.startStoppedAppsOnBoot().catch((error) => {
+        log.error(`Stopped apps recovery service error: ${error.message}`);
+      });
+    }, 50 * 1000); // Run after 50 seconds, after volume validation
 
     log.info('Flux Apps installing locations prepared');
 
