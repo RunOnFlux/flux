@@ -142,7 +142,23 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   // check if it's a free app update offered by the network
   const appInfo = await registryManager.getApplicationGlobalSpecifications(appSpecFormatted.name);
   if (appInfo && appInfo.expire && appInfo.height && appSpecFormatted.expire) {
-    const blocksToExtend = (appSpecFormatted.expire + Number(daemonHeight)) - appInfo.height - appInfo.expire;
+    // Calculate the adjusted expiration height accounting for PON fork
+    // After PON fork (block 2020000), chain runs 4x faster
+    let adjustedAppInfoExpire = appInfo.expire;
+    if (appInfo.height < config.fluxapps.daemonPONFork) {
+      const originalExpireHeight = appInfo.height + appInfo.expire;
+      if (originalExpireHeight > config.fluxapps.daemonPONFork) {
+        // Expiration crosses fork boundary - adjust blocks after fork (they are 4x faster)
+        const blocksBeforeFork = config.fluxapps.daemonPONFork - appInfo.height;
+        const blocksAfterFork = originalExpireHeight - config.fluxapps.daemonPONFork;
+        const adjustedBlocksAfterFork = blocksAfterFork * 4;
+        adjustedAppInfoExpire = blocksBeforeFork + adjustedBlocksAfterFork;
+      }
+    }
+    const adjustedExpirationHeight = appInfo.height + adjustedAppInfoExpire;
+    const newExpirationHeight = Number(daemonHeight) + appSpecFormatted.expire;
+    const blocksToExtend = newExpirationHeight - adjustedExpirationHeight;
+
     // For staticip: treat undefined/null as false (default value) since older DB records may not have this field
     const staticipMatch = (appSpecFormatted.staticip ?? false) === (appInfo.staticip ?? false);
     // For nodes: treat both empty arrays and both undefined/null as matching
@@ -151,17 +167,10 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
     const instancesMatch = appSpecFormatted.instances === appInfo.instances;
     const blocksOk = blocksToExtend <= 8;
 
-    // Debug logging for free update check
-    log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}`);
-    log.info(`[checkFreeAppUpdate] blocksToExtend: ${blocksToExtend}, blocksOk: ${blocksOk}`);
-    log.info(`[checkFreeAppUpdate] nodes - formatted: ${JSON.stringify(appSpecFormatted.nodes)}, db: ${JSON.stringify(appInfo.nodes)}, match: ${nodesMatch}`);
-    log.info(`[checkFreeAppUpdate] instances - formatted: ${appSpecFormatted.instances} (${typeof appSpecFormatted.instances}), db: ${appInfo.instances} (${typeof appInfo.instances}), match: ${instancesMatch}`);
-    log.info(`[checkFreeAppUpdate] staticip - formatted: ${appSpecFormatted.staticip}, db: ${appInfo.staticip}, match: ${staticipMatch}`);
 
     if (nodesMatch && instancesMatch && staticipMatch && blocksOk) { // free updates should not extend app subscription
       const composeArraysValid = Array.isArray(appSpecFormatted.compose) && Array.isArray(appInfo.compose);
       const composeLengthMatch = composeArraysValid && appSpecFormatted.compose.length === appInfo.compose.length;
-      log.info(`[checkFreeAppUpdate] compose - arraysValid: ${composeArraysValid}, lengthMatch: ${composeLengthMatch}, formatted: ${appSpecFormatted.compose?.length}, db: ${appInfo.compose?.length}`);
       if (composeArraysValid && composeLengthMatch) {
         let changes = false;
         const appSpecComponentNames = appSpecFormatted.compose
@@ -208,11 +217,10 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
           const permanentAppMessage = await dbHelper.findInDatabase(database, globalAppsMessages, query, projection);
           let messagesInLasDays = permanentAppMessage.filter((message) => (message.type === 'fluxappupdate' || message.type === 'zelappupdate') && message.height > daemonHeight - 3600);
           // we will give a maximum of 10 free updates in 5 days, 8 in two days, 5 in one day
-          log.info(`[checkFreeAppUpdate] rate limit check - updates in last 5 days: ${messagesInLasDays.length}`);
           if (!messagesInLasDays || messagesInLasDays.length === 0) {
             // eslint-disable-next-line no-param-reassign
             appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
-            log.info(`[checkFreeAppUpdate] RESULT: FREE UPDATE (no recent updates)`);
+            log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: FREE UPDATE (no recent updates)`);
             return true;
           }
           if (messagesInLasDays.length < 11) {
@@ -222,23 +230,21 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
               if (messagesInLasDays.length < 6) {
                 // eslint-disable-next-line no-param-reassign
                 appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
-                log.info(`[checkFreeAppUpdate] RESULT: FREE UPDATE (within rate limits)`);
+                log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: FREE UPDATE (within rate limits)`);
                 return true;
               }
             }
           }
-          log.info(`[checkFreeAppUpdate] RESULT: NOT FREE - rate limit exceeded`);
+          log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: NOT FREE - rate limit exceeded`);
         } else {
-          log.info(`[checkFreeAppUpdate] RESULT: NOT FREE - resource changes detected`);
+          log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: NOT FREE - resource changes detected`);
         }
       } else {
-        log.info(`[checkFreeAppUpdate] RESULT: NOT FREE - compose array mismatch`);
+        log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: NOT FREE - compose array mismatch`);
       }
     } else {
-      log.info(`[checkFreeAppUpdate] RESULT: NOT FREE - basic conditions failed (nodes: ${nodesMatch}, instances: ${instancesMatch}, staticip: ${staticipMatch}, blocks: ${blocksOk})`);
+      log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: NOT FREE - basic conditions failed (nodes: ${nodesMatch}, instances: ${instancesMatch}, staticip: ${staticipMatch}, blocks: ${blocksOk})`);
     }
-  } else {
-    log.info(`[checkFreeAppUpdate] RESULT: NOT FREE - missing required fields (appInfo: ${!!appInfo}, appInfo.expire: ${appInfo?.expire}, appInfo.height: ${appInfo?.height}, appSpecFormatted.expire: ${appSpecFormatted?.expire})`);
   }
   return false;
 }

@@ -480,6 +480,50 @@ describe('appSpecHelpers tests', () => {
       expect(result).to.be.true; // Should be free update since undefined === false semantically
     });
 
+    it('should handle PON fork adjustment for pre-fork apps (free update)', async () => {
+      // This tests apps registered before PON fork (block 2020000) where expiration crosses fork
+      // After fork, blocks are 4x faster, so remaining blocks after fork are multiplied by 4
+      const daemonHeight = 2256730; // Current height after fork
+      const appSpecFormatted = {
+        name: 'PresearchNode',
+        instances: 12,
+        staticip: false,
+        nodes: [],
+        expire: 100, // Small expire value for free update
+        compose: [{ name: 'node', cpu: 0.3, ram: 300, hdd: 2 }],
+      };
+
+      // App registered before fork
+      // height: 1837757, expire: 244085
+      // Original expire height: 1837757 + 244085 = 2081842
+      // Blocks before fork: 2020000 - 1837757 = 182243
+      // Blocks after fork (original): 2081842 - 2020000 = 61842
+      // Adjusted blocks after fork: 61842 * 4 = 247368
+      // Adjusted expire: 182243 + 247368 = 429611
+      // Adjusted expiration height: 1837757 + 429611 = 2267368
+      // New expiration: 2256730 + 100 = 2256830
+      // blocksToExtend: 2256830 - 2267368 = -10538 (negative = no extension)
+      const appInfo = {
+        name: 'PresearchNode',
+        instances: 12,
+        staticip: false,
+        nodes: [],
+        expire: 244085,
+        height: 1837757, // Registered before PON fork at 2020000
+        compose: [{ name: 'node', cpu: 0.3, ram: 300, hdd: 2 }],
+      };
+
+      sinon.stub(registryManager, 'getApplicationGlobalSpecifications').resolves(appInfo);
+      sinon.stub(dbHelper, 'databaseConnection').returns({
+        db: () => ({}),
+      });
+      sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+
+      const result = await appSpecHelpers.checkFreeAppUpdate(appSpecFormatted, daemonHeight);
+
+      expect(result).to.be.true; // Should be free update with PON fork adjustment
+    });
+
     it('should return false when compose length changed', async () => {
       const appSpecFormatted = {
         name: 'TestApp',
