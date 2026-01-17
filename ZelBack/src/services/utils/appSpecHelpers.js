@@ -142,10 +142,36 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
   // check if it's a free app update offered by the network
   const appInfo = await registryManager.getApplicationGlobalSpecifications(appSpecFormatted.name);
   if (appInfo && appInfo.expire && appInfo.height && appSpecFormatted.expire) {
-    const blocksToExtend = (appSpecFormatted.expire + Number(daemonHeight)) - appInfo.height - appInfo.expire;
-    if (((!appSpecFormatted.nodes && !appInfo.nodes) || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length))
-      && appSpecFormatted.instances === appInfo.instances && appSpecFormatted.staticip === appInfo.staticip && blocksToExtend <= 8) { // free updates should not extend app subscription
-      if (Array.isArray(appSpecFormatted.compose) && Array.isArray(appInfo.compose) && appSpecFormatted.compose.length === appInfo.compose.length) {
+    // Calculate the adjusted expiration height accounting for PON fork
+    // After PON fork (block 2020000), chain runs 4x faster
+    let adjustedAppInfoExpire = appInfo.expire;
+    if (appInfo.height < config.fluxapps.daemonPONFork) {
+      const originalExpireHeight = appInfo.height + appInfo.expire;
+      if (originalExpireHeight > config.fluxapps.daemonPONFork) {
+        // Expiration crosses fork boundary - adjust blocks after fork (they are 4x faster)
+        const blocksBeforeFork = config.fluxapps.daemonPONFork - appInfo.height;
+        const blocksAfterFork = originalExpireHeight - config.fluxapps.daemonPONFork;
+        const adjustedBlocksAfterFork = blocksAfterFork * 4;
+        adjustedAppInfoExpire = blocksBeforeFork + adjustedBlocksAfterFork;
+      }
+    }
+    const adjustedExpirationHeight = appInfo.height + adjustedAppInfoExpire;
+    const newExpirationHeight = Number(daemonHeight) + appSpecFormatted.expire;
+    const blocksToExtend = newExpirationHeight - adjustedExpirationHeight;
+
+    // For staticip: treat undefined/null as false (default value) since older DB records may not have this field
+    const staticipMatch = (appSpecFormatted.staticip ?? false) === (appInfo.staticip ?? false);
+    // For nodes: treat both empty arrays and both undefined/null as matching
+    const nodesMatch = ((!appSpecFormatted.nodes || appSpecFormatted.nodes.length === 0) && (!appInfo.nodes || appInfo.nodes.length === 0))
+      || (appSpecFormatted.nodes && appInfo.nodes && appSpecFormatted.nodes.length === appInfo.nodes.length);
+    const instancesMatch = appSpecFormatted.instances === appInfo.instances;
+    const blocksOk = blocksToExtend <= 8;
+
+
+    if (nodesMatch && instancesMatch && staticipMatch && blocksOk) { // free updates should not extend app subscription
+      const composeArraysValid = Array.isArray(appSpecFormatted.compose) && Array.isArray(appInfo.compose);
+      const composeLengthMatch = composeArraysValid && appSpecFormatted.compose.length === appInfo.compose.length;
+      if (composeArraysValid && composeLengthMatch) {
         let changes = false;
         const appSpecComponentNames = appSpecFormatted.compose
           .map((component) => (component && typeof component.name === 'string' ? component.name : null));
@@ -194,6 +220,7 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
           if (!messagesInLasDays || messagesInLasDays.length === 0) {
             // eslint-disable-next-line no-param-reassign
             appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
+            log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: FREE UPDATE (no recent updates)`);
             return true;
           }
           if (messagesInLasDays.length < 11) {
@@ -203,12 +230,20 @@ async function checkFreeAppUpdate(appSpecFormatted, daemonHeight) {
               if (messagesInLasDays.length < 6) {
                 // eslint-disable-next-line no-param-reassign
                 appSpecFormatted.expire -= blocksToExtend; // if it wasn't zero because some block was received between the validate app specs and this call, we will remove the extension.
+                log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: FREE UPDATE (within rate limits)`);
                 return true;
               }
             }
           }
+          log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: NOT FREE - rate limit exceeded`);
+        } else {
+          log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: NOT FREE - resource changes detected`);
         }
+      } else {
+        log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: NOT FREE - compose array mismatch`);
       }
+    } else {
+      log.info(`[checkFreeAppUpdate] App: ${appSpecFormatted.name}, RESULT: NOT FREE - basic conditions failed (nodes: ${nodesMatch}, instances: ${instancesMatch}, staticip: ${staticipMatch}, blocks: ${blocksOk})`);
     }
   }
   return false;
