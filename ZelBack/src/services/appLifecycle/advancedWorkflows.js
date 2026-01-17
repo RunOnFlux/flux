@@ -4286,4 +4286,5 @@ module.exports = {
   masterSlaveApps,
   getPeerAppsInstallingErrorMessages,
   ensureMountPathsExist,
+  appDockerStart,
 };
