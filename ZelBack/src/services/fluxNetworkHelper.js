@@ -817,12 +817,34 @@ async function adjustExternalIP(ip) {
       const appUninstaller = require('./appLifecycle/appUninstaller');
       // eslint-disable-next-line global-require
       const appController = require('./appManagement/appController');
+      // eslint-disable-next-line global-require
+      const enterpriseHelper = require('./utils/enterpriseHelper');
       let apps = await appQueryService.installedApps();
       if (apps.status === 'success' && apps.data.length > 0) {
         apps = apps.data;
         let appsRemoved = 0;
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
+          // Decrypt enterprise app specs if needed (v8+ with enterprise field)
+          let appSpecs = app;
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            appSpecs = await enterpriseHelper.checkAndDecryptAppSpecs(app);
+          } catch (decryptError) {
+            log.warn(`Failed to decrypt enterprise specs for ${app.name}: ${decryptError.message}`);
+          }
+
+          // Check if app requires static IP - if so, uninstall it since IP changed
+          if (appSpecs.version >= 7 && appSpecs.staticip === true) {
+            log.info(`Application ${app.name} requires static IP but node IP has changed, uninstalling app`);
+            log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${oldIP} to ${newIP}`);
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+            appsRemoved += 1;
+            // eslint-disable-next-line no-continue
+            continue;
+          }
+
           // eslint-disable-next-line no-await-in-loop
           const runningAppList = await registryManager.appLocation(app.name);
           const findMyIP = runningAppList.find((instance) => instance.ip.split(':')[0] === ip);
@@ -857,6 +879,10 @@ async function adjustExternalIP(ip) {
       }
       const result = await daemonServiceWalletRpcs.createConfirmationTransaction();
       log.info(`createConfirmationTransaction: ${JSON.stringify(result)}`);
+      // Update geolocation service to track IP change and update static IP status
+      // eslint-disable-next-line global-require
+      const geolocationService = require('./geolocationService');
+      geolocationService.setNodeGeolocation();
     }
   } catch (error) {
     log.error(error);

@@ -1,3 +1,4 @@
+const os = require('os');
 const config = require('config');
 const log = require('../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -9,15 +10,72 @@ const { geolocation: geolocationCollection } = config.database.local.collections
 let storedGeolocation = null;
 let storedIp = null;
 let staticIp = false;
+let dataCenter = false;
+let lastIpChangeDate = null;
 let execution = 1;
 const staticIpOrgs = ['hetzner', 'ovh', 'netcup', 'hostnodes', 'contabo', 'hostslim', 'zayo', 'cogent', 'lumen'];
+const staticIpStabilityDays = 10;
+
+/**
+ * Checks if an IP address is in a private range
+ * @param {string} ip - The IP address to check
+ * @returns {boolean} True if the IP is private
+ */
+function isPrivateIp(ip) {
+  const parts = ip.split('.').map(Number);
+
+  // 10.0.0.0/8
+  if (parts[0] === 10) return true;
+
+  // 172.16.0.0/12
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+
+  // 192.168.0.0/16
+  if (parts[0] === 192 && parts[1] === 168) return true;
+
+  // 127.0.0.0/8 (loopback)
+  if (parts[0] === 127) return true;
+
+  // 169.254.0.0/16 (link-local)
+  if (parts[0] === 169 && parts[1] === 254) return true;
+
+  // 100.64.0.0/10 (CGN - Carrier-Grade NAT)
+  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+
+  return false;
+}
+
+/**
+ * Checks if the node has a public IP directly configured on a network interface
+ * This is a strong indicator of a static IP (data center/VPS/dedicated server)
+ * @returns {boolean} True if a public IP is configured on an interface
+ */
+function hasPublicIpOnInterface() {
+  try {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name]) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          if (!isPrivateIp(iface.address)) {
+            return true;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.error(`Failed to check network interfaces: ${error.message}`);
+  }
+  return false;
+}
 
 /**
  * Stores geolocation data to the database
  * @param {object} geolocation - The geolocation data to store
  * @param {boolean} isStaticIp - Whether the node has a static IP
+ * @param {boolean} isDataCenter - Whether the node is in a data center
+ * @param {number|null} ipChangeDate - Timestamp of when the IP last changed
  */
-async function storeGeolocationToDb(geolocation, isStaticIp) {
+async function storeGeolocationToDb(geolocation, isStaticIp, isDataCenter, ipChangeDate) {
   try {
     const dbClient = dbHelper.databaseConnection();
     if (!dbClient) {
@@ -30,6 +88,8 @@ async function storeGeolocationToDb(geolocation, isStaticIp) {
       $set: {
         geolocation,
         staticIp: isStaticIp,
+        dataCenter: isDataCenter,
+        lastIpChangeDate: ipChangeDate,
         updatedAt: Date.now(),
       },
     };
@@ -43,24 +103,29 @@ async function storeGeolocationToDb(geolocation, isStaticIp) {
 
 /**
  * Retrieves geolocation data from the database
- * @returns {Promise<{geolocation: object|null, staticIp: boolean}>}
+ * @returns {Promise<{geolocation: object|null, staticIp: boolean, dataCenter: boolean, lastIpChangeDate: number|null}>}
  */
 async function getGeolocationFromDb() {
   try {
     const dbClient = dbHelper.databaseConnection();
     if (!dbClient) {
-      return { geolocation: null, staticIp: false };
+      return { geolocation: null, staticIp: false, dataCenter: false, lastIpChangeDate: null };
     }
     const database = dbClient.db(config.database.local.database);
     const query = { _id: 'nodeGeolocation' };
     const result = await dbHelper.findOneInDatabase(database, geolocationCollection, query);
     if (result && result.geolocation) {
-      return { geolocation: result.geolocation, staticIp: result.staticIp || false };
+      return {
+        geolocation: result.geolocation,
+        staticIp: result.staticIp || false,
+        dataCenter: result.dataCenter || false,
+        lastIpChangeDate: result.lastIpChangeDate || null,
+      };
     }
-    return { geolocation: null, staticIp: false };
+    return { geolocation: null, staticIp: false, dataCenter: false, lastIpChangeDate: null };
   } catch (error) {
     log.error(`Failed to retrieve geolocation from database: ${error.message}`);
-    return { geolocation: null, staticIp: false };
+    return { geolocation: null, staticIp: false, dataCenter: false, lastIpChangeDate: null };
   }
 }
 
@@ -77,6 +142,10 @@ async function setNodeGeolocation() {
       }, 10 * 1000);
       return;
     }
+
+    // Store previous IP to detect changes
+    const previousIp = storedGeolocation ? storedGeolocation.ip : null;
+
     if (!storedGeolocation || myIP !== storedIp || execution % 4 === 0) {
       log.info(`Checking geolocation of ${myIP}`);
       storedIp = myIP;
@@ -96,6 +165,7 @@ async function setNodeGeolocation() {
           lon: ipRes.data.lon,
           org: ipRes.data.org || ipRes.data.isp,
           static: ipRes.data.proxy || ipRes.data.hosting,
+          dataCenter: ipRes.data.hosting,
         };
       } else {
         const statsApiUrl = `https://stats.runonflux.io/fluxlocation/${myIP.split(':')[0]}`;
@@ -113,6 +183,7 @@ async function setNodeGeolocation() {
             lon: statsRes.data.data.lon,
             org: statsRes.data.data.org,
             static: statsRes.data.data.static,
+            dataCenter: statsRes.data.data.dataCenter,
           };
         } else {
           throw new Error(`Geolocation of IP ${myIP} is unavailable`);
@@ -120,19 +191,88 @@ async function setNodeGeolocation() {
       }
     }
     log.info(`Geolocation of ${myIP} is ${JSON.stringify(storedGeolocation)}`);
-    if (storedGeolocation.static) {
-      staticIp = true;
+
+    // Check if IP has changed
+    const currentIp = storedGeolocation.ip;
+    const ipChanged = previousIp && previousIp !== currentIp;
+
+    if (ipChanged) {
+      // IP changed - set static to false and record the change date
+      staticIp = false;
+      lastIpChangeDate = Date.now();
+      log.info(`IP changed from ${previousIp} to ${currentIp}. Setting staticIp to false.`);
     } else {
-      for (let i = 0; i < staticIpOrgs.length; i += 1) {
-        const org = staticIpOrgs[i];
-        if (storedGeolocation.org.toLowerCase().includes(org)) {
+      // IP has not changed - check static IP conditions
+      const hasPublicIp = hasPublicIpOnInterface();
+      const now = Date.now();
+      const stabilityThreshold = staticIpStabilityDays * 24 * 60 * 60 * 1000;
+
+      // Initialize lastIpChangeDate if not set (first run or restored from DB without it)
+      if (!lastIpChangeDate) {
+        lastIpChangeDate = now;
+      }
+
+      const daysSinceChange = (now - lastIpChangeDate) / (24 * 60 * 60 * 1000);
+
+      // Determine static IP status based on multiple signals
+      if (hasPublicIp) {
+        // Has public IP on interface - strong indicator of static IP
+        if (now - lastIpChangeDate >= stabilityThreshold) {
+          // IP stable for 10+ days with public IP on interface - definitely static
           staticIp = true;
-          break;
+          log.info(`Node has public IP on interface and IP stable for ${daysSinceChange.toFixed(1)} days. Setting staticIp to true.`);
+        } else {
+          // Has public IP but hasn't been stable long enough yet
+          // Check other signals (API and org-based)
+          staticIp = false;
+          if (storedGeolocation.static) {
+            staticIp = true;
+          } else if (storedGeolocation.org) {
+            for (let i = 0; i < staticIpOrgs.length; i += 1) {
+              const org = staticIpOrgs[i];
+              if (storedGeolocation.org.toLowerCase().includes(org)) {
+                staticIp = true;
+                break;
+              }
+            }
+          }
+          log.info(`Node has public IP on interface, IP stable for ${daysSinceChange.toFixed(1)} days (need ${staticIpStabilityDays}). staticIp=${staticIp}`);
+        }
+      } else {
+        // No public IP on interface - use API and org-based detection only
+        staticIp = false;
+        if (storedGeolocation.static) {
+          staticIp = true;
+        } else if (storedGeolocation.org) {
+          for (let i = 0; i < staticIpOrgs.length; i += 1) {
+            const org = staticIpOrgs[i];
+            if (storedGeolocation.org.toLowerCase().includes(org)) {
+              staticIp = true;
+              break;
+            }
+          }
         }
       }
     }
+
+    // Data center detection (unchanged logic)
+    if (storedGeolocation.dataCenter) {
+      dataCenter = true;
+    } else {
+      dataCenter = false;
+      if (storedGeolocation.org) {
+        for (let i = 0; i < staticIpOrgs.length; i += 1) {
+          const org = staticIpOrgs[i];
+          if (storedGeolocation.org.toLowerCase().includes(org)) {
+            dataCenter = true;
+            break;
+          }
+        }
+      }
+    }
+
     // Store geolocation to database for persistence across restarts
-    await storeGeolocationToDb(storedGeolocation, staticIp);
+    await storeGeolocationToDb(storedGeolocation, staticIp, dataCenter, lastIpChangeDate);
     execution += 1;
     setTimeout(() => { // executes again in 3 days
       setNodeGeolocation();
@@ -160,6 +300,8 @@ async function getNodeGeolocation() {
   if (dbData.geolocation) {
     storedGeolocation = dbData.geolocation;
     staticIp = dbData.staticIp;
+    dataCenter = dbData.dataCenter;
+    lastIpChangeDate = dbData.lastIpChangeDate;
     log.info('Geolocation restored from database');
   }
   return storedGeolocation;
@@ -172,8 +314,34 @@ function isStaticIP() {
   return staticIp;
 }
 
+/**
+ * Method responsible for returning if node is in a data center based on IP org.
+ */
+function isDataCenter() {
+  return dataCenter;
+}
+
+/**
+ * Method responsible for returning the timestamp of when the IP last changed.
+ * @returns {number|null} Timestamp of last IP change or null if not tracked yet
+ */
+function getLastIpChangeDate() {
+  return lastIpChangeDate;
+}
+
+/**
+ * Method responsible for checking if the node has a public IP on its network interface.
+ * @returns {boolean} True if a public IP is configured on an interface
+ */
+function hasPublicIp() {
+  return hasPublicIpOnInterface();
+}
+
 module.exports = {
   setNodeGeolocation,
   getNodeGeolocation,
   isStaticIP,
+  isDataCenter,
+  getLastIpChangeDate,
+  hasPublicIp,
 };
