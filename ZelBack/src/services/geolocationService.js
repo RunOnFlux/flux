@@ -207,19 +207,20 @@ async function setNodeGeolocation() {
       const now = Date.now();
       const stabilityThreshold = staticIpStabilityDays * 24 * 60 * 60 * 1000;
 
-      // Initialize lastIpChangeDate if not set (first run or restored from DB without it)
-      if (!lastIpChangeDate) {
-        lastIpChangeDate = now;
-      }
-
-      const daysSinceChange = (now - lastIpChangeDate) / (24 * 60 * 60 * 1000);
+      // If lastIpChangeDate is null (never recorded), consider IP as stable for more than 10 days
+      const effectiveLastIpChangeDate = lastIpChangeDate || (now - stabilityThreshold - 1);
+      const daysSinceChange = (now - effectiveLastIpChangeDate) / (24 * 60 * 60 * 1000);
 
       // Determine static IP status based on multiple signals
       if (hasPublicIp) {
         // Has public IP on interface - strong indicator of static IP
-        if (now - lastIpChangeDate >= stabilityThreshold) {
+        if (now - effectiveLastIpChangeDate >= stabilityThreshold) {
           // IP stable for 10+ days with public IP on interface - definitely static
           staticIp = true;
+          // Initialize lastIpChangeDate if it was null (for future tracking)
+          if (!lastIpChangeDate) {
+            lastIpChangeDate = now;
+          }
           log.info(`Node has public IP on interface and IP stable for ${daysSinceChange.toFixed(1)} days. Setting staticIp to true.`);
         } else {
           // Has public IP but hasn't been stable long enough yet
