@@ -28,6 +28,9 @@ const receiveOnlySyncthingAppsCache = new Map();
 const syncthingDevicesIDCache = new Map();
 const folderHealthCache = new Map(); // Tracks health status for sync folders (isolation, connectivity issues)
 
+// Pending app updates cache reference - initialized from cacheManager
+let pendingAppUpdatesCache = null;
+
 // Running apps cache - tracks app names that have been broadcasted as running
 const runningAppsCache = new Set();
 
@@ -40,6 +43,7 @@ function initializeCaches(cacheManager) {
   if (cacheManager && cacheManager.appSpawnErrorCache && cacheManager.appSpawnCache) {
     spawnErrorsLongerAppCache = cacheManager.appSpawnErrorCache;
     trySpawningGlobalAppCache = cacheManager.appSpawnCache;
+    pendingAppUpdatesCache = cacheManager.pendingAppUpdatesCache;
   }
 }
 
@@ -117,4 +121,48 @@ module.exports = {
 
   // Cache initialization
   initializeCaches,
+
+  // Pending app updates cache
+  get pendingAppUpdatesCache() { return pendingAppUpdatesCache; },
+
+  /**
+   * Queue an update message that arrived before registration was stored.
+   * Uses TTL cache - entries automatically expire after 30 minutes.
+   * @param {string} appName - The app name
+   * @param {object} message - The raw update message to queue
+   * @param {number} height - The blockchain height of the update
+   */
+  queuePendingUpdate(appName, message, height) {
+    if (!pendingAppUpdatesCache) return;
+    const updates = pendingAppUpdatesCache.get(appName) || [];
+    updates.push({ message, height });
+    // Keep sorted by height ascending
+    updates.sort((a, b) => a.height - b.height);
+    pendingAppUpdatesCache.set(appName, updates);
+  },
+
+  /**
+   * Get pending updates for an app and remove them from the cache.
+   * @param {string} appName - The app name
+   * @returns {Array<{ message, height }>} The pending updates sorted by height
+   */
+  getPendingUpdates(appName) {
+    if (!pendingAppUpdatesCache) return [];
+    const pending = pendingAppUpdatesCache.get(appName);
+    if (!pending || pending.length === 0) {
+      return [];
+    }
+    // Remove from cache - they will be processed
+    pendingAppUpdatesCache.delete(appName);
+    return pending;
+  },
+
+  /**
+   * Clear all pending updates for an app (e.g., after a failed update).
+   * @param {string} appName - The app name
+   */
+  clearPendingUpdates(appName) {
+    if (!pendingAppUpdatesCache) return;
+    pendingAppUpdatesCache.delete(appName);
+  },
 };
