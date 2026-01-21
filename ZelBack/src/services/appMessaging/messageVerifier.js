@@ -690,8 +690,6 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               const pendingUpdates = globalState.getPendingUpdates(appName);
               if (pendingUpdates.length > 0) {
                 log.info(`Processing ${pendingUpdates.length} pending updates for ${appName}`);
-                // eslint-disable-next-line global-require
-                const messageStore = require('./messageStore');
                 // Process updates in order (sorted by height)
                 for (let idx = 0; idx < pendingUpdates.length; idx += 1) {
                   const pendingUpdate = pendingUpdates[idx];
