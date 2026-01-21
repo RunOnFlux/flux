@@ -106,13 +106,6 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    if (benchmarkResponse.data.thunder) {
-      log.info('Flux Node is a Fractus Storage Node. Global applications will not be installed');
-      await serviceHelper.delay(24 * 3600 * 1000); // check again in one day as changing from and to only requires the restart of flux daemon
-      trySpawningGlobalApplication();
-      return;
-    }
-
     // get my external IP and check that it is longer than 5 in length.
     let myIP = null;
     if (benchmarkResponse.data.ipaddress) {

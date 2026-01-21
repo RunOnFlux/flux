@@ -381,9 +381,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     if (benchmarkResponse.status === 'error') {
       throw new Error('FluxBench status Error. Application cannot be installed at the moment');
     }
-    if (benchmarkResponse.data.thunder) {
-      throw new Error('Flux Node is a Fractus Storage Node. Applications cannot be installed at this node type');
-    }
     // get my external IP and check that it is longer than 5 in length.
     let myIP = null;
     if (benchmarkResponse.data.ipaddress) {

@@ -123,7 +123,7 @@ describe('appInstaller tests', () => {
       '../benchmarkService': {
         getBenchmarks: sinon.stub().resolves({
           status: 'success',
-          data: { ipaddress: '192.168.1.1', thunder: false },
+          data: { ipaddress: '192.168.1.1' },
         }),
       },
       '../daemonService/daemonServiceMiscRpcs': {
@@ -511,7 +511,7 @@ describe('appInstaller tests', () => {
         '../benchmarkService': {
           getBenchmarks: sinon.stub().resolves({
             status: 'success',
-            data: { ipaddress: '192.168.1.1', thunder: false },
+            data: { ipaddress: '192.168.1.1' },
           }),
         },
         '../daemonService/daemonServiceMiscRpcs': {
@@ -627,7 +627,7 @@ describe('appInstaller tests', () => {
         '../benchmarkService': {
           getBenchmarks: sinon.stub().resolves({
             status: 'success',
-            data: { ipaddress: '192.168.1.1', thunder: false },
+            data: { ipaddress: '192.168.1.1' },
           }),
         },
         '../daemonService/daemonServiceMiscRpcs': {
@@ -829,7 +829,7 @@ describe('appInstaller tests', () => {
         '../benchmarkService': {
           getBenchmarks: sinon.stub().resolves({
             status: 'success',
-            data: { ipaddress: '192.168.1.1', thunder: false },
+            data: { ipaddress: '192.168.1.1' },
           }),
         },
         '../fluxNetworkHelper': {
@@ -953,7 +953,7 @@ describe('appInstaller tests', () => {
         '../benchmarkService': {
           getBenchmarks: sinon.stub().resolves({
             status: 'success',
-            data: { ipaddress: '127.0.0.1:5050', thunder: false },
+            data: { ipaddress: '127.0.0.1:5050' },
           }),
         },
         '../fluxNetworkHelper': {
