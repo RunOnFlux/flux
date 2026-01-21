@@ -622,6 +622,10 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
       const tempMessage = await checkAppTemporaryMessageExistence(hash);
       if (tempMessage && typeof tempMessage === 'object' && !Array.isArray(tempMessage)) {
         const specifications = tempMessage.appSpecifications || tempMessage.zelAppSpecifications;
+        if (!specifications) {
+          log.error(`Temp message ${hash} has no specifications! Full message: ${JSON.stringify(tempMessage)}`);
+          return false;
+        }
         // temp message means its all ok. store it as permanent app message
         const permanentAppMessage = {
           type: tempMessage.type,
