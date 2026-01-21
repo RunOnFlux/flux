@@ -806,39 +806,39 @@ async function checkAndRequestApp(hash, txid, height, valueSat, i = 0) {
               log.warn(`Apps message ${permanentAppMessage.hash} is underpaid ${valueSat} < ${appPrice * 1e8}`);
             }
           }
+          return true;
+        } else {
+          // App has expired (actualExpirationHeight <= daemonHeight)
+          // Clean up stale data from both global and local databases
+          // This handles the case where an update message was received after the app expired
+          log.warn(`App ${specifications.name} has expired (expiration height ${actualExpirationHeight} <= daemon height ${daemonHeight}). Cleaning up stale data.`);
+
+          const db = dbHelper.databaseConnection();
+
+          // Remove from global apps information if it exists with stale data
+          const databaseGlobal = db.db(config.database.appsglobal.database);
+          const queryDeleteApp = { name: specifications.name };
+          const projectionApps = { projection: { _id: 0, name: 1 } };
+          const existingGlobalApp = await dbHelper.findOneInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
+          if (existingGlobalApp) {
+            log.warn(`Removing expired app ${specifications.name} from global apps database`);
+            await dbHelper.findOneAndDeleteInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
+          }
+
+          // Check if app is installed locally and remove it
+          const databaseLocal = db.db(config.database.appslocal.database);
+          const existingLocalApp = await dbHelper.findOneInDatabase(databaseLocal, localAppsInformation, queryDeleteApp, projectionApps);
+          if (existingLocalApp) {
+            log.warn(`REMOVAL REASON: App expired - ${specifications.name} update received after expiration (messageVerifier)`);
+            // Use dynamic require to avoid circular dependency
+            // eslint-disable-next-line global-require
+            const appUninstaller = require('../appLifecycle/appUninstaller');
+            // force=true to bypass removalInProgress checks, endResponse=false since no res, sendMessage=true to notify peers
+            await appUninstaller.removeAppLocally(specifications.name, null, true, false, true);
+          }
+
+          return true;
         }
-        return true;
-      } else {
-        // App has expired (actualExpirationHeight <= daemonHeight)
-        // Clean up stale data from both global and local databases
-        // This handles the case where an update message was received after the app expired
-        log.warn(`App ${specifications.name} has expired (expiration height ${actualExpirationHeight} <= daemon height ${daemonHeight}). Cleaning up stale data.`);
-
-        const db = dbHelper.databaseConnection();
-
-        // Remove from global apps information if it exists with stale data
-        const databaseGlobal = db.db(config.database.appsglobal.database);
-        const queryDeleteApp = { name: specifications.name };
-        const projectionApps = { projection: { _id: 0, name: 1 } };
-        const existingGlobalApp = await dbHelper.findOneInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
-        if (existingGlobalApp) {
-          log.warn(`Removing expired app ${specifications.name} from global apps database`);
-          await dbHelper.findOneAndDeleteInDatabase(databaseGlobal, globalAppsInformation, queryDeleteApp, projectionApps);
-        }
-
-        // Check if app is installed locally and remove it
-        const databaseLocal = db.db(config.database.appslocal.database);
-        const existingLocalApp = await dbHelper.findOneInDatabase(databaseLocal, localAppsInformation, queryDeleteApp, projectionApps);
-        if (existingLocalApp) {
-          log.warn(`REMOVAL REASON: App expired - ${specifications.name} update received after expiration (messageVerifier)`);
-          // Use dynamic require to avoid circular dependency
-          // eslint-disable-next-line global-require
-          const appUninstaller = require('../appLifecycle/appUninstaller');
-          // force=true to bypass removalInProgress checks, endResponse=false since no res, sendMessage=true to notify peers
-          await appUninstaller.removeAppLocally(specifications.name, null, true, false, true);
-        }
-
-        return true;
       }
 
       if (i < 2) {
