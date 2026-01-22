@@ -1,4 +1,3 @@
-const os = require('os');
 const config = require('config');
 const log = require('../lib/log');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
@@ -15,58 +14,6 @@ let lastIpChangeDate = null;
 let execution = 1;
 const staticIpOrgs = ['hetzner', 'ovh', 'netcup', 'hostnodes', 'contabo', 'hostslim', 'zayo', 'cogent', 'lumen'];
 const staticIpStabilityDays = 10;
-
-/**
- * Checks if an IP address is in a private range
- * @param {string} ip - The IP address to check
- * @returns {boolean} True if the IP is private
- */
-function isPrivateIp(ip) {
-  const parts = ip.split('.').map(Number);
-
-  // 10.0.0.0/8
-  if (parts[0] === 10) return true;
-
-  // 172.16.0.0/12
-  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-
-  // 192.168.0.0/16
-  if (parts[0] === 192 && parts[1] === 168) return true;
-
-  // 127.0.0.0/8 (loopback)
-  if (parts[0] === 127) return true;
-
-  // 169.254.0.0/16 (link-local)
-  if (parts[0] === 169 && parts[1] === 254) return true;
-
-  // 100.64.0.0/10 (CGN - Carrier-Grade NAT)
-  if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
-
-  return false;
-}
-
-/**
- * Checks if the node has a public IP directly configured on a network interface
- * This is a strong indicator of a static IP (data center/VPS/dedicated server)
- * @returns {boolean} True if a public IP is configured on an interface
- */
-function hasPublicIpOnInterface() {
-  try {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-      for (const iface of interfaces[name]) {
-        if (iface.family === 'IPv4' && !iface.internal) {
-          if (!isPrivateIp(iface.address)) {
-            return true;
-          }
-        }
-      }
-    }
-  } catch (error) {
-    log.error(`Failed to check network interfaces: ${error.message}`);
-  }
-  return false;
-}
 
 /**
  * Stores geolocation data to the database
@@ -203,7 +150,7 @@ async function setNodeGeolocation() {
       log.info(`IP changed from ${previousIp} to ${currentIp}. Setting staticIp to false.`);
     } else {
       // IP has not changed - check static IP conditions
-      const hasPublicIp = hasPublicIpOnInterface();
+      const hasPublicIp = await fluxNetworkHelper.hasPublicIpOnInterface();
       const now = Date.now();
       const stabilityThreshold = staticIpStabilityDays * 24 * 60 * 60 * 1000;
 
@@ -332,10 +279,10 @@ function getLastIpChangeDate() {
 
 /**
  * Method responsible for checking if the node has a public IP on its network interface.
- * @returns {boolean} True if a public IP is configured on an interface
+ * @returns {Promise<boolean>} True if a public IP is configured on an interface
  */
-function hasPublicIp() {
-  return hasPublicIpOnInterface();
+async function hasPublicIp() {
+  return fluxNetworkHelper.hasPublicIpOnInterface();
 }
 
 module.exports = {

@@ -461,6 +461,36 @@ function isPrivateAddress(ip) {
 }
 
 /**
+ * Check if an IPv4 address is non-routable on the public internet.
+ * This includes RFC1918 private ranges, loopback, link-local, and CGN ranges.
+ * @param {string} ip Target IP
+ * @returns {Boolean} True if the IP is non-routable (private, loopback, link-local, or CGN)
+ */
+function isNonRoutableAddress(ip) {
+  if (!(validIpv4Address(ip))) return false;
+
+  const quads = ip.split('.').map((quad) => +quad);
+
+  if (quads.length !== 4) return false;
+
+  // RFC1918 private ranges
+  if ((quads[0] === 10)) return true;
+  if ((quads[0] === 192) && (quads[1] === 168)) return true;
+  if ((quads[0] === 172) && (quads[1] >= 16) && (quads[1] <= 31)) return true;
+
+  // Loopback 127.0.0.0/8
+  if (quads[0] === 127) return true;
+
+  // Link-local 169.254.0.0/16
+  if ((quads[0] === 169) && (quads[1] === 254)) return true;
+
+  // CGN (Carrier-Grade NAT) 100.64.0.0/10
+  if ((quads[0] === 100) && (quads[1] >= 64) && (quads[1] <= 127)) return true;
+
+  return false;
+}
+
+/**
  * To confirm if ip is in subnet
  * @param {string} ip
  * @param {string} subnet
@@ -703,6 +733,7 @@ module.exports = {
   ensureArray,
   ipInSubnet,
   isDecimalLimit,
+  isNonRoutableAddress,
   isPrivateAddress,
   minVersionSatisfy,
   parseVersion,

@@ -42,6 +42,141 @@ const lruRateCache = cacheManager.rateLimitCache;
 let myFluxIP = null;
 
 /**
+ * Converts a hexadecimal IP address (as found in /proc/net/route) to dotted decimal format.
+ * The hex format is little-endian, so bytes are reversed.
+ * @param {string} hex - Hexadecimal IP address (8 characters)
+ * @returns {string} Dotted decimal IP address
+ */
+function hexToIp(hex) {
+  const bytes = [];
+  for (let i = 0; i < 8; i += 2) {
+    bytes.push(parseInt(hex.substring(i, i + 2), 16));
+  }
+  // Reverse because the hex is little-endian
+  return bytes.reverse().join('.');
+}
+
+/**
+ * Checks if a network interface is operationally up by reading its sysfs operstate.
+ * @param {string} interfaceName - The name of the network interface
+ * @returns {Promise<boolean>} True if the interface is up
+ */
+async function isInterfaceUp(interfaceName) {
+  try {
+    const operstatePath = `/sys/class/net/${interfaceName}/operstate`;
+    const state = await fs.readFile(operstatePath, 'utf8');
+    return state.trim() === 'up';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Gets the IP address assigned to a specific network interface.
+ * @param {string} interfaceName - The name of the network interface
+ * @returns {string|null} The IPv4 address or null if not found
+ */
+function getInterfaceIp(interfaceName) {
+  const interfaces = os.networkInterfaces();
+  const iface = interfaces[interfaceName];
+  if (!iface) return null;
+
+  for (const addr of iface) {
+    if (addr.family === 'IPv4' && !addr.internal) {
+      return addr.address;
+    }
+  }
+  return null;
+}
+
+/**
+ * Checks if the node has a public IP directly configured on the default route interface.
+ * This is a strong indicator of a static IP (data center/VPS/dedicated server).
+ * Uses the Linux routing table to find the default route interface, then checks
+ * if that interface has a public IP assigned.
+ * @returns {Promise<boolean>} True if a public IP is configured on the default route interface
+ */
+async function hasPublicIpOnInterface() {
+  try {
+    // Read the routing table from /proc/net/route
+    const routeData = await fs.readFile('/proc/net/route', 'utf8');
+    const lines = routeData.trim().split('\n');
+
+    // Skip header line
+    if (lines.length < 2) {
+      return false;
+    }
+
+    // Find default routes (destination 0.0.0.0)
+    const defaultRoutes = [];
+    for (let i = 1; i < lines.length; i += 1) {
+      const fields = lines[i].split('\t');
+      if (fields.length < 11) {
+        // eslint-disable-next-line no-continue
+        continue;
+      }
+
+      const [iface, destination, gateway, flags, , , metric] = fields;
+
+      // Check if this is a default route (destination is 0.0.0.0)
+      if (destination === '00000000') {
+        // Check if the route is up (flag 0x1) and has a gateway (flag 0x2)
+        // eslint-disable-next-line no-bitwise
+        const flagsNum = parseInt(flags, 16);
+        // eslint-disable-next-line no-bitwise
+        if ((flagsNum & 0x1) && (flagsNum & 0x2)) {
+          defaultRoutes.push({
+            iface,
+            gateway: hexToIp(gateway),
+            metric: parseInt(metric, 10),
+          });
+        }
+      }
+    }
+
+    if (defaultRoutes.length === 0) {
+      return false;
+    }
+
+    // Sort by metric (lowest first) and pick the best default route
+    defaultRoutes.sort((a, b) => a.metric - b.metric);
+
+    // Find the first interface that is operationally up
+    for (const route of defaultRoutes) {
+      // eslint-disable-next-line no-await-in-loop
+      const isUp = await isInterfaceUp(route.iface);
+      if (isUp) {
+        const ip = getInterfaceIp(route.iface);
+        if (ip && !serviceHelper.isNonRoutableAddress(ip)) {
+          log.info(`Public IP ${ip} found on default route interface ${route.iface}`);
+          return true;
+        }
+      }
+    }
+
+    return false;
+  } catch (error) {
+    log.error(`Failed to check network interfaces via routing table: ${error.message}`);
+    // Fallback to simple interface enumeration
+    try {
+      const interfaces = os.networkInterfaces();
+      for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            if (!serviceHelper.isNonRoutableAddress(iface.address)) {
+              return true;
+            }
+          }
+        }
+      }
+    } catch (fallbackError) {
+      log.error(`Fallback interface check also failed: ${fallbackError.message}`);
+    }
+    return false;
+  }
+}
+
+/**
  * To get if port belongs to enterprise range
  * @returns {boolean} Returns true if enterprise
  */
@@ -825,24 +960,30 @@ async function adjustExternalIP(ip) {
         let appsRemoved = 0;
         // eslint-disable-next-line no-restricted-syntax
         for (const app of apps) {
-          // Decrypt enterprise app specs if needed (v8+ with enterprise field)
-          let appSpecs = app;
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            appSpecs = await enterpriseHelper.checkAndDecryptAppSpecs(app);
-          } catch (decryptError) {
-            log.warn(`Failed to decrypt enterprise specs for ${app.name}: ${decryptError.message}`);
-          }
-
           // Check if app requires static IP - if so, uninstall it since IP changed
-          if (appSpecs.version >= 7 && appSpecs.staticip === true) {
-            log.info(`Application ${app.name} requires static IP but node IP has changed, uninstalling app`);
-            log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${oldIP} to ${newIP}`);
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
-            appsRemoved += 1;
-            // eslint-disable-next-line no-continue
-            continue;
+          // Only decrypt enterprise app specs if the app has enterprise field (v8+)
+          if (app.version >= 7 && (app.staticip === true || app.enterprise)) {
+            let appSpecs = app;
+            // Decrypt enterprise app specs if needed (v8+ with enterprise field)
+            if (app.enterprise) {
+              try {
+                // eslint-disable-next-line no-await-in-loop
+                appSpecs = await enterpriseHelper.checkAndDecryptAppSpecs(app);
+              } catch (decryptError) {
+                log.error(`Failed to decrypt enterprise specs for ${app.name}: ${decryptError.message}`);
+                // eslint-disable-next-line no-continue
+                continue;
+              }
+            }
+            if (appSpecs.staticip === true) {
+              log.info(`Application ${app.name} requires static IP but node IP has changed, uninstalling app`);
+              log.warn(`REMOVAL REASON: Static IP required - ${app.name} requires static IP but node IP changed from ${oldIP} to ${newIP}`);
+              // eslint-disable-next-line no-await-in-loop
+              await appUninstaller.removeAppLocally(app.name, null, true, null, true).catch((error) => log.error(error));
+              appsRemoved += 1;
+              // eslint-disable-next-line no-continue
+              continue;
+            }
           }
 
           // eslint-disable-next-line no-await-in-loop
@@ -1898,6 +2039,7 @@ module.exports = {
   getIncomingConnectionsInfo,
   getDOSState,
   getNumberOfPeers,
+  hasPublicIpOnInterface,
   denyPort,
   deleteAllowPortRule,
   deleteAllowOutPortRule,

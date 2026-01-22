@@ -4,7 +4,6 @@ const proxyquire = require('proxyquire').noCallThru();
 
 describe('geolocationService tests', () => {
   let geolocationService;
-  let osStub;
   let dbHelperStub;
   let serviceHelperStub;
   let fluxNetworkHelperStub;
@@ -35,10 +34,6 @@ describe('geolocationService tests', () => {
 
   beforeEach(() => {
     // Create stubs
-    osStub = {
-      networkInterfaces: sinon.stub(),
-    };
-
     const mockDb = {
       db: sinon.stub().returns({
         collection: sinon.stub(),
@@ -57,6 +52,7 @@ describe('geolocationService tests', () => {
 
     fluxNetworkHelperStub = {
       getMyFluxIPandPort: sinon.stub(),
+      hasPublicIpOnInterface: sinon.stub(),
     };
 
     logStub = {
@@ -78,7 +74,6 @@ describe('geolocationService tests', () => {
 
     // Load module with stubs
     geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
-      os: osStub,
       config: configStub,
       '../lib/log': logStub,
       './dbHelper': dbHelperStub,
@@ -110,175 +105,22 @@ describe('geolocationService tests', () => {
   });
 
   describe('hasPublicIp tests', () => {
-    it('should return false when all interfaces have private IPs', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '192.168.1.100', internal: false },
-          { family: 'IPv6', address: 'fe80::1', internal: false },
-        ],
-        lo: [
-          { family: 'IPv4', address: '127.0.0.1', internal: true },
-        ],
-      });
+    it('should return false when fluxNetworkHelper.hasPublicIpOnInterface returns false', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
 
-      expect(geolocationService.hasPublicIp()).to.equal(false);
+      const result = await geolocationService.hasPublicIp();
+
+      expect(result).to.equal(false);
+      sinon.assert.calledOnce(fluxNetworkHelperStub.hasPublicIpOnInterface);
     });
 
-    it('should return true when interface has public IP', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '185.199.108.1', internal: false },
-        ],
-      });
+    it('should return true when fluxNetworkHelper.hasPublicIpOnInterface returns true', async () => {
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
 
-      expect(geolocationService.hasPublicIp()).to.equal(true);
-    });
+      const result = await geolocationService.hasPublicIp();
 
-    it('should return false for 10.x.x.x private range', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '10.0.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return false for 172.16-31.x.x private range', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '172.16.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return true for 172.15.x.x (not in private range)', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '172.15.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(true);
-    });
-
-    it('should return false for 192.168.x.x private range', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '192.168.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return false for 127.x.x.x loopback range', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '127.0.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return false for 169.254.x.x link-local range', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '169.254.1.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return false for 100.64-127.x.x CGN range', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '100.64.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return true for 100.63.x.x (not in CGN range)', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '100.63.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(true);
-    });
-
-    it('should return false when networkInterfaces throws error', () => {
-      osStub.networkInterfaces.throws(new Error('Network error'));
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-      sinon.assert.calledOnce(logStub.error);
-    });
-
-    it('should ignore internal interfaces', () => {
-      osStub.networkInterfaces.returns({
-        lo: [
-          { family: 'IPv4', address: '8.8.8.8', internal: true },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should ignore IPv6 addresses', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv6', address: '2001:4860:4860::8888', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return false for 172.31.x.x (in private range)', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '172.31.255.255', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return true for 172.32.x.x (not in private range)', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '172.32.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(true);
-    });
-
-    it('should return false for 100.127.x.x (in CGN range)', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '100.127.255.255', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(false);
-    });
-
-    it('should return true for 100.128.x.x (not in CGN range)', () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '100.128.0.1', internal: false },
-        ],
-      });
-
-      expect(geolocationService.hasPublicIp()).to.equal(true);
+      expect(result).to.equal(true);
+      sinon.assert.calledOnce(fluxNetworkHelperStub.hasPublicIpOnInterface);
     });
   });
 
@@ -332,6 +174,7 @@ describe('geolocationService tests', () => {
     beforeEach(() => {
       // Setup default successful response
       fluxNetworkHelperStub.getMyFluxIPandPort.resolves('185.199.108.1:16127');
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(true);
       serviceHelperStub.axiosGet.resolves({
         data: {
           status: 'success',
@@ -349,11 +192,6 @@ describe('geolocationService tests', () => {
           proxy: false,
           hosting: true,
         },
-      });
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '185.199.108.1', internal: false },
-        ],
       });
     });
 
@@ -391,11 +229,7 @@ describe('geolocationService tests', () => {
     });
 
     it('should set staticIp to true when org contains known hosting provider', async () => {
-      osStub.networkInterfaces.returns({
-        eth0: [
-          { family: 'IPv4', address: '192.168.1.1', internal: false },
-        ],
-      });
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
       serviceHelperStub.axiosGet.resolves({
         data: {
           status: 'success',
@@ -474,11 +308,7 @@ describe('geolocationService tests', () => {
     testOrgs.forEach(({ org, expected }) => {
       it(`should ${expected ? 'detect' : 'not detect'} "${org}" as static IP org`, async () => {
         fluxNetworkHelperStub.getMyFluxIPandPort.resolves('185.199.108.1:16127');
-        osStub.networkInterfaces.returns({
-          eth0: [
-            { family: 'IPv4', address: '192.168.1.1', internal: false }, // Private IP
-          ],
-        });
+        fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false); // No public IP on interface
         serviceHelperStub.axiosGet.resolves({
           data: {
             status: 'success',
@@ -491,7 +321,6 @@ describe('geolocationService tests', () => {
 
         // Reload module to reset state
         geolocationService = proxyquire('../../ZelBack/src/services/geolocationService', {
-          os: osStub,
           config: configStub,
           '../lib/log': logStub,
           './dbHelper': dbHelperStub,
@@ -509,6 +338,7 @@ describe('geolocationService tests', () => {
   describe('Database storage tests', () => {
     beforeEach(() => {
       fluxNetworkHelperStub.getMyFluxIPandPort.resolves('185.199.108.1:16127');
+      fluxNetworkHelperStub.hasPublicIpOnInterface.resolves(false);
       serviceHelperStub.axiosGet.resolves({
         data: {
           status: 'success',
@@ -517,9 +347,6 @@ describe('geolocationService tests', () => {
           proxy: false,
           hosting: false,
         },
-      });
-      osStub.networkInterfaces.returns({
-        eth0: [{ family: 'IPv4', address: '192.168.1.1', internal: false }],
       });
     });
 
