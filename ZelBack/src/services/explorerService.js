@@ -761,7 +761,7 @@ let lastchainTipCheck = 0;
  */
 async function cleanupDuplicateScannedHeight(database) {
   try {
-    const count = await database.collection(scannedHeightCollection).countDocuments();
+    const count = await dbHelper.countInDatabase(database, scannedHeightCollection, {});
 
     if (count <= 1) {
       return; // No duplicates, nothing to clean
@@ -770,18 +770,17 @@ async function cleanupDuplicateScannedHeight(database) {
     log.warn(`Found ${count} scannedheight documents, cleaning up duplicates...`);
 
     // Get the document with highest block height (MongoDB sorts it)
-    const highestArr = await database.collection(scannedHeightCollection)
-      .find({})
-      .sort({ generalScannedHeight: -1 })
-      .limit(1)
-      .toArray();
+    const highestArr = await dbHelper.findInDatabase(database, scannedHeightCollection, {}, {
+      sort: { generalScannedHeight: -1 },
+      limit: 1,
+    });
 
     const highest = highestArr[0];
 
     log.info(`Keeping scannedheight document with height ${highest.generalScannedHeight} (_id: ${highest._id})`);
 
     // Delete all EXCEPT the highest
-    const deleteResult = await database.collection(scannedHeightCollection).deleteMany({
+    const deleteResult = await dbHelper.removeDocumentsFromCollection(database, scannedHeightCollection, {
       _id: { $ne: highest._id },
     });
 
