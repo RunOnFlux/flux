@@ -478,6 +478,17 @@ async function trySpawningGlobalApplication() {
         globalState.appsToBeCheckedLater.push(appToCheck);
         globalState.trySpawningGlobalAppCache.delete(appHash);
         delay = true;
+      } else if (!appSpecifications.datacenter && geolocationService.isDataCenter()) {
+        const appToCheck = {
+          timeToCheck: Date.now() + 0.45 * 60 * 60 * 1000,
+          appName: appToRun,
+          hash: appHash,
+          required: minInstances,
+        };
+        log.info(`trySpawningGlobalApplication - App ${appToRun} does not require datacenter but node is datacenter, will check in around 27m if instances are still missing`);
+        globalState.appsToBeCheckedLater.push(appToCheck);
+        globalState.trySpawningGlobalAppCache.delete(appHash);
+        delay = true;
       } else if (appToRunAux.nodes.length > 0 && !appToRunAux.nodes.find((ip) => ip === myIP)) {
         const appToCheck = {
           timeToCheck: appToRunAux.enterprise ? Date.now() + 0.5 * 60 * 60 * 1000 : Date.now() + 0.95 * 60 * 60 * 1000,
