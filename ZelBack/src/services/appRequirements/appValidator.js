@@ -53,6 +53,7 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     expire,
     nodes,
     staticip,
+    datacenter,
     enterprise,
   } = appSpecification;
 
@@ -530,6 +531,13 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 
     if (typeof staticip !== 'boolean') {
       throw new Error('Invalid static ip value obtained. Only boolean as true or false allowed.');
+    }
+  }
+
+  // v8+ datacenter validation
+  if (version >= 8) {
+    if (datacenter !== null && datacenter !== true && datacenter !== false) {
+      throw new Error('Invalid datacenter value obtained. Only null, true, or false allowed.');
     }
   }
 
@@ -1031,7 +1039,7 @@ function verifyObjectKeysCorrectnessOfApp(appSpecifications) {
   } else if (appSpecifications.version === 8) {
     const specifications = [
       'version', 'name', 'description', 'owner', 'compose', 'instances', 'contacts',
-      'geolocation', 'expire', 'nodes', 'staticip', 'enterprise',
+      'geolocation', 'expire', 'nodes', 'staticip', 'datacenter', 'enterprise',
     ];
     const componentSpecifications = [
       'name', 'description', 'repotag', 'ports', 'containerPorts', 'environmentParameters', 'commands', 'containerData', 'domains', 'repoauth',
