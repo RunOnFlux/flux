@@ -285,7 +285,7 @@ module.exports = {
     port: 8384, // local
   },
   enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
-    // Add enterprise app owner Flux IDs here (e.g., '1hjy4bCYBJr4mny4zCE85J94RXa8W6q37')
+    '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW',
   ],
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
     '045bd4f81d7bda582141793463edb58e0f3228a873bd6b6680b78586db2969f51dfeda672eae65e64ca814316f77557012d02c73db7876764f5eddb6b6d9d02b5b',
