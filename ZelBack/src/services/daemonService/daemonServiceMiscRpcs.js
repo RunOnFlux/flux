@@ -17,6 +17,7 @@ let currentDaemonHeight = 0;
 let currentDaemonHeader = getDefaultDaemonHeader();
 let isDaemonInsightExplorer = null;
 let previousTestnetValue = globalThis.userconfig.initial?.testnet;
+let lastSuccessfulRpcCall = null; // Track last successful getBlockchainInfo call
 
 // Listen for config changes and reset header if testnet mode changes
 configManager.on('configReloaded', (newConfig) => {
@@ -58,9 +59,19 @@ function isDaemonSynced(req, res) {
     height: currentDaemonHeight,
     synced: false,
   };
-  if (currentDaemonHeight > currentDaemonHeader - 5) {
+
+  // Check if we have recent successful RPC communication (within 10 blocks = 300 seconds)
+  const RPC_TIMEOUT_MS = 10 * 30 * 1000; // 10 blocks * 30 seconds per block
+  const now = Date.now();
+
+  if (lastSuccessfulRpcCall === null || (now - lastSuccessfulRpcCall) > RPC_TIMEOUT_MS) {
+    // No recent successful RPC call - daemon is not responding
+    isSynced.synced = false;
+  } else if (currentDaemonHeight > currentDaemonHeader - 5) {
+    // Recent RPC call AND height is close to header
     isSynced.synced = true;
   }
+
   const successResponse = messageHelper.createDataMessage(isSynced);
   return res ? res.json(successResponse) : successResponse;
 }
@@ -78,6 +89,7 @@ async function fluxDaemonBlockchainInfo() {
     if (daemonBlockChainInfo.data.headers >= currentDaemonHeader) {
       currentDaemonHeader = daemonBlockChainInfo.data.headers;
     }
+    lastSuccessfulRpcCall = Date.now();
     return log.info(`Daemon Sync status: ${currentDaemonHeight}/${currentDaemonHeader}`);
   } catch (error) {
     return log.warn(error);
@@ -118,6 +130,14 @@ function getCurrentDaemonHeader() {
   return currentDaemonHeader;
 }
 
+function getLastSuccessfulRpcCall() {
+  return lastSuccessfulRpcCall;
+}
+
+function setLastSuccessfulRpcCall(newValue) {
+  lastSuccessfulRpcCall = newValue;
+}
+
 module.exports = {
   isInsightExplorer,
   // == NON Daemon ==
@@ -132,4 +152,6 @@ module.exports = {
   setCurrentDaemonHeader,
   getCurrentDaemonHeight,
   getCurrentDaemonHeader,
+  getLastSuccessfulRpcCall,
+  setLastSuccessfulRpcCall,
 };
