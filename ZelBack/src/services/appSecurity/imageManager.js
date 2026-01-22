@@ -195,6 +195,90 @@ async function getBlockedRepositores() {
 }
 
 /**
+ * Get vetted repositories from official source
+ * These apps bypass user-defined blocked repositories and ports
+ * @returns {Promise<Array|null>} List of vetted repositories
+ */
+async function getVettedRepositories() {
+  try {
+    const cachedResponse = fluxCaching.blockedRepositoriesCache.get('vettedRepositories');
+    if (cachedResponse) {
+      return cachedResponse;
+    }
+    const resVettedRepo = await serviceHelper.axiosGet('https://raw.githubusercontent.com/RunOnFlux/flux/master/helpers/vettedrepositories.json');
+    if (resVettedRepo.data) {
+      fluxCaching.blockedRepositoriesCache.set('vettedRepositories', resVettedRepo.data);
+      return resVettedRepo.data;
+    }
+    return null;
+  } catch (error) {
+    log.error(error);
+    return null;
+  }
+}
+
+/**
+ * Check if an application is vetted (bypasses user blocks)
+ * @param {object} appSpecs - Application specifications
+ * @returns {Promise<boolean>} True if app is vetted
+ */
+async function isAppVetted(appSpecs) {
+  const vettedRepos = await getVettedRepositories();
+  if (!vettedRepos || vettedRepos.length === 0) {
+    return false;
+  }
+
+  const pureVettedRepos = [];
+  vettedRepos.forEach((repo) => {
+    pureVettedRepos.push(repo.substring(0, repo.lastIndexOf(':') > -1 ? repo.lastIndexOf(':') : repo.length));
+  });
+
+  // Check if app owner is vetted
+  if (pureVettedRepos.includes(appSpecs.owner)) {
+    return true;
+  }
+
+  // Check if app hash is vetted
+  if (pureVettedRepos.includes(appSpecs.hash)) {
+    return true;
+  }
+
+  // Check images and organizations
+  const images = [];
+  const organisations = [];
+
+  if (appSpecs.version <= 3) {
+    const repository = appSpecs.repotag.substring(0, appSpecs.repotag.lastIndexOf(':') > -1 ? appSpecs.repotag.lastIndexOf(':') : appSpecs.repotag.length);
+    images.push(repository);
+    const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+    organisations.push(pureNamespace);
+  } else {
+    appSpecs.compose.forEach((component) => {
+      const repository = component.repotag.substring(0, component.repotag.lastIndexOf(':') > -1 ? component.repotag.lastIndexOf(':') : component.repotag.length);
+      images.push(repository);
+      const pureNamespace = repository.substring(0, repository.lastIndexOf('/') > -1 ? repository.lastIndexOf('/') : repository.length);
+      organisations.push(pureNamespace);
+    });
+  }
+
+  // Check if any image is vetted
+  for (const image of images) {
+    if (pureVettedRepos.includes(image) || pureVettedRepos.includes(image.toLowerCase())) {
+      return true;
+    }
+  }
+
+  // Check if any organisation is vetted
+  for (const org of organisations) {
+    if (pureVettedRepos.includes(org) || pureVettedRepos.includes(org.toLowerCase())) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Get user-defined blocked repositories from configuration
  * @returns {Promise<Array>} List of user blocked repositories
  */
@@ -388,7 +472,13 @@ async function checkApplicationImagesCompliance(appSpecs) {
       throw new Error(`Organisation ${org} is blocked. Application ${appSpecs.name} cannot be spawned.`);
     }
   });
-  if (userBlockedRepos) {
+  // Check if app is vetted - vetted apps bypass user blocks
+  const appIsVetted = await isAppVetted(appSpecs);
+  if (appIsVetted) {
+    log.info(`Application ${appSpecs.name} is vetted. Bypassing user-blocked repositories check.`);
+  }
+
+  if (userBlockedRepos && !appIsVetted) {
     log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
     organisations.forEach((org) => {
       if (userBlockedRepos.includes(org.toLowerCase())) {
@@ -466,7 +556,10 @@ async function checkApplicationImagesBlocked(appSpecs) {
     });
   }
 
-  if (!isBlocked && userBlockedRepos) {
+  // Check if app is vetted - vetted apps bypass user blocks
+  const appIsVetted = await isAppVetted(appSpecs);
+
+  if (!isBlocked && userBlockedRepos && !appIsVetted) {
     log.info(`userBlockedRepos: ${JSON.stringify(userBlockedRepos)}`);
     organisations.forEach((org) => {
       if (userBlockedRepos.includes(org.toLowerCase())) {
@@ -572,6 +665,8 @@ module.exports = {
   verifyRepository,
   getBlockedRepositores,
   getUserBlockedRepositores,
+  getVettedRepositories,
+  isAppVetted,
   checkAppSecrets,
   checkApplicationImagesCompliance,
   checkApplicationImagesBlocked,

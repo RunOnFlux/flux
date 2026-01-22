@@ -19,6 +19,7 @@ const { availableApps } = require('../appDatabase/registryManager');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
+const imageManager = require('../appSecurity/imageManager');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
 const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'ZelApps');
@@ -1140,6 +1141,33 @@ async function removeAppLocallyApi(req, res) {
     if (!authorized) {
       const errMessage = messageHelper.errUnauthorizedMessage();
       return res.json(errMessage);
+    }
+
+    // For vetted apps, only app owner or Flux Team can uninstall
+    // First, get app specifications to check if vetted
+    const dbopen = dbHelper.databaseConnection();
+    const appsDatabase = dbopen.db(config.database.appslocal.database);
+    const database = dbopen.db(config.database.appsglobal.database);
+    const appsQuery = { name: appname };
+    const appsProjection = {};
+
+    let appSpecsForVettedCheck = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    if (!appSpecsForVettedCheck) {
+      appSpecsForVettedCheck = await dbHelper.findOneInDatabase(database, globalAppsInformation, appsQuery, appsProjection);
+    }
+
+    if (appSpecsForVettedCheck) {
+      const appIsVetted = await imageManager.isAppVetted(appSpecsForVettedCheck);
+      if (appIsVetted) {
+        // Check if user is specifically the app owner or Flux Team
+        const isAppOwner = await verificationHelper.verifyPrivilege('appowner', req, appname);
+        const isFluxTeam = await verificationHelper.verifyPrivilege('fluxteam', req);
+
+        if (!isAppOwner && !isFluxTeam) {
+          const errMessage = messageHelper.createErrorMessage('This is a vetted application. Only the app owner or InFlux Support Team are allowed to uninstall it.');
+          return res.json(errMessage);
+        }
+      }
     }
 
     if (global) {

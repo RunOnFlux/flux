@@ -54,7 +54,7 @@ describe('appSpawner tests', () => {
       '../benchmarkService': {
         getBenchmarks: sinon.stub().resolves({
           status: 'success',
-          data: { ipaddress: '192.168.1.1', thunder: false },
+          data: { ipaddress: '192.168.1.1' },
         }),
       },
       '../fluxNetworkHelper': {

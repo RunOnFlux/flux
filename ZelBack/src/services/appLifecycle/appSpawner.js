@@ -106,13 +106,6 @@ async function trySpawningGlobalApplication() {
       trySpawningGlobalApplication();
       return;
     }
-    if (benchmarkResponse.data.thunder) {
-      log.info('Flux Node is a Fractus Storage Node. Global applications will not be installed');
-      await serviceHelper.delay(24 * 3600 * 1000); // check again in one day as changing from and to only requires the restart of flux daemon
-      trySpawningGlobalApplication();
-      return;
-    }
-
     // get my external IP and check that it is longer than 5 in length.
     let myIP = null;
     if (benchmarkResponse.data.ipaddress) {
@@ -321,19 +314,25 @@ async function trySpawningGlobalApplication() {
     }
 
     // EARLY CHECK: Verify app doesn't use user-blocked ports before expensive Docker Hub operations
-    const appPorts = appUtilities.getAppPorts(appSpecifications);
-    // eslint-disable-next-line no-restricted-syntax
-    for (let i = 0; i < appPorts.length; i += 1) {
-      const port = appPorts[i];
-      const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
-      if (isUserBlocked) {
-        log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} uses user-blocked port ${port}. Adding to error cache.`);
-        globalState.spawnErrorsLongerAppCache.set(appHash, '');
-        // eslint-disable-next-line no-await-in-loop
-        await serviceHelper.delay(shortDelayTime);
-        trySpawningGlobalApplication();
-        return;
+    // Skip this check for vetted apps
+    const appIsVetted = await imageManager.isAppVetted(appSpecifications);
+    if (!appIsVetted) {
+      const appPorts = appUtilities.getAppPorts(appSpecifications);
+      // eslint-disable-next-line no-restricted-syntax
+      for (let i = 0; i < appPorts.length; i += 1) {
+        const port = appPorts[i];
+        const isUserBlocked = fluxNetworkHelper.isPortUserBlocked(port);
+        if (isUserBlocked) {
+          log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} uses user-blocked port ${port}. Adding to error cache.`);
+          globalState.spawnErrorsLongerAppCache.set(appHash, '');
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(shortDelayTime);
+          trySpawningGlobalApplication();
+          return;
+        }
       }
+    } else {
+      log.info(`trySpawningGlobalApplication - App ${appSpecifications.name} is vetted. Bypassing user-blocked ports check.`);
     }
 
     // verify app compliance
