@@ -539,6 +539,13 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
     if (datacenter !== null && datacenter !== true && datacenter !== false) {
       throw new Error('Invalid datacenter value obtained. Only null, true, or false allowed.');
     }
+    // datacenter=true is only allowed for enterprise app owners
+    if (datacenter === true) {
+      const enterpriseAppOwners = config.enterpriseAppOwners || [];
+      if (!enterpriseAppOwners.includes(owner)) {
+        throw new Error('Datacenter requirement is only available for enterprise app owners.');
+      }
+    }
   }
 
   return true;
