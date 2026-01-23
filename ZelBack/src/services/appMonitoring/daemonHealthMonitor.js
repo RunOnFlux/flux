@@ -6,13 +6,10 @@ const registryManager = require('../appDatabase/registryManager');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 
 // Module-level state tracking
-const fluxStartTime = Date.now();
 let daemonUnsyncedSince = null;  // Timestamp when daemon became unsynced, or null if synced
 let allAppsRemoved = false;
 
 // Thresholds
-const STARTUP_WINDOW = 30 * 60 * 1000;  // 30 minutes
-const STARTUP_THRESHOLD = 15 * 60 * 1000;  // 15 minutes
 const RUNTIME_THRESHOLD = 2 * 60 * 60 * 1000;  // 2 hours
 const REMOVAL_DELAY = 3 * 60 * 1000;  // 3 minutes between app removals
 
@@ -96,16 +93,10 @@ async function checkDaemonHealthAndCleanup() {
 
     // Calculate how long daemon has been unsynced
     const unsyncedDuration = Date.now() - daemonUnsyncedSince;
-    const timeSinceFluxStart = Date.now() - fluxStartTime;
-
-    // Determine threshold based on FluxOS uptime
-    const threshold = timeSinceFluxStart < STARTUP_WINDOW ? STARTUP_THRESHOLD : RUNTIME_THRESHOLD;
-    const reason = timeSinceFluxStart < STARTUP_WINDOW
-      ? 'Daemon not synced for 15+ minutes after FluxOS startup'
-      : 'Daemon not synced for 2+ hours during runtime';
 
     // Check if threshold exceeded
-    if (unsyncedDuration >= threshold && !allAppsRemoved) {
+    if (unsyncedDuration >= RUNTIME_THRESHOLD && !allAppsRemoved) {
+      const reason = 'Daemon not synced for 2+ hours';
       log.error(`CRITICAL: ${reason}. Removing all applications.`);
       await removeAllApps(reason);
     }
