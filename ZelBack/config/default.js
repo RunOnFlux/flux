@@ -284,6 +284,9 @@ module.exports = {
     ip: '127.0.0.1', // local
     port: 8384, // local
   },
+  enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
+    '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW',
+  ],
   enterprisePublicKeys: [ // list of whitelisted nodes indentity public keys. Most trusted node operators that are publicly known, kyc. Eg Flux team members, Titan.
     '045bd4f81d7bda582141793463edb58e0f3228a873bd6b6680b78586db2969f51dfeda672eae65e64ca814316f77557012d02c73db7876764f5eddb6b6d9d02b5b',
     '042ebcb3a94fe66b9ded6e456871346d6984502bbadf14ed07644e0eb91f8cc0b1f07632c428e1e6793f372d9c303d680de80ae0499d51095676cabf68599e9591',

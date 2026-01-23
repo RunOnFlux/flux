@@ -800,6 +800,18 @@ function getBlockedRepositories(req, res) {
 }
 
 /**
+ * To show the list of enterprise app owners from configuration.
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+function getEnterpriseAppOwners(req, res) {
+  const enterpriseAppOwners = config.enterpriseAppOwners || [];
+  const message = messageHelper.createDataMessage(enterpriseAppOwners);
+  return res ? res.json(message) : message;
+}
+
+/**
  * To marketplace URL to show based on current development flag setup in configuration file that is being used with FluxOS.
  * @param {object} req Request.
  * @param {object} res Response.
@@ -2138,6 +2150,7 @@ module.exports = {
   getAPIPort,
   getBlockedPorts,
   getBlockedRepositories,
+  getEnterpriseAppOwners,
   getCurrentBranch,
   getCurrentCommitId,
   getFluxGeolocation,

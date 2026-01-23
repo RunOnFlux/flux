@@ -295,6 +295,9 @@ module.exports = (app) => {
   app.get('/flux/blockedrepositories', cache('1 day'), (req, res) => {
     fluxService.getBlockedRepositories(req, res);
   });
+  app.get('/flux/enterpriseappowners', cache('1 hour'), (req, res) => {
+    fluxService.getEnterpriseAppOwners(req, res);
+  });
   app.get('/flux/marketplaceurl', cache('1 day'), (req, res) => {
     fluxService.getMarketplaceURL(req, res);
   });
