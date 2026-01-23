@@ -157,21 +157,6 @@ async function hasPublicIpOnInterface() {
     return false;
   } catch (error) {
     log.error(`Failed to check network interfaces via routing table: ${error.message}`);
-    // Fallback to simple interface enumeration
-    try {
-      const interfaces = os.networkInterfaces();
-      for (const name of Object.keys(interfaces)) {
-        for (const iface of interfaces[name]) {
-          if (iface.family === 'IPv4' && !iface.internal) {
-            if (!serviceHelper.isNonRoutableAddress(iface.address)) {
-              return true;
-            }
-          }
-        }
-      }
-    } catch (fallbackError) {
-      log.error(`Fallback interface check also failed: ${fallbackError.message}`);
-    }
     return false;
   }
 }
