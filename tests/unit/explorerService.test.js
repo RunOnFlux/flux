@@ -1792,6 +1792,7 @@ describe('explorerService tests', () => {
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       const createIndexFake = sinon.fake.resolves(true);
       const collectionFake = sinon.fake.returns({ createIndex: createIndexFake });
       const dbFake = sinon.fake.returns({ collection: collectionFake });
@@ -1816,6 +1817,7 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
@@ -1844,6 +1846,7 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       findInDatabaseStub.returns({ generalScannedHeight: 1000 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);
@@ -1872,6 +1875,7 @@ describe('explorerService tests', () => {
       sinon.stub(dbHelper, 'removeDocumentsFromCollection').resolves(true);
       sinon.stub(dbHelper, 'updateInDatabase').resolves(true);
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
+      sinon.stub(dbHelper, 'countInDatabase').resolves(1);
       findInDatabaseStub.returns({ generalScannedHeight: 0 });
       dropCollectionStub.resolves(true);
       const createIndexFake = sinon.fake.resolves(true);

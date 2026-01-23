@@ -1303,9 +1303,9 @@ describe('fluxNetworkHelper tests', () => {
 
       await fluxNetworkHelperWithStubs.adjustExternalIP(newIp);
 
-      // Should use original specs (staticip: false) and restart app instead of uninstalling
+      // Should skip the app entirely when decryption fails - neither uninstall nor restart
       sinon.assert.notCalled(appUninstallerStub.removeAppLocally);
-      sinon.assert.calledOnce(appControllerStub.appDockerRestart);
+      sinon.assert.notCalled(appControllerStub.appDockerRestart);
     });
 
     it('should not uninstall v6 apps even with staticip field', async () => {
