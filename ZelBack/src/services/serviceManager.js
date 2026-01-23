@@ -23,6 +23,7 @@ const availabilityChecker = require('./appMonitoring/availabilityChecker');
 const nodeStatusMonitor = require('./appMonitoring/nodeStatusMonitor');
 const peerNotification = require('./appMessaging/peerNotification');
 const syncthingMonitor = require('./appMonitoring/syncthingMonitor');
+const daemonHealthMonitor = require('./appMonitoring/daemonHealthMonitor');
 const advancedWorkflows = require('./appLifecycle/advancedWorkflows');
 const appHashSyncService = require('./appMessaging/appHashSyncService');
 const imageManager = require('./appSecurity/imageManager');
@@ -480,6 +481,13 @@ async function startFluxFunctions() {
         advancedWorkflows.forceAppRemovals();
       }, 2 * 60 * 60 * 1000);
     }, 30 * 60 * 1000);
+    // Daemon health monitoring - check every 15 minutes
+    setTimeout(() => {
+      daemonHealthMonitor.checkDaemonHealthAndCleanup();
+      setInterval(() => {
+        daemonHealthMonitor.checkDaemonHealthAndCleanup();
+      }, 15 * 60 * 1000); // Every 15 minutes
+    }, 5 * 60 * 1000); // Initial delay: 5 minutes (let daemon try to sync first)
     setTimeout(() => {
       appInspector.checkStorageSpaceForApps(
         appQueryService.installedApps,

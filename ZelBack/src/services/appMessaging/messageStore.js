@@ -8,6 +8,7 @@ const appValidator = require('../appRequirements/appValidator');
 const registryManager = require('../appDatabase/registryManager');
 // const advancedWorkflows = require('../appLifecycle/advancedWorkflows'); // Moved to dynamic require to avoid circular dependency
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
+const globalState = require('../utils/globalState');
 const {
   globalAppsMessages,
   globalAppsTempMessages,
@@ -87,6 +88,20 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     // eslint-disable-next-line global-require
     const advancedWorkflows = require('../appLifecycle/advancedWorkflows');
     const appRegistration = message.type === 'zelappregister' || message.type === 'fluxappregister';
+
+    // For updates, fetch previous app specs first - if registration doesn't exist yet, queue the update
+    let previousAppSpecs = null;
+    if (!appRegistration) {
+      previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
+      if (!previousAppSpecs) {
+        // Registration doesn't exist yet - queue this update for later processing
+        const appName = appSpecFormatted.name;
+        log.info(`Queueing update for ${appName} - registration not yet stored`);
+        globalState.queuePendingUpdate(appName, message, block);
+        return false; // Don't rebroadcast - we'll process when registration arrives
+      }
+    }
+
     if (appSpecFormatted.version >= 8 && appSpecFormatted.enterprise) {
       if (!message.arcaneSender) {
         return new Error('Invalid Flux App message for storing, enterprise app where original sender was not arcane node');
@@ -105,7 +120,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
         if (appRegistration) {
           await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormattedDecrypted, message.hash);
         } else {
-          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, messageTimestamp);
+          await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormattedDecrypted, previousAppSpecs);
         }
       }
     } else {
@@ -113,7 +128,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
       if (appRegistration) {
         await registryManager.checkApplicationRegistrationNameConflicts(appSpecFormatted, message.hash);
       } else {
-        await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, messageTimestamp);
+        await advancedWorkflows.validateApplicationUpdateCompatibility(appSpecFormatted, previousAppSpecs);
       }
     }
 
@@ -121,8 +136,7 @@ async function storeAppTemporaryMessage(message, furtherVerification = false) {
     if (appRegistration) {
       await messageVerifier.verifyAppMessageSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature);
     } else {
-      // get previousAppSpecifications as we need previous owner
-      const previousAppSpecs = await advancedWorkflows.getPreviousAppSpecifications(appSpecFormatted, messageTimestamp);
+      // previousAppSpecs already fetched above for update validation
       const { owner } = previousAppSpecs;
       // here signature is checked against PREVIOUS app owner
       await messageVerifier.verifyAppMessageUpdateSignature(message.type, messageVersion, appSpecFormatted, messageTimestamp, message.signature, owner, block);

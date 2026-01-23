@@ -12,7 +12,7 @@ describe('advancedWorkflows tests', () => {
   });
 
   describe('getPreviousAppSpecifications tests', () => {
-    it('should throw error if no previous message found', async () => {
+    it('should return null if no previous message found', async () => {
       const specifications = { name: 'NewApp' };
       const verificationTimestamp = Date.now();
 
@@ -21,12 +21,8 @@ describe('advancedWorkflows tests', () => {
       });
       sinon.stub(dbHelper, 'findInDatabase').resolves([]);
 
-      try {
-        await advancedWorkflows.getPreviousAppSpecifications(specifications, verificationTimestamp);
-        expect.fail('Should have thrown error');
-      } catch (error) {
-        expect(error.message).to.include('does not exists');
-      }
+      const result = await advancedWorkflows.getPreviousAppSpecifications(specifications, verificationTimestamp);
+      expect(result).to.be.null;
     });
   });
 
@@ -1283,18 +1279,6 @@ describe('advancedWorkflows tests', () => {
   });
 
   describe('validateApplicationUpdateCompatibility tests', () => {
-    let findInDatabaseStub;
-
-    beforeEach(() => {
-      sinon.stub(dbHelper, 'databaseConnection').returns({
-        db: () => ({}),
-      });
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
     it('should allow component count changes for version 8+ apps', async () => {
       const oldAppSpecs = {
         name: 'TestApp',
@@ -1333,26 +1317,13 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      const timestamp = Date.now();
-      const messages = [
-        {
-          type: 'fluxappregister',
-          appSpecifications: oldAppSpecs,
-          height: 1000,
-          timestamp: timestamp - 1000, // Earlier than verification timestamp
-        },
-      ];
-
-      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves(messages);
-
       // Should not throw error for v8+ apps with component changes
       const result = await advancedWorkflows.validateApplicationUpdateCompatibility(
         newAppSpecs,
-        timestamp,
+        oldAppSpecs,
       );
 
       expect(result).to.be.true;
-      expect(findInDatabaseStub.called).to.be.true;
     });
 
     it('should allow component name changes for version 8+ apps', async () => {
@@ -1392,26 +1363,13 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      const timestamp = Date.now();
-      const messages = [
-        {
-          type: 'fluxappregister',
-          appSpecifications: oldAppSpecs,
-          height: 1000,
-          timestamp: timestamp - 1000, // Earlier than verification timestamp
-        },
-      ];
-
-      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves(messages);
-
       // Should not throw error for v8+ apps with component name changes
       const result = await advancedWorkflows.validateApplicationUpdateCompatibility(
         newAppSpecs,
-        timestamp,
+        oldAppSpecs,
       );
 
       expect(result).to.be.true;
-      expect(findInDatabaseStub.called).to.be.true;
     });
 
     it('should reject component count changes for version 4-7 apps', async () => {
@@ -1452,23 +1410,11 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      const timestamp = Date.now();
-      const messages = [
-        {
-          type: 'fluxappregister',
-          appSpecifications: oldAppSpecs,
-          height: 1000,
-          timestamp: timestamp - 1000, // Earlier than verification timestamp
-        },
-      ];
-
-      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves(messages);
-
       // Should throw error for v4-7 apps with component count changes
       try {
         await advancedWorkflows.validateApplicationUpdateCompatibility(
           newAppSpecs,
-          timestamp,
+          oldAppSpecs,
         );
         expect.fail('Should have thrown error');
       } catch (error) {
@@ -1515,23 +1461,11 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      const timestamp = Date.now();
-      const messages = [
-        {
-          type: 'fluxappregister',
-          appSpecifications: oldAppSpecs,
-          height: 1000,
-          timestamp: timestamp - 1000, // Earlier than verification timestamp
-        },
-      ];
-
-      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves(messages);
-
       // Should throw error for v4-7 apps with component name changes
       try {
         await advancedWorkflows.validateApplicationUpdateCompatibility(
           newAppSpecs,
-          timestamp,
+          oldAppSpecs,
         );
         expect.fail('Should have thrown error');
       } catch (error) {
@@ -1578,22 +1512,10 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      const timestamp = Date.now();
-      const messages = [
-        {
-          type: 'fluxappregister',
-          appSpecifications: oldAppSpecs,
-          height: 1000,
-          timestamp: timestamp - 1000, // Earlier than verification timestamp
-        },
-      ];
-
-      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves(messages);
-
       // Should allow repotag changes for v4+ apps
       const result = await advancedWorkflows.validateApplicationUpdateCompatibility(
         newAppSpecs,
-        timestamp,
+        oldAppSpecs,
       );
 
       expect(result).to.be.true;

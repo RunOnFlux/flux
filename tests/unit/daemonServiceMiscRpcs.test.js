@@ -68,6 +68,8 @@ describe('daemonServiceMiscRpcs tests', () => {
   describe('isDaemonSynced tests', () => {
     beforeEach(() => {
       daemonServiceMiscRpcs.setCurrentDaemonHeight(0);
+      // Set recent RPC call timestamp for tests that expect synced behavior
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(Date.now());
     });
 
     afterEach(() => {
@@ -77,6 +79,7 @@ describe('daemonServiceMiscRpcs tests', () => {
     it('should return isDaemonSynced message if current height is less than header height, no response passed', () => {
       daemonServiceMiscRpcs.setCurrentDaemonHeight(0);
       daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(Date.now());
       const expectedResponse = {
         status: 'success',
         data: { header: 249187, height: 0, synced: false },
@@ -90,6 +93,7 @@ describe('daemonServiceMiscRpcs tests', () => {
     it('should return isDaemonSynced message if current height is more than header height, no response passed', () => {
       daemonServiceMiscRpcs.setCurrentDaemonHeight(259187);
       daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(Date.now());
       const expectedResponse = {
         status: 'success',
         data: { header: 249187, height: 259187, synced: true },
@@ -103,6 +107,7 @@ describe('daemonServiceMiscRpcs tests', () => {
     it('should return isDaemonSynced message if current height is more than header height, response passed', () => {
       daemonServiceMiscRpcs.setCurrentDaemonHeight(249192);
       daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(Date.now());
       const expectedResponse = {
         status: 'success',
         data: { header: 249187, height: 249192, synced: true },
@@ -113,6 +118,50 @@ describe('daemonServiceMiscRpcs tests', () => {
 
       expect(result).to.eql(`Response: ${expectedResponse}`);
       sinon.assert.calledOnceWithExactly(res.json, expectedResponse);
+    });
+
+    it('should return unsynced if lastSuccessfulRpcCall is null', () => {
+      daemonServiceMiscRpcs.setCurrentDaemonHeight(249192);
+      daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(null);
+      const expectedResponse = {
+        status: 'success',
+        data: { header: 249187, height: 249192, synced: false },
+      };
+
+      const result = daemonServiceMiscRpcs.isDaemonSynced();
+
+      expect(result).to.eql(expectedResponse);
+    });
+
+    it('should return unsynced if lastSuccessfulRpcCall is older than 10 blocks (300 seconds)', () => {
+      daemonServiceMiscRpcs.setCurrentDaemonHeight(249192);
+      daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
+      // Set timestamp to 301 seconds ago (just over threshold)
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(Date.now() - (301 * 1000));
+      const expectedResponse = {
+        status: 'success',
+        data: { header: 249187, height: 249192, synced: false },
+      };
+
+      const result = daemonServiceMiscRpcs.isDaemonSynced();
+
+      expect(result).to.eql(expectedResponse);
+    });
+
+    it('should return synced if lastSuccessfulRpcCall is within 10 blocks (300 seconds) and height is close to header', () => {
+      daemonServiceMiscRpcs.setCurrentDaemonHeight(249192);
+      daemonServiceMiscRpcs.setCurrentDaemonHeader(249187);
+      // Set timestamp to 299 seconds ago (just under threshold)
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(Date.now() - (299 * 1000));
+      const expectedResponse = {
+        status: 'success',
+        data: { header: 249187, height: 249192, synced: true },
+      };
+
+      const result = daemonServiceMiscRpcs.isDaemonSynced();
+
+      expect(result).to.eql(expectedResponse);
     });
   });
 
@@ -142,10 +191,18 @@ describe('daemonServiceMiscRpcs tests', () => {
         },
       });
 
+      const beforeCall = Date.now();
       await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+      const afterCall = Date.now();
 
       expect(daemonServiceMiscRpcs.getCurrentDaemonHeader()).to.eql(555555);
       expect(daemonServiceMiscRpcs.getCurrentDaemonHeight()).to.eql(123456);
+
+      // Verify lastSuccessfulRpcCall was updated
+      const lastRpcCall = daemonServiceMiscRpcs.getLastSuccessfulRpcCall();
+      expect(lastRpcCall).to.be.at.least(beforeCall);
+      expect(lastRpcCall).to.be.at.most(afterCall);
+
       sinon.assert.calledOnceWithExactly(logInfoSpy, `Daemon Sync status: ${123456}/${555555}`);
     });
 
@@ -164,6 +221,35 @@ describe('daemonServiceMiscRpcs tests', () => {
       expect(daemonServiceMiscRpcs.getCurrentDaemonHeader()).to.eql(249187);
       expect(daemonServiceMiscRpcs.getCurrentDaemonHeight()).to.eql(123456);
       sinon.assert.calledOnceWithExactly(logInfoSpy, `Daemon Sync status: ${123456}/${249187}`);
+    });
+
+    it('should not update lastSuccessfulRpcCall when RPC call fails', async () => {
+      const initialTimestamp = Date.now() - 60000; // 1 minute ago
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(initialTimestamp);
+
+      daemonServiceBlockchainRpcsStub.returns({
+        status: 'error',
+        data: {
+          message: 'Connection failed',
+        },
+      });
+
+      await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+
+      // Verify lastSuccessfulRpcCall was NOT updated
+      expect(daemonServiceMiscRpcs.getLastSuccessfulRpcCall()).to.eql(initialTimestamp);
+    });
+
+    it('should not update lastSuccessfulRpcCall when RPC call throws exception', async () => {
+      const initialTimestamp = Date.now() - 60000; // 1 minute ago
+      daemonServiceMiscRpcs.setLastSuccessfulRpcCall(initialTimestamp);
+
+      daemonServiceBlockchainRpcsStub.throws(new Error('Network error'));
+
+      await daemonServiceMiscRpcs.fluxDaemonBlockchainInfo();
+
+      // Verify lastSuccessfulRpcCall was NOT updated
+      expect(daemonServiceMiscRpcs.getLastSuccessfulRpcCall()).to.eql(initialTimestamp);
     });
   });
 });
