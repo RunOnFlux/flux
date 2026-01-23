@@ -30,6 +30,7 @@ const appSpawner = require('./appLifecycle/appSpawner');
 const crontabAndMountsCleanup = require('./appLifecycle/crontabAndMountsCleanup');
 const containerMountRecovery = require('./appLifecycle/containerMountRecovery');
 const stoppedAppsRecovery = require('./appLifecycle/stoppedAppsRecovery');
+const hardwareValidationService = require('./appLifecycle/hardwareValidationService');
 const globalState = require('./utils/globalState');
 const appQueryService = require('./appQuery/appQueryService');
 const daemonServiceMiscRpcs = require('./daemonService/daemonServiceMiscRpcs');
@@ -208,13 +209,21 @@ async function startFluxFunctions() {
       });
     }, 45 * 1000); // Run after 45 seconds to allow system to stabilize
 
+    // Validate hardware requirements and remove non-compliant apps FIRST
+    log.info('Scheduling hardware validation check...');
+    setTimeout(() => {
+      hardwareValidationService.performBootTimeHardwareValidation().catch((error) => {
+        log.error(`Hardware validation service error: ${error.message}`);
+      });
+    }, 50 * 1000); // Run at 50 seconds - BEFORE stopped apps recovery
+
     // Start stopped apps on boot (excluding g: syncthing mode apps which are managed by masterSlaveApps)
     log.info('Scheduling stopped apps recovery check...');
     setTimeout(() => {
       stoppedAppsRecovery.startStoppedAppsOnBoot().catch((error) => {
         log.error(`Stopped apps recovery service error: ${error.message}`);
       });
-    }, 50 * 1000); // Run after 50 seconds, after volume validation
+    }, 55 * 1000); // Run after 55 seconds, after hardware validation
 
     log.info('Flux Apps installing locations prepared');
 
