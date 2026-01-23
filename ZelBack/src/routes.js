@@ -492,6 +492,9 @@ module.exports = (app) => {
   app.get('/benchmark/getbenchmarks', cache('30 seconds'), (req, res) => {
     benchmarkService.getBenchmarks(req, res);
   });
+  app.get('/benchmark/getstoredbenchmark', cache('1 hour'), (req, res) => {
+    benchmarkService.getStoredBenchmark(req, res);
+  });
   app.get('/benchmark/getinfo', cache('30 seconds'), (req, res) => {
     benchmarkService.getInfo(req, res);
   });
