@@ -313,11 +313,13 @@ async function trySpawningGlobalApplication() {
       return;
     }
 
+    // Get app ports early - needed for both user-blocked check and public availability check
+    const appPorts = appUtilities.getAppPorts(appSpecifications);
+
     // EARLY CHECK: Verify app doesn't use user-blocked ports before expensive Docker Hub operations
     // Skip this check for vetted apps
     const appIsVetted = await imageManager.isAppVetted(appSpecifications);
     if (!appIsVetted) {
-      const appPorts = appUtilities.getAppPorts(appSpecifications);
       // eslint-disable-next-line no-restricted-syntax
       for (let i = 0; i < appPorts.length; i += 1) {
         const port = appPorts[i];

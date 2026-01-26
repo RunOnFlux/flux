@@ -536,8 +536,8 @@ function verifyTypeCorrectnessOfApp(appSpecification) {
 
   // v8+ datacenter validation
   if (version >= 8) {
-    if (datacenter !== null && datacenter !== true && datacenter !== false) {
-      throw new Error('Invalid datacenter value obtained. Only null, true, or false allowed.');
+    if (datacenter !== undefined && typeof datacenter !== 'boolean') {
+      throw new Error('Invalid datacenter value obtained. Only undefined, true, or false allowed.');
     }
     // datacenter=true is only allowed for enterprise app owners
     if (datacenter === true) {

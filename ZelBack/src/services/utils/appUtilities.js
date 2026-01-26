@@ -310,6 +310,7 @@ function specificationFormatter(appSpecification) {
     expire,
     nodes,
     staticip,
+    datacenter,
     enterprise,
   } = appSpecification;
 
@@ -765,6 +766,11 @@ function specificationFormatter(appSpecification) {
   }
 
   if (version >= 8) {
+    // datacenter can be undefined (omitted) or boolean
+    if (datacenter !== undefined) {
+      appSpecFormatted.datacenter = serviceHelper.ensureBoolean(datacenter);
+    }
+
     if (enterprise) {
       enterprise = serviceHelper.ensureString(enterprise);
     }

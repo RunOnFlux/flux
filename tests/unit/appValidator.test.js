@@ -222,7 +222,7 @@ describe('appValidator tests', () => {
           expire: 88000,
           nodes: [],
           staticip: false,
-          datacenter: null,
+          datacenter: false,
           compose: [{
             name: 'component1',
             description: 'Component 1',
@@ -262,7 +262,7 @@ describe('appValidator tests', () => {
           expire: 88000,
           nodes: [],
           staticip: false,
-          datacenter: null,
+          datacenter: false,
           compose: [{
             name: 'component1',
             description: 'Component 1',
