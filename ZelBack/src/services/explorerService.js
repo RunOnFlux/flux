@@ -754,6 +754,43 @@ async function restoreDatabaseToBlockheightState(height, rescanGlobalApps = fals
 
 let lastchainTipCheck = 0;
 /**
+ * Removes duplicate scannedheight documents, keeping only the one with the highest block height.
+ * This cleans up legacy seeded documents that may exist on nodes.
+ * @param {object} database MongoDB database connection.
+ * @returns {Promise<void>}
+ */
+async function cleanupDuplicateScannedHeight(database) {
+  try {
+    const count = await dbHelper.countInDatabase(database, scannedHeightCollection, {});
+
+    if (count <= 1) {
+      return; // No duplicates, nothing to clean
+    }
+
+    log.warn(`Found ${count} scannedheight documents, cleaning up duplicates...`);
+
+    // Get the document with highest block height (MongoDB sorts it)
+    const highestArr = await dbHelper.findInDatabase(database, scannedHeightCollection, {}, {
+      sort: { generalScannedHeight: -1 },
+      limit: 1,
+    });
+
+    const highest = highestArr[0];
+
+    log.info(`Keeping scannedheight document with height ${highest.generalScannedHeight} (_id: ${highest._id})`);
+
+    // Delete all EXCEPT the highest
+    const deleteResult = await dbHelper.removeDocumentsFromCollection(database, scannedHeightCollection, {
+      _id: { $ne: highest._id },
+    });
+
+    log.info(`Removed ${deleteResult.deletedCount} duplicate scannedheight documents`);
+  } catch (error) {
+    log.error(`Error cleaning up duplicate scannedheight documents: ${error.message}`);
+  }
+}
+
+/**
  * To start the block processor.
  * @param {boolean} restoreDatabase True if database is to be restored.
  * @param {boolean} deepRestore True if a deep restore is required.
@@ -766,6 +803,10 @@ async function initiateBlockProcessor(restoreDatabase, deepRestore, reindexOrRes
   try {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.daemon.database);
+
+    // Clean up any duplicate scannedheight documents
+    await cleanupDuplicateScannedHeight(database);
+
     const query = { generalScannedHeight: { $gte: 0 } };
     const projection = {
       projection: {

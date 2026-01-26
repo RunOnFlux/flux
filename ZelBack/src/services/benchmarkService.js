@@ -117,6 +117,23 @@ async function storeBenchmarkToDb(benchmarkData, tierStatus) {
 }
 
 /**
+ * Retrieves stored benchmark data from the database via API
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Message.
+ */
+async function getStoredBenchmark(req, res) {
+  const data = await getBenchmarkFromDb();
+  let response;
+  if (data.benchmark) {
+    response = messageHelper.createDataMessage(data);
+  } else {
+    response = messageHelper.createErrorMessage('No stored benchmark data available');
+  }
+  return res ? res.json(response) : response;
+}
+
+/**
  * Retrieves benchmark data from the database
  * @returns {Promise<{benchmark: object|null, tier: string|null}>}
  */
@@ -423,6 +440,7 @@ module.exports = {
   // == Fluxnode ==
   getBenchmarks,
   getBenchmarkFromDb,
+  getStoredBenchmark,
   getInfo,
   getPublicIp,
 

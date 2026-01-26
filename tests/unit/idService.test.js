@@ -26,6 +26,9 @@ const adminConfig = {
   },
 };
 
+// Set globalThis.userconfig for idService which reads from globalThis
+globalThis.userconfig = adminConfig;
+
 const idService = proxyquire(
   '../../ZelBack/src/services/idService',
   { '../../../config/userconfig': adminConfig },

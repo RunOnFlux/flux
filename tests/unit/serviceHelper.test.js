@@ -809,4 +809,75 @@ describe('serviceHelper tests', () => {
       expect(unique.size).to.be.greaterThanOrEqual(expectedCount);
     });
   });
+
+  describe('isNonRoutableAddress tests', () => {
+    // RFC1918 private ranges
+    it('should return true for 10.x.x.x private range', () => {
+      expect(serviceHelper.isNonRoutableAddress('10.0.0.1')).to.equal(true);
+      expect(serviceHelper.isNonRoutableAddress('10.255.255.255')).to.equal(true);
+    });
+
+    it('should return true for 172.16-31.x.x private range', () => {
+      expect(serviceHelper.isNonRoutableAddress('172.16.0.1')).to.equal(true);
+      expect(serviceHelper.isNonRoutableAddress('172.31.255.255')).to.equal(true);
+    });
+
+    it('should return false for 172.15.x.x (not in private range)', () => {
+      expect(serviceHelper.isNonRoutableAddress('172.15.0.1')).to.equal(false);
+    });
+
+    it('should return false for 172.32.x.x (not in private range)', () => {
+      expect(serviceHelper.isNonRoutableAddress('172.32.0.1')).to.equal(false);
+    });
+
+    it('should return true for 192.168.x.x private range', () => {
+      expect(serviceHelper.isNonRoutableAddress('192.168.0.1')).to.equal(true);
+      expect(serviceHelper.isNonRoutableAddress('192.168.255.255')).to.equal(true);
+    });
+
+    // Loopback range
+    it('should return true for 127.x.x.x loopback range', () => {
+      expect(serviceHelper.isNonRoutableAddress('127.0.0.1')).to.equal(true);
+      expect(serviceHelper.isNonRoutableAddress('127.255.255.255')).to.equal(true);
+    });
+
+    // Link-local range
+    it('should return true for 169.254.x.x link-local range', () => {
+      expect(serviceHelper.isNonRoutableAddress('169.254.0.1')).to.equal(true);
+      expect(serviceHelper.isNonRoutableAddress('169.254.255.255')).to.equal(true);
+    });
+
+    it('should return false for 169.253.x.x (not link-local)', () => {
+      expect(serviceHelper.isNonRoutableAddress('169.253.0.1')).to.equal(false);
+    });
+
+    // CGN (Carrier-Grade NAT) range 100.64.0.0/10
+    it('should return true for 100.64-127.x.x CGN range', () => {
+      expect(serviceHelper.isNonRoutableAddress('100.64.0.1')).to.equal(true);
+      expect(serviceHelper.isNonRoutableAddress('100.127.255.255')).to.equal(true);
+    });
+
+    it('should return false for 100.63.x.x (not in CGN range)', () => {
+      expect(serviceHelper.isNonRoutableAddress('100.63.0.1')).to.equal(false);
+    });
+
+    it('should return false for 100.128.x.x (not in CGN range)', () => {
+      expect(serviceHelper.isNonRoutableAddress('100.128.0.1')).to.equal(false);
+    });
+
+    // Public IPs
+    it('should return false for public IP addresses', () => {
+      expect(serviceHelper.isNonRoutableAddress('8.8.8.8')).to.equal(false);
+      expect(serviceHelper.isNonRoutableAddress('185.199.108.1')).to.equal(false);
+      expect(serviceHelper.isNonRoutableAddress('1.1.1.1')).to.equal(false);
+    });
+
+    // Invalid IPs
+    it('should return false for invalid IP addresses', () => {
+      expect(serviceHelper.isNonRoutableAddress('invalid')).to.equal(false);
+      expect(serviceHelper.isNonRoutableAddress('')).to.equal(false);
+      expect(serviceHelper.isNonRoutableAddress('256.1.1.1')).to.equal(false);
+      expect(serviceHelper.isNonRoutableAddress('1.1.1')).to.equal(false);
+    });
+  });
 });

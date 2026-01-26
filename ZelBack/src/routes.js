@@ -295,6 +295,9 @@ module.exports = (app) => {
   app.get('/flux/blockedrepositories', cache('1 day'), (req, res) => {
     fluxService.getBlockedRepositories(req, res);
   });
+  app.get('/flux/enterpriseappowners', cache('1 hour'), (req, res) => {
+    fluxService.getEnterpriseAppOwners(req, res);
+  });
   app.get('/flux/marketplaceurl', cache('1 day'), (req, res) => {
     fluxService.getMarketplaceURL(req, res);
   });
@@ -488,6 +491,9 @@ module.exports = (app) => {
   });
   app.get('/benchmark/getbenchmarks', cache('30 seconds'), (req, res) => {
     benchmarkService.getBenchmarks(req, res);
+  });
+  app.get('/benchmark/getstoredbenchmark', cache('1 hour'), (req, res) => {
+    benchmarkService.getStoredBenchmark(req, res);
   });
   app.get('/benchmark/getinfo', cache('30 seconds'), (req, res) => {
     benchmarkService.getInfo(req, res);

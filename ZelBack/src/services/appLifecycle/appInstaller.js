@@ -381,9 +381,6 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     if (benchmarkResponse.status === 'error') {
       throw new Error('FluxBench status Error. Application cannot be installed at the moment');
     }
-    if (benchmarkResponse.data.thunder) {
-      throw new Error('Flux Node is a Fractus Storage Node. Applications cannot be installed at this node type');
-    }
     // get my external IP and check that it is longer than 5 in length.
     let myIP = null;
     if (benchmarkResponse.data.ipaddress) {
@@ -723,6 +720,9 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
  * @returns {Promise<void>} Installation result
  */
 async function installApplicationHard(appSpecifications, appName, isComponent, res, fullAppSpecs, test = false) {
+  // Setup firewall and UPnP ports (fail fast before downloading images)
+  await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
+
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
 
@@ -763,9 +763,6 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
 
-  // Setup firewall and UPnP ports
-  await setupApplicationPorts(appSpecifications, appName, isComponent, res, test);
-
   const startStatus = {
     status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,
   };
@@ -802,6 +799,9 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
  * @returns {Promise<void>} Return statement is only used here to interrupt the function and nothing is returned.
  */
 async function installApplicationSoft(appSpecifications, appName, isComponent, res, fullAppSpecs) {
+  // Setup firewall and UPnP ports (fail fast before downloading images)
+  await setupApplicationPorts(appSpecifications, appName, isComponent, res);
+
   // Verify and pull Docker image
   await verifyAndPullImage(appSpecifications, appName, isComponent, res, fullAppSpecs);
 
@@ -815,9 +815,6 @@ async function installApplicationSoft(appSpecifications, appName, isComponent, r
   }
 
   await dockerService.appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs);
-
-  // Setup firewall and UPnP ports (no test parameter for soft install, defaults to false)
-  await setupApplicationPorts(appSpecifications, appName, isComponent, res);
 
   const startStatus = {
     status: isComponent ? `Starting component ${appSpecifications.name} of Flux App ${appName}...` : `Starting Flux App ${appName}...`,

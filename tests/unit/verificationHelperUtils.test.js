@@ -16,6 +16,10 @@ const adminConfig = {
     testnet: true,
   },
 };
+
+// Set globalThis.userconfig for verificationHelperUtils which reads from globalThis
+globalThis.userconfig = adminConfig;
+
 const verificationHelperUtils = proxyquire(
   '../../ZelBack/src/services/verificationHelperUtils',
   { '../../../config/userconfig': adminConfig },
