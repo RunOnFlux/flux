@@ -861,7 +861,7 @@ async function benchmarkDebug(req, res) {
     return res.json(errMessage);
   }
   const homeDirPath = path.join(__dirname, '../../../../');
-  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+  const newBenchmarkPath = process.env.FLUXBENCH_PATH || path.join(homeDirPath, '.fluxbenchmark');
 
   const datadir = await fs
     .access(newBenchmarkPath, fs.constants.F_OK)
@@ -918,7 +918,7 @@ async function tailBenchmarkDebug(req, res) {
   }
 
   const homeDirPath = path.join(__dirname, '../../../../');
-  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+  const newBenchmarkPath = process.env.FLUXBENCH_PATH || path.join(homeDirPath, '.fluxbenchmark');
 
   const datadir = await fs
     .access(newBenchmarkPath, fs.constants.F_OK)
