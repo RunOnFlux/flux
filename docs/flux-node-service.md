@@ -79,7 +79,10 @@ The service:
     "benchmark": {
       "vcores": 8,
       "ram": 7.1,
+      "disk": 220,
+      "diskwritespeed": 540.25,
       "eps": 489.2,
+      "eps_singlethread": 85.4,
       "download_speed": 150.45212,
       "upload_speed": 50.216515
     }
@@ -180,7 +183,10 @@ Hardware specifications and performance metrics of the node. This data comes fro
 |-------|------|------|-------------|
 | `vcores` | number | vcores | Number of CPU threads available |
 | `ram` | number | GB | Total RAM in gigabytes |
+| `disk` | number | GB | Total SSD/Nvme storage in gigabytes |
+| `diskwritespeed` | number | MB/s | Disk write speed in megabytes per second |
 | `eps` | number | events/s | Events per second from all vcores available (CPU benchmark) |
+| `eps_singlethread` | number | events/s | Events per second from a single thread (CPU benchmark). Only available on nodes running benchmark version v6.1.0 |
 | `download_speed` | number | Mbps | Download speed in megabits per second |
 | `upload_speed` | number | Mbps | Upload speed in megabits per second |
 
@@ -297,7 +303,10 @@ $ curl -s http://fluxnode.service:16101/hostinfo | jq .
     "benchmark": {
       "vcores": 16,
       "ram": 61,
+      "disk": 880,
+      "diskwritespeed": 1540.61,
       "eps": 4013.352,
+      "eps_singlethread": 420.55,
       "download_speed": 600.0465950625,
       "upload_speed": 144.877045125
     }
