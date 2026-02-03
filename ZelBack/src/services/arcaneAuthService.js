@@ -2,146 +2,145 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const fluxConfigdClient = require('./utils/fluxConfigdClient');
 
+const isArcane = Boolean(process.env.FLUXOS_PATH);
+
 /**
- * Extract IP address from Express request
- * @param {object} req - Express request object
- * @returns {string} IP address
+ * Generate authentication challenge for a requester
+ * @param {string} ipAddress - Requester's IP address
+ * @returns {Promise<object>} Challenge data from flux-configd
  */
-function getRequesterIP(req) {
-  return req.ip
-    || req.connection?.remoteAddress
-    || req.socket?.remoteAddress
-    || req.headers?.['x-forwarded-for']
-    || 'unknown';
+async function generateChallenge(ipAddress) {
+  const result = await fluxConfigdClient.callFluxConfigdRPC('arcane.generate_challenge', {
+    ip_address: ipAddress
+  });
+
+  log.info(`Challenge generated for ${ipAddress} via flux-configd`);
+  return result;
 }
 
 /**
- * API handler for GET /arcane/authchallenge
- * Proxies to flux-configd RPC: arcane.generate_challenge
- * @param {object} req - Express request object
- * @param {object} res - Express response object
+ * Update configuration with authenticated request
+ * @param {string} challenge - Challenge string
+ * @param {string} encryptedChallenge - Encrypted challenge
+ * @param {object} configData - Configuration data to sync
+ * @param {string} ipAddress - Requester's IP address
+ * @param {boolean} merge - Whether to merge or replace config
+ * @returns {Promise<object>} Result from flux-configd
  */
-async function authChallenge(req, res) {
+async function updateConfig(challenge, encryptedChallenge, configData, ipAddress, merge = false) {
+  // TODO: Determine correct username from node identity
+  const result = await fluxConfigdClient.callFluxConfigdRPC('arcane.config_update', {
+    challenge,
+    encrypted_challenge: encryptedChallenge,
+    config_data: configData,
+    username: 'fluxnode',  // TODO: Get from node identity
+    ip_address: ipAddress,
+    merge
+  });
+
+  log.info(`Config sync successful for ${ipAddress} via flux-configd`);
+  return result;
+}
+
+/**
+ * HTTP handler for GET /arcane/authchallenge
+ */
+async function authChallengeHandler(req, res) {
   try {
-    // Check if this is an ArcaneOS node
-    if (!process.env.FLUXOS_PATH) {
+    if (!isArcane) {
       const errMessage = messageHelper.createErrorMessage(
         'This endpoint is only available on ArcaneOS nodes',
         'NotImplemented',
-        501
+        501,
       );
       return res.status(501).json(errMessage);
     }
 
-    const ipAddress = getRequesterIP(req);
-
-    if (!ipAddress || ipAddress === 'unknown') {
+    const ipAddress = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || req.headers?.['x-forwarded-for'];
+    if (!ipAddress) {
       const errMessage = messageHelper.createErrorMessage(
         'Unable to determine requester IP address',
         'BadRequest',
-        400
+        400,
       );
       return res.status(400).json(errMessage);
     }
 
-    // Call flux-configd RPC
-    const result = await fluxConfigdClient.callFluxConfigdRPC('arcane.generate_challenge', {
-      ip_address: ipAddress
-    });
-
-    log.info(`Challenge generated for ${ipAddress} via flux-configd`);
-
+    const result = await generateChallenge(ipAddress);
     const response = messageHelper.createDataMessage(result);
     return res.json(response);
 
   } catch (error) {
     log.error(`Error in authChallenge: ${error.message}`);
-
     const statusCode = error.message.includes('limit reached') ? 429 : 500;
     const errMessage = messageHelper.createErrorMessage(
       error.message,
       error.name || 'InternalError',
-      statusCode
+      statusCode,
     );
-
     return res.status(statusCode).json(errMessage);
   }
 }
 
 /**
- * API handler for POST /arcane/configsync
- * Proxies to flux-configd RPC: arcane.config_update
- * @param {object} req - Express request object
- * @param {object} res - Express response object
+ * HTTP handler for POST /arcane/configsync
  */
-async function configSync(req, res) {
+async function configSyncHandler(req, res) {
   try {
-    // Check if this is an ArcaneOS node
-    if (!process.env.FLUXOS_PATH) {
+    if (!isArcane) {
       const errMessage = messageHelper.createErrorMessage(
         'This endpoint is only available on ArcaneOS nodes',
         'NotImplemented',
-        501
+        501,
       );
       return res.status(501).json(errMessage);
     }
 
-    const ipAddress = getRequesterIP(req);
-
-    if (!ipAddress || ipAddress === 'unknown') {
+    const ipAddress = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || req.headers?.['x-forwarded-for'];
+    if (!ipAddress) {
       const errMessage = messageHelper.createErrorMessage(
         'Unable to determine requester IP address',
         'BadRequest',
-        400
+        400,
       );
       return res.status(400).json(errMessage);
     }
 
-    // Parse request body
     const { challenge, encryptedChallenge, configData, merge } = req.body;
-
-    // Basic validation (flux-configd will do full validation)
     if (!challenge || !encryptedChallenge || !configData) {
       const errMessage = messageHelper.createErrorMessage(
         'Missing required parameters: challenge, encryptedChallenge, configData',
         'BadRequest',
-        400
+        400,
       );
       return res.status(400).json(errMessage);
     }
 
-    // Call flux-configd RPC with authentication and config update
-    // TODO: Determine correct username from node identity
-    const result = await fluxConfigdClient.callFluxConfigdRPC('arcane.config_update', {
+    const result = await updateConfig(
       challenge,
-      encrypted_challenge: encryptedChallenge,
-      config_data: configData,
-      username: 'fluxnode',  // TODO: Get from node identity
-      ip_address: ipAddress,
-      merge: merge || false
-    });
-
-    log.info(`Config sync successful for ${ipAddress} via flux-configd`);
-
+      encryptedChallenge,
+      configData,
+      ipAddress,
+      merge,
+    );
     const response = messageHelper.createDataMessage(result);
     return res.json(response);
 
   } catch (error) {
     log.error(`Error in configSync: ${error.message}`);
-
-    // Authentication failures should return 401
     const statusCode = error.message.includes('Authentication failed') ? 401 : 500;
     const errMessage = messageHelper.createErrorMessage(
       error.message,
       error.name || 'InternalError',
-      statusCode
+      statusCode,
     );
-
     return res.status(statusCode).json(errMessage);
   }
 }
 
 module.exports = {
-  authChallenge,
-  configSync,
+  generateChallenge,
+  updateConfig,
+  authChallengeHandler,
+  configSyncHandler,
 };

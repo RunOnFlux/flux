@@ -344,7 +344,7 @@ module.exports = (app) => {
   });
 
   // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.get('/arcane/authchallenge', requireHttps, arcaneAuthService.authChallenge);
+  app.get('/arcane/authchallenge', requireHttps, arcaneAuthService.authChallengeHandler);
 
   // Apps routes - now directly calling modular services
   app.get('/apps/listrunningapps', cache('5 seconds'), (req, res) => {
@@ -1256,7 +1256,7 @@ module.exports = (app) => {
 
   // POST PUBLIC methods route
   // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.post('/arcane/configsync', requireHttps, arcaneAuthService.configSync);
+  app.post('/arcane/configsync', requireHttps, arcaneAuthService.configSyncHandler);
 
   app.post('/id/verifylogin', (req, res) => {
     idService.verifyLogin(req, res);
