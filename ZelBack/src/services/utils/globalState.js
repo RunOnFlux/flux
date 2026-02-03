@@ -38,6 +38,10 @@ const runningAppsCache = new Set();
 let spawnErrorsLongerAppCache = null;
 let trySpawningGlobalAppCache = null;
 
+// Enterprise CPU burst tracking
+// Maps containerName -> { specCpu, currentAllocation }
+const enterpriseBurstAllocations = new Map();
+
 // Initialize cache references - this must be called after cacheManager is ready
 function initializeCaches(cacheManager) {
   if (cacheManager && cacheManager.appSpawnErrorCache && cacheManager.appSpawnCache) {
@@ -104,6 +108,8 @@ module.exports = {
 
   get trySpawningGlobalAppCache() { return trySpawningGlobalAppCache; },
   set trySpawningGlobalAppCache(value) { trySpawningGlobalAppCache = value; },
+
+  get enterpriseBurstAllocations() { return enterpriseBurstAllocations; },
 
   // Helper functions to match original API
   removalInProgressReset() { removalInProgress = false; },

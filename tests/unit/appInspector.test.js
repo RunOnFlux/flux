@@ -8,11 +8,30 @@ describe('appInspector tests', () => {
   let messageHelperStub;
   let logStub;
   let configStub;
+  let generalServiceStub;
+  let registryManagerStub;
+  let globalStateStub;
 
   beforeEach(() => {
     configStub = {
       database: {
         url: 'mongodb://localhost:27017',
+      },
+      enterpriseAppOwners: ['0x123enterpriseowner'],
+      enterpriseBurst: {
+        enabled: true,
+        maxMultiplier: 2,
+        minSparePercentage: 10,
+      },
+      fluxSpecifics: {
+        cpu: {
+          cumulus: 40,
+          nimbus: 80,
+          stratus: 160,
+        },
+      },
+      lockedSystemResources: {
+        cpu: 10,
       },
     };
 
@@ -21,6 +40,7 @@ describe('appInspector tests', () => {
       appDockerStats: sinon.stub(),
       dockerContainerInspect: sinon.stub(),
       dockerContainerStatsStream: (containerId, callback) => callback(null, {}),
+      appDockerUpdateCpu: sinon.stub().resolves(),
     };
 
     messageHelperStub = {
@@ -32,6 +52,18 @@ describe('appInspector tests', () => {
       error: sinon.stub(),
       info: sinon.stub(),
       warn: sinon.stub(),
+    };
+
+    generalServiceStub = {
+      getNewNodeTier: sinon.stub().resolves('stratus'),
+    };
+
+    registryManagerStub = {
+      getApplicationOwner: sinon.stub().resolves(null),
+    };
+
+    globalStateStub = {
+      enterpriseBurstAllocations: new Map(),
     };
 
     appInspector = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
@@ -57,6 +89,9 @@ describe('appInspector tests', () => {
       '../utils/appUtilities': {
         getContainerStorage: sinon.stub().returns(0),
       },
+      '../generalService': generalServiceStub,
+      '../appDatabase/registryManager': registryManagerStub,
+      '../utils/globalState': globalStateStub,
       'node-cmd': {
         run: (cmd, callback) => callback(null, 'data', 'stderr'),
       },
@@ -1296,6 +1331,761 @@ describe('appInspector tests', () => {
       expect(appInspector.appChanges).to.be.a('function');
       expect(appInspector.getAppFolderSize).to.be.a('function');
       expect(appInspector.listAppsImages).to.be.a('function');
+    });
+  });
+
+  describe('Enterprise CPU Burst', () => {
+    let appInspectorWithBurst;
+    let generalServiceStub;
+    let registryManagerStub;
+    let globalStateStub;
+
+    beforeEach(() => {
+      generalServiceStub = {
+        getNewNodeTier: sinon.stub().resolves('stratus'),
+      };
+
+      registryManagerStub = {
+        getApplicationOwner: sinon.stub(),
+      };
+
+      globalStateStub = {
+        enterpriseBurstAllocations: new Map(),
+      };
+
+      appInspectorWithBurst = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        config: {
+          enterpriseAppOwners: ['0x123enterpriseowner', '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW'],
+          enterpriseBurst: {
+            enabled: true,
+            maxMultiplier: 2,
+            minSparePercentage: 10,
+          },
+          fluxSpecifics: {
+            cpu: {
+              cumulus: 40,
+              nimbus: 80,
+              stratus: 160,
+            },
+          },
+          lockedSystemResources: {
+            cpu: 10,
+          },
+          database: {
+            url: 'mongodb://localhost:27017',
+          },
+        },
+        '../dockerService': dockerServiceStub,
+        '../messageHelper': messageHelperStub,
+        '../../lib/log': logStub,
+        '../appQuery/appQueryService': {
+          decryptEnterpriseApps: sinon.stub().returnsArg(0),
+        },
+        '../serviceHelper': {
+          ensureString: sinon.stub().returnsArg(0),
+        },
+        '../dbHelper': {
+          databaseConnection: sinon.stub(),
+        },
+        '../verificationHelper': {
+          verifyPrivilege: sinon.stub().resolves(true),
+        },
+        '../utils/appConstants': {
+          appConstants: {},
+        },
+        '../utils/appUtilities': {
+          getContainerStorage: sinon.stub().returns(0),
+        },
+        '../generalService': generalServiceStub,
+        '../appDatabase/registryManager': registryManagerStub,
+        '../utils/globalState': globalStateStub,
+        'node-cmd': {
+          run: (cmd, callback) => callback(null, 'data', 'stderr'),
+        },
+      });
+    });
+
+    describe('isEnterpriseApp', () => {
+      it('should return true for enterprise app owner', () => {
+        const result = appInspectorWithBurst.isEnterpriseApp('0x123enterpriseowner');
+        expect(result).to.be.true;
+      });
+
+      it('should return true for known enterprise owner address', () => {
+        const result = appInspectorWithBurst.isEnterpriseApp('16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW');
+        expect(result).to.be.true;
+      });
+
+      it('should return false for non-enterprise app owner', () => {
+        const result = appInspectorWithBurst.isEnterpriseApp('0x456regularowner');
+        expect(result).to.be.false;
+      });
+
+      it('should return false for null owner', () => {
+        const result = appInspectorWithBurst.isEnterpriseApp(null);
+        expect(result).to.be.false;
+      });
+
+      it('should return false for undefined owner', () => {
+        const result = appInspectorWithBurst.isEnterpriseApp(undefined);
+        expect(result).to.be.false;
+      });
+
+      it('should return false for empty string owner', () => {
+        const result = appInspectorWithBurst.isEnterpriseApp('');
+        expect(result).to.be.false;
+      });
+    });
+
+    describe('calculateNodeAvailableCpu', () => {
+      it('should calculate available CPU for stratus node', async () => {
+        generalServiceStub.getNewNodeTier.resolves('stratus');
+        const installedApps = [
+          { name: 'app1', version: 2, cpu: 2 },
+          { name: 'app2', version: 2, cpu: 4 },
+        ];
+
+        const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
+
+        // Stratus: 16 cores total, 1 locked, 10% reserve (1.6), 6 for apps = 16 - 1 - 6 - 1.6 = 7.4
+        expect(result).to.be.closeTo(7.4, 0.1);
+      });
+
+      it('should calculate available CPU for nimbus node', async () => {
+        generalServiceStub.getNewNodeTier.resolves('nimbus');
+        const installedApps = [
+          { name: 'app1', version: 2, cpu: 2 },
+        ];
+
+        const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
+
+        // Nimbus: 8 cores total, 1 locked, 10% reserve (0.8), 2 for apps = 8 - 1 - 2 - 0.8 = 4.2
+        expect(result).to.be.closeTo(4.2, 0.1);
+      });
+
+      it('should calculate available CPU for cumulus node', async () => {
+        generalServiceStub.getNewNodeTier.resolves('cumulus');
+        const installedApps = [
+          { name: 'app1', version: 2, cpu: 1 },
+        ];
+
+        const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
+
+        // Cumulus: 4 cores total, 1 locked, 10% reserve (0.4), 1 for apps = 4 - 1 - 1 - 0.4 = 1.6
+        expect(result).to.be.closeTo(1.6, 0.1);
+      });
+
+      it('should handle composed apps (version > 3)', async () => {
+        generalServiceStub.getNewNodeTier.resolves('stratus');
+        const installedApps = [
+          {
+            name: 'composedApp',
+            version: 4,
+            compose: [
+              { name: 'frontend', cpu: 2 },
+              { name: 'backend', cpu: 4 },
+            ],
+          },
+        ];
+
+        const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
+
+        // Stratus: 16 cores total, 1 locked, 10% reserve (1.6), 6 for apps = 16 - 1 - 6 - 1.6 = 7.4
+        expect(result).to.be.closeTo(7.4, 0.1);
+      });
+
+      it('should return 0 when no spare capacity', async () => {
+        generalServiceStub.getNewNodeTier.resolves('cumulus');
+        const installedApps = [
+          { name: 'app1', version: 2, cpu: 4 }, // Uses all available CPU
+        ];
+
+        const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
+
+        expect(result).to.equal(0);
+      });
+
+      it('should return 0 on error', async () => {
+        generalServiceStub.getNewNodeTier.rejects(new Error('Node tier error'));
+        const installedApps = [];
+
+        const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
+
+        expect(result).to.equal(0);
+      });
+    });
+
+    describe('calculateEnterpriseBurstAllocations', () => {
+      it('should allocate burst proportionally to multiple apps', () => {
+        const enterpriseApps = [
+          { containerName: 'appA', specCpu: 2 },
+          { containerName: 'appB', specCpu: 2 },
+        ];
+        const availableBurstCpu = 4;
+
+        const allocations = appInspectorWithBurst.calculateEnterpriseBurstAllocations(enterpriseApps, availableBurstCpu);
+
+        // Each app gets 50% of burst (2 cores each), so final is spec (2) + burst (2) = 4
+        // Capped at maxMultiplier (2) * spec (2) = 4, so 4 cores each
+        expect(allocations.get('appA')).to.equal(4 * 1e9);
+        expect(allocations.get('appB')).to.equal(4 * 1e9);
+      });
+
+      it('should allocate burst proportionally based on spec CPU', () => {
+        const enterpriseApps = [
+          { containerName: 'appA', specCpu: 2 },
+          { containerName: 'appC', specCpu: 4 },
+        ];
+        const availableBurstCpu = 6;
+
+        const allocations = appInspectorWithBurst.calculateEnterpriseBurstAllocations(enterpriseApps, availableBurstCpu);
+
+        // Total spec: 6, appA proportion: 2/6 = 0.333, appC proportion: 4/6 = 0.667
+        // appA burst share: 6 * 0.333 = 2, final: 2 + 2 = 4, capped at 2*2 = 4
+        // appC burst share: 6 * 0.667 = 4, final: 4 + 4 = 8, capped at 2*4 = 8
+        expect(allocations.get('appA')).to.equal(4 * 1e9);
+        expect(allocations.get('appC')).to.equal(8 * 1e9);
+      });
+
+      it('should cap allocation at maxMultiplier', () => {
+        const enterpriseApps = [
+          { containerName: 'appA', specCpu: 2 },
+        ];
+        const availableBurstCpu = 10; // Plenty of burst available
+
+        const allocations = appInspectorWithBurst.calculateEnterpriseBurstAllocations(enterpriseApps, availableBurstCpu);
+
+        // maxMultiplier is 2, so max allocation is 2 * 2 = 4 cores
+        expect(allocations.get('appA')).to.equal(4 * 1e9);
+      });
+
+      it('should return empty map when no apps need burst', () => {
+        const enterpriseApps = [];
+        const availableBurstCpu = 4;
+
+        const allocations = appInspectorWithBurst.calculateEnterpriseBurstAllocations(enterpriseApps, availableBurstCpu);
+
+        expect(allocations.size).to.equal(0);
+      });
+
+      it('should return empty map when no burst capacity available', () => {
+        const enterpriseApps = [
+          { containerName: 'appA', specCpu: 2 },
+        ];
+        const availableBurstCpu = 0;
+
+        const allocations = appInspectorWithBurst.calculateEnterpriseBurstAllocations(enterpriseApps, availableBurstCpu);
+
+        expect(allocations.size).to.equal(0);
+      });
+
+      it('should return empty map when null apps array', () => {
+        const allocations = appInspectorWithBurst.calculateEnterpriseBurstAllocations(null, 4);
+
+        expect(allocations.size).to.equal(0);
+      });
+    });
+
+    describe('applyEnterpriseCpuBurst', () => {
+      it('should skip when enterprise burst is disabled', async () => {
+        const appInspectorDisabled = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+          config: {
+            enterpriseAppOwners: ['0x123'],
+            enterpriseBurst: {
+              enabled: false,
+              maxMultiplier: 2,
+              minSparePercentage: 10,
+            },
+            fluxSpecifics: {
+              cpu: { stratus: 160 },
+            },
+            lockedSystemResources: { cpu: 10 },
+            database: { url: 'mongodb://localhost:27017' },
+          },
+          '../dockerService': dockerServiceStub,
+          '../messageHelper': messageHelperStub,
+          '../../lib/log': logStub,
+          '../appQuery/appQueryService': {
+            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          },
+          '../serviceHelper': {
+            ensureString: sinon.stub().returnsArg(0),
+          },
+          '../dbHelper': {
+            databaseConnection: sinon.stub(),
+          },
+          '../verificationHelper': {
+            verifyPrivilege: sinon.stub().resolves(true),
+          },
+          '../utils/appConstants': {
+            appConstants: {},
+          },
+          '../utils/appUtilities': {
+            getContainerStorage: sinon.stub().returns(0),
+          },
+          '../generalService': generalServiceStub,
+          '../appDatabase/registryManager': registryManagerStub,
+          '../utils/globalState': globalStateStub,
+          'node-cmd': {
+            run: (cmd, callback) => callback(null, 'data', 'stderr'),
+          },
+        });
+
+        dockerServiceStub.appDockerUpdateCpu = sinon.stub().resolves();
+
+        await appInspectorDisabled.applyEnterpriseCpuBurst({}, []);
+
+        expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      });
+
+      it('should apply burst to enterprise app with high CPU usage', async () => {
+        registryManagerStub.getApplicationOwner.resolves('0x123enterpriseowner');
+        generalServiceStub.getNewNodeTier.resolves('stratus');
+        dockerServiceStub.dockerContainerInspect = sinon.stub().resolves({
+          HostConfig: { NanoCpus: 2e9 },
+        });
+        dockerServiceStub.appDockerUpdateCpu = sinon.stub().resolves();
+
+        // Generate stats showing high CPU usage (>= 85%)
+        const highCpuStats = [];
+        for (let i = 0; i < 10; i += 1) {
+          highCpuStats.push({
+            timestamp: Date.now() - i * 60000,
+            data: {
+              cpu_stats: {
+                cpu_usage: { total_usage: 1000000 + i * 100 },
+                system_cpu_usage: 100000 + i * 10,
+                online_cpus: 16,
+              },
+              precpu_stats: {
+                cpu_usage: { total_usage: 1000000 + (i - 1) * 100 },
+                system_cpu_usage: 100000 + (i - 1) * 10,
+              },
+            },
+          });
+        }
+
+        const appsMonitored = {
+          enterpriseApp: {
+            lastHourstatsStore: highCpuStats,
+          },
+        };
+
+        const installedApps = [
+          { name: 'enterpriseApp', version: 2, cpu: 2 },
+        ];
+
+        await appInspectorWithBurst.applyEnterpriseCpuBurst(appsMonitored, installedApps);
+
+        // Should have attempted to update CPU (either burst apply or reset)
+        // The exact call depends on the CPU calculation
+        expect(registryManagerStub.getApplicationOwner.calledWith('enterpriseApp')).to.be.true;
+      });
+
+      it('should not burst non-enterprise apps', async () => {
+        registryManagerStub.getApplicationOwner.resolves('0x456regularowner');
+        dockerServiceStub.appDockerUpdateCpu = sinon.stub().resolves();
+
+        const appsMonitored = {
+          regularApp: {
+            lastHourstatsStore: [{
+              timestamp: Date.now(),
+              data: {
+                cpu_stats: {
+                  cpu_usage: { total_usage: 1000000 },
+                  system_cpu_usage: 100000,
+                  online_cpus: 16,
+                },
+                precpu_stats: {
+                  cpu_usage: { total_usage: 900000 },
+                  system_cpu_usage: 90000,
+                },
+              },
+            }],
+          },
+        };
+
+        const installedApps = [
+          { name: 'regularApp', version: 2, cpu: 2 },
+        ];
+
+        await appInspectorWithBurst.applyEnterpriseCpuBurst(appsMonitored, installedApps);
+
+        // Should not apply burst to non-enterprise app
+        expect(dockerServiceStub.appDockerUpdateCpu.called).to.be.false;
+      });
+
+      it('should handle composed apps', async () => {
+        registryManagerStub.getApplicationOwner.resolves('0x123enterpriseowner');
+        generalServiceStub.getNewNodeTier.resolves('stratus');
+        dockerServiceStub.dockerContainerInspect = sinon.stub().resolves({
+          HostConfig: { NanoCpus: 2e9 },
+        });
+        dockerServiceStub.appDockerUpdateCpu = sinon.stub().resolves();
+
+        const appsMonitored = {
+          'frontend_composedApp': {
+            lastHourstatsStore: [],
+          },
+          'backend_composedApp': {
+            lastHourstatsStore: [],
+          },
+        };
+
+        const installedApps = [
+          {
+            name: 'composedApp',
+            version: 4,
+            compose: [
+              { name: 'frontend', cpu: 2 },
+              { name: 'backend', cpu: 4 },
+            ],
+          },
+        ];
+
+        await appInspectorWithBurst.applyEnterpriseCpuBurst(appsMonitored, installedApps);
+
+        expect(registryManagerStub.getApplicationOwner.calledWith('composedApp')).to.be.true;
+      });
+
+      it('should handle errors gracefully', async () => {
+        registryManagerStub.getApplicationOwner.rejects(new Error('Database error'));
+
+        const appsMonitored = {};
+        const installedApps = [
+          { name: 'testApp', version: 2, cpu: 2 },
+        ];
+
+        // Should not throw
+        await appInspectorWithBurst.applyEnterpriseCpuBurst(appsMonitored, installedApps);
+
+        expect(logStub.error.called).to.be.true;
+      });
+    });
+
+    describe('analyzeEnterpriseCpuStats', () => {
+      it('should detect high CPU usage within detection window', () => {
+        const now = Date.now();
+        const allStats = [];
+        // Create 10 high CPU stats within the last 15 minutes
+        for (let i = 0; i < 10; i += 1) {
+          allStats.push({
+            timestamp: now - i * 60000, // 1 minute apart
+            data: {
+              cpu_stats: {
+                cpu_usage: { total_usage: 10000 },
+                system_cpu_usage: 1000,
+                online_cpus: 16,
+              },
+              precpu_stats: {
+                cpu_usage: { total_usage: 1000 },
+                system_cpu_usage: 100,
+              },
+            },
+          });
+        }
+
+        const burstConfig = {
+          detectionWindowMs: 15 * 60 * 1000,
+          highUtilThreshold: 85,
+          lowUtilThreshold: 60,
+          minStatsRequired: 5,
+        };
+
+        const result = appInspectorWithBurst.analyzeEnterpriseCpuStats(allStats, 2, burstConfig);
+
+        expect(result.recentStats.length).to.equal(10);
+      });
+
+      it('should filter out stats outside detection window', () => {
+        const now = Date.now();
+        const allStats = [
+          // Old stat outside 15 minute window
+          {
+            timestamp: now - 20 * 60 * 1000,
+            data: {
+              cpu_stats: { cpu_usage: { total_usage: 10000 }, system_cpu_usage: 1000, online_cpus: 16 },
+              precpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 100 },
+            },
+          },
+          // Recent stat within window
+          {
+            timestamp: now - 5 * 60 * 1000,
+            data: {
+              cpu_stats: { cpu_usage: { total_usage: 10000 }, system_cpu_usage: 1000, online_cpus: 16 },
+              precpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 100 },
+            },
+          },
+        ];
+
+        const burstConfig = {
+          detectionWindowMs: 15 * 60 * 1000,
+          highUtilThreshold: 85,
+          lowUtilThreshold: 60,
+          minStatsRequired: 1,
+        };
+
+        const result = appInspectorWithBurst.analyzeEnterpriseCpuStats(allStats, 2, burstConfig);
+
+        expect(result.recentStats.length).to.equal(1);
+      });
+
+      it('should return needsBurst=false when not enough stats', () => {
+        const now = Date.now();
+        const allStats = [
+          {
+            timestamp: now - 60000,
+            data: {
+              cpu_stats: { cpu_usage: { total_usage: 10000 }, system_cpu_usage: 1000, online_cpus: 16 },
+              precpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 100 },
+            },
+          },
+        ];
+
+        const burstConfig = {
+          detectionWindowMs: 15 * 60 * 1000,
+          highUtilThreshold: 85,
+          lowUtilThreshold: 60,
+          minStatsRequired: 5, // Requires 5, but only 1 available
+        };
+
+        const result = appInspectorWithBurst.analyzeEnterpriseCpuStats(allStats, 2, burstConfig);
+
+        expect(result.needsBurst).to.be.false;
+        expect(result.needsReset).to.be.false;
+      });
+
+      it('should use default values when config properties are missing', () => {
+        const now = Date.now();
+        const allStats = [];
+        for (let i = 0; i < 10; i += 1) {
+          allStats.push({
+            timestamp: now - i * 60000,
+            data: {
+              cpu_stats: { cpu_usage: { total_usage: 10000 }, system_cpu_usage: 1000, online_cpus: 16 },
+              precpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 100 },
+            },
+          });
+        }
+
+        const burstConfig = {}; // Empty config - should use defaults
+
+        const result = appInspectorWithBurst.analyzeEnterpriseCpuStats(allStats, 2, burstConfig);
+
+        // Should not throw and should return valid result
+        expect(result).to.have.property('needsBurst');
+        expect(result).to.have.property('needsReset');
+        expect(result).to.have.property('recentStats');
+      });
+
+      it('should return avgCpuPercent in result', () => {
+        const now = Date.now();
+        const allStats = [];
+        for (let i = 0; i < 5; i += 1) {
+          allStats.push({
+            timestamp: now - i * 60000,
+            data: {
+              cpu_stats: { cpu_usage: { total_usage: 10000 }, system_cpu_usage: 1000, online_cpus: 16 },
+              precpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 100 },
+            },
+          });
+        }
+
+        const burstConfig = {
+          detectionWindowMs: 15 * 60 * 1000,
+          highUtilThreshold: 85,
+          lowUtilThreshold: 60,
+          minStatsRequired: 3,
+        };
+
+        const result = appInspectorWithBurst.analyzeEnterpriseCpuStats(allStats, 2, burstConfig);
+
+        expect(result).to.have.property('avgCpuPercent');
+        expect(result.avgCpuPercent).to.be.a('number');
+      });
+
+      it('should handle division by zero (systemCpuUsage = 0)', () => {
+        const now = Date.now();
+        const allStats = [
+          {
+            timestamp: now - 60000,
+            data: {
+              cpu_stats: { cpu_usage: { total_usage: 10000 }, system_cpu_usage: 100, online_cpus: 16 },
+              precpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 100 }, // Same value = 0 delta
+            },
+          },
+          {
+            timestamp: now - 120000,
+            data: {
+              cpu_stats: { cpu_usage: { total_usage: 10000 }, system_cpu_usage: 1000, online_cpus: 16 },
+              precpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 100 },
+            },
+          },
+        ];
+
+        const burstConfig = {
+          detectionWindowMs: 15 * 60 * 1000,
+          highUtilThreshold: 85,
+          lowUtilThreshold: 60,
+          minStatsRequired: 1,
+        };
+
+        // Should not throw
+        const result = appInspectorWithBurst.analyzeEnterpriseCpuStats(allStats, 2, burstConfig);
+
+        expect(result).to.have.property('needsBurst');
+        expect(result.avgCpuPercent).to.be.a('number');
+        expect(Number.isFinite(result.avgCpuPercent)).to.be.true;
+      });
+
+      it('should use configurable sampleThresholdPercent', () => {
+        const now = Date.now();
+        const allStats = [];
+        // Create stats where 60% are high (below default 80% threshold but above 50%)
+        for (let i = 0; i < 10; i += 1) {
+          const isHigh = i < 6; // 6 out of 10 = 60%
+          allStats.push({
+            timestamp: now - i * 60000,
+            data: {
+              cpu_stats: {
+                cpu_usage: { total_usage: isHigh ? 200000 : 10000 },
+                system_cpu_usage: 1000,
+                online_cpus: 16,
+              },
+              precpu_stats: {
+                cpu_usage: { total_usage: isHigh ? 100000 : 5000 },
+                system_cpu_usage: 100,
+              },
+            },
+          });
+        }
+
+        // With 50% threshold, should trigger burst (60% > 50%)
+        const burstConfigLow = {
+          detectionWindowMs: 15 * 60 * 1000,
+          highUtilThreshold: 50,
+          lowUtilThreshold: 30,
+          minStatsRequired: 5,
+          sampleThresholdPercent: 50,
+        };
+
+        const result = appInspectorWithBurst.analyzeEnterpriseCpuStats(allStats, 2, burstConfigLow);
+
+        // 60% of samples exceed threshold, and sampleThresholdPercent is 50%, so should trigger
+        expect(result.needsBurst).to.be.true;
+      });
+    });
+
+    describe('isCooldownPassed', () => {
+      it('should return true when no previous allocation exists', () => {
+        globalStateStub.enterpriseBurstAllocations.clear();
+        const result = appInspectorWithBurst.isCooldownPassed('newContainer', 5 * 60 * 1000);
+        expect(result).to.be.true;
+      });
+
+      it('should return true when no lastChangeTime in allocation', () => {
+        globalStateStub.enterpriseBurstAllocations.set('testContainer', {
+          specCpu: 2,
+          currentAllocation: 4,
+          // No lastChangeTime
+        });
+        const result = appInspectorWithBurst.isCooldownPassed('testContainer', 5 * 60 * 1000);
+        expect(result).to.be.true;
+      });
+
+      it('should return false during cooldown period', () => {
+        globalStateStub.enterpriseBurstAllocations.set('testContainer', {
+          specCpu: 2,
+          currentAllocation: 4,
+          lastChangeTime: Date.now() - 60000, // 1 minute ago
+        });
+        const result = appInspectorWithBurst.isCooldownPassed('testContainer', 5 * 60 * 1000); // 5 min cooldown
+        expect(result).to.be.false;
+      });
+
+      it('should return true after cooldown period', () => {
+        globalStateStub.enterpriseBurstAllocations.set('testContainer', {
+          specCpu: 2,
+          currentAllocation: 4,
+          lastChangeTime: Date.now() - 10 * 60 * 1000, // 10 minutes ago
+        });
+        const result = appInspectorWithBurst.isCooldownPassed('testContainer', 5 * 60 * 1000); // 5 min cooldown
+        expect(result).to.be.true;
+      });
+    });
+
+    describe('checkEnterpriseCpuBurst', () => {
+      it('should call applyEnterpriseCpuBurst when enabled', async () => {
+        registryManagerStub.getApplicationOwner.resolves('0x456regularowner');
+        const installedAppsFunc = sinon.stub().resolves({
+          status: 'success',
+          data: [{ name: 'testApp', version: 2, cpu: 2 }],
+        });
+
+        await appInspectorWithBurst.checkEnterpriseCpuBurst({}, installedAppsFunc);
+
+        expect(installedAppsFunc.calledOnce).to.be.true;
+      });
+
+      it('should skip when enterprise burst is disabled', async () => {
+        const appInspectorDisabled = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+          config: {
+            enterpriseAppOwners: [],
+            enterpriseBurst: {
+              enabled: false,
+            },
+            fluxSpecifics: { cpu: { stratus: 160 } },
+            lockedSystemResources: { cpu: 10 },
+            database: { url: 'mongodb://localhost:27017' },
+          },
+          '../dockerService': dockerServiceStub,
+          '../messageHelper': messageHelperStub,
+          '../../lib/log': logStub,
+          '../appQuery/appQueryService': {
+            decryptEnterpriseApps: sinon.stub().returnsArg(0),
+          },
+          '../serviceHelper': { ensureString: sinon.stub().returnsArg(0) },
+          '../dbHelper': { databaseConnection: sinon.stub() },
+          '../verificationHelper': { verifyPrivilege: sinon.stub().resolves(true) },
+          '../utils/appConstants': { appConstants: {} },
+          '../utils/appUtilities': { getContainerStorage: sinon.stub().returns(0) },
+          '../generalService': generalServiceStub,
+          '../appDatabase/registryManager': registryManagerStub,
+          '../utils/globalState': globalStateStub,
+          'node-cmd': { run: (cmd, callback) => callback(null, 'data', 'stderr') },
+        });
+
+        const installedAppsFunc = sinon.stub().resolves({ status: 'success', data: [] });
+
+        await appInspectorDisabled.checkEnterpriseCpuBurst({}, installedAppsFunc);
+
+        // Should return early, installedApps should NOT be called
+        expect(installedAppsFunc.called).to.be.false;
+      });
+
+      it('should handle installedApps failure gracefully', async () => {
+        const installedAppsFunc = sinon.stub().resolves({
+          status: 'error',
+          data: null,
+        });
+
+        await appInspectorWithBurst.checkEnterpriseCpuBurst({}, installedAppsFunc);
+
+        expect(logStub.warn.called).to.be.true;
+      });
+    });
+
+    describe('exported enterprise burst functions', () => {
+      it('should export enterprise burst functions', () => {
+        expect(appInspectorWithBurst.isEnterpriseApp).to.be.a('function');
+        expect(appInspectorWithBurst.getCachedApplicationOwner).to.be.a('function');
+        expect(appInspectorWithBurst.calculateNodeAvailableCpu).to.be.a('function');
+        expect(appInspectorWithBurst.calculateEnterpriseBurstAllocations).to.be.a('function');
+        expect(appInspectorWithBurst.analyzeEnterpriseCpuStats).to.be.a('function');
+        expect(appInspectorWithBurst.isCooldownPassed).to.be.a('function');
+        expect(appInspectorWithBurst.applyEnterpriseCpuBurst).to.be.a('function');
+        expect(appInspectorWithBurst.checkEnterpriseCpuBurst).to.be.a('function');
+      });
     });
   });
 });

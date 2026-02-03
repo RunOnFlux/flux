@@ -1,4 +1,5 @@
 const path = require('path');
+const config = require('config');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
@@ -8,6 +9,9 @@ const log = require('../../lib/log');
 // eslint-disable-next-line no-unused-vars
 const { appConstants } = require('../utils/appConstants');
 const { getContainerStorage } = require('../utils/appUtilities');
+const generalService = require('../generalService');
+const registryManager = require('../appDatabase/registryManager');
+const globalState = require('../utils/globalState');
 
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -21,6 +25,11 @@ const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'Z
 
 const dosState = 0;
 const dosMessage = null;
+
+// Cache for enterprise app owner lookups (TTL: 5 minutes)
+// Reduces DB calls since owner rarely changes
+const enterpriseOwnerCache = new Map();
+const ENTERPRISE_OWNER_CACHE_TTL = 5 * 60 * 1000;
 
 const cmdAsync = util.promisify(nodecmd.run);
 const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
@@ -677,6 +686,372 @@ function getAppsDOSState(req, res) {
 }
 
 /**
+ * Check if an app owner is an enterprise owner
+ * @param {string} appOwner - The app owner address
+ * @returns {boolean} True if owner is in enterpriseAppOwners list
+ */
+function isEnterpriseApp(appOwner) {
+  if (!appOwner) return false;
+  return config.enterpriseAppOwners.includes(appOwner);
+}
+
+/**
+ * Get application owner with caching to reduce DB calls
+ * Cache TTL is 5 minutes - owner rarely changes
+ * @param {string} appName - Application name
+ * @returns {Promise<string|null>} Owner address or null
+ */
+async function getCachedApplicationOwner(appName) {
+  const cached = enterpriseOwnerCache.get(appName);
+  const now = Date.now();
+
+  if (cached && (now - cached.timestamp) < ENTERPRISE_OWNER_CACHE_TTL) {
+    return cached.owner;
+  }
+
+  const owner = await registryManager.getApplicationOwner(appName);
+  enterpriseOwnerCache.set(appName, { owner, timestamp: now });
+  return owner;
+}
+
+/**
+ * Calculate available CPU for enterprise burst on this node
+ * @param {Array} installedApps - List of installed apps with their specs
+ * @returns {Promise<number>} Available burst CPU in cores
+ */
+async function calculateNodeAvailableCpu(installedApps) {
+  try {
+    const tier = await generalService.getNewNodeTier();
+    // CPU is stored in tenths (e.g., 40 = 4 cores)
+    const nodeTotalCpu = config.fluxSpecifics.cpu[tier] / 10;
+    const lockedCpu = config.lockedSystemResources.cpu / 10;
+    const reservePercentage = config.enterpriseBurst.minSparePercentage / 100;
+    const reserveCpu = nodeTotalCpu * reservePercentage;
+
+    // Sum all app spec CPUs (baseline allocations)
+    let sumAppSpecCpus = 0;
+    for (const app of installedApps) {
+      if (app.version <= 3) {
+        sumAppSpecCpus += app.cpu;
+      } else {
+        for (const component of app.compose) {
+          sumAppSpecCpus += component.cpu;
+        }
+      }
+    }
+
+    const availableBurst = nodeTotalCpu - lockedCpu - sumAppSpecCpus - reserveCpu;
+    return Math.max(0, availableBurst);
+  } catch (error) {
+    log.error(`calculateNodeAvailableCpu error: ${error}`);
+    return 0;
+  }
+}
+
+/**
+ * Calculate burst allocations for enterprise apps proportionally
+ * @param {Array} enterpriseAppsNeedingBurst - Array of {containerName, specCpu} for apps needing burst
+ * @param {number} availableBurstCpu - Available CPU for bursting in cores
+ * @returns {Map<string, number>} Map of containerName -> finalNanoCpus
+ */
+function calculateEnterpriseBurstAllocations(enterpriseAppsNeedingBurst, availableBurstCpu) {
+  const allocations = new Map();
+
+  if (!enterpriseAppsNeedingBurst || enterpriseAppsNeedingBurst.length === 0 || availableBurstCpu <= 0) {
+    return allocations;
+  }
+
+  // Calculate total spec CPU of all enterprise apps requesting burst
+  const totalEnterpriseSpecCpu = enterpriseAppsNeedingBurst.reduce((sum, app) => sum + app.specCpu, 0);
+
+  for (const app of enterpriseAppsNeedingBurst) {
+    // Proportional share of available burst CPU
+    const proportion = app.specCpu / totalEnterpriseSpecCpu;
+    const burstShare = availableBurstCpu * proportion;
+
+    // Calculate final CPU (spec + burst share), capped at maxMultiplier * spec
+    const maxAllowedCpu = app.specCpu * config.enterpriseBurst.maxMultiplier;
+    const finalCpu = Math.min(app.specCpu + burstShare, maxAllowedCpu);
+
+    // Convert to nanoCPUs (1 core = 1e9 nanoCPUs)
+    const finalNanoCpus = Math.round(finalCpu * 1e9);
+    allocations.set(app.containerName, finalNanoCpus);
+  }
+
+  return allocations;
+}
+
+/**
+ * Analyze CPU stats for an enterprise container within the detection window
+ * IMPORTANT: CPU percentage is calculated against SPEC CPU, not current limit
+ * This prevents oscillation when app is already bursted
+ * @param {Array} allStats - All stats from lastHourstatsStore
+ * @param {number} specCpu - The app's specified CPU in cores (NOT current allocation)
+ * @param {object} burstConfig - Enterprise burst configuration
+ * @returns {object} { needsBurst: boolean, needsReset: boolean, recentStats: Array, avgCpuPercent: number }
+ */
+function analyzeEnterpriseCpuStats(allStats, specCpu, burstConfig) {
+  const now = Date.now();
+  const detectionWindow = burstConfig.detectionWindowMs || 15 * 60 * 1000;
+  const highThreshold = burstConfig.highUtilThreshold || 85;
+  const lowThreshold = burstConfig.lowUtilThreshold || 60;
+  const minStats = burstConfig.minStatsRequired || 5;
+  const sampleThreshold = (burstConfig.sampleThresholdPercent || 80) / 100;
+
+  // Filter to only recent stats within the detection window
+  const recentStats = allStats.filter((stat) => (now - stat.timestamp) <= detectionWindow);
+
+  if (recentStats.length < minStats) {
+    return { needsBurst: false, needsReset: false, recentStats, avgCpuPercent: 0 };
+  }
+
+  let highUtilCount = 0;
+  let lowUtilCount = 0;
+  let totalCpuPercent = 0;
+  let validSamples = 0;
+
+  for (const stat of recentStats) {
+    const cpuUsage = stat.data.cpu_stats.cpu_usage.total_usage - stat.data.precpu_stats.cpu_usage.total_usage;
+    const systemCpuUsage = stat.data.cpu_stats.system_cpu_usage - stat.data.precpu_stats.system_cpu_usage;
+
+    // Guard against division by zero
+    if (systemCpuUsage <= 0) {
+      continue;
+    }
+
+    // Calculate CPU percentage against SPEC, not current allocation
+    // This ensures consistent thresholds regardless of current burst state
+    const cpuCores = (cpuUsage / systemCpuUsage) * stat.data.cpu_stats.online_cpus;
+    const cpuPercent = (cpuCores / specCpu) * 100;
+
+    // Guard against invalid values
+    if (!Number.isFinite(cpuPercent) || cpuPercent < 0) {
+      continue;
+    }
+
+    validSamples += 1;
+    totalCpuPercent += cpuPercent;
+
+    if (cpuPercent >= highThreshold) {
+      highUtilCount += 1;
+    }
+    if (cpuPercent < lowThreshold) {
+      lowUtilCount += 1;
+    }
+  }
+
+  // Need minimum valid samples
+  if (validSamples < minStats) {
+    return { needsBurst: false, needsReset: false, recentStats, avgCpuPercent: 0 };
+  }
+
+  const avgCpuPercent = totalCpuPercent / validSamples;
+
+  // Need burst if CPU was high on configured percentage of recent checks
+  const needsBurst = highUtilCount >= validSamples * sampleThreshold;
+  // Need reset if CPU was low on configured percentage of recent checks
+  const needsReset = lowUtilCount >= validSamples * sampleThreshold;
+
+  return { needsBurst, needsReset, recentStats, avgCpuPercent };
+}
+
+/**
+ * Check if cooldown period has passed since last burst change
+ * @param {string} containerName - Container name
+ * @param {number} cooldownMs - Cooldown period in milliseconds
+ * @returns {boolean} True if cooldown has passed or no previous change
+ */
+function isCooldownPassed(containerName, cooldownMs) {
+  const allocation = globalState.enterpriseBurstAllocations.get(containerName);
+  if (!allocation || !allocation.lastChangeTime) {
+    return true;
+  }
+  return (Date.now() - allocation.lastChangeTime) >= cooldownMs;
+}
+
+/**
+ * Apply enterprise CPU burst to eligible apps
+ * Uses configurable detection window for faster response (default 5 minutes)
+ * Includes cooldown to prevent oscillation (similar to Kubernetes stabilization window)
+ * @param {object} appsMonitored - Applications monitoring data
+ * @param {Array} installedApps - List of installed apps
+ * @returns {Promise<void>}
+ */
+async function applyEnterpriseCpuBurst(appsMonitored, installedApps) {
+  try {
+    // Check if enterprise burst is enabled
+    if (!config.enterpriseBurst || !config.enterpriseBurst.enabled) {
+      return;
+    }
+
+    const burstConfig = config.enterpriseBurst;
+    const cooldownMs = burstConfig.cooldownMs || 5 * 60 * 1000;
+    const enterpriseAppsNeedingBurst = [];
+    const enterpriseAppsNotNeedingBurst = [];
+
+    // Track which containers are still installed (for cleanup)
+    const installedContainerNames = new Set();
+
+    // Process each installed app
+    for (const app of installedApps) {
+      // Get owner from global app database
+      // eslint-disable-next-line no-await-in-loop
+      const appOwner = await getCachedApplicationOwner(app.name);
+
+      if (!isEnterpriseApp(appOwner)) {
+        continue; // Skip non-enterprise apps
+      }
+
+      if (app.version <= 3) {
+        // Simple app (non-composed)
+        const containerName = app.name;
+        installedContainerNames.add(containerName);
+        const allStats = appsMonitored[containerName]?.lastHourstatsStore || [];
+        const specCpu = app.cpu;
+
+        // eslint-disable-next-line no-await-in-loop
+        const inspect = await dockerService.dockerContainerInspect(containerName);
+        if (inspect) {
+          const currentNanoCpus = inspect.HostConfig.NanoCpus;
+
+          // Pass specCpu to analyze (NOT currentCpuLimit) - prevents oscillation
+          const { needsBurst, needsReset, avgCpuPercent } = analyzeEnterpriseCpuStats(allStats, specCpu, burstConfig);
+
+          // Check cooldown before making changes
+          const cooldownPassed = isCooldownPassed(containerName, cooldownMs);
+
+          if (needsBurst && cooldownPassed) {
+            enterpriseAppsNeedingBurst.push({ containerName, specCpu });
+            log.info(`Enterprise burst: ${containerName} high CPU (${avgCpuPercent.toFixed(1)}% of spec), requesting burst`);
+          } else if (needsReset && currentNanoCpus > specCpu * 1e9 && cooldownPassed) {
+            enterpriseAppsNotNeedingBurst.push({ containerName, specCpu });
+            log.info(`Enterprise burst: ${containerName} low CPU (${avgCpuPercent.toFixed(1)}% of spec), will reset`);
+          } else if (!cooldownPassed && (needsBurst || needsReset)) {
+            log.debug(`Enterprise burst: ${containerName} change skipped - cooldown active`);
+          }
+        }
+      } else {
+        // Composed app
+        for (const component of app.compose) {
+          const containerName = `${component.name}_${app.name}`;
+          installedContainerNames.add(containerName);
+          const allStats = appsMonitored[containerName]?.lastHourstatsStore || [];
+          const specCpu = component.cpu;
+
+          // eslint-disable-next-line no-await-in-loop
+          const inspect = await dockerService.dockerContainerInspect(containerName);
+          if (inspect) {
+            const currentNanoCpus = inspect.HostConfig.NanoCpus;
+
+            // Pass specCpu to analyze (NOT currentCpuLimit) - prevents oscillation
+            const { needsBurst, needsReset, avgCpuPercent } = analyzeEnterpriseCpuStats(allStats, specCpu, burstConfig);
+
+            // Check cooldown before making changes
+            const cooldownPassed = isCooldownPassed(containerName, cooldownMs);
+
+            if (needsBurst && cooldownPassed) {
+              enterpriseAppsNeedingBurst.push({ containerName, specCpu });
+              log.info(`Enterprise burst: ${containerName} high CPU (${avgCpuPercent.toFixed(1)}% of spec), requesting burst`);
+            } else if (needsReset && currentNanoCpus > specCpu * 1e9 && cooldownPassed) {
+              enterpriseAppsNotNeedingBurst.push({ containerName, specCpu });
+              log.info(`Enterprise burst: ${containerName} low CPU (${avgCpuPercent.toFixed(1)}% of spec), will reset`);
+            } else if (!cooldownPassed && (needsBurst || needsReset)) {
+              log.debug(`Enterprise burst: ${containerName} change skipped - cooldown active`);
+            }
+          }
+        }
+      }
+    }
+
+    // Cleanup stale entries from enterpriseBurstAllocations (apps that were uninstalled)
+    for (const containerName of globalState.enterpriseBurstAllocations.keys()) {
+      if (!installedContainerNames.has(containerName)) {
+        globalState.enterpriseBurstAllocations.delete(containerName);
+        log.info(`Enterprise burst: Cleaned up stale allocation for uninstalled container ${containerName}`);
+      }
+    }
+
+    // Calculate available burst CPU and allocations
+    const availableBurstCpu = await calculateNodeAvailableCpu(installedApps);
+    const allocations = calculateEnterpriseBurstAllocations(enterpriseAppsNeedingBurst, availableBurstCpu);
+
+    // Apply burst allocations
+    for (const [containerName, nanoCpus] of allocations) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await dockerService.appDockerUpdateCpu(containerName, nanoCpus);
+        const app = enterpriseAppsNeedingBurst.find((a) => a.containerName === containerName);
+        log.info(`Enterprise CPU burst: ${containerName} allocated ${nanoCpus / 1e9} CPUs (spec: ${app.specCpu})`);
+
+        // Store allocation in global state with timestamp for cooldown
+        globalState.enterpriseBurstAllocations.set(containerName, {
+          specCpu: app.specCpu,
+          currentAllocation: nanoCpus / 1e9,
+          lastChangeTime: Date.now(),
+          state: 'bursted',
+        });
+      } catch (error) {
+        log.error(`Failed to apply enterprise burst to ${containerName}: ${error}`);
+      }
+    }
+
+    // Reset apps that no longer need burst back to spec
+    for (const app of enterpriseAppsNotNeedingBurst) {
+      try {
+        const specNanoCpus = Math.round(app.specCpu * 1e9);
+        // eslint-disable-next-line no-await-in-loop
+        await dockerService.appDockerUpdateCpu(app.containerName, specNanoCpus);
+        log.info(`Enterprise CPU burst reset: ${app.containerName} back to spec ${app.specCpu} CPUs`);
+
+        // Update allocation state with timestamp for cooldown
+        globalState.enterpriseBurstAllocations.set(app.containerName, {
+          specCpu: app.specCpu,
+          currentAllocation: app.specCpu,
+          lastChangeTime: Date.now(),
+          state: 'normal',
+        });
+      } catch (error) {
+        log.error(`Failed to reset enterprise burst for ${app.containerName}: ${error}`);
+      }
+    }
+  } catch (error) {
+    log.error(`applyEnterpriseCpuBurst error: ${error}`);
+  }
+}
+
+/**
+ * Fast-loop check for enterprise CPU burst - runs independently every 2 minutes (configurable)
+ * This provides Kubernetes-like response times (~5 minutes) for enterprise apps
+ * @param {object} appsMonitored - Applications monitoring data
+ * @param {Function} installedApps - Async function to get installed apps
+ * @returns {Promise<void>}
+ */
+async function checkEnterpriseCpuBurst(appsMonitored, installedApps) {
+  try {
+    // Check if enterprise burst is enabled
+    if (!config.enterpriseBurst || !config.enterpriseBurst.enabled) {
+      return;
+    }
+
+    // Get list of locally installed apps
+    const installedAppsRes = await installedApps();
+    if (installedAppsRes.status !== 'success') {
+      log.warn('checkEnterpriseCpuBurst: Failed to get installed apps');
+      return;
+    }
+
+    // Decrypt enterprise apps (version 8 with encrypted content)
+    installedAppsRes.data = await decryptEnterpriseApps(installedAppsRes.data);
+    const appsInstalled = installedAppsRes.data;
+
+    // Apply enterprise CPU burst
+    await applyEnterpriseCpuBurst(appsMonitored, appsInstalled);
+  } catch (error) {
+    log.error(`checkEnterpriseCpuBurst error: ${error}`);
+  }
+}
+
+/**
  * Check if applications are throttling CPU and adjust CPU limits
  * @param {object} appsMonitored - Applications monitoring data
  * @param {Function} installedApps - Async function to get installed apps
@@ -692,9 +1067,27 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
     // Decrypt enterprise apps (version 8 with encrypted content)
     installedAppsRes.data = await decryptEnterpriseApps(installedAppsRes.data);
     const appsInstalled = installedAppsRes.data;
+
+    // Build a map of enterprise app names for quick lookup
+    const enterpriseAppNames = new Set();
+    // eslint-disable-next-line no-restricted-syntax
+    for (const app of appsInstalled) {
+      // eslint-disable-next-line no-await-in-loop
+      const appOwner = await getCachedApplicationOwner(app.name);
+      if (isEnterpriseApp(appOwner)) {
+        enterpriseAppNames.add(app.name);
+      }
+    }
+
     let stats;
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
+      // Skip throttling for enterprise apps - they use burst instead
+      if (enterpriseAppNames.has(app.name)) {
+        log.info(`checkApplicationsCpuUSage: Skipping throttling for enterprise app ${app.name}`);
+        continue;
+      }
+
       if (app.version <= 3) {
         stats = appsMonitored[app.name]?.lastHourstatsStore;
         // eslint-disable-next-line no-await-in-loop
@@ -812,6 +1205,8 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
         }
       }
     }
+    // Note: Enterprise CPU burst is now handled by the dedicated fast-loop (checkEnterpriseCpuBurst)
+    // which runs every 2 minutes for Kubernetes-like response times
   } catch (error) {
     log.error(error);
   }
@@ -994,6 +1389,15 @@ module.exports = {
   listAppsImages,
   getAppsDOSState,
   checkApplicationsCpuUSage,
+  checkEnterpriseCpuBurst,
   monitorSharedDBApps,
   checkStorageSpaceForApps,
+  // Enterprise CPU burst exports (for testing)
+  isEnterpriseApp,
+  getCachedApplicationOwner,
+  calculateNodeAvailableCpu,
+  calculateEnterpriseBurstAllocations,
+  analyzeEnterpriseCpuStats,
+  isCooldownPassed,
+  applyEnterpriseCpuBurst,
 };

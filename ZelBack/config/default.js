@@ -311,4 +311,16 @@ module.exports = {
     // Default: 15 minutes (15 * 60 * 1000 = 900000ms)
     tokenRefreshBufferMs: 15 * 60 * 1000,
   },
+  enterpriseBurst: {
+    enabled: true,
+    maxMultiplier: 2, // Max burst = 2x specified CPU
+    minSparePercentage: 10, // Keep 10% of node CPU as reserve
+    checkIntervalMs: 2 * 60 * 1000, // 2 minutes - how often to check enterprise apps (Kubernetes-like)
+    detectionWindowMs: 5 * 60 * 1000, // 5 minutes - how far back to look for high CPU usage
+    highUtilThreshold: 80, // Percentage of SPEC CPU to trigger burst (not current limit)
+    lowUtilThreshold: 40, // Percentage of SPEC CPU to reset burst (lowered to prevent oscillation)
+    minStatsRequired: 3, // Minimum number of stat samples required for decision (3 mins of data)
+    sampleThresholdPercent: 80, // Percentage of samples that must exceed threshold
+    cooldownMs: 5 * 60 * 1000, // 5 minutes - minimum time between burst changes (prevents oscillation)
+  },
 };

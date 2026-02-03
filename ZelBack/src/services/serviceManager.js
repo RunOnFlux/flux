@@ -395,6 +395,15 @@ async function startFluxFunctions() {
         appInspector.checkApplicationsCpuUSage(globalState.appsMonitored, appQueryService.installedApps);
       }, 15 * 60 * 1000);
     }, 15 * 60 * 1000);
+    // Enterprise CPU burst fast-loop - Kubernetes-like response time (~5 minutes)
+    // Runs every 2 minutes (configurable) with 5-minute detection window
+    const enterpriseBurstInterval = config.enterpriseBurst?.checkIntervalMs || 2 * 60 * 1000;
+    setTimeout(() => {
+      appInspector.checkEnterpriseCpuBurst(globalState.appsMonitored, appQueryService.installedApps);
+      setInterval(() => {
+        appInspector.checkEnterpriseCpuBurst(globalState.appsMonitored, appQueryService.installedApps);
+      }, enterpriseBurstInterval);
+    }, 3 * 60 * 1000); // Start after 3 minutes (give monitoring time to collect initial data)
     // Bandwidth monitoring - check every 5 minutes after initial 10 minute delay
     setTimeout(() => {
       bandwidthMonitor.checkApplicationsBandwidthUsage(globalState.appsMonitored, appQueryService.installedApps);
