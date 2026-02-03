@@ -19,6 +19,7 @@ const { availableApps } = require('../appDatabase/registryManager');
 const { checkAndDecryptAppSpecs } = require('../utils/enterpriseHelper');
 const { specificationFormatter } = require('../utils/appSpecHelpers');
 const { stopAppMonitoring } = require('../appManagement/appInspector');
+const { cleanupAppBandwidth } = require('../appMonitoring/monitoringOrchestrator');
 const imageManager = require('../appSecurity/imageManager');
 
 const fluxDirPath = process.env.FLUXOS_PATH || path.join(process.env.HOME, 'zelflux');
@@ -965,6 +966,17 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
           if (res.flush) res.flush();
         }
       }
+      // Clean up bandwidth throttling
+      const bandwidthCleanupStatus = {
+        status: 'Cleaning up bandwidth throttling...',
+      };
+      log.info(bandwidthCleanupStatus);
+      if (res) {
+        res.write(serviceHelper.ensureString(bandwidthCleanupStatus));
+        if (res.flush) res.flush();
+      }
+      await cleanupAppBandwidth(appName, appSpecifications.version, appSpecifications.compose);
+
       const databaseStatus = {
         status: 'Cleaning up database...',
       };

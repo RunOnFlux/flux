@@ -3,7 +3,28 @@ const messageHelper = require('../messageHelper');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
 const appInspector = require('../appManagement/appInspector');
+const bandwidthMonitor = require('./bandwidthMonitor');
 const log = require('../../lib/log');
+
+// Lazy load to avoid circular dependencies
+let globalStateRef = null;
+let appQueryServiceRef = null;
+
+function getGlobalState() {
+  if (!globalStateRef) {
+    // eslint-disable-next-line global-require
+    globalStateRef = require('../utils/globalState');
+  }
+  return globalStateRef;
+}
+
+function getAppQueryService() {
+  if (!appQueryServiceRef) {
+    // eslint-disable-next-line global-require
+    appQueryServiceRef = require('../appQuery/appQueryService');
+  }
+  return appQueryServiceRef;
+}
 
 /**
  * Start monitoring multiple applications
@@ -221,10 +242,119 @@ async function appMonitor(req, res, appsMonitored) {
   return appInspector.appMonitor(req, res, appsMonitored);
 }
 
+/**
+ * Get bandwidth usage statistics for an application
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Bandwidth statistics.
+ */
+async function appBandwidth(req, res) {
+  try {
+    let { appname } = req.params;
+    appname = appname || req.query.appname;
+
+    if (!appname) {
+      throw new Error('No Flux App specified');
+    }
+
+    const mainAppName = appname.split('_')[1] || appname;
+
+    const authorized = await verificationHelper.verifyPrivilege('appownerabove', req, mainAppName);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+
+    const globalState = getGlobalState();
+    const appsMonitored = globalState.appsMonitored;
+    const bandwidthStats = bandwidthMonitor.getAppBandwidthStats(appname, appsMonitored);
+
+    if (!bandwidthStats.available) {
+      const response = messageHelper.createErrorMessage(bandwidthStats.message || 'No bandwidth data available');
+      return res ? res.json(response) : response;
+    }
+
+    const response = messageHelper.createDataMessage(bandwidthStats);
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Get bandwidth throttle status for all applications (Flux team only)
+ * @param {object} req Request.
+ * @param {object} res Response.
+ * @returns {object} Throttle status.
+ */
+async function appBandwidthStatus(req, res) {
+  try {
+    const authorized = await verificationHelper.verifyPrivilege('fluxteam', req);
+    if (!authorized) {
+      const errMessage = messageHelper.errUnauthorizedMessage();
+      return res ? res.json(errMessage) : errMessage;
+    }
+
+    const appQueryService = getAppQueryService();
+    const throttleStatus = bandwidthMonitor.getBandwidthThrottleStatus();
+    const fairShareInfo = await bandwidthMonitor.getFairShareBandwidth(appQueryService.installedApps);
+    const nodeBandwidth = await bandwidthMonitor.getNodeBandwidth();
+
+    const response = messageHelper.createDataMessage({
+      nodeBandwidth,
+      fairShare: fairShareInfo,
+      ...throttleStatus,
+    });
+    return res ? res.json(response) : response;
+  } catch (error) {
+    log.error(error);
+    const errorResponse = messageHelper.createErrorMessage(
+      error.message || error,
+      error.name,
+      error.code,
+    );
+    return res ? res.json(errorResponse) : errorResponse;
+  }
+}
+
+/**
+ * Clean up bandwidth monitoring data for an app (called when app is removed)
+ * @param {string} appName - Application name
+ * @param {number} version - App version
+ * @param {Array} compose - App compose array (for v4+ apps)
+ */
+async function cleanupAppBandwidth(appName, version, compose) {
+  try {
+    if (version <= 3) {
+      await bandwidthMonitor.cleanupContainerBandwidth(appName);
+    } else if (compose) {
+      // eslint-disable-next-line no-restricted-syntax
+      for (const component of compose) {
+        const containerName = `${component.name}_${appName}`;
+        // eslint-disable-next-line no-await-in-loop
+        await bandwidthMonitor.cleanupContainerBandwidth(containerName);
+      }
+    }
+  } catch (error) {
+    log.error(`Error cleaning up bandwidth for ${appName}: ${error.message}`);
+  }
+}
+
 module.exports = {
   startMonitoringOfApps,
   stopMonitoringOfApps,
   startAppMonitoringAPI,
   stopAppMonitoringAPI,
   appMonitor,
+  appBandwidth,
+  appBandwidthStatus,
+  cleanupAppBandwidth,
+  // Re-export bandwidth monitor functions for direct access
+  bandwidthMonitor,
 };

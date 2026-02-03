@@ -1181,6 +1181,12 @@ module.exports = (app) => {
   app.get('/apps/appmonitorstream/:appname?', (req, res) => {
     appInspector.appMonitorStream(req, res);
   });
+  app.get('/apps/appbandwidth/:appname?', (req, res) => {
+    monitoringOrchestrator.appBandwidth(req, res);
+  });
+  app.get('/apps/appbandwidthstatus', (req, res) => {
+    monitoringOrchestrator.appBandwidthStatus(req, res);
+  });
   app.get('/apps/appchanges/:appname?', (req, res) => {
     appInspector.appChanges(req, res);
   });
