@@ -199,9 +199,25 @@ function processConfigSync(configData, requesterIP) {
   };
 }
 
+/**
+ * Clear all challenges (for testing only).
+ * @private
+ */
+function clearAllChallenges() {
+  // Cancel all timers before clearing
+  challengesByIP.forEach((ipChallenges) => {
+    ipChallenges.forEach((challengeData) => {
+      clearTimeout(challengeData.timerId);
+    });
+  });
+  challengesByIP.clear();
+}
+
 module.exports = {
   generateChallenge,
   validateArcaneAuth,
   validateInput,
   processConfigSync,
+  // Export for testing only
+  clearAllChallenges,
 };
