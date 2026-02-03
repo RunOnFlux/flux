@@ -344,22 +344,7 @@ module.exports = (app) => {
   });
 
   // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.get('/arcane/authchallenge', requireHttps, (req, res) => {
-    try {
-      const requesterIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
-      const result = arcaneAuthService.generateChallenge(requesterIP);
-      const response = require('./services/messageHelper').createDataMessage(result);
-      res.json(response);
-    } catch (error) {
-      const statusCode = error.code || 500;
-      const errMessage = require('./services/messageHelper').createErrorMessage(
-        error.message,
-        error.name || 'BadRequest',
-        statusCode,
-      );
-      res.status(statusCode).json(errMessage);
-    }
-  });
+  app.get('/arcane/authchallenge', requireHttps, arcaneAuthService.authChallenge);
 
   // Apps routes - now directly calling modular services
   app.get('/apps/listrunningapps', cache('5 seconds'), (req, res) => {
@@ -1271,54 +1256,7 @@ module.exports = (app) => {
 
   // POST PUBLIC methods route
   // ArcaneOS Authentication Endpoints (HTTPS only)
-  app.post('/arcane/configsync', requireHttps, async (req, res) => {
-    try {
-      const requesterIP = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
-      const serviceHelper = require('./services/serviceHelper');
-      const messageHelper = require('./services/messageHelper');
-      const processedBody = serviceHelper.ensureObject(req.body);
-      const { challenge, encryptedChallenge, configData } = processedBody;
-
-      // Validate input
-      const validationErrors = arcaneAuthService.validateInput(challenge, encryptedChallenge);
-      if (validationErrors) {
-        const errMessage = messageHelper.createErrorMessage(
-          `Input validation failed: ${validationErrors.join(', ')}`,
-          'BadRequest',
-          400,
-        );
-        return res.status(400).json(errMessage);
-      }
-
-      // Validate authentication
-      const authResult = await arcaneAuthService.validateArcaneAuth(challenge, encryptedChallenge, requesterIP);
-      if (!authResult.valid) {
-        const log = require('./lib/log');
-        log.warn(`Invalid auth attempt from ${requesterIP}: ${authResult.reason}`);
-        const errMessage = messageHelper.createErrorMessage(
-          'Authentication required for config sync',
-          'Unauthorized',
-          401,
-        );
-        return res.status(401).json(errMessage);
-      }
-
-      // Process config sync
-      const result = arcaneAuthService.processConfigSync(configData, requesterIP);
-      const response = messageHelper.createDataMessage(result);
-      res.json(response);
-    } catch (error) {
-      const log = require('./lib/log');
-      log.error(`Error in configSync: ${error.message}`);
-      const messageHelper = require('./services/messageHelper');
-      const errMessage = messageHelper.createErrorMessage(
-        error.message,
-        error.name || 'InternalError',
-        500,
-      );
-      res.status(500).json(errMessage);
-    }
-  });
+  app.post('/arcane/configsync', requireHttps, arcaneAuthService.configSync);
 
   app.post('/id/verifylogin', (req, res) => {
     idService.verifyLogin(req, res);

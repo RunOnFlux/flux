@@ -23,6 +23,16 @@ function getRequesterIP(req) {
  */
 async function authChallenge(req, res) {
   try {
+    // Check if this is an ArcaneOS node
+    if (!process.env.FLUXOS_PATH) {
+      const errMessage = messageHelper.createErrorMessage(
+        'This endpoint is only available on ArcaneOS nodes',
+        'NotImplemented',
+        501
+      );
+      return res.status(501).json(errMessage);
+    }
+
     const ipAddress = getRequesterIP(req);
 
     if (!ipAddress || ipAddress === 'unknown') {
@@ -66,6 +76,16 @@ async function authChallenge(req, res) {
  */
 async function configSync(req, res) {
   try {
+    // Check if this is an ArcaneOS node
+    if (!process.env.FLUXOS_PATH) {
+      const errMessage = messageHelper.createErrorMessage(
+        'This endpoint is only available on ArcaneOS nodes',
+        'NotImplemented',
+        501
+      );
+      return res.status(501).json(errMessage);
+    }
+
     const ipAddress = getRequesterIP(req);
 
     if (!ipAddress || ipAddress === 'unknown') {
