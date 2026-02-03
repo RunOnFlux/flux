@@ -75,6 +75,9 @@ module.exports = {
     porttestnet: 26225,
     rpcporttestnet: 26224,
   },
+  fluxconfigd: {
+    socketPath: '/run/flux-configd/daemon.sock',
+  },
   daemon: {
     chainValidHeight: 1062000,
     port: 16125,
