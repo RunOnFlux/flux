@@ -74,7 +74,8 @@ The service:
       "city": "Berlin",
       "lat": 52.52,
       "lon": 13.405,
-      "static": true
+      "static": true,
+      "dataCenter": true
     },
     "benchmark": {
       "vcores": 8,
@@ -164,6 +165,7 @@ Geographic location information for the node. The `ip` and `org` fields from the
 | `lat` | number | Latitude coordinate | `52.52` |
 | `lon` | number | Longitude coordinate | `13.405` |
 | `static` | boolean | Whether the IP has a static address | `true` |
+| `dataCenter` | boolean | Whether the node is hosted in a data center | `true` |
 
 **Use Cases:**
 - Geo-aware load balancing
@@ -298,7 +300,8 @@ $ curl -s http://fluxnode.service:16101/hostinfo | jq .
       "regionName": "England",
       "lat": 51.5081,
       "lon": -0.1278,
-      "static": true
+      "static": true,
+      "dataCenter": true
     },
     "benchmark": {
       "vcores": 16,
