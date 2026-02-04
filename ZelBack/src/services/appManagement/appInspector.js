@@ -11,8 +11,8 @@ const log = require('../../lib/log');
 const { appConstants } = require('../utils/appConstants');
 const { getContainerStorage } = require('../utils/appUtilities');
 const generalService = require('../generalService');
-const registryManager = require('../appDatabase/registryManager');
 const globalState = require('../utils/globalState');
+const { isEnterpriseApp, getCachedApplicationOwner } = require('../utils/enterpriseHelper');
 
 // eslint-disable-next-line import/no-extraneous-dependencies
 const util = require('util');
@@ -26,11 +26,6 @@ const appsFolderPath = process.env.FLUX_APPS_FOLDER || path.join(fluxDirPath, 'Z
 
 const dosState = 0;
 const dosMessage = null;
-
-// Cache for enterprise app owner lookups (TTL: 5 minutes)
-// Reduces DB calls since owner rarely changes
-const enterpriseOwnerCache = new Map();
-const ENTERPRISE_OWNER_CACHE_TTL = 5 * 60 * 1000;
 
 const cmdAsync = util.promisify(nodecmd.run);
 const dockerStatsStreamPromise = util.promisify(dockerService.dockerContainerStatsStream);
@@ -687,35 +682,6 @@ function getAppsDOSState(req, res) {
 }
 
 /**
- * Check if an app owner is an enterprise owner
- * @param {string} appOwner - The app owner address
- * @returns {boolean} True if owner is in enterpriseAppOwners list
- */
-function isEnterpriseApp(appOwner) {
-  if (!appOwner) return false;
-  return config.enterpriseAppOwners.includes(appOwner);
-}
-
-/**
- * Get application owner with caching to reduce DB calls
- * Cache TTL is 5 minutes - owner rarely changes
- * @param {string} appName - Application name
- * @returns {Promise<string|null>} Owner address or null
- */
-async function getCachedApplicationOwner(appName) {
-  const cached = enterpriseOwnerCache.get(appName);
-  const now = Date.now();
-
-  if (cached && (now - cached.timestamp) < ENTERPRISE_OWNER_CACHE_TTL) {
-    return cached.owner;
-  }
-
-  const owner = await registryManager.getApplicationOwner(appName);
-  enterpriseOwnerCache.set(appName, { owner, timestamp: now });
-  return owner;
-}
-
-/**
  * Calculate available CPU for enterprise burst on this node
  * @param {Array} installedApps - List of installed apps with their specs
  * @returns {Promise<number>} Available burst CPU in cores
@@ -724,6 +690,7 @@ async function calculateNodeAvailableCpu(installedApps) {
   try {
     // Get actual CPU threads from the OS
     const nodeTotalCpu = os.cpus().length;
+    // lockedSystemResources.cpu is in 0.1 CPU units (e.g., 10 = 1 core), so divide by 10 to get cores
     const lockedCpu = config.lockedSystemResources.cpu / 10;
     const reserveCpu = config.enterpriseBurst.minSystemReserveCores || 1.5;
 
@@ -1056,7 +1023,7 @@ async function checkEnterpriseCpuBurst(appsMonitored, installedApps) {
  * @param {Function} installedApps - Async function to get installed apps
  * @returns {Promise<void>}
  */
-async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
+async function checkApplicationsCpuUsage(appsMonitored, installedApps) {
   try {
     // get list of locally installed apps.
     const installedAppsRes = await installedApps();
@@ -1083,7 +1050,7 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
     for (const app of appsInstalled) {
       // Skip throttling for enterprise apps - they use burst instead
       if (enterpriseAppNames.has(app.name)) {
-        log.info(`checkApplicationsCpuUSage: Skipping throttling for enterprise app ${app.name}`);
+        log.info(`checkApplicationsCpuUsage: Skipping throttling for enterprise app ${app.name}`);
         continue;
       }
 
@@ -1112,8 +1079,8 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
           }
           // eslint-disable-next-line no-param-reassign
           appsMonitored[app.name].lastHourstatsStore = [];
-          log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
-          log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+          log.info(`checkApplicationsCpuUsage ${app.name} cpu high load: ${cpuThrottling}`);
+          log.info(`checkApplicationsCpuUsage ${cpuPercentage}`);
           if (cpuThrottling && app.cpu > 1) {
             if (cpuPercentage === 1) {
               if (app.cpu > 2) {
@@ -1123,24 +1090,24 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
               }
-              log.info(`checkApplicationsCpuUSage ${app.name} lowering cpu.`);
+              log.info(`checkApplicationsCpuUsage ${app.name} lowering cpu.`);
             }
           } else if (cpuPercentage <= 0.8) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 85.`);
+            log.info(`checkApplicationsCpuUsage ${app.name} increasing cpu 85.`);
           } else if (cpuPercentage <= 0.85) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 90.`);
+            log.info(`checkApplicationsCpuUsage ${app.name} increasing cpu 90.`);
           } else if (cpuPercentage <= 0.9) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.95));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 95.`);
+            log.info(`checkApplicationsCpuUsage ${app.name} increasing cpu 95.`);
           } else if (cpuPercentage < 1) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 100.`);
+            log.info(`checkApplicationsCpuUsage ${app.name} increasing cpu 100.`);
           }
         }
       } else {
@@ -1170,8 +1137,8 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             }
             // eslint-disable-next-line no-param-reassign
             appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
-            log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+            log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
+            log.info(`checkApplicationsCpuUsage ${cpuPercentage}`);
             if (cpuThrottling && appComponent.cpu > 1) {
               if (cpuPercentage === 1) {
                 if (appComponent.cpu > 2) {
@@ -1181,24 +1148,24 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
                   // eslint-disable-next-line no-await-in-loop
                   await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
                 }
-                log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} lowering cpu.`);
+                log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} lowering cpu.`);
               }
             } else if (cpuPercentage <= 0.8) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.85));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 85.`);
+              log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} increasing cpu 85.`);
             } else if (cpuPercentage <= 0.85) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 90.`);
+              log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} increasing cpu 90.`);
             } else if (cpuPercentage <= 0.9) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.95));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 95.`);
+              log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} increasing cpu 95.`);
             } else if (cpuPercentage < 1) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 100.`);
+              log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} increasing cpu 100.`);
             }
           }
         }
@@ -1387,7 +1354,7 @@ module.exports = {
   stopAppMonitoring,
   listAppsImages,
   getAppsDOSState,
-  checkApplicationsCpuUSage,
+  checkApplicationsCpuUsage,
   checkEnterpriseCpuBurst,
   monitorSharedDBApps,
   checkStorageSpaceForApps,

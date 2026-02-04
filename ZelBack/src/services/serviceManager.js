@@ -390,9 +390,9 @@ async function startFluxFunctions() {
       }
     }, 2 * 60 * 1000);
     setTimeout(() => {
-      appInspector.checkApplicationsCpuUSage(globalState.appsMonitored, appQueryService.installedApps);
+      appInspector.checkApplicationsCpuUsage(globalState.appsMonitored, appQueryService.installedApps);
       setInterval(() => {
-        appInspector.checkApplicationsCpuUSage(globalState.appsMonitored, appQueryService.installedApps);
+        appInspector.checkApplicationsCpuUsage(globalState.appsMonitored, appQueryService.installedApps);
       }, 15 * 60 * 1000);
     }, 15 * 60 * 1000);
     // Enterprise CPU burst fast-loop - Kubernetes-like response time (~5 minutes)

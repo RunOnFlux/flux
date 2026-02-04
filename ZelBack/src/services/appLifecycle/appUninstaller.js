@@ -977,6 +977,17 @@ async function removeAppLocally(app, res, force = false, endResponse = true, sen
       }
       await cleanupAppBandwidth(appName, appSpecifications.version, appSpecifications.compose);
 
+      // Clean up enterprise burst allocations
+      if (appSpecifications.version <= 3) {
+        globalState.enterpriseBurstAllocations.delete(appName);
+      } else if (appSpecifications.compose) {
+        // eslint-disable-next-line no-restricted-syntax
+        for (const component of appSpecifications.compose) {
+          const containerName = `${component.name}_${appName}`;
+          globalState.enterpriseBurstAllocations.delete(containerName);
+        }
+      }
+
       const databaseStatus = {
         status: 'Cleaning up database...',
       };

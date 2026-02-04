@@ -1359,6 +1359,15 @@ describe('appInspector tests', () => {
         cpus: sinon.stub().returns(new Array(16).fill({ model: 'test' })),
       };
 
+      // Create enterprise helper stubs
+      const enterpriseHelperStub = {
+        isEnterpriseApp: (appOwner) => {
+          if (!appOwner) return false;
+          return ['0x123enterpriseowner', '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW'].includes(appOwner);
+        },
+        getCachedApplicationOwner: registryManagerStub.getApplicationOwner,
+      };
+
       appInspectorWithBurst = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
         os: osStub,
         config: {
@@ -1387,6 +1396,7 @@ describe('appInspector tests', () => {
         '../dbHelper': {
           databaseConnection: sinon.stub(),
         },
+        '../utils/enterpriseHelper': enterpriseHelperStub,
         '../verificationHelper': {
           verifyPrivilege: sinon.stub().resolves(true),
         },

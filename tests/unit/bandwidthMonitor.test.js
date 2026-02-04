@@ -59,7 +59,10 @@ describe('bandwidthMonitor tests', () => {
       '../appQuery/appQueryService': {
         decryptEnterpriseApps: decryptEnterpriseAppsStub,
       },
-      '../appDatabase/registryManager': registryManagerStub,
+      '../utils/enterpriseHelper': {
+        isEnterpriseApp: (appOwner) => configStub.enterpriseAppOwners.includes(appOwner),
+        getCachedApplicationOwner: registryManagerStub.getApplicationOwner,
+      },
       config: configStub,
       'node-cmd': {
         run: (cmd, callback) => {

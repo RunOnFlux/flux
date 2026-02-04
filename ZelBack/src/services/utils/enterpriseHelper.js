@@ -3,8 +3,50 @@ const config = require('config');
 const dbHelper = require('../dbHelper');
 const benchmarkService = require('../benchmarkService');
 const log = require('../../lib/log');
+const registryManager = require('../appDatabase/registryManager');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
+
+// Cache for enterprise app owner lookups (TTL: 5 minutes)
+// Reduces DB calls since owner rarely changes
+const enterpriseOwnerCache = new Map();
+const ENTERPRISE_OWNER_CACHE_TTL = 5 * 60 * 1000;
+
+/**
+ * Check if an app owner is an enterprise owner
+ * @param {string} appOwner - The app owner address
+ * @returns {boolean} True if owner is in enterpriseAppOwners list
+ */
+function isEnterpriseApp(appOwner) {
+  if (!appOwner) return false;
+  return config.enterpriseAppOwners.includes(appOwner);
+}
+
+/**
+ * Get application owner with caching to reduce DB calls
+ * Cache TTL is 5 minutes - owner rarely changes
+ * @param {string} appName - Application name
+ * @returns {Promise<string|null>} Owner address or null
+ */
+async function getCachedApplicationOwner(appName) {
+  const cached = enterpriseOwnerCache.get(appName);
+  const now = Date.now();
+
+  if (cached && (now - cached.timestamp) < ENTERPRISE_OWNER_CACHE_TTL) {
+    return cached.owner;
+  }
+
+  const owner = await registryManager.getApplicationOwner(appName);
+  enterpriseOwnerCache.set(appName, { owner, timestamp: now });
+  return owner;
+}
+
+/**
+ * Clear the enterprise owner cache (useful for testing)
+ */
+function clearEnterpriseOwnerCache() {
+  enterpriseOwnerCache.clear();
+}
 
 /**
  * Decrypts AES key with RSA key
@@ -360,4 +402,9 @@ module.exports = {
   decryptAesKeyWithRsaKey,
   decryptWithAesSession,
   encryptWithAesSession,
+  // Enterprise app owner helpers
+  isEnterpriseApp,
+  getCachedApplicationOwner,
+  clearEnterpriseOwnerCache,
+  ENTERPRISE_OWNER_CACHE_TTL,
 };

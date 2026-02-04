@@ -312,7 +312,7 @@ module.exports = {
     tokenRefreshBufferMs: 15 * 60 * 1000,
   },
   enterpriseBurst: {
-    enabled: true,
+    enabled: false, // Disabled by default - enable for nodes that want to provide enterprise burst capability
     maxMultiplier: 2, // Max burst = 2x specified CPU
     minSystemReserveCores: 0.5, // Additional CPU cores to keep free (added to lockedSystemResources.cpu)
     checkIntervalMs: 2 * 60 * 1000, // 2 minutes - how often to check enterprise apps (Kubernetes-like)
