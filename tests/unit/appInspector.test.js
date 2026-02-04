@@ -21,7 +21,7 @@ describe('appInspector tests', () => {
       enterpriseBurst: {
         enabled: true,
         maxMultiplier: 2,
-        minSparePercentage: 10,
+        minSystemReserveCores: 0.5,
       },
       fluxSpecifics: {
         cpu: {
@@ -1339,6 +1339,7 @@ describe('appInspector tests', () => {
     let generalServiceStub;
     let registryManagerStub;
     let globalStateStub;
+    let osStub;
 
     beforeEach(() => {
       generalServiceStub = {
@@ -1353,20 +1354,19 @@ describe('appInspector tests', () => {
         enterpriseBurstAllocations: new Map(),
       };
 
+      // Default to 16 CPU threads (stratus-like)
+      osStub = {
+        cpus: sinon.stub().returns(new Array(16).fill({ model: 'test' })),
+      };
+
       appInspectorWithBurst = proxyquire('../../ZelBack/src/services/appManagement/appInspector', {
+        os: osStub,
         config: {
           enterpriseAppOwners: ['0x123enterpriseowner', '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW'],
           enterpriseBurst: {
             enabled: true,
             maxMultiplier: 2,
-            minSparePercentage: 10,
-          },
-          fluxSpecifics: {
-            cpu: {
-              cumulus: 40,
-              nimbus: 80,
-              stratus: 160,
-            },
+            minSystemReserveCores: 0.5,
           },
           lockedSystemResources: {
             cpu: 10,
@@ -1438,8 +1438,8 @@ describe('appInspector tests', () => {
     });
 
     describe('calculateNodeAvailableCpu', () => {
-      it('should calculate available CPU for stratus node', async () => {
-        generalServiceStub.getNewNodeTier.resolves('stratus');
+      it('should calculate available CPU using OS cpu count (16 cores)', async () => {
+        // osStub defaults to 16 cores
         const installedApps = [
           { name: 'app1', version: 2, cpu: 2 },
           { name: 'app2', version: 2, cpu: 4 },
@@ -1447,36 +1447,36 @@ describe('appInspector tests', () => {
 
         const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
 
-        // Stratus: 16 cores total, 1 locked, 10% reserve (1.6), 6 for apps = 16 - 1 - 6 - 1.6 = 7.4
-        expect(result).to.be.closeTo(7.4, 0.1);
+        // 16 cores from OS, 1 locked, 0.5 reserve, 6 for apps = 16 - 1 - 6 - 0.5 = 8.5
+        expect(result).to.be.closeTo(8.5, 0.1);
       });
 
-      it('should calculate available CPU for nimbus node', async () => {
-        generalServiceStub.getNewNodeTier.resolves('nimbus');
+      it('should calculate available CPU with 8 cores', async () => {
+        osStub.cpus.returns(new Array(8).fill({ model: 'test' }));
         const installedApps = [
           { name: 'app1', version: 2, cpu: 2 },
         ];
 
         const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
 
-        // Nimbus: 8 cores total, 1 locked, 10% reserve (0.8), 2 for apps = 8 - 1 - 2 - 0.8 = 4.2
-        expect(result).to.be.closeTo(4.2, 0.1);
+        // 8 cores from OS, 1 locked, 0.5 reserve, 2 for apps = 8 - 1 - 2 - 0.5 = 4.5
+        expect(result).to.be.closeTo(4.5, 0.1);
       });
 
-      it('should calculate available CPU for cumulus node', async () => {
-        generalServiceStub.getNewNodeTier.resolves('cumulus');
+      it('should calculate available CPU with 4 cores', async () => {
+        osStub.cpus.returns(new Array(4).fill({ model: 'test' }));
         const installedApps = [
           { name: 'app1', version: 2, cpu: 1 },
         ];
 
         const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
 
-        // Cumulus: 4 cores total, 1 locked, 10% reserve (0.4), 1 for apps = 4 - 1 - 1 - 0.4 = 1.6
-        expect(result).to.be.closeTo(1.6, 0.1);
+        // 4 cores from OS, 1 locked, 0.5 reserve, 1 for apps = 4 - 1 - 1 - 0.5 = 1.5
+        expect(result).to.be.closeTo(1.5, 0.1);
       });
 
       it('should handle composed apps (version > 3)', async () => {
-        generalServiceStub.getNewNodeTier.resolves('stratus');
+        // osStub defaults to 16 cores
         const installedApps = [
           {
             name: 'composedApp',
@@ -1490,23 +1490,25 @@ describe('appInspector tests', () => {
 
         const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
 
-        // Stratus: 16 cores total, 1 locked, 10% reserve (1.6), 6 for apps = 16 - 1 - 6 - 1.6 = 7.4
-        expect(result).to.be.closeTo(7.4, 0.1);
+        // 16 cores from OS, 1 locked, 0.5 reserve, 6 for apps = 16 - 1 - 6 - 0.5 = 8.5
+        expect(result).to.be.closeTo(8.5, 0.1);
       });
 
       it('should return 0 when no spare capacity', async () => {
-        generalServiceStub.getNewNodeTier.resolves('cumulus');
+        // Set OS to 4 cores
+        osStub.cpus.returns(new Array(4).fill({ model: 'test' }));
         const installedApps = [
           { name: 'app1', version: 2, cpu: 4 }, // Uses all available CPU
         ];
 
         const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
 
+        // 4 cores from OS, 1 locked, 0.5 reserve, 4 for apps = 4 - 1 - 4 - 0.5 = -1.5 -> capped at 0
         expect(result).to.equal(0);
       });
 
       it('should return 0 on error', async () => {
-        generalServiceStub.getNewNodeTier.rejects(new Error('Node tier error'));
+        osStub.cpus.throws(new Error('OS error'));
         const installedApps = [];
 
         const result = await appInspectorWithBurst.calculateNodeAvailableCpu(installedApps);
@@ -1594,7 +1596,7 @@ describe('appInspector tests', () => {
             enterpriseBurst: {
               enabled: false,
               maxMultiplier: 2,
-              minSparePercentage: 10,
+              minSystemReserveCores: 0.5,
             },
             fluxSpecifics: {
               cpu: { stratus: 160 },

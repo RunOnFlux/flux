@@ -1,4 +1,5 @@
 const path = require('path');
+const os = require('os');
 const config = require('config');
 const serviceHelper = require('../serviceHelper');
 const verificationHelper = require('../verificationHelper');
@@ -721,12 +722,10 @@ async function getCachedApplicationOwner(appName) {
  */
 async function calculateNodeAvailableCpu(installedApps) {
   try {
-    const tier = await generalService.getNewNodeTier();
-    // CPU is stored in tenths (e.g., 40 = 4 cores)
-    const nodeTotalCpu = config.fluxSpecifics.cpu[tier] / 10;
+    // Get actual CPU threads from the OS
+    const nodeTotalCpu = os.cpus().length;
     const lockedCpu = config.lockedSystemResources.cpu / 10;
-    const reservePercentage = config.enterpriseBurst.minSparePercentage / 100;
-    const reserveCpu = nodeTotalCpu * reservePercentage;
+    const reserveCpu = config.enterpriseBurst.minSystemReserveCores || 1.5;
 
     // Sum all app spec CPUs (baseline allocations)
     let sumAppSpecCpus = 0;

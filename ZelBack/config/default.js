@@ -314,7 +314,7 @@ module.exports = {
   enterpriseBurst: {
     enabled: true,
     maxMultiplier: 2, // Max burst = 2x specified CPU
-    minSparePercentage: 10, // Keep 10% of node CPU as reserve
+    minSystemReserveCores: 0.5, // Additional CPU cores to keep free (added to lockedSystemResources.cpu)
     checkIntervalMs: 2 * 60 * 1000, // 2 minutes - how often to check enterprise apps (Kubernetes-like)
     detectionWindowMs: 5 * 60 * 1000, // 5 minutes - how far back to look for high CPU usage
     highUtilThreshold: 80, // Percentage of SPEC CPU to trigger burst (not current limit)
