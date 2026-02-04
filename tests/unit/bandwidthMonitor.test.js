@@ -11,12 +11,15 @@ describe('bandwidthMonitor tests', () => {
   let generalServiceStub;
   let cmdAsyncStub;
   let decryptEnterpriseAppsStub;
+  let configStub;
+  let registryManagerStub;
 
   beforeEach(() => {
     logStub = {
       error: sinon.stub(),
       info: sinon.stub(),
       warn: sinon.stub(),
+      debug: sinon.stub(),
     };
 
     serviceHelperStub = {
@@ -39,6 +42,14 @@ describe('bandwidthMonitor tests', () => {
 
     cmdAsyncStub = sinon.stub().resolves('');
 
+    configStub = {
+      enterpriseAppOwners: ['enterpriseOwner123'],
+    };
+
+    registryManagerStub = {
+      getApplicationOwner: sinon.stub().resolves(null),
+    };
+
     bandwidthMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/bandwidthMonitor', {
       '../../lib/log': logStub,
       '../serviceHelper': serviceHelperStub,
@@ -48,6 +59,8 @@ describe('bandwidthMonitor tests', () => {
       '../appQuery/appQueryService': {
         decryptEnterpriseApps: decryptEnterpriseAppsStub,
       },
+      '../appDatabase/registryManager': registryManagerStub,
+      config: configStub,
       'node-cmd': {
         run: (cmd, callback) => {
           cmdAsyncStub(cmd).then((result) => callback(null, result, '')).catch((err) => callback(err));
@@ -587,6 +600,72 @@ describe('bandwidthMonitor tests', () => {
 
       expect(logStub.info.calledWith(sinon.match(/Bandwidth check frontend_testApp/))).to.be.true;
       expect(logStub.info.calledWith(sinon.match(/Bandwidth check backend_testApp/))).to.be.true;
+    });
+
+    it('should skip enterprise apps from bandwidth throttling', async () => {
+      const appsMonitored = {
+        enterpriseApp: {
+          lastHourstatsStore: [
+            { timestamp: 1000, data: { networks: { eth0: { rx_bytes: 1000000, tx_bytes: 1000000 } } } },
+            { timestamp: 61000, data: { networks: { eth0: { rx_bytes: 2000000, tx_bytes: 2000000 } } } },
+            { timestamp: 121000, data: { networks: { eth0: { rx_bytes: 3000000, tx_bytes: 3000000 } } } },
+            { timestamp: 181000, data: { networks: { eth0: { rx_bytes: 4000000, tx_bytes: 4000000 } } } },
+            { timestamp: 241000, data: { networks: { eth0: { rx_bytes: 5000000, tx_bytes: 5000000 } } } },
+          ],
+        },
+      };
+
+      const mockInstalledApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: 'enterpriseApp', version: 3 }],
+      });
+
+      // Set up enterprise app owner
+      registryManagerStub.getApplicationOwner.withArgs('enterpriseApp').resolves('enterpriseOwner123');
+
+      benchmarkServiceStub.getBenchmarkFromDb.resolves({
+        benchmark: { download_speed: '100', upload_speed: '100' },
+      });
+
+      await bandwidthMonitor.checkApplicationsBandwidthUsage(appsMonitored, mockInstalledApps);
+
+      // Should log that enterprise app is skipped
+      expect(logStub.debug.calledWith(sinon.match(/Skipping bandwidth throttle check for enterprise app: enterpriseApp/))).to.be.true;
+      // Should NOT check bandwidth for the enterprise app
+      expect(logStub.info.calledWith(sinon.match(/Bandwidth check enterpriseApp/))).to.be.false;
+    });
+
+    it('should process non-enterprise apps normally', async () => {
+      const appsMonitored = {
+        regularApp: {
+          lastHourstatsStore: [
+            { timestamp: 1000, data: { networks: { eth0: { rx_bytes: 1000000, tx_bytes: 1000000 } } } },
+            { timestamp: 61000, data: { networks: { eth0: { rx_bytes: 2000000, tx_bytes: 2000000 } } } },
+            { timestamp: 121000, data: { networks: { eth0: { rx_bytes: 3000000, tx_bytes: 3000000 } } } },
+            { timestamp: 181000, data: { networks: { eth0: { rx_bytes: 4000000, tx_bytes: 4000000 } } } },
+            { timestamp: 241000, data: { networks: { eth0: { rx_bytes: 5000000, tx_bytes: 5000000 } } } },
+          ],
+        },
+      };
+
+      const mockInstalledApps = sinon.stub().resolves({
+        status: 'success',
+        data: [{ name: 'regularApp', version: 3 }],
+      });
+
+      // Non-enterprise owner
+      registryManagerStub.getApplicationOwner.withArgs('regularApp').resolves('regularOwner456');
+
+      benchmarkServiceStub.getBenchmarkFromDb.resolves({
+        benchmark: { download_speed: '100', upload_speed: '100' },
+      });
+
+      await bandwidthMonitor.checkApplicationsBandwidthUsage(appsMonitored, mockInstalledApps);
+
+      // Should NOT skip this app
+      expect(logStub.debug.calledWith(sinon.match(/Skipping bandwidth throttle check for enterprise app/))).to.be.false;
+      // Should check bandwidth for the regular app
+      expect(logStub.info.calledWith(sinon.match(/Bandwidth check regularApp/))).to.be.true;
     });
   });
 

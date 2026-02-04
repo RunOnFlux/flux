@@ -1,13 +1,20 @@
 const util = require('util');
 const nodecmd = require('node-cmd');
+const config = require('config');
 
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 const dockerService = require('../dockerService');
 const benchmarkService = require('../benchmarkService');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+const registryManager = require('../appDatabase/registryManager');
 
 const cmdAsync = util.promisify(nodecmd.run);
+
+// Cache for enterprise app owner lookups (TTL: 5 minutes)
+// Reduces DB calls since owner rarely changes
+const enterpriseOwnerCache = new Map();
+const ENTERPRISE_OWNER_CACHE_TTL = 5 * 60 * 1000;
 
 // Bandwidth throttle state - tracks which apps are currently throttled
 // Structure: { containerName: { throttleLevel: 0.8, vethInterface: 'veth123', appliedAt: timestamp } }
@@ -46,6 +53,35 @@ const THROTTLE_RECOVERY_TIME = 30 * 60 * 1000;
 // Reasonable bandwidth limits for validation (in Mbps)
 const MIN_VALID_BANDWIDTH = 1;
 const MAX_VALID_BANDWIDTH = 10000;
+
+/**
+ * Check if an app owner is an enterprise owner
+ * @param {string} appOwner - The app owner address
+ * @returns {boolean} True if owner is in enterpriseAppOwners list
+ */
+function isEnterpriseApp(appOwner) {
+  if (!appOwner) return false;
+  return config.enterpriseAppOwners.includes(appOwner);
+}
+
+/**
+ * Get application owner with caching to reduce DB calls
+ * Cache TTL is 5 minutes - owner rarely changes
+ * @param {string} appName - Application name
+ * @returns {Promise<string|null>} Owner address or null
+ */
+async function getCachedApplicationOwner(appName) {
+  const cached = enterpriseOwnerCache.get(appName);
+  const now = Date.now();
+
+  if (cached && (now - cached.timestamp) < ENTERPRISE_OWNER_CACHE_TTL) {
+    return cached.owner;
+  }
+
+  const owner = await registryManager.getApplicationOwner(appName);
+  enterpriseOwnerCache.set(appName, { owner, timestamp: now });
+  return owner;
+}
 
 /**
  * Validate and sanitize bandwidth value
@@ -461,6 +497,14 @@ async function checkApplicationsBandwidthUsage(appsMonitored, installedApps) {
 
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
+      // Skip enterprise apps - they are exempt from bandwidth throttling
+      // eslint-disable-next-line no-await-in-loop
+      const appOwner = await getCachedApplicationOwner(app.name);
+      if (isEnterpriseApp(appOwner)) {
+        log.debug(`Skipping bandwidth throttle check for enterprise app: ${app.name}`);
+        continue;
+      }
+
       if (app.version <= 3) {
         // Single container app
         // eslint-disable-next-line no-await-in-loop
