@@ -3,7 +3,6 @@ const config = require('config');
 const dbHelper = require('../dbHelper');
 const benchmarkService = require('../benchmarkService');
 const log = require('../../lib/log');
-const registryManager = require('../appDatabase/registryManager');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -11,6 +10,17 @@ const isArcane = Boolean(process.env.FLUXOS_PATH);
 // Reduces DB calls since owner rarely changes
 const enterpriseOwnerCache = new Map();
 const ENTERPRISE_OWNER_CACHE_TTL = 5 * 60 * 1000;
+
+// Lazy load registryManager to avoid circular dependency
+// (registryManager imports enterpriseHelper)
+let registryManagerRef = null;
+function getRegistryManager() {
+  if (!registryManagerRef) {
+    // eslint-disable-next-line global-require
+    registryManagerRef = require('../appDatabase/registryManager');
+  }
+  return registryManagerRef;
+}
 
 /**
  * Check if an app owner is an enterprise owner
@@ -36,6 +46,7 @@ async function getCachedApplicationOwner(appName) {
     return cached.owner;
   }
 
+  const registryManager = getRegistryManager();
   const owner = await registryManager.getApplicationOwner(appName);
   enterpriseOwnerCache.set(appName, { owner, timestamp: now });
   return owner;
