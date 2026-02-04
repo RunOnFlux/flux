@@ -242,13 +242,7 @@ async function startFluxFunctions() {
     daemonServiceMiscRpcs.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
     // Remove existing watchtower container (replaced by native image update service)
-    imageUpdateService.removeWatchtowerContainer().then((removed) => {
-      if (removed) {
-        log.info('Watchtower container removed (replaced by native image update service)');
-      }
-    }).catch((error) => {
-      log.warn(`Error removing watchtower container: ${error.message}`);
-    });
+    imageUpdateService.removeWatchtowerContainer();
     // Start native image update service (delayed start)
     setTimeout(() => {
       imageUpdateService.startImageUpdateService();

@@ -19,10 +19,24 @@ const globalState = require('./utils/globalState');
 const CHECK_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
 const DELAY_BETWEEN_APPS = 5000; // 5 seconds between app checks
 const DELAY_AFTER_REDEPLOY = 2 * 60 * 1000; // 2 minutes after redeploy
-const INITIAL_DELAY = 10 * 60 * 1000; // 10 minutes after startup
+const INITIAL_DELAY_MIN = 10 * 60 * 1000; // 10 minutes minimum initial delay
+const INITIAL_DELAY_MAX = 30 * 60 * 1000; // 30 minutes maximum initial delay
 
 // Track the interval timer
 let checkIntervalTimer = null;
+
+/**
+ * Checks if any app operation is currently in progress.
+ * @returns {boolean} True if an operation is in progress, false otherwise
+ */
+function isOperationInProgress() {
+  return (
+    globalState.removalInProgress
+    || globalState.installationInProgress
+    || globalState.softRedeployInProgress
+    || globalState.hardRedeployInProgress
+  );
+}
 
 /**
  * Removes the existing flux_watchtower container if it exists.
@@ -72,10 +86,7 @@ async function removeWatchtowerContainer() {
         (img) => img.RepoTags && img.RepoTags.some((tag) => tag.startsWith('containrrr/watchtower')),
       );
       if (watchtowerImage) {
-        const docker = require('dockerode');
-        const dockerInstance = new docker();
-        const image = dockerInstance.getImage(watchtowerImage.Id);
-        await image.remove();
+        await dockerService.appDockerImageRemove(watchtowerImage.Id);
         log.info('containrrr/watchtower image removed');
       }
     } catch (imageError) {
@@ -137,7 +148,7 @@ async function getLocalImageDigest(containerName) {
  * @param {string|null} repoauth Authentication string (encrypted for v7, plain for v8+)
  * @param {number} specVersion Application specification version
  * @param {string} appName Application name (for credential caching)
- * @returns {Promise<string|null>} The manifest digest (sha256:xxx) or null on error
+ * @returns {Promise<{error: string|null, digest: string|null}>} Result object with error and digest
  */
 async function getRemoteManifestDigest(repotag, repoauth, specVersion, appName) {
   try {
@@ -157,7 +168,7 @@ async function getRemoteManifestDigest(repotag, repoauth, specVersion, appName) 
         }
       } catch (credError) {
         log.warn(`Failed to get credentials for ${appName}/${repotag}: ${credError.message}`);
-        return null;
+        return { error: 'credentials_failed', digest: null };
       }
     }
 
@@ -165,7 +176,7 @@ async function getRemoteManifestDigest(repotag, repoauth, specVersion, appName) 
 
     if (verifier.parseError) {
       log.warn(`Failed to parse image tag ${repotag}: ${verifier.errorDetail}`);
-      return null;
+      return { error: 'parse_error', digest: null };
     }
 
     const digest = await verifier.fetchManifestDigestOnly();
@@ -174,30 +185,26 @@ async function getRemoteManifestDigest(repotag, repoauth, specVersion, appName) 
       const errorMeta = verifier.errorMeta;
       if (errorMeta && errorMeta.errorType === 'rate_limit') {
         log.warn(`Rate limited while checking ${repotag}`);
-        // Signal to abort remaining checks
-        throw new Error('RATE_LIMITED');
+        return { error: 'rate_limited', digest: null };
       }
       log.warn(`Failed to fetch manifest digest for ${repotag}: ${verifier.errorDetail}`);
-      return null;
+      return { error: 'fetch_failed', digest: null };
     }
 
-    return digest;
+    return { error: null, digest };
   } catch (error) {
-    if (error.message === 'RATE_LIMITED') {
-      throw error; // Re-throw rate limit errors
-    }
     log.warn(`Error getting remote manifest digest for ${repotag}: ${error.message}`);
-    return null;
+    return { error: 'exception', digest: null };
   }
 }
 
 /**
  * Checks if a specific app needs an update.
  * @param {object} appSpec Application specification
- * @returns {Promise<{needsUpdate: boolean, components: Array}>} Update status and components that need updates
+ * @returns {Promise<{needsUpdate: boolean, components: Array, rateLimited: boolean}>} Update status and components that need updates
  */
 async function checkAppForUpdates(appSpec) {
-  const result = { needsUpdate: false, components: [] };
+  const result = { needsUpdate: false, components: [], rateLimited: false };
 
   try {
     // Handle v1-v3 apps (single container)
@@ -210,26 +217,31 @@ async function checkAppForUpdates(appSpec) {
         return result;
       }
 
-      const remoteDigest = await getRemoteManifestDigest(
+      const remoteResult = await getRemoteManifestDigest(
         appSpec.repotag,
         appSpec.repoauth || null,
         appSpec.version,
         appSpec.name,
       );
 
-      if (!remoteDigest) {
-        log.debug(`Could not get remote digest for ${appSpec.name}, skipping`);
+      if (remoteResult.error === 'rate_limited') {
+        result.rateLimited = true;
         return result;
       }
 
-      if (localDigest !== remoteDigest) {
-        log.info(`Update available for ${appSpec.name}: ${localDigest} -> ${remoteDigest}`);
+      if (!remoteResult.digest) {
+        log.warn(`Could not get remote digest for ${appSpec.name}, skipping`);
+        return result;
+      }
+
+      if (localDigest !== remoteResult.digest) {
+        log.info(`Update available for ${appSpec.name}: ${localDigest} -> ${remoteResult.digest}`);
         result.needsUpdate = true;
         result.components.push({
           name: appSpec.name,
           repotag: appSpec.repotag,
           localDigest,
-          remoteDigest,
+          remoteDigest: remoteResult.digest,
         });
       }
 
@@ -257,27 +269,32 @@ async function checkAppForUpdates(appSpec) {
       }
 
       // eslint-disable-next-line no-await-in-loop
-      const remoteDigest = await getRemoteManifestDigest(
+      const remoteResult = await getRemoteManifestDigest(
         component.repotag,
         component.repoauth || null,
         appSpec.version,
         appSpec.name,
       );
 
-      if (!remoteDigest) {
-        log.debug(`Could not get remote digest for ${appSpec.name}/${component.name}, skipping component`);
+      if (remoteResult.error === 'rate_limited') {
+        result.rateLimited = true;
+        return result;
+      }
+
+      if (!remoteResult.digest) {
+        log.warn(`Could not get remote digest for ${appSpec.name}/${component.name}, skipping component`);
         // eslint-disable-next-line no-continue
         continue;
       }
 
-      if (localDigest !== remoteDigest) {
-        log.info(`Update available for ${appSpec.name}/${component.name}: ${localDigest} -> ${remoteDigest}`);
+      if (localDigest !== remoteResult.digest) {
+        log.info(`Update available for ${appSpec.name}/${component.name}: ${localDigest} -> ${remoteResult.digest}`);
         result.needsUpdate = true;
         result.components.push({
           name: component.name,
           repotag: component.repotag,
           localDigest,
-          remoteDigest,
+          remoteDigest: remoteResult.digest,
         });
       }
 
@@ -288,9 +305,6 @@ async function checkAppForUpdates(appSpec) {
 
     return result;
   } catch (error) {
-    if (error.message === 'RATE_LIMITED') {
-      throw error;
-    }
     log.warn(`Error checking updates for ${appSpec.name}: ${error.message}`);
     return result;
   }
@@ -304,12 +318,7 @@ async function checkAppForUpdates(appSpec) {
 async function triggerAppUpdate(appSpec) {
   try {
     // Double-check globalState flags before triggering
-    if (
-      globalState.removalInProgress
-      || globalState.installationInProgress
-      || globalState.softRedeployInProgress
-      || globalState.hardRedeployInProgress
-    ) {
+    if (isOperationInProgress()) {
       log.warn(`Skipping redeploy for ${appSpec.name}: another operation in progress`);
       return false;
     }
@@ -334,12 +343,7 @@ async function checkForImageUpdates() {
   log.info('Starting image update check cycle');
 
   // Check if any operation is in progress
-  if (
-    globalState.removalInProgress
-    || globalState.installationInProgress
-    || globalState.softRedeployInProgress
-    || globalState.hardRedeployInProgress
-  ) {
+  if (isOperationInProgress()) {
     log.info('Skipping image update check: another operation in progress');
     return;
   }
@@ -362,12 +366,7 @@ async function checkForImageUpdates() {
     // eslint-disable-next-line no-restricted-syntax
     for (const appSpec of apps) {
       // Re-check flags before each app
-      if (
-        globalState.removalInProgress
-        || globalState.installationInProgress
-        || globalState.softRedeployInProgress
-        || globalState.hardRedeployInProgress
-      ) {
+      if (isOperationInProgress()) {
         log.info('Aborting image update check: operation started');
         break;
       }
@@ -377,6 +376,11 @@ async function checkForImageUpdates() {
 
         // eslint-disable-next-line no-await-in-loop
         const updateStatus = await checkAppForUpdates(appSpec);
+
+        if (updateStatus.rateLimited) {
+          log.warn('Rate limited by registry, aborting remaining checks this cycle');
+          break;
+        }
 
         if (updateStatus.needsUpdate) {
           // eslint-disable-next-line no-await-in-loop
@@ -393,10 +397,6 @@ async function checkForImageUpdates() {
         // eslint-disable-next-line no-await-in-loop
         await serviceHelper.delay(DELAY_BETWEEN_APPS);
       } catch (error) {
-        if (error.message === 'RATE_LIMITED') {
-          log.warn('Rate limited by registry, aborting remaining checks this cycle');
-          break;
-        }
         log.warn(`Error checking app ${appSpec.name}: ${error.message}`);
       }
     }
@@ -409,7 +409,8 @@ async function checkForImageUpdates() {
 
 /**
  * Starts the image update service.
- * Sets up the periodic check interval.
+ * Sets up the periodic check interval with staggered startup to prevent
+ * synchronized checks across nodes.
  */
 function startImageUpdateService() {
   log.info('Starting native image update service');
@@ -419,16 +420,24 @@ function startImageUpdateService() {
     clearInterval(checkIntervalTimer);
   }
 
-  // Set up periodic check
-  checkIntervalTimer = setInterval(checkForImageUpdates, CHECK_INTERVAL);
+  // Calculate random initial delay between 10-30 minutes
+  // This prevents all nodes from hitting registries at the same time
+  const initialDelay = INITIAL_DELAY_MIN + Math.floor(Math.random() * (INITIAL_DELAY_MAX - INITIAL_DELAY_MIN));
+  const initialDelayMinutes = Math.round(initialDelay / 1000 / 60);
 
-  // Run initial check after a delay
-  setTimeout(() => {
+  log.info(`Image update service will run first check in ${initialDelayMinutes} minutes`);
+
+  // Run initial check after random delay, then start the regular interval
+  setTimeout(async () => {
     log.info('Running initial image update check');
-    checkForImageUpdates();
-  }, INITIAL_DELAY);
+    await checkForImageUpdates();
 
-  log.info(`Image update service started. Check interval: ${CHECK_INTERVAL / 1000 / 60 / 60} hours`);
+    // Start the regular interval after the first check completes
+    checkIntervalTimer = setInterval(checkForImageUpdates, CHECK_INTERVAL);
+    log.info(`Image update service interval started. Check interval: ${CHECK_INTERVAL / 1000 / 60 / 60} hours`);
+  }, initialDelay);
+
+  log.info('Image update service started');
 }
 
 /**
@@ -453,4 +462,5 @@ module.exports = {
   getRemoteManifestDigest,
   checkAppForUpdates,
   triggerAppUpdate,
+  isOperationInProgress,
 };
