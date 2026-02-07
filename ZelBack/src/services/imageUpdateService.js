@@ -22,8 +22,9 @@ const DELAY_AFTER_REDEPLOY = 2 * 60 * 1000; // 2 minutes after redeploy
 const INITIAL_DELAY_MIN = 10 * 60 * 1000; // 10 minutes minimum initial delay
 const INITIAL_DELAY_MAX = 30 * 60 * 1000; // 30 minutes maximum initial delay
 
-// Track the interval timer
+// Track the timers
 let checkIntervalTimer = null;
+let initialDelayTimer = null;
 
 /**
  * Checks if any app operation is currently in progress.
@@ -428,7 +429,8 @@ function startImageUpdateService() {
   log.info(`Image update service will run first check in ${initialDelayMinutes} minutes`);
 
   // Run initial check after random delay, then start the regular interval
-  setTimeout(async () => {
+  initialDelayTimer = setTimeout(async () => {
+    initialDelayTimer = null;
     log.info('Running initial image update check');
     await checkForImageUpdates();
 
@@ -445,11 +447,15 @@ function startImageUpdateService() {
  * Clears the periodic check interval.
  */
 function stopImageUpdateService() {
+  if (initialDelayTimer) {
+    clearTimeout(initialDelayTimer);
+    initialDelayTimer = null;
+  }
   if (checkIntervalTimer) {
     clearInterval(checkIntervalTimer);
     checkIntervalTimer = null;
-    log.info('Image update service stopped');
   }
+  log.info('Image update service stopped');
 }
 
 module.exports = {
