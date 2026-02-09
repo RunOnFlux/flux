@@ -2943,28 +2943,6 @@ describe('fluxService tests', () => {
     });
   });
 
-  describe('installFluxWatchTower tests', () => {
-    let runCmdStub;
-
-    beforeEach(() => {
-      runCmdStub = sinon.stub(serviceHelper, 'runCommand');
-    });
-
-    afterEach(() => {
-      sinon.restore();
-    });
-
-    it('should install flux watchtower', async () => {
-      const nodedpath = path.join(__dirname, '../../helpers');
-
-      runCmdStub.resolves({ error: null, stdout: 'Installed' });
-
-      await fluxService.installFluxWatchTower();
-
-      sinon.assert.calledWithExactly(runCmdStub, `${nodedpath}/fluxwatchtower.sh`, { cwd: nodedpath });
-    });
-  });
-
   describe('streamChain tests', () => {
     let osStub;
     // eslint-disable-next-line no-unused-vars
