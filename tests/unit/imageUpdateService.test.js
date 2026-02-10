@@ -16,6 +16,7 @@ const dockerServiceStub = {
 
 const appQueryServiceStub = {
   installedApps: sinon.stub(),
+  decryptEnterpriseApps: sinon.stub(),
 };
 
 const advancedWorkflowsStub = {
@@ -89,6 +90,9 @@ describe('imageUpdateService tests', () => {
     dockerServiceStub.getAppIdentifier.reset();
 
     appQueryServiceStub.installedApps.reset();
+    appQueryServiceStub.decryptEnterpriseApps.reset();
+    // Configure decryptEnterpriseApps to pass through apps unchanged by default
+    appQueryServiceStub.decryptEnterpriseApps.callsFake(async (apps) => apps);
 
     advancedWorkflowsStub.softRedeploy.reset();
 
@@ -267,7 +271,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.getRemoteManifestDigest('nginx:latest', null, 4, 'testApp');
 
-      expect(result).to.equal('sha256:remote123');
+      expect(result).to.deep.equal({ error: null, digest: 'sha256:remote123' });
     });
 
     it('should return null when image tag parse fails', async () => {
@@ -276,7 +280,7 @@ describe('imageUpdateService tests', () => {
 
       const result = await imageUpdateService.getRemoteManifestDigest('invalid tag', null, 4, 'testApp');
 
-      expect(result).to.equal(null);
+      expect(result).to.deep.equal({ error: 'parse_error', digest: null });
     });
 
     it('should get credentials for authenticated repos', async () => {
@@ -293,7 +297,7 @@ describe('imageUpdateService tests', () => {
         'privateApp',
       );
 
-      expect(result).to.equal('sha256:auth123');
+      expect(result).to.deep.equal({ error: null, digest: 'sha256:auth123' });
       sinon.assert.calledOnce(registryCredentialHelperStub.getCredentials);
       sinon.assert.calledWith(
         registryCredentialHelperStub.getCredentials,
@@ -314,7 +318,7 @@ describe('imageUpdateService tests', () => {
         'privateApp',
       );
 
-      expect(result).to.equal(null);
+      expect(result).to.deep.equal({ error: 'credentials_failed', digest: null });
     });
   });
 
@@ -600,11 +604,12 @@ describe('imageUpdateService tests', () => {
 
       imageUpdateService.startImageUpdateService();
 
-      // Initial delay is 10 minutes (600000ms)
-      await clock.tickAsync(10 * 60 * 1000);
+      // Initial delay is random between 10-30 minutes, so advance by 30 minutes to ensure callback runs
+      await clock.tickAsync(30 * 60 * 1000);
 
       sinon.assert.calledWith(logStub.info, 'Running initial image update check');
       sinon.assert.calledOnce(appQueryServiceStub.installedApps);
+      sinon.assert.calledOnce(appQueryServiceStub.decryptEnterpriseApps);
     });
 
     it('should stop the service and clear interval', () => {
