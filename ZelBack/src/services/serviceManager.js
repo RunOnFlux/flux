@@ -48,6 +48,7 @@ const fluxNodeService = require('./fluxNodeService');
 const volumeValidationService = require('./volumeValidationService');
 const watchdogService = require('./watchdogService');
 const cloudUIUpdateService = require('./cloudUIUpdateService');
+const imageUpdateService = require('./imageUpdateService');
 // const throughputLogger = require('./utils/throughputLogger');
 
 // Initialize globalState caches with cacheManager
@@ -240,7 +241,13 @@ async function startFluxFunctions() {
     log.info('Connections polling prepared');
     daemonServiceMiscRpcs.daemonBlockchainInfoService();
     log.info('Flux Daemon Info Service Started');
-    fluxService.installFluxWatchTower();
+    // Remove existing watchtower container (replaced by native image update service)
+    imageUpdateService.removeWatchtowerContainer();
+    // Start native image update service (delayed start)
+    setTimeout(() => {
+      imageUpdateService.startImageUpdateService();
+      log.info('Native image update service started');
+    }, 10 * 60 * 1000); // 10 minutes after startup
     fluxNetworkHelper.checkDeterministicNodesCollisions();
     log.info('Flux checks operational');
     fluxCommunication.fluxDiscovery();

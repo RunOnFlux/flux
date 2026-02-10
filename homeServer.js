@@ -24,12 +24,6 @@ homeApp.get('/health', (req, res) => {
   res.send('OK');
 });
 
-// Robots.txt endpoint
-homeApp.get('/robots.txt', (req, res) => {
-  res.type('text/plain');
-  res.send('User-agent: *\nDisallow: /');
-});
-
 // Serve static files from CloudUI
 homeApp.use(express.static(cloudUI));
 

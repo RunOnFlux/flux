@@ -551,6 +551,28 @@ class ImageVerifier {
   }
 
   /**
+   * Performs a HEAD request to get the manifest digest without downloading the full manifest.
+   * @returns {Promise<string|null>} Docker-Content-Digest header value (sha256:xxx) or null on error
+   */
+  async fetchManifestDigestOnly() {
+    if (this.error) return null;
+
+    const manifestEndpoint = this.namespace
+      ? `${this.namespace}/${this.repository}/manifests/${this.tag}`
+      : `${this.repository}/manifests/${this.tag}`;
+
+    const response = await this.#axiosInstance
+      .head(manifestEndpoint)
+      .catch((error) => this.#handleAxiosError(manifestEndpoint, error));
+
+    if (!response || !response.headers) return null;
+
+    // Docker-Content-Digest header contains the digest in format sha256:xxx
+    const digest = response.headers['docker-content-digest'];
+    return digest || null;
+  }
+
+  /**
    * Adds credentials to the verifier.
    * @param {string|object} credentials - Either "username:password" string or {username, password} object
    */

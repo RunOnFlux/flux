@@ -861,7 +861,7 @@ async function benchmarkDebug(req, res) {
     return res.json(errMessage);
   }
   const homeDirPath = path.join(__dirname, '../../../../');
-  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+  const newBenchmarkPath = process.env.FLUXBENCH_PATH || path.join(homeDirPath, '.fluxbenchmark');
 
   const datadir = await fs
     .access(newBenchmarkPath, fs.constants.F_OK)
@@ -918,7 +918,7 @@ async function tailBenchmarkDebug(req, res) {
   }
 
   const homeDirPath = path.join(__dirname, '../../../../');
-  const newBenchmarkPath = path.join(homeDirPath, '.fluxbenchmark');
+  const newBenchmarkPath = process.env.FLUXBENCH_PATH || path.join(homeDirPath, '.fluxbenchmark');
 
   const datadir = await fs
     .access(newBenchmarkPath, fs.constants.F_OK)
@@ -1679,24 +1679,6 @@ async function getNodeTier(req, res) {
 }
 
 /**
- * To install Flux Watch Tower (executes the command `bash fluxwatchtower.sh` in the relevent directory on the node machine).
- */
-async function installFluxWatchTower() {
-  const cwd = path.join(__dirname, '../../../helpers');
-  const scriptPath = path.join(cwd, 'fluxwatchtower.sh');
-
-  const { stdout, error } = await serviceHelper.runCommand(scriptPath, { cwd });
-
-  if (error) return;
-
-  const lines = stdout.split('\n');
-  // this always has length
-  if (lines.slice(-1)[0] === '') lines.pop();
-
-  lines.forEach((line) => log.info(line));
-}
-
-/**
  * Restart FluxOS via nodemon (executes the command `touch ` on package.json).
  * @param {object} req Request.
  * @param {object} res Response.
@@ -2167,7 +2149,6 @@ module.exports = {
   getNodeTier,
   getRouterIP,
   hardUpdateFlux,
-  installFluxWatchTower,
   isStaticIPapi,
   rebuildHome,
   reindexDaemon,
