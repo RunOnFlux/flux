@@ -688,6 +688,8 @@ async function monitorSystem() {
     setImmediate(() => monitorSyncthingPackage());
     // eslint-disable-next-line no-use-before-define
     setImmediate(() => ensureChronyd());
+    // eslint-disable-next-line no-use-before-define
+    setImmediate(() => ensureTcconfig());
   } catch (error) {
     log.error(error);
   }
@@ -1079,6 +1081,72 @@ async function ensureChronyd() {
   }
 }
 
+/**
+ * Ensures tcconfig (tcset/tcdel) is installed for bandwidth throttling.
+ * On ArcaneOS this is already available, so we skip.
+ * On non-ArcaneOS (Ubuntu/Debian) we check for the tcset binary
+ * and install via pip3 if missing.
+ * @returns {Promise<boolean>} True if tcconfig is available
+ */
+async function ensureTcconfig() {
+  if (isArcane) return true;
+
+  try {
+    // Check if tcset is already available
+    const { error: tcsetCheck } = await serviceHelper.runCommand('tcset', {
+      logError: false,
+      params: ['--version'],
+    });
+
+    if (!tcsetCheck) {
+      log.info('tcconfig already installed');
+      return true;
+    }
+
+    log.info('tcconfig not found, installing...');
+
+    // Ensure python3-pip is installed via apt (needed for pip3 command)
+    const pipVersion = await getPackageVersion('python3-pip');
+    if (!pipVersion) {
+      log.info('python3-pip not found, installing via apt...');
+      await updateAptCache();
+      const { error: aptError } = await queueAptGetCommand('install', {
+        wait: true,
+        params: ['python3-pip'],
+      });
+      if (aptError) {
+        log.error('Failed to install python3-pip via apt');
+        return false;
+      }
+    }
+
+    // Install tcconfig via pip3
+    // --break-system-packages is needed on Ubuntu 23.04+ / Debian 12+ (PEP 668)
+    const { error: pipError } = await serviceHelper.runCommand('pip3', {
+      runAsRoot: true,
+      params: ['install', '--break-system-packages', 'tcconfig'],
+    });
+
+    if (pipError) {
+      // Retry without --break-system-packages for older systems that don't recognize the flag
+      const { error: pipRetryError } = await serviceHelper.runCommand('pip3', {
+        runAsRoot: true,
+        params: ['install', 'tcconfig'],
+      });
+      if (pipRetryError) {
+        log.error(`Failed to install tcconfig via pip3: ${pipRetryError.message}`);
+        return false;
+      }
+    }
+
+    log.info('tcconfig installed successfully');
+    return true;
+  } catch (error) {
+    log.error(`Error ensuring tcconfig: ${error.message}`);
+    return false;
+  }
+}
+
 module.exports = {
   monitorSystem,
   // testing exports
@@ -1090,6 +1158,7 @@ module.exports = {
   enableFluxdZmq,
   ensureChronyd,
   ensurePackageVersion,
+  ensureTcconfig,
   getPackageVersion,
   getQueue,
   monitorAptCache,
