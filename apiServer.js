@@ -431,10 +431,12 @@ async function handleSigterm() {
   // Gracefully stop all running Flux app containers
   try {
     let containers = await dockerService.dockerListContainers(false);
+    containers = containers || [];
     containers = containers.filter((c) => c.Names[0].slice(1, 4) === 'zel' || c.Names[0].slice(1, 5) === 'flux');
 
     if (containers.length > 0) {
       log.info(`Gracefully stopping ${containers.length} Flux app containers...`);
+      let stoppedCount = 0;
       // eslint-disable-next-line no-restricted-syntax
       for (const container of containers) {
         const containerName = container.Names[0].slice(1);
@@ -442,11 +444,12 @@ async function handleSigterm() {
           // eslint-disable-next-line no-await-in-loop
           await dockerService.appDockerStop(containerName);
           log.info(`Container ${containerName} stopped`);
+          stoppedCount += 1;
         } catch (err) {
           log.warn(`Failed to stop container ${containerName}: ${err.message}`);
         }
       }
-      log.info('All Flux app containers stopped');
+      log.info(`Stopped ${stoppedCount}/${containers.length} Flux app containers`);
     } else {
       log.info('No running Flux app containers to stop');
     }
