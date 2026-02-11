@@ -58,19 +58,19 @@ async function appHasValidLocationOnNode(appName, myIp) {
     const db = dbHelper.databaseConnection();
     const database = db.db(config.database.appsglobal.database);
     const query = { name: appName, ip: myIp };
-    const projection = { _id: 0, broadcastedAt: 1 };
+    const projection = { _id: 0, expireAt: 1 };
     const records = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
 
     if (!records || records.length === 0) {
       return false;
     }
 
-    // Double-check expiration in case MongoDB TTL cleanup hasn't run yet
+    // Check expireAt directly - this field is kept in sync when broadcastedAt
+    // is manipulated during sigterm handling (both locally and on peers)
     const now = Date.now();
-    const ttlSeconds = 7500;
     return records.some((record) => {
-      const expiresAt = new Date(record.broadcastedAt).getTime() + (ttlSeconds * 1000);
-      return expiresAt > now;
+      if (!record.expireAt) return false;
+      return new Date(record.expireAt).getTime() > now;
     });
   } catch (error) {
     log.error(`stoppedAppsRecovery - Error checking app location for ${appName}: ${error.message}`);

@@ -69,9 +69,9 @@ describe('stoppedAppsRecovery tests', () => {
   });
 
   describe('appHasValidLocationOnNode', () => {
-    it('should return true when a non-expired location record exists', async () => {
-      const broadcastedAt = new Date(Date.now() - (60 * 1000)); // 1 minute ago
-      dbHelperStub.findInDatabase.resolves([{ broadcastedAt }]);
+    it('should return true when expireAt is in the future', async () => {
+      const expireAt = new Date(Date.now() + (60 * 1000)); // 1 minute from now
+      dbHelperStub.findInDatabase.resolves([{ expireAt }]);
 
       const result = await stoppedAppsRecovery.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
@@ -94,10 +94,9 @@ describe('stoppedAppsRecovery tests', () => {
       expect(result).to.equal(false);
     });
 
-    it('should return false when the location record has expired', async () => {
-      // broadcastedAt more than 7500 seconds ago → expired
-      const broadcastedAt = new Date(Date.now() - (8000 * 1000));
-      dbHelperStub.findInDatabase.resolves([{ broadcastedAt }]);
+    it('should return false when expireAt is in the past', async () => {
+      const expireAt = new Date(Date.now() - (60 * 1000)); // 1 minute ago
+      dbHelperStub.findInDatabase.resolves([{ expireAt }]);
 
       const result = await stoppedAppsRecovery.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
@@ -105,11 +104,11 @@ describe('stoppedAppsRecovery tests', () => {
     });
 
     it('should return true if at least one record is still valid among mixed records', async () => {
-      const expiredBroadcast = new Date(Date.now() - (8000 * 1000));
-      const validBroadcast = new Date(Date.now() - (60 * 1000));
+      const expiredRecord = new Date(Date.now() - (60 * 1000));
+      const validRecord = new Date(Date.now() + (300 * 1000));
       dbHelperStub.findInDatabase.resolves([
-        { broadcastedAt: expiredBroadcast },
-        { broadcastedAt: validBroadcast },
+        { expireAt: expiredRecord },
+        { expireAt: validRecord },
       ]);
 
       const result = await stoppedAppsRecovery.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
@@ -134,23 +133,21 @@ describe('stoppedAppsRecovery tests', () => {
       expect(query).to.deep.equal({ name: 'testApp', ip: '192.168.1.1:16127' });
     });
 
-    it('should return false when record is exactly at TTL boundary (7500s old)', async () => {
-      // Exactly 7500 seconds ago - should be expired
-      const broadcastedAt = new Date(Date.now() - (7500 * 1000));
-      dbHelperStub.findInDatabase.resolves([{ broadcastedAt }]);
+    it('should project only the expireAt field', async () => {
+      dbHelperStub.findInDatabase.resolves([]);
+
+      await stoppedAppsRecovery.appHasValidLocationOnNode('testApp', '10.0.0.1:16127');
+
+      const projection = dbHelperStub.findInDatabase.firstCall.args[3];
+      expect(projection).to.deep.equal({ _id: 0, expireAt: 1 });
+    });
+
+    it('should return false when expireAt field is missing from record', async () => {
+      dbHelperStub.findInDatabase.resolves([{ broadcastedAt: new Date() }]);
 
       const result = await stoppedAppsRecovery.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
 
       expect(result).to.equal(false);
-    });
-
-    it('should return true when record is just under TTL (7499s old)', async () => {
-      const broadcastedAt = new Date(Date.now() - (7499 * 1000));
-      dbHelperStub.findInDatabase.resolves([{ broadcastedAt }]);
-
-      const result = await stoppedAppsRecovery.appHasValidLocationOnNode('myApp', '10.0.0.1:16127');
-
-      expect(result).to.equal(true);
     });
   });
 
@@ -181,16 +178,16 @@ describe('stoppedAppsRecovery tests', () => {
       fluxNetworkHelperStub.getMyFluxIPandPort.resolves('10.0.0.1:16127');
     });
 
-    it('should start app when location record is valid', async () => {
+    it('should start app when location record has not expired', async () => {
       // Only one stopped container
       dockerServiceStub.dockerListContainers.resolves([
         { Names: ['/fluxAppA'], State: 'exited' },
       ]);
       dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AppA' }]);
 
-      // Valid location record (recent broadcastedAt)
-      const recentBroadcast = new Date(Date.now() - (60 * 1000));
-      dbHelperStub.findInDatabase.onSecondCall().resolves([{ broadcastedAt: recentBroadcast }]);
+      // Valid location record (expireAt in the future)
+      const futureExpiry = new Date(Date.now() + (300 * 1000));
+      dbHelperStub.findInDatabase.onSecondCall().resolves([{ expireAt: futureExpiry }]);
 
       const results = await stoppedAppsRecovery.startStoppedAppsOnBoot();
 
@@ -205,9 +202,9 @@ describe('stoppedAppsRecovery tests', () => {
       ]);
       dbHelperStub.findInDatabase.onFirstCall().resolves([{ name: 'AppA' }]);
 
-      // Expired location record (more than 7500s ago)
-      const oldBroadcast = new Date(Date.now() - (8000 * 1000));
-      dbHelperStub.findInDatabase.onSecondCall().resolves([{ broadcastedAt: oldBroadcast }]);
+      // Expired location record (expireAt in the past)
+      const pastExpiry = new Date(Date.now() - (60 * 1000));
+      dbHelperStub.findInDatabase.onSecondCall().resolves([{ expireAt: pastExpiry }]);
 
       const results = await stoppedAppsRecovery.startStoppedAppsOnBoot();
 
@@ -257,13 +254,13 @@ describe('stoppedAppsRecovery tests', () => {
         { name: 'AppB' },
       ]);
 
-      // AppA has valid location
-      const recentBroadcast = new Date(Date.now() - (60 * 1000));
-      dbHelperStub.findInDatabase.onSecondCall().resolves([{ broadcastedAt: recentBroadcast }]);
+      // AppA has valid location (expireAt in the future)
+      const futureExpiry = new Date(Date.now() + (300 * 1000));
+      dbHelperStub.findInDatabase.onSecondCall().resolves([{ expireAt: futureExpiry }]);
 
-      // AppB has expired location
-      const oldBroadcast = new Date(Date.now() - (8000 * 1000));
-      dbHelperStub.findInDatabase.onThirdCall().resolves([{ broadcastedAt: oldBroadcast }]);
+      // AppB has expired location (expireAt in the past)
+      const pastExpiry = new Date(Date.now() - (60 * 1000));
+      dbHelperStub.findInDatabase.onThirdCall().resolves([{ expireAt: pastExpiry }]);
 
       const results = await stoppedAppsRecovery.startStoppedAppsOnBoot();
 

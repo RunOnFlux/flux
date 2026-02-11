@@ -28,6 +28,7 @@ const globalState = require('./ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
 const dockerService = require('./ZelBack/src/services/dockerService');
+const dbHelper = require('./ZelBack/src/services/dbHelper');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -398,6 +399,23 @@ async function handleSigterm() {
         await fluxCommunicationMessagesSender.broadcastMessageToOutgoing(sigtermMessage);
         await serviceHelper.delay(500);
         await fluxCommunicationMessagesSender.broadcastMessageToIncoming(sigtermMessage);
+
+        // Update local DB to expire app location records in ~7 minutes,
+        // same manipulation that peers apply when receiving the sigterm.
+        // This keeps the local DB consistent with the network so that on
+        // reboot the TTL check correctly detects expired locations.
+        try {
+          const db = dbHelper.databaseConnection();
+          const database = db.db(config.database.appsglobal.database);
+          const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+          const newBroadcastedAt = new Date(sigtermMessage.broadcastedAt - (7500 - 420) * 1000);
+          const newExpireAt = new Date(sigtermMessage.broadcastedAt + (420 * 1000));
+          const update = { $set: { broadcastedAt: newBroadcastedAt, expireAt: newExpireAt } };
+          await dbHelper.updateInDatabase(database, globalAppsLocations, { ip }, update);
+          log.info('Local app location records updated to expire in ~7 minutes');
+        } catch (dbError) {
+          log.warn(`Failed to update local app location expiration: ${dbError.message}`);
+        }
 
         log.info('Shutdown notification broadcasted successfully');
       } else {
