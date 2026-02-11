@@ -59,15 +59,19 @@ function getInstalledAppsForDocker() {
 }
 
 // Get installed apps from database
-async function getInstalledAppsFromDb() {
+async function getInstalledAppsFromDb(options = {}) {
   try {
+    const { decryptApps = false } = options;
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {};
     const appsProjection = {
       projection: { _id: 0 },
     };
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    let apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    if (decryptApps) {
+      apps = await decryptEnterpriseApps(apps);
+    }
     return messageHelper.createDataMessage(apps);
   } catch (error) {
     log.error(error);
@@ -77,6 +81,68 @@ async function getInstalledAppsFromDb() {
       error.code,
     );
   }
+}
+
+/**
+ * Ensures that v8+ specs have a compose array.
+ * @param {object} appSpecification - App specification.
+ * @param {string} context - Calling context.
+ */
+function assertV8ComposeArray(appSpecification, context) {
+  if (appSpecification.version >= 8 && !Array.isArray(appSpecification.compose)) {
+    throw new Error(`${context}: Invalid compose for v${appSpecification.version} app ${appSpecification.name}`);
+  }
+}
+
+/**
+ * Resolves installed app specs for v8 component structure comparison.
+ * @param {object} appSpecifications - New app specifications.
+ * @param {object} installedApp - Installed app from local DB.
+ * @param {string} context - Calling context.
+ * @returns {Promise<object|null>} Comparable installed app or null.
+ */
+async function resolveInstalledAppForStructureComparison(appSpecifications, installedApp, context) {
+  if (!installedApp || appSpecifications.version < 8 || installedApp.version < 8) {
+    return null;
+  }
+
+  assertV8ComposeArray(appSpecifications, context);
+
+  // Enterprise app specs cannot be decrypted on non-arcane nodes. Skip comparison there.
+  if ((appSpecifications.enterprise || installedApp.enterprise) && !isArcane) {
+    log.warn(`${context}: Skipping component structure comparison for enterprise app ${appSpecifications.name} on non-arcane node.`);
+    return null;
+  }
+
+  let installedAppForComparison = installedApp;
+  if (installedAppForComparison.enterprise) {
+    const decryptedList = await decryptEnterpriseApps([installedAppForComparison]);
+    installedAppForComparison = decryptedList[0] || installedAppForComparison;
+  }
+
+  if (!Array.isArray(installedAppForComparison.compose) || installedAppForComparison.compose.length === 0) {
+    log.warn(`${context}: Skipping component structure comparison for ${appSpecifications.name}; installed compose is unavailable.`);
+    return null;
+  }
+
+  return installedAppForComparison;
+}
+
+/**
+ * Checks if v8 component structure changed (count or names).
+ * @param {object} appSpecifications - New app specifications.
+ * @param {object} installedApp - Installed app specifications.
+ * @returns {boolean} True when structure changed.
+ */
+function hasV8ComponentStructureChange(appSpecifications, installedApp) {
+  const componentCountChanged = appSpecifications.compose.length !== installedApp.compose.length;
+  const oldNames = new Set(installedApp.compose.map((component) => component && component.name).filter(Boolean));
+  const componentNamesChanged = !appSpecifications.compose
+    .map((component) => component && component.name)
+    .filter(Boolean)
+    .every((name) => oldNames.has(name));
+
+  return componentCountChanged || componentNamesChanged;
 }
 
 // Get strict application specifications
@@ -1325,54 +1391,31 @@ async function softRedeploy(appSpecs, res) {
     }
 
     // Check if component structure changed for version 8+ apps.
-    // For enterprise apps, compose is redacted in local DB (compose: []) so we must decrypt before comparing.
-    // If we cannot safely compare, do not escalate to hard redeploy (data-destructive path).
-    if (appSpecs.version >= 8 && Array.isArray(appSpecs.compose)) {
+    if (appSpecs.version >= 8) {
       const installedAppsRes = await getInstalledAppsFromDb();
       if (installedAppsRes.status === 'success') {
-        let installedApp = installedAppsRes.data.find((app) => app.name === appSpecs.name);
-        if (installedApp && installedApp.version >= 8) {
-          // If compose is missing/redacted for an enterprise app, decrypt it before comparing.
-          if (installedApp.enterprise && (!Array.isArray(installedApp.compose) || installedApp.compose.length === 0)) {
-            try {
-              // Use cached decrypt path used elsewhere in the codebase.
-              // eslint-disable-next-line no-await-in-loop
-              const decryptedList = await decryptEnterpriseApps([installedApp]);
-              installedApp = decryptedList[0] || installedApp;
-            } catch (e) {
-              log.warn(`softRedeploy: Unable to decrypt installed enterprise specs for ${installedApp.name}; skipping component structure comparison. ${e.message}`);
-              installedApp = null;
-            }
-          }
+        const installedApp = installedAppsRes.data.find((app) => app.name === appSpecs.name);
+        const installedAppForComparison = await resolveInstalledAppForStructureComparison(
+          appSpecs,
+          installedApp,
+          'softRedeploy',
+        );
 
-          if (!installedApp || !Array.isArray(installedApp.compose) || installedApp.compose.length === 0) {
-            // We cannot safely compare, avoid a destructive hard redeploy escalation.
-          } else {
-            // Check if component structure changed
-            const componentCountChanged = appSpecs.compose.length !== installedApp.compose.length;
-            const oldNames = new Set(installedApp.compose.map((c) => c && c.name).filter(Boolean));
-            const componentNamesChanged = !appSpecs.compose
-              .map((c) => c && c.name)
-              .filter(Boolean)
-              .every((name) => oldNames.has(name));
-
-            if (componentCountChanged || componentNamesChanged) {
-              log.warn(`Soft redeploy requested for ${appSpecs.name}, but component structure changed.`);
-              log.warn(`Component count: ${installedApp.compose.length} -> ${appSpecs.compose.length}`);
-              log.warn('Automatically escalating to hard redeploy for component structure safety.');
-              const escalationMessage = messageHelper.createWarningMessage(
-                `Component structure changed for v${appSpecs.version} app. Escalating to hard redeploy for safety.`,
-              );
-              if (res) {
-                res.write(serviceHelper.ensureString(escalationMessage));
-                if (res.flush) res.flush();
-              }
-              // Call hardRedeploy instead
-              // eslint-disable-next-line no-use-before-define
-              await hardRedeploy(appSpecs, res);
-              return;
-            }
+        if (installedAppForComparison && hasV8ComponentStructureChange(appSpecs, installedAppForComparison)) {
+          log.warn(`Soft redeploy requested for ${appSpecs.name}, but component structure changed.`);
+          log.warn(`Component count: ${installedAppForComparison.compose.length} -> ${appSpecs.compose.length}`);
+          log.warn('Automatically escalating to hard redeploy for component structure safety.');
+          const escalationMessage = messageHelper.createWarningMessage(
+            `Component structure changed for v${appSpecs.version} app. Escalating to hard redeploy for safety.`,
+          );
+          if (res) {
+            res.write(serviceHelper.ensureString(escalationMessage));
+            if (res.flush) res.flush();
           }
+          // Call hardRedeploy instead
+          // eslint-disable-next-line no-use-before-define
+          await hardRedeploy(appSpecs, res);
+          return;
         }
       }
     }
@@ -3374,36 +3417,15 @@ async function reinstallOldApplications() {
             const appInstaller = require('./appInstaller');
 
             // Check if component structure changed (count or names) for version 8+ apps.
-            // For enterprise apps, compose is redacted in local DB (compose: []) so we must decrypt before comparing.
-            let installedAppForComparison = installedApp;
-            if (appSpecifications.version >= 8
-              && installedAppForComparison.enterprise
-              && (!Array.isArray(installedAppForComparison.compose) || installedAppForComparison.compose.length === 0)) {
-              try {
-                // eslint-disable-next-line no-await-in-loop
-                const decryptedList = await decryptEnterpriseApps([installedAppForComparison]);
-                installedAppForComparison = decryptedList[0] || installedAppForComparison;
-              } catch (e) {
-                log.warn(`reinstallOldApplications: Unable to decrypt installed enterprise specs for ${installedAppForComparison.name}; skipping component structure comparison. ${e.message}`);
-                installedAppForComparison = null;
-              }
-            }
-
-            let hasComponentStructureChange = false;
-            if (appSpecifications.version >= 8
-              && Array.isArray(appSpecifications.compose)
-              && installedAppForComparison
-              && Array.isArray(installedAppForComparison.compose)
-              && installedAppForComparison.compose.length > 0) {
-              const componentCountChanged = appSpecifications.compose.length !== installedAppForComparison.compose.length;
-              const oldNames = new Set(installedAppForComparison.compose.map((c) => c && c.name).filter(Boolean));
-              const componentNamesChanged = !appSpecifications.compose
-                .map((c) => c && c.name)
-                .filter(Boolean)
-                .every((name) => oldNames.has(name));
-
-              hasComponentStructureChange = componentCountChanged || componentNamesChanged;
-            }
+            // eslint-disable-next-line no-await-in-loop
+            const installedAppForComparison = await resolveInstalledAppForStructureComparison(
+              appSpecifications,
+              installedApp,
+              'reinstallOldApplications',
+            );
+            const hasComponentStructureChange = Boolean(
+              installedAppForComparison && hasV8ComponentStructureChange(appSpecifications, installedAppForComparison),
+            );
 
             // For version 8+ apps with component structure changes, force full hard redeploy
             if (appSpecifications.version >= 8 && hasComponentStructureChange) {

@@ -1687,15 +1687,12 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
       sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
-      // Stub serviceHelper.delay so softRedeploy doesn't wait
-      // eslint-disable-next-line global-require
-      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-      sinon.stub(serviceHelper, 'delay').resolves();
-
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
       // eslint-disable-next-line global-require
       const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+
+      const clock = sinon.useFakeTimers();
 
       const res = {
         write: sinon.stub(),
@@ -1703,7 +1700,9 @@ describe('advancedWorkflows tests', () => {
         end: sinon.stub(),
       };
 
-      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+      const softRedeployPromise = advancedWorkflows.softRedeploy(newAppSpecs, res);
+      await clock.tickAsync(31 * 1000);
+      await softRedeployPromise;
 
       expect(findInDatabaseStub.called).to.be.true;
 
@@ -1738,15 +1737,12 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
       sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
-      // Stub serviceHelper.delay so softRedeploy doesn't wait
-      // eslint-disable-next-line global-require
-      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-      sinon.stub(serviceHelper, 'delay').resolves();
-
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
       // eslint-disable-next-line global-require
       const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+
+      const clock = sinon.useFakeTimers();
 
       const res = {
         write: sinon.stub(),
@@ -1754,7 +1750,9 @@ describe('advancedWorkflows tests', () => {
         end: sinon.stub(),
       };
 
-      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+      const softRedeployPromise = advancedWorkflows.softRedeploy(newAppSpecs, res);
+      await clock.tickAsync(31 * 1000);
+      await softRedeployPromise;
 
       // For v4-7 apps, component structure checks are not applicable.
       expect(findInDatabaseStub.called).to.be.false;
@@ -1783,15 +1781,12 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
       sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
-      // Stub serviceHelper.delay so softRedeploy doesn't wait
-      // eslint-disable-next-line global-require
-      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
-      sinon.stub(serviceHelper, 'delay').resolves();
-
       // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
       // eslint-disable-next-line global-require
       const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
       sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+
+      const clock = sinon.useFakeTimers();
 
       const res = {
         write: sinon.stub(),
@@ -1799,7 +1794,9 @@ describe('advancedWorkflows tests', () => {
         end: sinon.stub(),
       };
 
-      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+      const softRedeployPromise = advancedWorkflows.softRedeploy(newAppSpecs, res);
+      await clock.tickAsync(31 * 1000);
+      await softRedeployPromise;
 
       expect(findInDatabaseStub.called).to.be.true;
 
