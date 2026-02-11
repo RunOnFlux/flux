@@ -1687,21 +1687,30 @@ describe('advancedWorkflows tests', () => {
       sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
       sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
 
+      // Stub serviceHelper.delay so softRedeploy doesn't wait
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+
       const res = {
         write: sinon.stub(),
         flush: sinon.stub(),
         end: sinon.stub(),
       };
 
-      // This should proceed with normal soft redeploy, not escalate
-      // We can check that softRedeployInProgress was set to true
       await advancedWorkflows.softRedeploy(newAppSpecs, res);
 
       expect(findInDatabaseStub.called).to.be.true;
 
-      // Check that it proceeded with soft redeploy flow (didn't return early)
-      // by verifying it attempted soft removal
-      // Note: This will fail in actual test because of missing mocks, but shows intent
+      // Should not have written escalation message to response
+      const messages = res.write.getCalls().map(call => call.args[0]);
+      const escalationMessage = messages.find(msg => msg.includes('Component structure changed'));
+      expect(escalationMessage).to.not.exist;
     });
 
     it('should not check component structure for v4-7 apps during soft redeploy', async () => {
@@ -1723,12 +1732,21 @@ describe('advancedWorkflows tests', () => {
         ],
       };
 
-      // Stub dbHelper.findInDatabase to return the installed app
       findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
 
       // Mock other required dependencies
       sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
       sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
+
+      // Stub serviceHelper.delay so softRedeploy doesn't wait
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
 
       const res = {
         write: sinon.stub(),
@@ -1738,9 +1756,56 @@ describe('advancedWorkflows tests', () => {
 
       await advancedWorkflows.softRedeploy(newAppSpecs, res);
 
-      // For v4-7 apps, should still check for component structure but not change behavior
-      // since they can't have component changes anyway (blocked at validation)
+      // For v4-7 apps, component structure checks are not applicable.
+      expect(findInDatabaseStub.called).to.be.false;
+    });
+
+    it('should not escalate to hard redeploy when enterprise compose is redacted in local DB', async () => {
+      const installedApp = {
+        name: 'TestApp',
+        version: 8,
+        enterprise: 'encryptedEnterprisePayload',
+        compose: [], // Redacted in local DB
+        hash: 'testhash',
+      };
+
+      const newAppSpecs = {
+        name: 'TestApp',
+        version: 8,
+        compose: [
+          { name: 'frontend', repotag: 'repo/frontend:2.0' },
+          { name: 'backend', repotag: 'repo/backend:2.0' },
+        ],
+      };
+
+      findInDatabaseStub = sinon.stub(dbHelper, 'findInDatabase').resolves([installedApp]);
+
+      sinon.stub(advancedWorkflows, 'softRemoveAppLocally').resolves();
+      sinon.stub(advancedWorkflows, 'softRegisterAppLocally').resolves();
+
+      // Stub serviceHelper.delay so softRedeploy doesn't wait
+      // eslint-disable-next-line global-require
+      const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
+      sinon.stub(serviceHelper, 'delay').resolves();
+
+      // Stub appInstaller.checkAppRequirements so softRedeploy doesn't validate real env
+      // eslint-disable-next-line global-require
+      const appInstaller = require('../../ZelBack/src/services/appLifecycle/appInstaller');
+      sinon.stub(appInstaller, 'checkAppRequirements').resolves();
+
+      const res = {
+        write: sinon.stub(),
+        flush: sinon.stub(),
+        end: sinon.stub(),
+      };
+
+      await advancedWorkflows.softRedeploy(newAppSpecs, res);
+
       expect(findInDatabaseStub.called).to.be.true;
+
+      const messages = res.write.getCalls().map(call => call.args[0]);
+      const escalationMessage = messages.find(msg => msg.includes('Component structure changed'));
+      expect(escalationMessage).to.not.exist;
     });
   });
 
