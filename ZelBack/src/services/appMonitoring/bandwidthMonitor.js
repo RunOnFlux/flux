@@ -1,18 +1,11 @@
-const util = require('util');
-const nodecmd = require('node-cmd');
-const config = require('config');
-
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
-const dockerService = require('../dockerService');
 const benchmarkService = require('../benchmarkService');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { isEnterpriseApp, getCachedApplicationOwner } = require('../utils/enterpriseHelper');
 
-const cmdAsync = util.promisify(nodecmd.run);
-
 // Bandwidth throttle state - tracks which apps are currently throttled
-// Structure: { containerName: { throttleLevel: 0.8, vethInterface: 'veth123', appliedAt: timestamp } }
+// Structure: { containerName: { throttleLevel: 0.8, appliedAt: timestamp } }
 const appsBandwidthThrottled = {};
 
 // Track bandwidth violations for progressive throttling
@@ -238,107 +231,21 @@ function calculateBandwidthFromStats(statsArray) {
 }
 
 /**
- * Get the veth interface for a Docker container on the host
- * @param {string} containerName - Container name or ID
- * @returns {Promise<string|null>} veth interface name or null if not found
- */
-async function getContainerVethInterface(containerName) {
-  try {
-    // Get container's PID
-    const inspect = await dockerService.dockerContainerInspect(containerName);
-    if (!inspect || !inspect.State || inspect.State.Pid === undefined || inspect.State.Pid === null) {
-      log.error(`Cannot get PID for container ${containerName}`);
-      return null;
-    }
-
-    const containerPid = inspect.State.Pid;
-    if (containerPid === 0) {
-      log.warn(`Container ${containerName} is not running (PID=0)`);
-      return null;
-    }
-
-    // Get the interface index from inside the container's network namespace
-    // eth0@ifXX where XX is the host's veth index
-    const exec = `nsenter -t ${containerPid} -n ip link show eth0 2>/dev/null | grep -oP 'eth0@if\\K[0-9]+'`;
-    const result = await cmdAsync(exec);
-    const ifIndex = result.trim();
-
-    if (!ifIndex) {
-      log.warn(`Cannot find interface index for container ${containerName}`);
-      return null;
-    }
-
-    // Find the veth interface on the host with this index
-    const hostExec = `ip link show | grep "^${ifIndex}:" | awk -F: '{print $2}' | tr -d ' '`;
-    const hostResult = await cmdAsync(hostExec);
-    const vethInterface = hostResult.trim();
-
-    if (!vethInterface) {
-      log.warn(`Cannot find veth interface on host for container ${containerName}`);
-      return null;
-    }
-
-    return vethInterface;
-  } catch (error) {
-    log.error(`Failed to get veth interface for ${containerName}: ${error.message}`);
-    return null;
-  }
-}
-
-/**
- * Calculate appropriate burst size for tc tbf
- * Rule of thumb: burst should be at least rate * latency / 8, minimum 32kbit
- * @param {number} rateMbps - Rate in Mbps
- * @returns {string} Burst size string for tc (e.g., "128kbit")
- */
-function calculateBurstSize(rateMbps) {
-  // burst = rate (in bits) * latency (in seconds) / 8
-  // Using 400ms latency: burst = rateMbps * 1000000 * 0.4 / 8 = rateMbps * 50000 bits
-  const burstBits = Math.max(rateMbps * 50000, 32000); // Minimum 32kbit
-  const burstKbit = Math.ceil(burstBits / 1000);
-  return `${burstKbit}kbit`;
-}
-
-/**
- * Apply bandwidth throttle to a container using Linux tc
+ * Apply bandwidth throttle to a container using tcconfig (tcset)
+ * Uses --docker flag to handle container veth interface discovery automatically
  * @param {string} containerName - Container name
  * @param {number} limitMbps - Bandwidth limit in Mbps
  * @returns {Promise<boolean>} Success status
  */
 async function applyBandwidthThrottle(containerName, limitMbps) {
   try {
-    const vethInterface = await getContainerVethInterface(containerName);
-    if (!vethInterface) {
-      log.error(`Cannot apply throttle to ${containerName}: veth interface not found`);
-      return false;
-    }
+    const rateStr = `${Math.round(limitMbps)}Mbps`;
 
-    // Convert Mbps to tc format (e.g., 20mbit)
-    const rateStr = `${Math.round(limitMbps)}mbit`;
-    const burstStr = calculateBurstSize(limitMbps);
-
-    // First, remove any existing qdisc (ignore errors if none exists)
-    await serviceHelper.runCommand('tc', {
+    // Apply egress (outgoing) rate limit, --overwrite replaces any existing rules
+    const egressResult = await serviceHelper.runCommand('tcset', {
       runAsRoot: true,
-      params: ['qdisc', 'del', 'dev', vethInterface, 'root'],
-    }).catch(() => {}); // Ignore error if no qdisc exists
-
-    // Also remove any ingress qdisc
-    await serviceHelper.runCommand('tc', {
-      runAsRoot: true,
-      params: ['qdisc', 'del', 'dev', vethInterface, 'ingress'],
-    }).catch(() => {}); // Ignore error if no ingress qdisc exists
-
-    // Apply Token Bucket Filter (tbf) for egress (upload from container) rate limiting
-    // rate: the maximum rate
-    // burst: size of the bucket (calculated based on rate)
-    // latency: maximum time a packet can wait in the queue
-    const egressResult = await serviceHelper.runCommand('tc', {
-      runAsRoot: true,
-      params: ['qdisc', 'add', 'dev', vethInterface, 'root', 'tbf',
-        'rate', rateStr,
-        'burst', burstStr,
-        'latency', '400ms'],
+      params: ['--docker', containerName, '--rate', rateStr,
+        '--direction', 'outgoing', '--overwrite'],
     });
 
     if (egressResult.error) {
@@ -346,37 +253,25 @@ async function applyBandwidthThrottle(containerName, limitMbps) {
       return false;
     }
 
-    // Apply ingress policing for download throttling
-    // This limits traffic coming INTO the veth (which is traffic going TO the container)
-    const ingressResult = await serviceHelper.runCommand('tc', {
+    // Apply ingress (incoming) rate limit
+    const ingressResult = await serviceHelper.runCommand('tcset', {
       runAsRoot: true,
-      params: ['qdisc', 'add', 'dev', vethInterface, 'ingress'],
+      params: ['--docker', containerName, '--rate', rateStr,
+        '--direction', 'incoming', '--overwrite'],
     });
 
-    if (!ingressResult.error) {
-      // Add police filter for ingress
-      // Convert Mbps to bytes per second for police: Mbps * 1000000 / 8 = bytes/sec
-      const rateBytesPerSec = Math.round(limitMbps * 125000); // Mbps to bytes/sec
-      const burstBytes = Math.max(Math.round(rateBytesPerSec * 0.1), 10000); // 100ms worth or 10KB min
-
-      await serviceHelper.runCommand('tc', {
-        runAsRoot: true,
-        params: ['filter', 'add', 'dev', vethInterface, 'parent', 'ffff:',
-          'protocol', 'ip', 'prio', '1', 'u32', 'match', 'ip', 'src', '0.0.0.0/0',
-          'police', 'rate', rateStr, 'burst', `${burstBytes}`, 'drop', 'flowid', ':1'],
-      }).catch((err) => {
-        log.warn(`Failed to apply ingress police to ${containerName}: ${err.message}`);
-      });
+    if (ingressResult.error) {
+      log.error(`Failed to apply ingress throttle to ${containerName}: ${ingressResult.error.message}`);
+      return false;
     }
 
     // Track the throttle
     appsBandwidthThrottled[containerName] = {
       throttleLevel: limitMbps,
-      vethInterface,
       appliedAt: Date.now(),
     };
 
-    log.info(`Applied bandwidth throttle to ${containerName}: ${limitMbps} Mbps (egress+ingress) on ${vethInterface}`);
+    log.info(`Applied bandwidth throttle to ${containerName}: ${limitMbps} Mbps (egress+ingress)`);
     return true;
   } catch (error) {
     log.error(`Error applying bandwidth throttle to ${containerName}: ${error.message}`);
@@ -385,7 +280,7 @@ async function applyBandwidthThrottle(containerName, limitMbps) {
 }
 
 /**
- * Remove bandwidth throttle from a container
+ * Remove bandwidth throttle from a container using tcconfig (tcdel)
  * @param {string} containerName - Container name
  * @returns {Promise<boolean>} Success status
  */
@@ -396,22 +291,15 @@ async function removeBandwidthThrottle(containerName) {
       return true; // Not throttled
     }
 
-    // Remove egress qdisc
-    const egressResult = await serviceHelper.runCommand('tc', {
+    // Remove all traffic control rules from the container
+    const result = await serviceHelper.runCommand('tcdel', {
       runAsRoot: true,
-      params: ['qdisc', 'del', 'dev', throttleInfo.vethInterface, 'root'],
+      params: ['--docker', containerName, '--all'],
     });
 
-    if (egressResult.error) {
-      log.warn(`Failed to remove egress throttle from ${containerName}: ${egressResult.error.message}`);
-      // Still continue to try removing ingress and tracking
+    if (result.error) {
+      log.warn(`Failed to remove throttle from ${containerName}: ${result.error.message}`);
     }
-
-    // Remove ingress qdisc
-    await serviceHelper.runCommand('tc', {
-      runAsRoot: true,
-      params: ['qdisc', 'del', 'dev', throttleInfo.vethInterface, 'ingress'],
-    }).catch(() => {}); // Ignore error if no ingress qdisc exists
 
     delete appsBandwidthThrottled[containerName];
     delete bandwidthViolations[containerName];
@@ -657,7 +545,6 @@ module.exports = {
   getNodeBandwidth,
   getFairShareBandwidth,
   calculateBandwidthFromStats,
-  getContainerVethInterface,
   applyBandwidthThrottle,
   removeBandwidthThrottle,
   checkApplicationsBandwidthUsage,

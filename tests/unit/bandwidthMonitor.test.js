@@ -6,10 +6,8 @@ describe('bandwidthMonitor tests', () => {
   let bandwidthMonitor;
   let logStub;
   let serviceHelperStub;
-  let dockerServiceStub;
   let benchmarkServiceStub;
   let generalServiceStub;
-  let cmdAsyncStub;
   let decryptEnterpriseAppsStub;
   let configStub;
   let registryManagerStub;
@@ -26,10 +24,6 @@ describe('bandwidthMonitor tests', () => {
       runCommand: sinon.stub().resolves({ error: null, stdout: '', stderr: '' }),
     };
 
-    dockerServiceStub = {
-      dockerContainerInspect: sinon.stub(),
-    };
-
     benchmarkServiceStub = {
       getBenchmarkFromDb: sinon.stub(),
     };
@@ -39,8 +33,6 @@ describe('bandwidthMonitor tests', () => {
     };
 
     decryptEnterpriseAppsStub = sinon.stub().returnsArg(0);
-
-    cmdAsyncStub = sinon.stub().resolves('');
 
     configStub = {
       enterpriseAppOwners: ['enterpriseOwner123'],
@@ -53,7 +45,6 @@ describe('bandwidthMonitor tests', () => {
     bandwidthMonitor = proxyquire('../../ZelBack/src/services/appMonitoring/bandwidthMonitor', {
       '../../lib/log': logStub,
       '../serviceHelper': serviceHelperStub,
-      '../dockerService': dockerServiceStub,
       '../benchmarkService': benchmarkServiceStub,
       '../generalService': generalServiceStub,
       '../appQuery/appQueryService': {
@@ -62,12 +53,6 @@ describe('bandwidthMonitor tests', () => {
       '../utils/enterpriseHelper': {
         isEnterpriseApp: (appOwner) => configStub.enterpriseAppOwners.includes(appOwner),
         getCachedApplicationOwner: registryManagerStub.getApplicationOwner,
-      },
-      config: configStub,
-      'node-cmd': {
-        run: (cmd, callback) => {
-          cmdAsyncStub(cmd).then((result) => callback(null, result, '')).catch((err) => callback(err));
-        },
       },
     });
   });
@@ -417,92 +402,59 @@ describe('bandwidthMonitor tests', () => {
     });
   });
 
-  describe('getContainerVethInterface', () => {
-    it('should return null when container inspect fails', async () => {
-      dockerServiceStub.dockerContainerInspect.resolves(null);
-
-      const result = await bandwidthMonitor.getContainerVethInterface('testContainer');
-
-      expect(result).to.be.null;
-    });
-
-    it('should return null when container PID is 0 (not running)', async () => {
-      dockerServiceStub.dockerContainerInspect.resolves({
-        State: { Pid: 0 },
-      });
-
-      const result = await bandwidthMonitor.getContainerVethInterface('testContainer');
-
-      expect(result).to.be.null;
-      expect(logStub.warn.calledWith(sinon.match(/not running/))).to.be.true;
-    });
-
-    it('should extract veth interface from nsenter command', async () => {
-      dockerServiceStub.dockerContainerInspect.resolves({
-        State: { Pid: 12345 },
-      });
-
-      cmdAsyncStub.onFirstCall().resolves('5'); // Interface index
-      cmdAsyncStub.onSecondCall().resolves('veth1234abc'); // Host veth name
-
-      const result = await bandwidthMonitor.getContainerVethInterface('testContainer');
-
-      expect(result).to.equal('veth1234abc');
-    });
-
-    it('should return null when interface index not found', async () => {
-      dockerServiceStub.dockerContainerInspect.resolves({
-        State: { Pid: 12345 },
-      });
-
-      cmdAsyncStub.resolves(''); // Empty result
-
-      const result = await bandwidthMonitor.getContainerVethInterface('testContainer');
-
-      expect(result).to.be.null;
-    });
-  });
-
   describe('applyBandwidthThrottle', () => {
-    it('should return false when veth interface not found', async () => {
-      dockerServiceStub.dockerContainerInspect.resolves(null);
-
-      const result = await bandwidthMonitor.applyBandwidthThrottle('testContainer', 20);
-
-      expect(result).to.be.false;
-      expect(logStub.error.called).to.be.true;
-    });
-
-    it('should apply tc rules when veth interface is found', async () => {
-      dockerServiceStub.dockerContainerInspect.resolves({
-        State: { Pid: 12345 },
-      });
-      cmdAsyncStub.onFirstCall().resolves('5');
-      cmdAsyncStub.onSecondCall().resolves('veth1234');
+    it('should apply tcset rules for egress and ingress', async () => {
       serviceHelperStub.runCommand.resolves({ error: null });
 
       const result = await bandwidthMonitor.applyBandwidthThrottle('testContainer', 20);
 
       expect(result).to.be.true;
-      expect(serviceHelperStub.runCommand.calledWith('tc', sinon.match({
+
+      // Should call tcset for egress (outgoing)
+      expect(serviceHelperStub.runCommand.calledWith('tcset', sinon.match({
         runAsRoot: true,
-        params: sinon.match.array.contains(['qdisc', 'add', 'dev', 'veth1234']),
+        params: ['--docker', 'testContainer', '--rate', '20Mbps',
+          '--direction', 'outgoing', '--overwrite'],
       }))).to.be.true;
+
+      // Should call tcset for ingress (incoming)
+      expect(serviceHelperStub.runCommand.calledWith('tcset', sinon.match({
+        runAsRoot: true,
+        params: ['--docker', 'testContainer', '--rate', '20Mbps',
+          '--direction', 'incoming', '--overwrite'],
+      }))).to.be.true;
+
       expect(logStub.info.calledWith(sinon.match(/Applied bandwidth throttle/))).to.be.true;
     });
 
-    it('should return false when tc command fails', async () => {
-      dockerServiceStub.dockerContainerInspect.resolves({
-        State: { Pid: 12345 },
-      });
-      cmdAsyncStub.onFirstCall().resolves('5');
-      cmdAsyncStub.onSecondCall().resolves('veth1234');
-      serviceHelperStub.runCommand.resolves({ error: new Error('tc failed') });
+    it('should return false when egress tcset command fails', async () => {
+      serviceHelperStub.runCommand.resolves({ error: new Error('tcset failed') });
 
       const result = await bandwidthMonitor.applyBandwidthThrottle('testContainer', 20);
 
       expect(result).to.be.false;
       expect(logStub.error.calledWith(sinon.match(/Failed to apply egress throttle/))).to.be.true;
+    });
+
+    it('should return false when ingress tcset command fails', async () => {
+      serviceHelperStub.runCommand
+        .onFirstCall().resolves({ error: null }) // egress succeeds
+        .onSecondCall().resolves({ error: new Error('tcset failed') }); // ingress fails
+
+      const result = await bandwidthMonitor.applyBandwidthThrottle('testContainer', 20);
+
+      expect(result).to.be.false;
+      expect(logStub.error.calledWith(sinon.match(/Failed to apply ingress throttle/))).to.be.true;
+    });
+
+    it('should round bandwidth to nearest integer', async () => {
+      serviceHelperStub.runCommand.resolves({ error: null });
+
+      await bandwidthMonitor.applyBandwidthThrottle('testContainer', 15.7);
+
+      expect(serviceHelperStub.runCommand.calledWith('tcset', sinon.match({
+        params: sinon.match.array.contains(['--rate', '16Mbps']),
+      }))).to.be.true;
     });
   });
 
@@ -511,6 +463,25 @@ describe('bandwidthMonitor tests', () => {
       const result = await bandwidthMonitor.removeBandwidthThrottle('nonThrottledContainer');
 
       expect(result).to.be.true;
+      // tcdel should not be called
+      expect(serviceHelperStub.runCommand.called).to.be.false;
+    });
+
+    it('should call tcdel to remove throttle from a throttled container', async () => {
+      serviceHelperStub.runCommand.resolves({ error: null });
+
+      // First apply a throttle so the container is tracked
+      await bandwidthMonitor.applyBandwidthThrottle('testContainer', 20);
+      serviceHelperStub.runCommand.resetHistory();
+
+      const result = await bandwidthMonitor.removeBandwidthThrottle('testContainer');
+
+      expect(result).to.be.true;
+      expect(serviceHelperStub.runCommand.calledWith('tcdel', sinon.match({
+        runAsRoot: true,
+        params: ['--docker', 'testContainer', '--all'],
+      }))).to.be.true;
+      expect(logStub.info.calledWith(sinon.match(/Removed bandwidth throttle/))).to.be.true;
     });
   });
 
