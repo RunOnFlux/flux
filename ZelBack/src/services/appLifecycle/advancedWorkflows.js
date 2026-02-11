@@ -99,9 +99,9 @@ function assertV8ComposeArray(appSpecification, context) {
  * @param {object} appSpecifications - New app specifications.
  * @param {object} installedApp - Installed app from local DB.
  * @param {string} context - Calling context.
- * @returns {Promise<object|null>} Comparable installed app or null.
+ * @returns {object|null} Comparable installed app or null.
  */
-async function resolveInstalledAppForStructureComparison(appSpecifications, installedApp, context) {
+function resolveInstalledAppForStructureComparison(appSpecifications, installedApp, context) {
   if (!installedApp || appSpecifications.version < 8 || installedApp.version < 8) {
     return null;
   }
@@ -114,18 +114,8 @@ async function resolveInstalledAppForStructureComparison(appSpecifications, inst
     return null;
   }
 
-  let installedAppForComparison = installedApp;
-  if (installedAppForComparison.enterprise) {
-    const decryptedList = await decryptEnterpriseApps([installedAppForComparison]);
-    installedAppForComparison = decryptedList[0] || installedAppForComparison;
-  }
-
-  if (!Array.isArray(installedAppForComparison.compose) || installedAppForComparison.compose.length === 0) {
-    log.warn(`${context}: Skipping component structure comparison for ${appSpecifications.name}; installed compose is unavailable.`);
-    return null;
-  }
-
-  return installedAppForComparison;
+  assertV8ComposeArray(installedApp, context);
+  return installedApp;
 }
 
 /**
@@ -1392,10 +1382,10 @@ async function softRedeploy(appSpecs, res) {
 
     // Check if component structure changed for version 8+ apps.
     if (appSpecs.version >= 8) {
-      const installedAppsRes = await getInstalledAppsFromDb();
+      const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
       if (installedAppsRes.status === 'success') {
         const installedApp = installedAppsRes.data.find((app) => app.name === appSpecs.name);
-        const installedAppForComparison = await resolveInstalledAppForStructureComparison(
+        const installedAppForComparison = resolveInstalledAppForStructureComparison(
           appSpecs,
           installedApp,
           'softRedeploy',
@@ -3161,7 +3151,7 @@ async function reinstallOldApplications() {
       return;
     }
     // first get installed apps
-    const installedAppsRes = await getInstalledAppsFromDb();
+    const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
@@ -3417,8 +3407,7 @@ async function reinstallOldApplications() {
             const appInstaller = require('./appInstaller');
 
             // Check if component structure changed (count or names) for version 8+ apps.
-            // eslint-disable-next-line no-await-in-loop
-            const installedAppForComparison = await resolveInstalledAppForStructureComparison(
+            const installedAppForComparison = resolveInstalledAppForStructureComparison(
               appSpecifications,
               installedApp,
               'reinstallOldApplications',
