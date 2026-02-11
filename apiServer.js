@@ -27,6 +27,7 @@ const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory
 const globalState = require('./ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
+const dockerService = require('./ZelBack/src/services/dockerService');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -407,6 +408,32 @@ async function handleSigterm() {
     }
   } catch (error) {
     log.error(`Error during SIGTERM handling: ${error.message}`);
+  }
+
+  // Gracefully stop all running Flux app containers
+  try {
+    let containers = await dockerService.dockerListContainers(false);
+    containers = containers.filter((c) => c.Names[0].slice(1, 4) === 'zel' || c.Names[0].slice(1, 5) === 'flux');
+
+    if (containers.length > 0) {
+      log.info(`Gracefully stopping ${containers.length} Flux app containers...`);
+      // eslint-disable-next-line no-restricted-syntax
+      for (const container of containers) {
+        const containerName = container.Names[0].slice(1);
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await dockerService.appDockerStop(containerName);
+          log.info(`Container ${containerName} stopped`);
+        } catch (err) {
+          log.warn(`Failed to stop container ${containerName}: ${err.message}`);
+        }
+      }
+      log.info('All Flux app containers stopped');
+    } else {
+      log.info('No running Flux app containers to stop');
+    }
+  } catch (error) {
+    log.error(`Error stopping containers during shutdown: ${error.message}`);
   }
 
   // Give some time for the broadcast to complete

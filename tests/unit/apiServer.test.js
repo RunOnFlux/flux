@@ -337,4 +337,202 @@ describe('apiServer SIGTERM handling tests', () => {
       expect(exitCalled.code).to.equal(0);
     });
   });
+
+  describe('graceful Docker stop during shutdown tests', () => {
+    /**
+     * Replicates the container stop logic from handleSigterm in apiServer.js
+     * for isolated testing without loading the full module.
+     */
+    async function stopFluxContainers(deps) {
+      try {
+        let containers = await deps.dockerListContainers(false);
+        containers = containers.filter((c) => c.Names[0].slice(1, 4) === 'zel' || c.Names[0].slice(1, 5) === 'flux');
+
+        if (containers.length > 0) {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const container of containers) {
+            const containerName = container.Names[0].slice(1);
+            try {
+              // eslint-disable-next-line no-await-in-loop
+              await deps.appDockerStop(containerName);
+              deps.onStopped(containerName);
+            } catch (err) {
+              deps.onStopFailed(containerName, err.message);
+            }
+          }
+          return { stopped: true };
+        }
+        return { stopped: false, reason: 'no-containers' };
+      } catch (error) {
+        return { stopped: false, reason: 'list-error', error: error.message };
+      }
+    }
+
+    it('should stop all running flux app containers', async () => {
+      const stoppedContainers = [];
+
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => [
+          { Names: ['/fluxMyApp1'], Id: 'abc123' },
+          { Names: ['/fluxMyApp2'], Id: 'def456' },
+        ],
+        appDockerStop: async () => 'stopped',
+        onStopped: (name) => { stoppedContainers.push(name); },
+        onStopFailed: () => {},
+      });
+
+      expect(result.stopped).to.equal(true);
+      expect(stoppedContainers).to.deep.equal(['fluxMyApp1', 'fluxMyApp2']);
+    });
+
+    it('should stop zel-prefixed containers', async () => {
+      const stoppedContainers = [];
+
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => [
+          { Names: ['/zelKadenaChainWebNode'], Id: 'aaa111' },
+        ],
+        appDockerStop: async () => 'stopped',
+        onStopped: (name) => { stoppedContainers.push(name); },
+        onStopFailed: () => {},
+      });
+
+      expect(result.stopped).to.equal(true);
+      expect(stoppedContainers).to.deep.equal(['zelKadenaChainWebNode']);
+    });
+
+    it('should filter out non-flux containers', async () => {
+      const stoppedContainers = [];
+
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => [
+          { Names: ['/fluxMyApp'], Id: 'abc123' },
+          { Names: ['/mongo'], Id: 'xyz789' },
+          { Names: ['/redis'], Id: 'ghi012' },
+          { Names: ['/zelOldApp'], Id: 'jkl345' },
+        ],
+        appDockerStop: async () => 'stopped',
+        onStopped: (name) => { stoppedContainers.push(name); },
+        onStopFailed: () => {},
+      });
+
+      expect(result.stopped).to.equal(true);
+      expect(stoppedContainers).to.deep.equal(['fluxMyApp', 'zelOldApp']);
+    });
+
+    it('should return no-containers when no flux containers are running', async () => {
+      const stoppedContainers = [];
+
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => [
+          { Names: ['/mongo'], Id: 'xyz789' },
+        ],
+        appDockerStop: async () => 'stopped',
+        onStopped: (name) => { stoppedContainers.push(name); },
+        onStopFailed: () => {},
+      });
+
+      expect(result.stopped).to.equal(false);
+      expect(result.reason).to.equal('no-containers');
+      expect(stoppedContainers).to.deep.equal([]);
+    });
+
+    it('should return no-containers when docker has no running containers', async () => {
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => [],
+        appDockerStop: async () => 'stopped',
+        onStopped: () => {},
+        onStopFailed: () => {},
+      });
+
+      expect(result.stopped).to.equal(false);
+      expect(result.reason).to.equal('no-containers');
+    });
+
+    it('should continue stopping other containers when one fails', async () => {
+      const stoppedContainers = [];
+      const failedContainers = [];
+
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => [
+          { Names: ['/fluxApp1'], Id: 'abc' },
+          { Names: ['/fluxApp2'], Id: 'def' },
+          { Names: ['/fluxApp3'], Id: 'ghi' },
+        ],
+        appDockerStop: async (name) => {
+          if (name === 'fluxApp2') throw new Error('Container stuck');
+          return 'stopped';
+        },
+        onStopped: (name) => { stoppedContainers.push(name); },
+        onStopFailed: (name, msg) => { failedContainers.push({ name, msg }); },
+      });
+
+      expect(result.stopped).to.equal(true);
+      expect(stoppedContainers).to.deep.equal(['fluxApp1', 'fluxApp3']);
+      expect(failedContainers).to.have.lengthOf(1);
+      expect(failedContainers[0].name).to.equal('fluxApp2');
+      expect(failedContainers[0].msg).to.equal('Container stuck');
+    });
+
+    it('should handle dockerListContainers failure gracefully', async () => {
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => { throw new Error('Docker daemon unavailable'); },
+        appDockerStop: async () => 'stopped',
+        onStopped: () => {},
+        onStopFailed: () => {},
+      });
+
+      expect(result.stopped).to.equal(false);
+      expect(result.reason).to.equal('list-error');
+      expect(result.error).to.equal('Docker daemon unavailable');
+    });
+
+    it('should handle all containers failing to stop', async () => {
+      const failedContainers = [];
+
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => [
+          { Names: ['/fluxApp1'], Id: 'abc' },
+          { Names: ['/fluxApp2'], Id: 'def' },
+        ],
+        appDockerStop: async () => { throw new Error('timeout'); },
+        onStopped: () => {},
+        onStopFailed: (name, msg) => { failedContainers.push({ name, msg }); },
+      });
+
+      expect(result.stopped).to.equal(true);
+      expect(failedContainers).to.have.lengthOf(2);
+      expect(failedContainers[0]).to.deep.equal({ name: 'fluxApp1', msg: 'timeout' });
+      expect(failedContainers[1]).to.deep.equal({ name: 'fluxApp2', msg: 'timeout' });
+    });
+
+    it('should stop containers sequentially (await each)', async () => {
+      const stopOrder = [];
+
+      const result = await stopFluxContainers({
+        dockerListContainers: async () => [
+          { Names: ['/fluxApp1'], Id: 'abc' },
+          { Names: ['/fluxApp2'], Id: 'def' },
+          { Names: ['/fluxApp3'], Id: 'ghi' },
+        ],
+        appDockerStop: async (name) => {
+          stopOrder.push(`start:${name}`);
+          // Simulate variable stop times
+          await new Promise((resolve) => { setTimeout(resolve, 10); });
+          stopOrder.push(`end:${name}`);
+          return 'stopped';
+        },
+        onStopped: () => {},
+        onStopFailed: () => {},
+      });
+
+      expect(result.stopped).to.equal(true);
+      // Each container should fully complete before the next starts
+      expect(stopOrder).to.deep.equal([
+        'start:fluxApp1', 'end:fluxApp1',
+        'start:fluxApp2', 'end:fluxApp2',
+        'start:fluxApp3', 'end:fluxApp3',
+      ]);
+    });
+  });
 });
