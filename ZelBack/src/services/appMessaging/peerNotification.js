@@ -210,13 +210,33 @@ async function checkAndNotifyPeersOfRunningApps(
               log.warn(`Application ${stoppedApp} backup/restore is in progress...`);
             }
             if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
-              log.warn(`${stoppedApp} is stopped, starting`);
-              if (!appsStopedCache.has(stoppedApp)) {
-                appsStopedCache.set(stoppedApp, '');
+              const containerExists = await dockerService.getDockerContainerOnly(stoppedApp);
+
+              if (!containerExists) {
+                log.warn(`Container for ${stoppedApp} doesn't exist, recreating immediately...`);
+                try {
+                  // eslint-disable-next-line no-await-in-loop
+                  await recreateMissingContainers(stoppedApp);
+                  log.info(`Successfully recreated and started ${stoppedApp}`);
+                  appInspector.startAppMonitoring(stoppedApp, appsMonitored);
+                } catch (recreateErr) {
+                  log.error(`Failed to recreate containers for ${stoppedApp}: ${recreateErr.message}`);
+                  const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
+                  log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} failed to recreate with error: ${recreateErr.message} (peerNotification)`);
+                  // eslint-disable-next-line no-await-in-loop
+                  await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
+                    // Handle response
+                  }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
+                }
               } else {
-                // eslint-disable-next-line no-await-in-loop
-                await dockerService.appDockerStart(stoppedApp);
-                appInspector.startAppMonitoring(stoppedApp, appsMonitored);
+                log.warn(`${stoppedApp} is stopped, starting`);
+                if (!appsStopedCache.has(stoppedApp)) {
+                  appsStopedCache.set(stoppedApp, '');
+                } else {
+                  // eslint-disable-next-line no-await-in-loop
+                  await dockerService.appDockerStart(stoppedApp);
+                  appInspector.startAppMonitoring(stoppedApp, appsMonitored);
+                }
               }
             } else {
               log.warn(`Not starting ${stoppedApp} as application removal or installation or backup/restore is in progress`);
@@ -226,32 +246,11 @@ async function checkAndNotifyPeersOfRunningApps(
           log.error(err);
           if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress) {
             const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
-
-            const errorMessage = err.message || String(err);
-            const isContainerNotFound = errorMessage.includes('Cannot read propert') || errorMessage.includes('not found') || errorMessage.includes('No such container');
-
-            if (isContainerNotFound) {
-              log.warn(`Container for ${stoppedApp} doesn't exist, attempting to recreate...`);
-              try {
-                // eslint-disable-next-line no-await-in-loop
-                await recreateMissingContainers(stoppedApp);
-                log.info(`Successfully recreated and started ${stoppedApp}`);
-                appInspector.startAppMonitoring(stoppedApp, appsMonitored);
-              } catch (recreateErr) {
-                log.error(`Failed to recreate containers for ${stoppedApp}: ${recreateErr.message}`);
-                log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} failed to recreate with error: ${recreateErr.message} (peerNotification)`);
-                // eslint-disable-next-line no-await-in-loop
-                await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
-                  // Handle response
-                }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
-              }
-            } else {
-              log.warn(`REMOVAL REASON: App start failure - ${mainAppName} failed to start with error: ${err.message} (peerNotification)`);
-              // eslint-disable-next-line no-await-in-loop
-              await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
-                // Handle response
-              }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
-            }
+            log.warn(`REMOVAL REASON: App start failure - ${mainAppName} failed to start with error: ${err.message} (peerNotification)`);
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
+              // Handle response
+            }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
           }
         }
       }
