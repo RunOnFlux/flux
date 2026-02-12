@@ -70,7 +70,7 @@ async function getInstalledAppsFromDb(options = {}) {
     };
     let apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (decryptApps) {
-      apps = await decryptEnterpriseApps(apps);
+      apps = await decryptEnterpriseApps(apps, { formatSpecs: false });
     }
     return messageHelper.createDataMessage(apps);
   } catch (error) {
