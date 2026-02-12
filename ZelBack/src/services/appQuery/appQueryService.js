@@ -16,9 +16,12 @@ const globalAppsMessages = config.database.appsglobal.collections.appsMessages;
 /**
  * Decrypt enterprise apps from a list of apps
  * @param {Array} apps - Array of app specifications
+ * @param {Object} options - Options for decryption
+ * @param {boolean} options.formatSpecs - Whether to format specs (strips metadata like hash, height). Default: true
  * @returns {Promise<Array>} Array of decrypted app specifications
  */
-async function decryptEnterpriseApps(apps) {
+async function decryptEnterpriseApps(apps, options = {}) {
+  const { formatSpecs = true } = options;
   const decryptedApps = [];
   const cache = fluxCaching.default.enterpriseAppDecryptionCache;
 
@@ -33,22 +36,22 @@ async function decryptEnterpriseApps(apps) {
         const cacheKey = spec.hash;
 
         // Check if decrypted app is in cache
-        const cachedApp = cache.get(cacheKey);
-        if (cachedApp) {
+        let decrypted = cache.get(cacheKey);
+        if (decrypted) {
           log.info(`Using cached decrypted app for ${spec.name} (${cacheKey})`);
-          decryptedApps.push(cachedApp);
         } else {
-          // Decrypt and cache the app
+          // Decrypt and cache the app (unformatted)
           // eslint-disable-next-line no-await-in-loop
-          const decrypted = await checkAndDecryptAppSpecs(spec);
-          const formatted = specificationFormatter(decrypted);
+          decrypted = await checkAndDecryptAppSpecs(spec);
 
-          // Store in cache with 7-day TTL (configured in cacheManager)
-          cache.set(cacheKey, formatted);
+          // Store unformatted in cache with 7-day TTL (configured in cacheManager)
+          cache.set(cacheKey, decrypted);
           log.info(`Cached decrypted app for ${spec.name} (${cacheKey})`);
-
-          decryptedApps.push(formatted);
         }
+
+        // Apply formatting if requested
+        const result = formatSpecs ? specificationFormatter(decrypted) : decrypted;
+        decryptedApps.push(result);
       } catch (error) {
         log.error(`Failed to decrypt enterprise app ${spec.name}: ${error.message}`);
         // If decryption fails, we still want to include the app but log the error

@@ -70,7 +70,7 @@ async function getInstalledAppsFromDb(options = {}) {
     };
     let apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
     if (decryptApps) {
-      apps = await decryptEnterpriseApps(apps);
+      apps = await decryptEnterpriseApps(apps, { formatSpecs: false });
     }
     return messageHelper.createDataMessage(apps);
   } catch (error) {
@@ -1572,9 +1572,14 @@ async function softRedeployComponent(appName, componentName, res) {
     log.info(`Starting soft redeploy of component ${componentName} from app ${appName}`);
 
     // Get app specifications
-    const appSpecifications = await getStrictApplicationSpecifications(appName);
+    let appSpecifications = await getStrictApplicationSpecifications(appName);
     if (!appSpecifications) {
       throw new Error(`Application ${appName} not found`);
+    }
+
+    // Decrypt enterprise apps before accessing compose
+    if (appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
+      appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     }
 
     // Find the component in the app specs
@@ -1681,9 +1686,13 @@ async function hardRedeployComponent(appName, componentName, res) {
     log.info(`Starting hard redeploy of component ${componentName} from app ${appName}`);
 
     // Get app specifications
-    const appSpecifications = await getStrictApplicationSpecifications(appName);
+    let appSpecifications = await getStrictApplicationSpecifications(appName);
     if (!appSpecifications) {
       throw new Error(`Application ${appName} not found`);
+    }
+
+    if (appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
+      appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     }
 
     // Find the component in the app specs
@@ -3163,7 +3172,13 @@ async function reinstallOldApplications() {
       // if same, do nothing. if different remove and install.
 
       // eslint-disable-next-line no-await-in-loop
-      const appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+      let appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+
+      if (appSpecifications && appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
+        // eslint-disable-next-line no-await-in-loop
+        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+      }
+
       const randomNumber = Math.floor((Math.random() * config.fluxapps.redeploy.probability)); // 50%
       if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
         // eslint-disable-next-line no-await-in-loop
@@ -3464,8 +3479,9 @@ async function reinstallOldApplications() {
                 } else if (appComponent.hdd === installedComponent.hdd) {
                   log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // soft redeployment
+                  const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.softUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, null, true); // component
+                  await appUninstaller.softUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -3473,8 +3489,9 @@ async function reinstallOldApplications() {
                   log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   log.warn(`REMOVAL REASON: Hard redeployment (component) - ${appComponent.name}_${appSpecifications.name} HDD changed from ${installedComponent.hdd} to ${appComponent.hdd}`);
                   // hard redeployment
+                  const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.hardUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, null, true); // component
+                  await appUninstaller.hardUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
