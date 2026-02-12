@@ -12,6 +12,7 @@ const messageStore = require('./messageStore');
 const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('../appManagement/appInspector');
 const appUninstaller = require('../appLifecycle/appUninstaller');
+const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 
@@ -80,7 +81,8 @@ async function checkAndNotifyPeersOfRunningApps(
     if (runningAppsRes.status !== 'success') {
       throw new Error('Unable to check running Apps');
     }
-    const appsInstalled = installedAppsRes.data;
+    let appsInstalled = installedAppsRes.data;
+    appsInstalled = await decryptEnterpriseApps(appsInstalled);
     const runningApps = runningAppsRes.data;
     const installedAppComponentNames = [];
     appsInstalled.forEach((app) => {
