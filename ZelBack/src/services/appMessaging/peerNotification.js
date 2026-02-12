@@ -13,7 +13,6 @@ const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('../appManagement/appInspector');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
-const generalService = require('../generalService');
 const { localAppsInformation } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
