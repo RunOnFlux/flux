@@ -186,20 +186,6 @@ async function checkAndNotifyPeersOfRunningApps(
             masterSlaveAppsInstalled.push(appInstalledMasterSlave);
           }
           if (appDetails && !appInstalledMasterSlaveCheck) {
-            if (appInstalledSyncthing) {
-              const db = dbHelper.databaseConnection();
-              const database = db.db(config.database.appsglobal.database);
-              const queryFind = { name: mainAppName, ip: myIP };
-              const projection = { _id: 0, runningSince: 1 };
-              // we already have the exact same data
-              // eslint-disable-next-line no-await-in-loop
-              const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
-              if (!result || !result.runningSince || Date.parse(result.runningSince) + 30 * 60 * 1000 > Date.now()) {
-                log.info(`Application ${stoppedApp} uses r syncthing and haven't started yet because was installed less than 30m ago.`);
-                // eslint-disable-next-line no-continue
-                continue;
-              }
-            }
             log.warn(`${stoppedApp} is stopped but should be running. Starting...`);
             // it is a stopped global app. Try to run it.
             // check if some removal is in progress and if it is don't start it!
@@ -209,7 +195,24 @@ async function checkAndNotifyPeersOfRunningApps(
               log.warn(`Application ${stoppedApp} backup/restore is in progress...`);
             }
             if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress && !restoreSkip && !backupSkip) {
+              // eslint-disable-next-line no-await-in-loop
               const containerExists = await dockerService.getDockerContainerOnly(stoppedApp);
+
+              // Check if container exists before applying syncthing delay
+              if (containerExists && appInstalledSyncthing) {
+                const db = dbHelper.databaseConnection();
+                const database = db.db(config.database.appsglobal.database);
+                const queryFind = { name: mainAppName, ip: myIP };
+                const projection = { _id: 0, runningSince: 1 };
+                // we already have the exact same data
+                // eslint-disable-next-line no-await-in-loop
+                const result = await dbHelper.findOneInDatabase(database, globalAppsLocations, queryFind, projection);
+                if (!result || !result.runningSince || Date.parse(result.runningSince) + 30 * 60 * 1000 > Date.now()) {
+                  log.info(`Application ${stoppedApp} uses r syncthing and container exists but is stopped. Haven't started yet because was installed less than 30m ago.`);
+                  // eslint-disable-next-line no-continue
+                  continue;
+                }
+              }
 
               if (!containerExists) {
                 log.warn(`Container for ${stoppedApp} doesn't exist, recreating immediately...`);
