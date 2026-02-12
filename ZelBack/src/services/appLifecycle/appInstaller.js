@@ -577,7 +577,20 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
       appComponent.hdd = test ? 2 : appComponent[hddTier] || appComponent.hdd;
     }
 
-    const specificationsToInstall = isComponent ? appComponent : appSpecifications;
+    let specificationsToInstall = isComponent ? appComponent : appSpecifications;
+
+    if (!isComponent && specificationsToInstall.version >= 8 && specificationsToInstall.enterprise) {
+      const syncStatus = daemonServiceMiscRpcs.isDaemonSynced();
+      if (!syncStatus.data.synced) {
+        throw new Error('Daemon not yet synced.');
+      }
+      const daemonHeight = syncStatus.data.height;
+      specificationsToInstall = await checkAndDecryptAppSpecs(specificationsToInstall, {
+        daemonHeight,
+        owner: specificationsToInstall.owner,
+      });
+    }
+
     try {
       // Validate database entry exists before creating Docker containers (atomic transaction check)
       // This prevents orphaned Docker containers if DB entry was deleted/corrupted between insert and Docker creation

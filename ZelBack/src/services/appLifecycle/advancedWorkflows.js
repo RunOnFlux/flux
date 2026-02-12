@@ -3163,7 +3163,13 @@ async function reinstallOldApplications() {
       // if same, do nothing. if different remove and install.
 
       // eslint-disable-next-line no-await-in-loop
-      const appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+      let appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+
+      if (appSpecifications && appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
+        // eslint-disable-next-line no-await-in-loop
+        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+      }
+
       const randomNumber = Math.floor((Math.random() * config.fluxapps.redeploy.probability)); // 50%
       if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
         // eslint-disable-next-line no-await-in-loop
