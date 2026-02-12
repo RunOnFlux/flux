@@ -12,6 +12,7 @@ const messageStore = require('./messageStore');
 const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('../appManagement/appInspector');
 const appUninstaller = require('../appLifecycle/appUninstaller');
+const appInstaller = require('../appLifecycle/appInstaller');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
 const { localAppsInformation } = require('../utils/appConstants');
 const log = require('../../lib/log');
@@ -29,8 +30,6 @@ let checkAndNotifyPeersOfRunningAppsFirstRun = true;
  * @returns {Promise<void>}
  */
 async function recreateMissingContainers(componentIdentifier) {
-  const appInstaller = require('../appLifecycle/appInstaller');
-
   const mainAppName = componentIdentifier.split('_')[1] || componentIdentifier;
   const dbopen = dbHelper.databaseConnection();
   const appsDatabase = dbopen.db(config.database.appslocal.database);

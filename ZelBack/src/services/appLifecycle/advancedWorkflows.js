@@ -1681,9 +1681,13 @@ async function hardRedeployComponent(appName, componentName, res) {
     log.info(`Starting hard redeploy of component ${componentName} from app ${appName}`);
 
     // Get app specifications
-    const appSpecifications = await getStrictApplicationSpecifications(appName);
+    let appSpecifications = await getStrictApplicationSpecifications(appName);
     if (!appSpecifications) {
       throw new Error(`Application ${appName} not found`);
+    }
+
+    if (appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
+      appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     }
 
     // Find the component in the app specs
