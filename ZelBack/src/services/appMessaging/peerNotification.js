@@ -13,6 +13,8 @@ const registryManager = require('../appDatabase/registryManager');
 const appInspector = require('../appManagement/appInspector');
 const appUninstaller = require('../appLifecycle/appUninstaller');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+const generalService = require('../generalService');
+const { localAppsInformation } = require('../utils/appConstants');
 const log = require('../../lib/log');
 const globalState = require('../utils/globalState');
 
@@ -21,6 +23,64 @@ const globalAppsLocations = config.database.appsglobal.collections.appsLocations
 
 // Module-level state variable
 let checkAndNotifyPeersOfRunningAppsFirstRun = true;
+
+/**
+ * Recreate containers for app that exists in DB but has missing containers
+ * @param {string} componentIdentifier - Component identifier (component_appname or appname)
+ * @returns {Promise<void>}
+ */
+async function recreateMissingContainers(componentIdentifier) {
+  const appInstaller = require('../appLifecycle/appInstaller');
+
+  const mainAppName = componentIdentifier.split('_')[1] || componentIdentifier;
+  const dbopen = dbHelper.databaseConnection();
+  const appsDatabase = dbopen.db(config.database.appslocal.database);
+
+  const appsQuery = { name: mainAppName };
+  const appsProjection = { projection: { _id: 0 } };
+  let appSpec = await dbHelper.findOneInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+
+  if (!appSpec) {
+    throw new Error(`App ${mainAppName} not found in local database`);
+  }
+
+  appSpec = await decryptEnterpriseApps([appSpec]);
+  appSpec = appSpec[0];
+
+  if (!appSpec.compose || appSpec.compose.length === 0) {
+    throw new Error(`App ${mainAppName} has no components to install`);
+  }
+
+  const tier = await generalService.nodeTier();
+  const isComponent = componentIdentifier.includes('_');
+
+  if (isComponent) {
+    const componentName = componentIdentifier.split('_')[0];
+    const componentSpec = appSpec.compose.find((c) => c.name === componentName);
+    if (!componentSpec) {
+      throw new Error(`Component ${componentName} not found in app ${mainAppName}`);
+    }
+    const hddTier = `hdd${tier}`;
+    const ramTier = `ram${tier}`;
+    const cpuTier = `cpu${tier}`;
+    componentSpec.cpu = componentSpec[cpuTier] || componentSpec.cpu;
+    componentSpec.ram = componentSpec[ramTier] || componentSpec.ram;
+    componentSpec.hdd = componentSpec[hddTier] || componentSpec.hdd;
+    await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec);
+  } else {
+    for (const componentSpec of appSpec.compose) {
+      const hddTier = `hdd${tier}`;
+      const ramTier = `ram${tier}`;
+      const cpuTier = `cpu${tier}`;
+      componentSpec.cpu = componentSpec[cpuTier] || componentSpec.cpu;
+      componentSpec.ram = componentSpec[ramTier] || componentSpec.ram;
+      componentSpec.hdd = componentSpec[hddTier] || componentSpec.hdd;
+      await appInstaller.installApplicationHard(componentSpec, mainAppName, true, null, appSpec);
+    }
+  }
+
+  log.info(`Successfully recreated missing containers for ${componentIdentifier}`);
+}
 
 /**
  * Check and notify peers of running applications
@@ -167,12 +227,32 @@ async function checkAndNotifyPeersOfRunningApps(
           log.error(err);
           if (!removalInProgress && !installationInProgress && !softRedeployInProgress && !hardRedeployInProgress && !reinstallationOfOldAppsInProgress) {
             const mainAppName = stoppedApp.split('_')[1] || stoppedApp;
-            log.warn(`REMOVAL REASON: App start failure - ${mainAppName} failed to start with error: ${err.message} (peerNotification)`);
-            // already checked for mongo ok, daemon ok, docker ok.
-            // eslint-disable-next-line no-await-in-loop
-            await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
-              // Handle response
-            }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
+
+            const errorMessage = err.message || String(err);
+            const isContainerNotFound = errorMessage.includes('Cannot read propert') || errorMessage.includes('not found') || errorMessage.includes('No such container');
+
+            if (isContainerNotFound) {
+              log.warn(`Container for ${stoppedApp} doesn't exist, attempting to recreate...`);
+              try {
+                // eslint-disable-next-line no-await-in-loop
+                await recreateMissingContainers(stoppedApp);
+                log.info(`Successfully recreated and started ${stoppedApp}`);
+                appInspector.startAppMonitoring(stoppedApp, appsMonitored);
+              } catch (recreateErr) {
+                log.error(`Failed to recreate containers for ${stoppedApp}: ${recreateErr.message}`);
+                log.warn(`REMOVAL REASON: Container recreation failure - ${mainAppName} failed to recreate with error: ${recreateErr.message} (peerNotification)`);
+                // eslint-disable-next-line no-await-in-loop
+                await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
+                  // Handle response
+                }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
+              }
+            } else {
+              log.warn(`REMOVAL REASON: App start failure - ${mainAppName} failed to start with error: ${err.message} (peerNotification)`);
+              // eslint-disable-next-line no-await-in-loop
+              await appUninstaller.removeAppLocally(mainAppName, null, false, true, true, () => {
+                // Handle response
+              }, getGlobalState, (name, deleteData) => appInspector.stopAppMonitoring(name, deleteData, appsMonitored));
+            }
           }
         }
       }
