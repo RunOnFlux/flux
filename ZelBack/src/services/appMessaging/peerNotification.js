@@ -219,7 +219,7 @@ async function checkAndNotifyPeersOfRunningApps(
                 try {
                   // eslint-disable-next-line no-await-in-loop
                   await recreateMissingContainers(stoppedApp);
-                  log.info(`Successfully recreated and started ${stoppedApp}`);
+                  log.info(`Successfully recreated ${stoppedApp}`);
                   appInspector.startAppMonitoring(stoppedApp, appsMonitored);
                 } catch (recreateErr) {
                   log.error(`Failed to recreate containers for ${stoppedApp}: ${recreateErr.message}`);

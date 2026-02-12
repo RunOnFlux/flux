@@ -3486,7 +3486,7 @@ async function reinstallOldApplications() {
                   // hard redeployment
                   const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.hardUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, true);
+                  await appUninstaller.hardUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
