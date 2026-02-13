@@ -630,6 +630,7 @@ describe('dockerService tests', () => {
         Config: [{
           Subnet: '172.23.0.0/24',
           Gateway: '172.23.0.1',
+          IPRange: '',
         }],
       },
     };
@@ -673,6 +674,7 @@ describe('dockerService tests', () => {
         Config: [{
           Subnet: '172.23.52.0/24',
           Gateway: '172.23.52.1',
+          IPRange: '',
         }],
       },
     };
