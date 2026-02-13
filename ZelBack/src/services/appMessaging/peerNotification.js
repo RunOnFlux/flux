@@ -42,7 +42,7 @@ async function recreateMissingContainers(componentIdentifier) {
     throw new Error(`App ${mainAppName} not found in local database`);
   }
 
-  appSpec = await decryptEnterpriseApps([appSpec]);
+  appSpec = await decryptEnterpriseApps([appSpec], { formatSpecs: false });
   appSpec = appSpec[0];
 
   if (!appSpec.compose || appSpec.compose.length === 0) {
@@ -140,7 +140,7 @@ async function checkAndNotifyPeersOfRunningApps(
       throw new Error('Unable to check running Apps');
     }
     let appsInstalled = installedAppsRes.data;
-    appsInstalled = await decryptEnterpriseApps(appsInstalled);
+    appsInstalled = await decryptEnterpriseApps(appsInstalled, { formatSpecs: false });
     const runningApps = runningAppsRes.data;
     const installedAppComponentNames = [];
     appsInstalled.forEach((app) => {
