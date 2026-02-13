@@ -682,7 +682,7 @@ function getAppsDOSState(req, res) {
  * @param {Function} installedApps - Async function to get installed apps
  * @returns {Promise<void>}
  */
-async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
+async function checkApplicationsCpuUsage(appsMonitored, installedApps) {
   try {
     // get list of locally installed apps.
     const installedAppsRes = await installedApps();
@@ -720,8 +720,8 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
           }
           // eslint-disable-next-line no-param-reassign
           appsMonitored[app.name].lastHourstatsStore = [];
-          log.info(`checkApplicationsCpuUSage ${app.name} cpu high load: ${cpuThrottling}`);
-          log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+          log.info(`checkApplicationsCpuUsage ${app.name} cpu high load: ${cpuThrottling}`);
+          log.info(`checkApplicationsCpuUsage ${cpuPercentage}`);
           if (cpuThrottling && app.cpu > 1) {
             if (cpuPercentage === 1) {
               if (app.cpu > 2) {
@@ -731,24 +731,24 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
                 // eslint-disable-next-line no-await-in-loop
                 await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
               }
-              log.info(`checkApplicationsCpuUSage ${app.name} lowering cpu.`);
+              log.info(`checkApplicationsCpuUsage ${app.name} lowering cpu.`);
             }
           } else if (cpuPercentage <= 0.8) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.85));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 85.`);
+            log.info(`checkApplicationsCpuUsage ${app.name} increasing cpu 85.`);
           } else if (cpuPercentage <= 0.85) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.9));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 90.`);
+            log.info(`checkApplicationsCpuUsage ${app.name} increasing cpu 90.`);
           } else if (cpuPercentage <= 0.9) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9 * 0.95));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 95.`);
+            log.info(`checkApplicationsCpuUsage ${app.name} increasing cpu 95.`);
           } else if (cpuPercentage < 1) {
             // eslint-disable-next-line no-await-in-loop
             await dockerService.appDockerUpdateCpu(app.name, Math.round(app.cpu * 1e9));
-            log.info(`checkApplicationsCpuUSage ${app.name} increasing cpu 100.`);
+            log.info(`checkApplicationsCpuUsage ${app.name} increasing cpu 100.`);
           }
         }
       } else {
@@ -778,8 +778,8 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
             }
             // eslint-disable-next-line no-param-reassign
             appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
-            log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
-            log.info(`checkApplicationsCpuUSage ${cpuPercentage}`);
+            log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} cpu high load: ${cpuThrottling}`);
+            log.info(`checkApplicationsCpuUsage ${cpuPercentage}`);
             if (cpuThrottling && appComponent.cpu > 1) {
               if (cpuPercentage === 1) {
                 if (appComponent.cpu > 2) {
@@ -789,24 +789,24 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
                   // eslint-disable-next-line no-await-in-loop
                   await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
                 }
-                log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} lowering cpu.`);
+                log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} lowering cpu.`);
               }
             } else if (cpuPercentage <= 0.8) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.85));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 85.`);
+              log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} increasing cpu 85.`);
             } else if (cpuPercentage <= 0.85) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.9));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 90.`);
+              log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} increasing cpu 90.`);
             } else if (cpuPercentage <= 0.9) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9 * 0.95));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 95.`);
+              log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} increasing cpu 95.`);
             } else if (cpuPercentage < 1) {
               // eslint-disable-next-line no-await-in-loop
               await dockerService.appDockerUpdateCpu(`${appComponent.name}_${app.name}`, Math.round(appComponent.cpu * 1e9));
-              log.info(`checkApplicationsCpuUSage ${appComponent.name}_${app.name} increasing cpu 100.`);
+              log.info(`checkApplicationsCpuUsage ${appComponent.name}_${app.name} increasing cpu 100.`);
             }
           }
         }
@@ -993,7 +993,7 @@ module.exports = {
   stopAppMonitoring,
   listAppsImages,
   getAppsDOSState,
-  checkApplicationsCpuUSage,
+  checkApplicationsCpuUsage,
   monitorSharedDBApps,
   checkStorageSpaceForApps,
 };
