@@ -268,11 +268,12 @@ async function isPortOpen(ip, port, options = {}) {
       settled = true;
 
       clearTimeout(timer);
-      socket.destroy();
 
       if (success) {
+        socket.resetAndDestroy();
         resolve(true);
       } else {
+        socket.destroy();
         reject();
       }
     };
