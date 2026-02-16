@@ -260,20 +260,33 @@ async function isPortOpen(ip, port, options = {}) {
 
   const call = new Promise((resolve, reject) => {
     const socket = new net.Socket();
+    let settled = false;
+
+    const cleanup = (success) => {
+      if (settled) return;
+
+      settled = true;
+
+      clearTimeout(timer);
+      socket.destroy();
+
+      if (success) {
+        resolve(true);
+      } else {
+        reject();
+      }
+    };
 
     const timer = setTimeout(() => {
-      socket.destroy();
+      cleanup(false);
     }, timeout);
 
     socket.connect(port, ip, () => {
-      clearTimeout(timer);
-      socket.resetAndDestroy();
-      resolve(true);
+      cleanup(true);
     });
 
     socket.on('error', () => {
-      clearTimeout(timer);
-      reject();
+      cleanup(false);
     });
   });
 
