@@ -436,20 +436,27 @@ async function handleSigterm() {
 
     if (containers.length > 0) {
       log.info(`Gracefully stopping ${containers.length} Flux app containers...`);
-      let stoppedCount = 0;
-      // eslint-disable-next-line no-restricted-syntax
-      for (const container of containers) {
+      // Fire all stop requests in parallel. Each sends SIGTERM and falls back
+      // to force-kill after 9 seconds. Promise.allSettled waits for every
+      // container to finish, so total shutdown time is ~9s (not N * 9s).
+      const stopPromises = containers.map((container) => {
         const containerName = container.Names[0].slice(1);
-        try {
-          // eslint-disable-next-line no-await-in-loop
-          await dockerService.appDockerStop(containerName);
-          log.info(`Container ${containerName} stopped`);
-          stoppedCount += 1;
-        } catch (err) {
-          log.warn(`Failed to stop container ${containerName}: ${err.message}`);
-        }
-      }
-      log.info(`Stopped ${stoppedCount}/${containers.length} Flux app containers`);
+        return dockerService.appDockerStop(containerName, 9)
+          .then(() => {
+            log.info(`Container ${containerName} stopped`);
+          })
+          .catch(async (stopErr) => {
+            log.warn(`Graceful stop failed for ${containerName}: ${stopErr.message}, force killing...`);
+            try {
+              await dockerService.appDockerKill(containerName);
+              log.info(`Container ${containerName} force killed`);
+            } catch (killErr) {
+              log.warn(`Failed to kill container ${containerName}: ${killErr.message}`);
+            }
+          });
+      });
+      await Promise.allSettled(stopPromises);
+      log.info(`Shutdown stop completed for ${containers.length} Flux app containers`);
     } else {
       log.info('No running Flux app containers to stop');
     }
