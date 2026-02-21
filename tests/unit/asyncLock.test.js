@@ -477,4 +477,71 @@ describe('asyncLock tests', () => {
     asyncLock.disable();
     await p;
   });
+
+  it('should correctly propagate unblocking when holders finish out of order', async () => {
+    const clock = sinon.useFakeTimers();
+    const asyncLock = new AsyncLock(2);
+    const results = [];
+
+    // A is slow (5s), B is fast (1s). C and D are waiters.
+    // disable() always shifts the front entry, so B finishing first
+    // shifts A's entry and resolves A's promise, unblocking C.
+    // When C finishes, it shifts B's entry, resolving B's promise, unblocking D.
+    const holderA = async () => {
+      await asyncLock.enable();
+      await new Promise((r) => { setTimeout(r, 5000); });
+      results.push('A');
+      asyncLock.disable();
+    };
+
+    const holderB = async () => {
+      await asyncLock.enable();
+      await new Promise((r) => { setTimeout(r, 1000); });
+      results.push('B');
+      asyncLock.disable();
+    };
+
+    const holderC = async () => {
+      await asyncLock.enable();
+      await new Promise((r) => { setTimeout(r, 1000); });
+      results.push('C');
+      asyncLock.disable();
+    };
+
+    const holderD = async () => {
+      await asyncLock.enable();
+      await new Promise((r) => { setTimeout(r, 1000); });
+      results.push('D');
+      asyncLock.disable();
+    };
+
+    const pA = holderA();
+    const pB = holderB();
+    const pC = holderC();
+    const pD = holderD();
+
+    expect(asyncLock.waiterCount).to.equal(2);
+
+    // t=1s: B finishes. disable() shifts A's entry, resolves A's promise.
+    // C was waiting on A's promise -> C unblocks and starts running.
+    await clock.tickAsync(1000);
+    expect(results).to.deep.equal(['B']);
+
+    // t=2s: C finishes. disable() shifts B's entry, resolves B's promise.
+    // D was waiting on B's promise -> D unblocks and starts running.
+    await clock.tickAsync(1000);
+    expect(results).to.deep.equal(['B', 'C']);
+    expect(asyncLock.waiterCount).to.equal(0);
+
+    // t=3s: D finishes. A still running (2s left).
+    await clock.tickAsync(1000);
+    expect(results).to.deep.equal(['B', 'C', 'D']);
+
+    // t=5s: A finally finishes.
+    await clock.tickAsync(2000);
+    expect(results).to.deep.equal(['B', 'C', 'D', 'A']);
+    expect(asyncLock.locked).to.be.false;
+
+    await Promise.all([pA, pB, pC, pD]);
+  });
 });
