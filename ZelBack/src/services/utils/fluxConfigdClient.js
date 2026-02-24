@@ -1,5 +1,4 @@
 const WebSocket = require('ws');
-const config = require('config');
 
 let currentId = 0;
 
@@ -11,11 +10,13 @@ let currentId = 0;
  * @throws {Error} If RPC call fails
  */
 async function callFluxConfigdRPC(method, params = {}) {
-  const socketPath = config.fluxconfigd.socketPath;
+  const connectionUri = process.env.FLUX_CONFIG_CONNECTION;
+  if (!connectionUri) {
+    throw new Error('flux-configd not available (FLUX_CONFIG_CONNECTION not set)');
+  }
 
   return new Promise((resolve, reject) => {
-    // Create WebSocket connection to Unix socket
-    const ws = new WebSocket(`ws+unix://${socketPath}`);
+    const ws = new WebSocket(`ws+${connectionUri}`);
 
     const id = currentId;
     currentId = (currentId + 1) % 1000000;

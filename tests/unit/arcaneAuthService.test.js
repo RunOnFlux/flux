@@ -3,8 +3,9 @@ const sinon = require('sinon');
 
 const { expect } = chai;
 
-// Must set FLUXOS_PATH before requiring arcaneAuthService (isArcane check at load time)
+// Must set env vars before requiring arcaneAuthService (isArcane check at load time)
 process.env.FLUXOS_PATH = '/tmp/test-fluxos';
+process.env.FLUX_CONFIG_CONNECTION = 'unix:///tmp/flux-configd-test.sock';
 
 const log = require('../../ZelBack/src/lib/log');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
@@ -176,6 +177,23 @@ describe('arcaneAuthService proxy tests', () => {
       expect(response.data.message).to.include('RPC connection failed');
 
       sinon.assert.calledWith(logErrorStub, sinon.match(/Error in authChallenge/));
+    });
+
+    it('should return 502 if FLUX_CONFIG_CONNECTION is not set', async () => {
+      const original = process.env.FLUX_CONFIG_CONNECTION;
+      delete process.env.FLUX_CONFIG_CONNECTION;
+
+      const req = { ip: '192.168.1.100' };
+      const res = { json: sinon.stub(), status: sinon.stub().returnsThis() };
+
+      await arcaneAuthService.authChallengeHandler(req, res);
+
+      sinon.assert.calledWith(res.status, 502);
+      const response = res.json.firstCall.args[0];
+      expect(response.status).to.equal('error');
+      expect(response.data.message).to.include('flux-configd not available');
+
+      process.env.FLUX_CONFIG_CONNECTION = original;
     });
   });
 
@@ -433,6 +451,31 @@ describe('arcaneAuthService proxy tests', () => {
       expect(response.status).to.equal('error');
 
       sinon.assert.calledWith(logErrorStub, sinon.match(/Error in configSync/));
+    });
+
+    it('should return 502 if FLUX_CONFIG_CONNECTION is not set', async () => {
+      const original = process.env.FLUX_CONFIG_CONNECTION;
+      delete process.env.FLUX_CONFIG_CONNECTION;
+
+      const req = {
+        ip: '192.168.1.100',
+        body: {
+          challenge: 'a'.repeat(64),
+          encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
+          configData: { test: 'value' },
+        },
+      };
+      const res = { json: sinon.stub(), status: sinon.stub().returnsThis() };
+
+      await arcaneAuthService.configSyncHandler(req, res);
+
+      sinon.assert.calledWith(res.status, 502);
+      const response = res.json.firstCall.args[0];
+      expect(response.status).to.equal('error');
+      expect(response.data.message).to.include('flux-configd not available');
+
+      process.env.FLUX_CONFIG_CONNECTION = original;
     });
 
     it('should handle different IP extraction methods', async () => {

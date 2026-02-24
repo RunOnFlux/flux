@@ -54,6 +54,15 @@ async function authChallengeHandler(req, res) {
       return res.status(501).json(errMessage);
     }
 
+    if (!process.env.FLUX_CONFIG_CONNECTION) {
+      const errMessage = messageHelper.createErrorMessage(
+        'flux-configd not available',
+        'BadGateway',
+        502,
+      );
+      return res.status(502).json(errMessage);
+    }
+
     const ipAddress = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || req.headers?.['x-forwarded-for'];
     if (!ipAddress) {
       const errMessage = messageHelper.createErrorMessage(
@@ -92,6 +101,15 @@ async function configSyncHandler(req, res) {
         501,
       );
       return res.status(501).json(errMessage);
+    }
+
+    if (!process.env.FLUX_CONFIG_CONNECTION) {
+      const errMessage = messageHelper.createErrorMessage(
+        'flux-configd not available',
+        'BadGateway',
+        502,
+      );
+      return res.status(502).json(errMessage);
     }
 
     const ipAddress = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || req.headers?.['x-forwarded-for'];
