@@ -3,6 +3,9 @@ const sinon = require('sinon');
 
 const { expect } = chai;
 
+// Must set FLUXOS_PATH before requiring arcaneAuthService (isArcane check at load time)
+process.env.FLUXOS_PATH = '/tmp/test-fluxos';
+
 const log = require('../../ZelBack/src/lib/log');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const arcaneAuthService = require('../../ZelBack/src/services/arcaneAuthService');
@@ -42,7 +45,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.authChallenge(req, res);
+      await arcaneAuthService.authChallengeHandler(req, res);
 
       sinon.assert.calledOnce(callFluxConfigdRPCStub);
       sinon.assert.calledWith(callFluxConfigdRPCStub, 'arcane.generate_challenge', {
@@ -77,7 +80,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.authChallenge(req, res);
+      await arcaneAuthService.authChallengeHandler(req, res);
 
       sinon.assert.calledWith(callFluxConfigdRPCStub, 'arcane.generate_challenge', {
         ip_address: '10.0.0.50',
@@ -104,7 +107,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.authChallenge(req, res);
+      await arcaneAuthService.authChallengeHandler(req, res);
 
       sinon.assert.calledWith(callFluxConfigdRPCStub, 'arcane.generate_challenge', {
         ip_address: '203.0.113.42',
@@ -119,7 +122,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.authChallenge(req, res);
+      await arcaneAuthService.authChallengeHandler(req, res);
 
       sinon.assert.calledWith(res.status, 400);
       sinon.assert.calledOnce(res.json);
@@ -141,7 +144,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.authChallenge(req, res);
+      await arcaneAuthService.authChallengeHandler(req, res);
 
       sinon.assert.calledWith(res.status, 429);
       sinon.assert.calledOnce(res.json);
@@ -163,7 +166,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.authChallenge(req, res);
+      await arcaneAuthService.authChallengeHandler(req, res);
 
       sinon.assert.calledWith(res.status, 500);
       sinon.assert.calledOnce(res.json);
@@ -180,7 +183,8 @@ describe('arcaneAuthService proxy tests', () => {
     it('should successfully proxy config sync to flux-configd', async () => {
       const mockResult = {
         synced: true,
-        message: 'Configuration synchronized successfully',
+        message: 'Configuration synchronized (1 fields changed)',
+        changed_fields: ['notifications'],
       };
 
       callFluxConfigdRPCStub.resolves(mockResult);
@@ -190,8 +194,8 @@ describe('arcaneAuthService proxy tests', () => {
         body: {
           challenge: 'a'.repeat(64),
           encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
           configData: { test: 'value' },
-          merge: false,
         },
       };
 
@@ -200,16 +204,15 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(req, res);
+      await arcaneAuthService.configSyncHandler(req, res);
 
       sinon.assert.calledOnce(callFluxConfigdRPCStub);
       sinon.assert.calledWith(callFluxConfigdRPCStub, 'arcane.config_update', {
         challenge: 'a'.repeat(64),
         encrypted_challenge: 'base64encrypted==',
+        signature: 'ab'.repeat(65),
         config_data: { test: 'value' },
-        username: 'fluxnode',
         ip_address: '192.168.1.100',
-        merge: false,
       });
 
       sinon.assert.calledOnce(res.json);
@@ -220,70 +223,12 @@ describe('arcaneAuthService proxy tests', () => {
       sinon.assert.calledWith(logInfoStub, sinon.match(/Config sync successful for.*via flux-configd/));
     });
 
-    it('should default merge to false if not provided', async () => {
-      const mockResult = {
-        synced: true,
-        message: 'Configuration synchronized successfully',
-      };
-
-      callFluxConfigdRPCStub.resolves(mockResult);
-
-      const req = {
-        ip: '192.168.1.100',
-        body: {
-          challenge: 'a'.repeat(64),
-          encryptedChallenge: 'base64encrypted==',
-          configData: { test: 'value' },
-        },
-      };
-
-      const res = {
-        json: sinon.stub(),
-        status: sinon.stub().returnsThis(),
-      };
-
-      await arcaneAuthService.configSync(req, res);
-
-      sinon.assert.calledWith(callFluxConfigdRPCStub, 'arcane.config_update', sinon.match({
-        merge: false,
-      }));
-    });
-
-    it('should pass merge: true when specified', async () => {
-      const mockResult = {
-        synced: true,
-        message: 'Configuration merged successfully',
-      };
-
-      callFluxConfigdRPCStub.resolves(mockResult);
-
-      const req = {
-        ip: '192.168.1.100',
-        body: {
-          challenge: 'a'.repeat(64),
-          encryptedChallenge: 'base64encrypted==',
-          configData: { test: 'value' },
-          merge: true,
-        },
-      };
-
-      const res = {
-        json: sinon.stub(),
-        status: sinon.stub().returnsThis(),
-      };
-
-      await arcaneAuthService.configSync(req, res);
-
-      sinon.assert.calledWith(callFluxConfigdRPCStub, 'arcane.config_update', sinon.match({
-        merge: true,
-      }));
-    });
-
     it('should return 400 error if IP cannot be determined', async () => {
       const req = {
         body: {
           challenge: 'a'.repeat(64),
           encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
           configData: { test: 'value' },
         },
       };
@@ -293,7 +238,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(req, res);
+      await arcaneAuthService.configSyncHandler(req, res);
 
       sinon.assert.calledWith(res.status, 400);
       sinon.assert.calledOnce(res.json);
@@ -308,6 +253,7 @@ describe('arcaneAuthService proxy tests', () => {
         ip: '192.168.1.100',
         body: {
           encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
           configData: { test: 'value' },
         },
       };
@@ -317,7 +263,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(req, res);
+      await arcaneAuthService.configSyncHandler(req, res);
 
       sinon.assert.calledWith(res.status, 400);
       const response = res.json.firstCall.args[0];
@@ -329,6 +275,7 @@ describe('arcaneAuthService proxy tests', () => {
         ip: '192.168.1.100',
         body: {
           challenge: 'a'.repeat(64),
+          signature: 'ab'.repeat(65),
           configData: { test: 'value' },
         },
       };
@@ -338,7 +285,29 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(req, res);
+      await arcaneAuthService.configSyncHandler(req, res);
+
+      sinon.assert.calledWith(res.status, 400);
+      const response = res.json.firstCall.args[0];
+      expect(response.data.message).to.include('Missing required parameters');
+    });
+
+    it('should return 400 error if signature is missing', async () => {
+      const req = {
+        ip: '192.168.1.100',
+        body: {
+          challenge: 'a'.repeat(64),
+          encryptedChallenge: 'base64encrypted==',
+          configData: { test: 'value' },
+        },
+      };
+
+      const res = {
+        json: sinon.stub(),
+        status: sinon.stub().returnsThis(),
+      };
+
+      await arcaneAuthService.configSyncHandler(req, res);
 
       sinon.assert.calledWith(res.status, 400);
       const response = res.json.firstCall.args[0];
@@ -351,6 +320,7 @@ describe('arcaneAuthService proxy tests', () => {
         body: {
           challenge: 'a'.repeat(64),
           encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
         },
       };
 
@@ -359,11 +329,57 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(req, res);
+      await arcaneAuthService.configSyncHandler(req, res);
 
       sinon.assert.calledWith(res.status, 400);
       const response = res.json.firstCall.args[0];
       expect(response.data.message).to.include('Missing required parameters');
+    });
+
+    it('should return 400 error if configData is an array', async () => {
+      const req = {
+        ip: '192.168.1.100',
+        body: {
+          challenge: 'a'.repeat(64),
+          encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
+          configData: ['not', 'an', 'object'],
+        },
+      };
+
+      const res = {
+        json: sinon.stub(),
+        status: sinon.stub().returnsThis(),
+      };
+
+      await arcaneAuthService.configSyncHandler(req, res);
+
+      sinon.assert.calledWith(res.status, 400);
+      const response = res.json.firstCall.args[0];
+      expect(response.data.message).to.include('configData must be a plain object');
+    });
+
+    it('should return 400 error if configData exceeds 16KB', async () => {
+      const req = {
+        ip: '192.168.1.100',
+        body: {
+          challenge: 'a'.repeat(64),
+          encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
+          configData: { huge: 'x'.repeat(16385) },
+        },
+      };
+
+      const res = {
+        json: sinon.stub(),
+        status: sinon.stub().returnsThis(),
+      };
+
+      await arcaneAuthService.configSyncHandler(req, res);
+
+      sinon.assert.calledWith(res.status, 400);
+      const response = res.json.firstCall.args[0];
+      expect(response.data.message).to.include('exceeds maximum size');
     });
 
     it('should return 401 error if flux-configd returns authentication failed', async () => {
@@ -374,6 +390,7 @@ describe('arcaneAuthService proxy tests', () => {
         body: {
           challenge: 'a'.repeat(64),
           encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
           configData: { test: 'value' },
         },
       };
@@ -383,7 +400,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(req, res);
+      await arcaneAuthService.configSyncHandler(req, res);
 
       sinon.assert.calledWith(res.status, 401);
       const response = res.json.firstCall.args[0];
@@ -399,6 +416,7 @@ describe('arcaneAuthService proxy tests', () => {
         body: {
           challenge: 'a'.repeat(64),
           encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
           configData: { test: 'value' },
         },
       };
@@ -408,7 +426,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(req, res);
+      await arcaneAuthService.configSyncHandler(req, res);
 
       sinon.assert.calledWith(res.status, 500);
       const response = res.json.firstCall.args[0];
@@ -418,7 +436,7 @@ describe('arcaneAuthService proxy tests', () => {
     });
 
     it('should handle different IP extraction methods', async () => {
-      const mockResult = { synced: true, message: 'Success' };
+      const mockResult = { synced: true, message: 'Success', changed_fields: [] };
       callFluxConfigdRPCStub.resolves(mockResult);
 
       const req = {
@@ -428,6 +446,7 @@ describe('arcaneAuthService proxy tests', () => {
         body: {
           challenge: 'a'.repeat(64),
           encryptedChallenge: 'base64encrypted==',
+          signature: 'ab'.repeat(65),
           configData: { test: 'value' },
         },
       };
@@ -437,7 +456,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(req, res);
+      await arcaneAuthService.configSyncHandler(req, res);
 
       sinon.assert.calledWith(callFluxConfigdRPCStub, 'arcane.config_update', sinon.match({
         ip_address: '172.16.0.1',
@@ -465,15 +484,16 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.authChallenge(challengeReq, challengeRes);
+      await arcaneAuthService.authChallengeHandler(challengeReq, challengeRes);
 
       const challengeResponse = challengeRes.json.firstCall.args[0];
       expect(challengeResponse.status).to.equal('success');
 
-      // Step 2: Config sync with challenge
+      // Step 2: Config sync with challenge + signature
       const mockSyncResult = {
         synced: true,
-        message: 'Configuration synchronized successfully',
+        message: 'Configuration synchronized (1 fields changed)',
+        changed_fields: ['identity.flux_id'],
       };
 
       callFluxConfigdRPCStub.onSecondCall().resolves(mockSyncResult);
@@ -483,8 +503,8 @@ describe('arcaneAuthService proxy tests', () => {
         body: {
           challenge: mockChallenge.challenge,
           encryptedChallenge: 'encrypted_base64==',
-          configData: { identity: { name: 'test-node' } },
-          merge: true,
+          signature: 'ab'.repeat(65),
+          configData: { identity: { fluxId: 'test-node' } },
         },
       };
 
@@ -493,7 +513,7 @@ describe('arcaneAuthService proxy tests', () => {
         status: sinon.stub().returnsThis(),
       };
 
-      await arcaneAuthService.configSync(syncReq, syncRes);
+      await arcaneAuthService.configSyncHandler(syncReq, syncRes);
 
       const syncResponse = syncRes.json.firstCall.args[0];
       expect(syncResponse.status).to.equal('success');

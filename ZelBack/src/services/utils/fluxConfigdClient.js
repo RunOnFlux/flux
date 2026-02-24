@@ -27,21 +27,38 @@ async function callFluxConfigdRPC(method, params = {}) {
       id,
     };
 
+    let authenticated = false;
+
     const timeout = setTimeout(() => {
       ws.close();
       reject(new Error('flux-configd RPC timeout'));
     }, 10000);
 
     ws.on('open', () => {
-      ws.send(JSON.stringify(request));
+      // flux-configd requires an auth handshake before accepting RPC calls
+      ws.send(JSON.stringify({ api_key: '' }));
     });
 
     ws.on('message', (data) => {
-      clearTimeout(timeout);
-      ws.close();
-
       try {
         const response = JSON.parse(data.toString());
+
+        // Wait for auth confirmation, then send the RPC request
+        if (!authenticated) {
+          if (response.authenticated) {
+            authenticated = true;
+            ws.send(JSON.stringify(request));
+          }
+          return;
+        }
+
+        // Ignore non-JSON-RPC messages (e.g. state broadcasts)
+        if (response.jsonrpc !== '2.0' || response.id !== id) {
+          return;
+        }
+
+        clearTimeout(timeout);
+        ws.close();
 
         if (response.error) {
           const error = new Error(response.error.message || 'RPC error');
@@ -52,6 +69,8 @@ async function callFluxConfigdRPC(method, params = {}) {
 
         resolve(response.result);
       } catch (err) {
+        clearTimeout(timeout);
+        ws.close();
         reject(new Error(`Failed to parse flux-configd response: ${err.message}`));
       }
     });

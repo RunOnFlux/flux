@@ -22,20 +22,18 @@ async function generateChallenge(ipAddress) {
  * Update configuration with authenticated request
  * @param {string} challenge - Challenge string
  * @param {string} encryptedChallenge - Encrypted challenge
+ * @param {string} signature - Hex-encoded compact signature over sha256(challenge)
  * @param {object} configData - Configuration data to sync
  * @param {string} ipAddress - Requester's IP address
- * @param {boolean} merge - Whether to merge or replace config
  * @returns {Promise<object>} Result from flux-configd
  */
-async function updateConfig(challenge, encryptedChallenge, configData, ipAddress, merge = false) {
-  // TODO: Determine correct username from node identity
+async function updateConfig(challenge, encryptedChallenge, signature, configData, ipAddress) {
   const result = await fluxConfigdClient.callFluxConfigdRPC('arcane.config_update', {
     challenge,
     encrypted_challenge: encryptedChallenge,
+    signature,
     config_data: configData,
-    username: 'fluxnode',  // TODO: Get from node identity
     ip_address: ipAddress,
-    merge
   });
 
   log.info(`Config sync successful for ${ipAddress} via flux-configd`);
@@ -106,10 +104,37 @@ async function configSyncHandler(req, res) {
       return res.status(400).json(errMessage);
     }
 
-    const { challenge, encryptedChallenge, configData, merge } = req.body;
-    if (!challenge || !encryptedChallenge || !configData) {
+    const { challenge, encryptedChallenge, signature, configData } = req.body;
+    if (!challenge || !encryptedChallenge || !signature || !configData) {
       const errMessage = messageHelper.createErrorMessage(
-        'Missing required parameters: challenge, encryptedChallenge, configData',
+        'Missing required parameters: challenge, encryptedChallenge, signature, configData',
+        'BadRequest',
+        400,
+      );
+      return res.status(400).json(errMessage);
+    }
+
+    if (typeof signature !== 'string') {
+      const errMessage = messageHelper.createErrorMessage(
+        'signature must be a string',
+        'BadRequest',
+        400,
+      );
+      return res.status(400).json(errMessage);
+    }
+
+    if (typeof configData !== 'object' || configData === null || Array.isArray(configData)) {
+      const errMessage = messageHelper.createErrorMessage(
+        'configData must be a plain object',
+        'BadRequest',
+        400,
+      );
+      return res.status(400).json(errMessage);
+    }
+
+    if (JSON.stringify(configData).length > 16384) {
+      const errMessage = messageHelper.createErrorMessage(
+        'configData exceeds maximum size (16KB)',
         'BadRequest',
         400,
       );
@@ -119,9 +144,9 @@ async function configSyncHandler(req, res) {
     const result = await updateConfig(
       challenge,
       encryptedChallenge,
+      signature,
       configData,
       ipAddress,
-      merge,
     );
     const response = messageHelper.createDataMessage(result);
     return res.json(response);
