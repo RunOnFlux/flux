@@ -59,15 +59,19 @@ function getInstalledAppsForDocker() {
 }
 
 // Get installed apps from database
-async function getInstalledAppsFromDb() {
+async function getInstalledAppsFromDb(options = {}) {
   try {
+    const { decryptApps = false } = options;
     const dbopen = dbHelper.databaseConnection();
     const appsDatabase = dbopen.db(config.database.appslocal.database);
     const appsQuery = {};
     const appsProjection = {
       projection: { _id: 0 },
     };
-    const apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    let apps = await dbHelper.findInDatabase(appsDatabase, localAppsInformation, appsQuery, appsProjection);
+    if (decryptApps) {
+      apps = await decryptEnterpriseApps(apps, { formatSpecs: false });
+    }
     return messageHelper.createDataMessage(apps);
   } catch (error) {
     log.error(error);
@@ -77,6 +81,58 @@ async function getInstalledAppsFromDb() {
       error.code,
     );
   }
+}
+
+/**
+ * Ensures that v8+ specs have a compose array.
+ * @param {object} appSpecification - App specification.
+ * @param {string} context - Calling context.
+ */
+function assertV8ComposeArray(appSpecification, context) {
+  if (appSpecification.version >= 8 && !Array.isArray(appSpecification.compose)) {
+    throw new Error(`${context}: Invalid compose for v${appSpecification.version} app ${appSpecification.name}`);
+  }
+}
+
+/**
+ * Resolves installed app specs for v8 component structure comparison.
+ * @param {object} appSpecifications - New app specifications.
+ * @param {object} installedApp - Installed app from local DB.
+ * @param {string} context - Calling context.
+ * @returns {object|null} Comparable installed app or null.
+ */
+function resolveInstalledAppForStructureComparison(appSpecifications, installedApp, context) {
+  if (!installedApp || appSpecifications.version < 8 || installedApp.version < 8) {
+    return null;
+  }
+
+  assertV8ComposeArray(appSpecifications, context);
+
+  // Enterprise app specs cannot be decrypted on non-arcane nodes. Skip comparison there.
+  if ((appSpecifications.enterprise || installedApp.enterprise) && !isArcane) {
+    log.warn(`${context}: Skipping component structure comparison for enterprise app ${appSpecifications.name} on non-arcane node.`);
+    return null;
+  }
+
+  assertV8ComposeArray(installedApp, context);
+  return installedApp;
+}
+
+/**
+ * Checks if v8 component structure changed (count or names).
+ * @param {object} appSpecifications - New app specifications.
+ * @param {object} installedApp - Installed app specifications.
+ * @returns {boolean} True when structure changed.
+ */
+function hasV8ComponentStructureChange(appSpecifications, installedApp) {
+  const componentCountChanged = appSpecifications.compose.length !== installedApp.compose.length;
+  const oldNames = new Set(installedApp.compose.map((component) => component && component.name).filter(Boolean));
+  const componentNamesChanged = !appSpecifications.compose
+    .map((component) => component && component.name)
+    .filter(Boolean)
+    .every((name) => oldNames.has(name));
+
+  return componentCountChanged || componentNamesChanged;
 }
 
 // Get strict application specifications
@@ -1324,35 +1380,32 @@ async function softRedeploy(appSpecs, res) {
       return;
     }
 
-    // Check if component structure changed for version 8+ apps
-    // If so, escalate to hard redeploy automatically
-    if (appSpecs.version >= 4) {
-      const installedAppsRes = await getInstalledAppsFromDb();
+    // Check if component structure changed for version 8+ apps.
+    if (appSpecs.version >= 8) {
+      const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
       if (installedAppsRes.status === 'success') {
         const installedApp = installedAppsRes.data.find((app) => app.name === appSpecs.name);
-        if (installedApp && installedApp.version >= 8 && appSpecs.version >= 8) {
-          // Check if component structure changed
-          const componentCountChanged = appSpecs.compose.length !== installedApp.compose.length;
-          const componentNamesChanged = !appSpecs.compose.every(
-            (newComp) => installedApp.compose.find((oldComp) => oldComp.name === newComp.name),
-          );
+        const installedAppForComparison = resolveInstalledAppForStructureComparison(
+          appSpecs,
+          installedApp,
+          'softRedeploy',
+        );
 
-          if (componentCountChanged || componentNamesChanged) {
-            log.warn(`Soft redeploy requested for ${appSpecs.name}, but component structure changed.`);
-            log.warn(`Component count: ${installedApp.compose.length} -> ${appSpecs.compose.length}`);
-            log.warn('Automatically escalating to hard redeploy for component structure safety.');
-            const escalationMessage = messageHelper.createWarningMessage(
-              `Component structure changed for v${appSpecs.version} app. Escalating to hard redeploy for safety.`,
-            );
-            if (res) {
-              res.write(serviceHelper.ensureString(escalationMessage));
-              if (res.flush) res.flush();
-            }
-            // Call hardRedeploy instead
-            // eslint-disable-next-line no-use-before-define
-            await hardRedeploy(appSpecs, res);
-            return;
+        if (installedAppForComparison && hasV8ComponentStructureChange(appSpecs, installedAppForComparison)) {
+          log.warn(`Soft redeploy requested for ${appSpecs.name}, but component structure changed.`);
+          log.warn(`Component count: ${installedAppForComparison.compose.length} -> ${appSpecs.compose.length}`);
+          log.warn('Automatically escalating to hard redeploy for component structure safety.');
+          const escalationMessage = messageHelper.createWarningMessage(
+            `Component structure changed for v${appSpecs.version} app. Escalating to hard redeploy for safety.`,
+          );
+          if (res) {
+            res.write(serviceHelper.ensureString(escalationMessage));
+            if (res.flush) res.flush();
           }
+          // Call hardRedeploy instead
+          // eslint-disable-next-line no-use-before-define
+          await hardRedeploy(appSpecs, res);
+          return;
         }
       }
     }
@@ -1519,9 +1572,14 @@ async function softRedeployComponent(appName, componentName, res) {
     log.info(`Starting soft redeploy of component ${componentName} from app ${appName}`);
 
     // Get app specifications
-    const appSpecifications = await getStrictApplicationSpecifications(appName);
+    let appSpecifications = await getStrictApplicationSpecifications(appName);
     if (!appSpecifications) {
       throw new Error(`Application ${appName} not found`);
+    }
+
+    // Decrypt enterprise apps before accessing compose
+    if (appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
+      appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     }
 
     // Find the component in the app specs
@@ -1628,9 +1686,13 @@ async function hardRedeployComponent(appName, componentName, res) {
     log.info(`Starting hard redeploy of component ${componentName} from app ${appName}`);
 
     // Get app specifications
-    const appSpecifications = await getStrictApplicationSpecifications(appName);
+    let appSpecifications = await getStrictApplicationSpecifications(appName);
     if (!appSpecifications) {
       throw new Error(`Application ${appName} not found`);
+    }
+
+    if (appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
+      appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
     }
 
     // Find the component in the app specs
@@ -3098,7 +3160,7 @@ async function reinstallOldApplications() {
       return;
     }
     // first get installed apps
-    const installedAppsRes = await getInstalledAppsFromDb();
+    const installedAppsRes = await getInstalledAppsFromDb({ decryptApps: true });
     if (installedAppsRes.status !== 'success') {
       throw new Error('Failed to get installed Apps');
     }
@@ -3110,7 +3172,13 @@ async function reinstallOldApplications() {
       // if same, do nothing. if different remove and install.
 
       // eslint-disable-next-line no-await-in-loop
-      const appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+      let appSpecifications = await getStrictApplicationSpecifications(installedApp.name);
+
+      if (appSpecifications && appSpecifications.version >= 8 && appSpecifications.enterprise && isArcane) {
+        // eslint-disable-next-line no-await-in-loop
+        appSpecifications = await checkAndDecryptAppSpecs(appSpecifications);
+      }
+
       const randomNumber = Math.floor((Math.random() * config.fluxapps.redeploy.probability)); // 50%
       if (appSpecifications && appSpecifications.hash !== installedApp.hash) {
         // eslint-disable-next-line no-await-in-loop
@@ -3353,17 +3421,20 @@ async function reinstallOldApplications() {
             // eslint-disable-next-line global-require
             const appInstaller = require('./appInstaller');
 
-            // Check if component structure changed (count or names) for version 8+ apps
-            const componentCountChanged = appSpecifications.compose.length !== installedApp.compose.length;
-            const componentNamesChanged = !appSpecifications.compose.every(
-              (newComp) => installedApp.compose.find((oldComp) => oldComp.name === newComp.name),
+            // Check if component structure changed (count or names) for version 8+ apps.
+            const installedAppForComparison = resolveInstalledAppForStructureComparison(
+              appSpecifications,
+              installedApp,
+              'reinstallOldApplications',
             );
-            const hasComponentStructureChange = componentCountChanged || componentNamesChanged;
+            const hasComponentStructureChange = Boolean(
+              installedAppForComparison && hasV8ComponentStructureChange(appSpecifications, installedAppForComparison),
+            );
 
             // For version 8+ apps with component structure changes, force full hard redeploy
             if (appSpecifications.version >= 8 && hasComponentStructureChange) {
               log.warn(`Application ${appSpecifications.name} (v${appSpecifications.version}) has component structure changes.`);
-              log.warn(`Component count: ${installedApp.compose.length} -> ${appSpecifications.compose.length}`);
+              log.warn(`Component count: ${installedAppForComparison.compose.length} -> ${appSpecifications.compose.length}`);
               log.warn('Performing full hard redeploy to handle component changes...');
               log.warn(`REMOVAL REASON: Component structure change (v8+) - ${appSpecifications.name} component count/names changed`);
 
@@ -3408,8 +3479,9 @@ async function reinstallOldApplications() {
                 } else if (appComponent.hdd === installedComponent.hdd) {
                   log.warn(`Beginning Soft Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   // soft redeployment
+                  const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.softUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, null, true); // component
+                  await appUninstaller.softUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} softly removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);
@@ -3417,8 +3489,9 @@ async function reinstallOldApplications() {
                   log.warn(`Beginning Hard Redeployment of component ${appComponent.name}_${appSpecifications.name}...`);
                   log.warn(`REMOVAL REASON: Hard redeployment (component) - ${appComponent.name}_${appSpecifications.name} HDD changed from ${installedComponent.hdd} to ${appComponent.hdd}`);
                   // hard redeployment
+                  const appId = dockerService.getAppIdentifier(`${appComponent.name}_${appSpecifications.name}`);
                   // eslint-disable-next-line no-await-in-loop
-                  await appUninstaller.hardUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, null, appSpecifications, null, true); // component
+                  await appUninstaller.hardUninstallComponent(`${appComponent.name}_${appSpecifications.name}`, appId, appComponent, null, stopAppMonitoring);
                   log.warn(`Application component ${appComponent.name}_${appSpecifications.name} removed. Awaiting installation...`);
                   // eslint-disable-next-line no-await-in-loop
                   await serviceHelper.delay(config.fluxapps.redeploy.composedDelay * 1000);

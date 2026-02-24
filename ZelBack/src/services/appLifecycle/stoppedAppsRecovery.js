@@ -12,9 +12,13 @@ const log = require('../../lib/log');
 const dbHelper = require('../dbHelper');
 const dockerService = require('../dockerService');
 const serviceHelper = require('../serviceHelper');
+const fluxNetworkHelper = require('../fluxNetworkHelper');
 const registryManager = require('../appDatabase/registryManager');
 const advancedWorkflows = require('./advancedWorkflows');
+const appUninstaller = require('./appUninstaller');
 const { localAppsInformation } = require('../utils/appConstants');
+
+const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
 
 /**
  * Check if an app uses g: syncthing mode in ANY of its components
@@ -39,6 +43,40 @@ function appUsesGSyncthingMode(appSpec) {
   }
 
   return false;
+}
+
+/**
+ * Check if an app still has a valid (non-expired) location record for this node's IP.
+ * The globalAppsLocations collection has a TTL index of 7500 seconds on broadcastedAt.
+ * If the record is missing or expired, the app was already reassigned to another node.
+ * @param {string} appName - Application name
+ * @param {string} myIp - This node's IP address
+ * @returns {Promise<boolean>} True if a valid location record exists
+ */
+async function appHasValidLocationOnNode(appName, myIp) {
+  try {
+    const db = dbHelper.databaseConnection();
+    const database = db.db(config.database.appsglobal.database);
+    const query = { name: appName, ip: myIp };
+    const projection = { _id: 0, expireAt: 1 };
+    const records = await dbHelper.findInDatabase(database, globalAppsLocations, query, projection);
+
+    if (!records || records.length === 0) {
+      return false;
+    }
+
+    // Check expireAt directly - this field is kept in sync when broadcastedAt
+    // is manipulated during sigterm handling (both locally and on peers)
+    const now = Date.now();
+    return records.some((record) => {
+      if (!record.expireAt) return false;
+      return new Date(record.expireAt).getTime() > now;
+    });
+  } catch (error) {
+    log.error(`stoppedAppsRecovery - Error checking app location for ${appName}: ${error.message}`);
+    // On error, assume valid to avoid incorrectly removing apps
+    return true;
+  }
 }
 
 /**
@@ -137,6 +175,7 @@ async function startStoppedAppsOnBoot() {
     appsStarted: [],
     appsSkippedGMode: [],
     appsSkippedNoSpec: [],
+    appsRemoved: [],
     appsFailed: [],
   };
 
@@ -171,6 +210,9 @@ async function startStoppedAppsOnBoot() {
     }
 
     log.info(`stoppedAppsRecovery - Stopped containers belong to ${appsWithStoppedContainers.size} app(s)`);
+
+    // Get this node's IP for location checks
+    const myIp = await fluxNetworkHelper.getMyFluxIPandPort();
 
     // Process each app
     // eslint-disable-next-line no-restricted-syntax
@@ -212,8 +254,32 @@ async function startStoppedAppsOnBoot() {
         continue;
       }
 
-      // App doesn't use g: syncthing - start the app (handles all components)
-      log.info(`stoppedAppsRecovery - App ${appName} does not use g: syncthing, starting app`);
+      // Check if the app still has a valid location record for this node
+      // If the node was offline longer than the TTL (~7 minutes after sigterm),
+      // the location record expired and the app was respawned elsewhere
+      if (myIp) {
+        // eslint-disable-next-line no-await-in-loop
+        const hasValidLocation = await appHasValidLocationOnNode(appName, myIp);
+        if (!hasValidLocation) {
+          log.warn(`stoppedAppsRecovery - App ${appName} no longer has a valid location record for this node (${myIp}), removing locally`);
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await appUninstaller.removeAppLocally(appName, null, true, true, false);
+            results.appsRemoved.push(appName);
+            log.info(`stoppedAppsRecovery - App ${appName} removed locally (was reassigned to another node)`);
+          } catch (removeError) {
+            log.error(`stoppedAppsRecovery - Failed to remove app ${appName}: ${removeError.message}`);
+            results.appsFailed.push({ app: appName, error: removeError.message });
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await serviceHelper.delay(2000);
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+      }
+
+      // App has valid location - start it (handles all components)
+      log.info(`stoppedAppsRecovery - App ${appName} has valid location, starting app`);
 
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -237,6 +303,7 @@ async function startStoppedAppsOnBoot() {
       'stoppedAppsRecovery - Recovery complete. '
       + `Apps checked: ${results.appsChecked}, `
       + `Apps started: ${results.appsStarted.length}, `
+      + `Apps removed (expired location): ${results.appsRemoved.length}, `
       + `Apps skipped (g: mode): ${results.appsSkippedGMode.length}, `
       + `Apps skipped (no spec): ${results.appsSkippedNoSpec.length}, `
       + `Apps failed: ${results.appsFailed.length}`,
@@ -252,5 +319,6 @@ module.exports = {
   startStoppedAppsOnBoot,
   getStoppedFluxContainers,
   appUsesGSyncthingMode,
+  appHasValidLocationOnNode,
   parseContainerName,
 };

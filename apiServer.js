@@ -27,6 +27,8 @@ const requestHistoryStore = require('./ZelBack/src/services/utils/requestHistory
 const globalState = require('./ZelBack/src/services/utils/globalState');
 const fluxNetworkHelper = require('./ZelBack/src/services/fluxNetworkHelper');
 const fluxCommunicationMessagesSender = require('./ZelBack/src/services/fluxCommunicationMessagesSender');
+const dockerService = require('./ZelBack/src/services/dockerService');
+const dbHelper = require('./ZelBack/src/services/dbHelper');
 
 const apiPort = globalThis.userconfig.initial.apiport || config.server.apiport;
 const apiPortHttps = +apiPort + 1;
@@ -398,6 +400,23 @@ async function handleSigterm() {
         await serviceHelper.delay(500);
         await fluxCommunicationMessagesSender.broadcastMessageToIncoming(sigtermMessage);
 
+        // Update local DB to expire app location records in ~7 minutes,
+        // same manipulation that peers apply when receiving the sigterm.
+        // This keeps the local DB consistent with the network so that on
+        // reboot the TTL check correctly detects expired locations.
+        try {
+          const db = dbHelper.databaseConnection();
+          const database = db.db(config.database.appsglobal.database);
+          const globalAppsLocations = config.database.appsglobal.collections.appsLocations;
+          const newBroadcastedAt = new Date(sigtermMessage.broadcastedAt - (7500 - 420) * 1000);
+          const newExpireAt = new Date(sigtermMessage.broadcastedAt + (420 * 1000));
+          const update = { $set: { broadcastedAt: newBroadcastedAt, expireAt: newExpireAt } };
+          await dbHelper.updateInDatabase(database, globalAppsLocations, { ip }, update);
+          log.info('Local app location records updated to expire in ~7 minutes');
+        } catch (dbError) {
+          log.warn(`Failed to update local app location expiration: ${dbError.message}`);
+        }
+
         log.info('Shutdown notification broadcasted successfully');
       } else {
         log.warn('Could not get IP address, skipping shutdown broadcast');
@@ -407,6 +426,42 @@ async function handleSigterm() {
     }
   } catch (error) {
     log.error(`Error during SIGTERM handling: ${error.message}`);
+  }
+
+  // Gracefully stop all running Flux app containers
+  try {
+    let containers = await dockerService.dockerListContainers(false);
+    containers = containers || [];
+    containers = containers.filter((c) => c.Names[0].slice(1, 4) === 'zel' || c.Names[0].slice(1, 5) === 'flux');
+
+    if (containers.length > 0) {
+      log.info(`Gracefully stopping ${containers.length} Flux app containers...`);
+      // Fire all stop requests in parallel. Each sends SIGTERM and falls back
+      // to force-kill after 9 seconds. Promise.allSettled waits for every
+      // container to finish, so total shutdown time is ~9s (not N * 9s).
+      const stopPromises = containers.map((container) => {
+        const containerName = container.Names[0].slice(1);
+        return dockerService.appDockerStop(containerName, 9)
+          .then(() => {
+            log.info(`Container ${containerName} stopped`);
+          })
+          .catch(async (stopErr) => {
+            log.warn(`Graceful stop failed for ${containerName}: ${stopErr.message}, force killing...`);
+            try {
+              await dockerService.appDockerKill(containerName);
+              log.info(`Container ${containerName} force killed`);
+            } catch (killErr) {
+              log.warn(`Failed to kill container ${containerName}: ${killErr.message}`);
+            }
+          });
+      });
+      await Promise.allSettled(stopPromises);
+      log.info(`Shutdown stop completed for ${containers.length} Flux app containers`);
+    } else {
+      log.info('No running Flux app containers to stop');
+    }
+  } catch (error) {
+    log.error(`Error stopping containers during shutdown: ${error.message}`);
   }
 
   // Give some time for the broadcast to complete

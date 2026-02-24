@@ -578,6 +578,7 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
     }
 
     const specificationsToInstall = isComponent ? appComponent : appSpecifications;
+
     try {
       // Validate database entry exists before creating Docker containers (atomic transaction check)
       // This prevents orphaned Docker containers if DB entry was deleted/corrupted between insert and Docker creation
