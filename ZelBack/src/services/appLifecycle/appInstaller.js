@@ -732,7 +732,7 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
 
   const checkingStatus = {
-    status: `Checking Orbit deployment status for ${identifier}...`,
+    status: `Checking Orbit deployment status for ${identifier} on port ${hostPort}...`,
   };
   log.info(checkingStatus);
   if (res) {
