@@ -711,6 +711,81 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
 }
 
 /**
+ * Checks Orbit (Deploy with Git) app health by polling its /api/status endpoint.
+ * Waits for initialTestStatus to become true, then checks if the deployment failed.
+ * @param {object} appSpecifications - Component specifications containing repotag and ports
+ * @param {string} appName - Application name
+ * @param {boolean} isComponent - Whether this is a component
+ * @param {object} res - Response object for streaming status updates
+ * @returns {Promise<{passed: boolean, reason: string|null}>} Result with passed status and failure reason
+ */
+async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res) {
+  if (!appSpecifications.ports || !appSpecifications.ports.length) {
+    return { passed: false, reason: 'No ports configured for Orbit component' };
+  }
+  const hostPort = appSpecifications.ports[0];
+  const statusUrl = `http://127.0.0.1:${hostPort}/api/status`;
+  const pollInterval = 5000; // 5 seconds between polls
+  const maxAttempts = 24; // 2 minutes total (24 * 5s)
+  const initialWait = 5000; // 5 seconds before first poll
+
+  const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
+
+  const checkingStatus = {
+    status: `Checking Orbit deployment status for ${identifier}...`,
+  };
+  log.info(checkingStatus);
+  if (res) {
+    res.write(serviceHelper.ensureString(checkingStatus));
+    if (res.flush) res.flush();
+  }
+
+  // Wait for Orbit to initialize before first poll
+  await serviceHelper.delay(initialWait);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const response = await serviceHelper.axiosGet(statusUrl, { timeout: 5000 });
+
+      if (response.data && response.data.initialTestStatus === true) {
+        if (response.data.failed === true) {
+          const reason = response.data.failure_reason || 'Unknown failure';
+          return { passed: false, reason };
+        }
+        // initialTestStatus is true and failed is false - test passed
+        const successStatus = {
+          status: `Orbit initial test passed for ${identifier}`,
+        };
+        log.info(successStatus);
+        if (res) {
+          res.write(serviceHelper.ensureString(successStatus));
+          if (res.flush) res.flush();
+        }
+        return { passed: true, reason: null };
+      }
+    } catch (error) {
+      // HTTP errors are expected while Orbit is still starting up
+      log.info(`Orbit status poll attempt ${attempt}/${maxAttempts} for ${identifier}: ${error.message}`);
+    }
+
+    const elapsed = attempt * 5;
+    const waitingStatus = {
+      status: `Waiting for Orbit initial test... (${elapsed}s/${maxAttempts * 5}s)`,
+    };
+    if (res) {
+      res.write(serviceHelper.ensureString(waitingStatus));
+      if (res.flush) res.flush();
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    await serviceHelper.delay(pollInterval);
+  }
+
+  return { passed: false, reason: 'Orbit health check timed out: initial test did not complete within 2 minutes' };
+}
+
+/**
  * Install application (hard installation with Docker)
  * @param {object} appSpecifications - App specifications or component specifications
  * @param {string} appName - Application name
@@ -786,6 +861,14 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     if (res) {
       res.write(serviceHelper.ensureString(appResponse));
       if (res.flush) res.flush();
+    }
+
+    // For Orbit (Deploy with Git) apps, verify deployment health during test installs
+    if (test && appSpecifications.repotag && appSpecifications.repotag.startsWith('runonflux/orbit')) {
+      const orbitHealth = await checkOrbitAppHealth(appSpecifications, appName, isComponent, res);
+      if (!orbitHealth.passed) {
+        throw new Error(`Orbit deployment failed: ${orbitHealth.reason}`);
+      }
     }
   }
 }
