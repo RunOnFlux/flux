@@ -717,9 +717,12 @@ async function registerAppLocally(appSpecs, componentSpecs, res, test = false, s
  * @param {string} appName - Application name
  * @param {boolean} isComponent - Whether this is a component
  * @param {object} res - Response object for streaming status updates
- * @returns {Promise<void>} Resolves if health check passes, throws if it fails
+ * @returns {Promise<{passed: boolean, reason: string|null}>} Result with passed status and failure reason
  */
 async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res) {
+  if (!appSpecifications.ports || !appSpecifications.ports.length) {
+    return { passed: false, reason: 'No ports configured for Orbit component' };
+  }
   const hostPort = appSpecifications.ports[0];
   const statusUrl = `http://127.0.0.1:${hostPort}/api/status`;
   const pollInterval = 5000; // 5 seconds between polls
@@ -748,7 +751,7 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
       if (response.data && response.data.initialTestStatus === true) {
         if (response.data.failed === true) {
           const reason = response.data.failure_reason || 'Unknown failure';
-          throw new Error(`Orbit deployment failed: ${reason}`);
+          return { passed: false, reason };
         }
         // initialTestStatus is true and failed is false - test passed
         const successStatus = {
@@ -759,13 +762,9 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
           res.write(serviceHelper.ensureString(successStatus));
           if (res.flush) res.flush();
         }
-        return;
+        return { passed: true, reason: null };
       }
     } catch (error) {
-      // Re-throw Orbit deployment failures
-      if (error.message.startsWith('Orbit deployment failed:')) {
-        throw error;
-      }
       // HTTP errors are expected while Orbit is still starting up
       log.info(`Orbit status poll attempt ${attempt}/${maxAttempts} for ${identifier}: ${error.message}`);
     }
@@ -783,7 +782,7 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
     await serviceHelper.delay(pollInterval);
   }
 
-  throw new Error('Orbit health check timed out: initial test did not complete within 2 minutes');
+  return { passed: false, reason: 'Orbit health check timed out: initial test did not complete within 2 minutes' };
 }
 
 /**
@@ -865,8 +864,11 @@ async function installApplicationHard(appSpecifications, appName, isComponent, r
     }
 
     // For Orbit (Deploy with Git) apps, verify deployment health during test installs
-    if (test && appSpecifications.repotag && appSpecifications.repotag.includes('runonflux/orbit')) {
-      await checkOrbitAppHealth(appSpecifications, appName, isComponent, res);
+    if (test && appSpecifications.repotag && appSpecifications.repotag.startsWith('runonflux/orbit')) {
+      const orbitHealth = await checkOrbitAppHealth(appSpecifications, appName, isComponent, res);
+      if (!orbitHealth.passed) {
+        throw new Error(`Orbit deployment failed: ${orbitHealth.reason}`);
+      }
     }
   }
 }
