@@ -744,6 +744,7 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
   await serviceHelper.delay(initialWait);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let pollError = null;
     try {
       // eslint-disable-next-line no-await-in-loop
       const response = await serviceHelper.axiosGet(statusUrl, { timeout: 5000 });
@@ -765,13 +766,15 @@ async function checkOrbitAppHealth(appSpecifications, appName, isComponent, res)
         return { passed: true, reason: null };
       }
     } catch (error) {
+      pollError = error.message;
       // HTTP errors are expected while Orbit is still starting up
       log.info(`Orbit status poll attempt ${attempt}/${maxAttempts} for ${identifier}: ${error.message}`);
     }
 
     const elapsed = attempt * 5;
+    const lastError = pollError ? ` (${pollError})` : '';
     const waitingStatus = {
-      status: `Waiting for Orbit initial test... (${elapsed}s/${maxAttempts * 5}s)`,
+      status: `Waiting for Orbit initial test... (${elapsed}s/${maxAttempts * 5}s)${lastError}`,
     };
     if (res) {
       res.write(serviceHelper.ensureString(waitingStatus));
