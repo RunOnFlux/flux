@@ -330,7 +330,7 @@ module.exports = (app) => {
   });
 
   // Apps routes - now directly calling modular services
-  app.get('/apps/listrunningapps', cache('5 seconds'), (req, res) => {
+  app.get('/apps/listrunningapps', cache('15 seconds'), (req, res) => {
     appQueryService.listRunningApps(req, res);
   });
   app.get('/apps/listallapps', cache('30 seconds'), (req, res) => {
