@@ -29,9 +29,11 @@ configManager.on('configReloaded', async (newConfig) => {
 });
 
 /**
- * AsyncLock used to limit calls to the Daemon RPC endpoint
+ * AsyncLock used to limit concurrent calls to the Daemon RPC endpoint.
+ * Semaphore with 5 slots to prevent a single long-running RPC (e.g.
+ * createConfirmationTransaction) from blocking unrelated RPCs like loginPhrase.
  */
-const lock = new asyncLock.AsyncLock();
+const lock = new asyncLock.AsyncLock(5);
 
 const cache = cacheManager.daemonGenericCache;
 const rawTxCache = cacheManager.daemonTxCache;
@@ -74,24 +76,6 @@ async function executeCall(rpc, params, options = {}) {
 
   if (!fluxdClient) await buildFluxdClient();
 
-  /**
-   * This used to wait a bunch of separate times if a call was already running
-   * This averaged to be approx 635ms max. Eg Math.random * 250 would average to be 125ms.
-   * So 125 100 75 50 50 60 50 40 30 25 20 10 = 635ms.
-   *
-   * So it wasn't really sync, as it would wait some time, then run anyway, even if a call
-   * was already running.
-   *
-   * I don't really understand the intent of what this was trying to do. It was waiting a bit of time
-   * then just running anyway.
-   *
-   * The biggest api call by far will be getting the network state, which right now, is 8.2Mb. On my test
-   * machine, this takes approx 400-500ms.
-   *
-   * So in keeping with what we were doing, we now wait a max of 500ms, then run anyway.
-   */
-
-  await lock.readyTimeout(500);
   await lock.enable();
 
   try {
