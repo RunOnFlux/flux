@@ -116,6 +116,35 @@ async function listRunningApps(req, res) {
     if (apps.length > 0) {
       apps = apps.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
     }
+
+    // Include apps that are in backup or restore as "running" even if container is stopped
+    const globalState = require('../utils/globalState');
+    const backupInProgress = globalState.backupInProgress || [];
+    const restoreInProgress = globalState.restoreInProgress || [];
+    const appsInBackupRestore = [...backupInProgress, ...restoreInProgress];
+
+    if (appsInBackupRestore.length > 0) {
+      // Get all containers including stopped ones
+      const allContainers = await dockerService.dockerListContainers(true);
+      const fluxContainers = allContainers.filter((app) => (app.Names[0].slice(1, 4) === 'zel' || app.Names[0].slice(1, 5) === 'flux'));
+
+      // Find stopped containers that are in backup/restore and add them to running list
+      fluxContainers.forEach((container) => {
+        const containerName = container.Names[0].slice(1); // Remove leading '/'
+        const appName = containerName.replace(/^(zel|flux)/, ''); // Remove zel/flux prefix
+
+        // If this app is in backup/restore and not already in running list, add it
+        if (appsInBackupRestore.includes(appName)) {
+          const alreadyIncluded = apps.some((app) => app.Names[0] === container.Names[0]);
+          if (!alreadyIncluded) {
+            // Override State to "running" so FDM health checks pass
+            const containerCopy = { ...container, State: 'running' };
+            apps.push(containerCopy);
+          }
+        }
+      });
+    }
+
     const modifiedApps = [];
     apps.forEach((app) => {
       // eslint-disable-next-line no-param-reassign
