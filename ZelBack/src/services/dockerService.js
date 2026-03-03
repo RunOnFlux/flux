@@ -1053,9 +1053,10 @@ async function appDockerStart(idOrName) {
  * Stops app's docker.
  *
  * @param {string} idOrName
+ * @param {number} [timeout] Seconds to wait before Docker sends SIGKILL. Uses Docker default (~10s) when omitted.
  * @returns {string} message
  */
-async function appDockerStop(idOrName) {
+async function appDockerStop(idOrName, timeout) {
   // container ID or name
   const dockerContainer = await getDockerContainerByIdOrName(idOrName);
 
@@ -1065,7 +1066,8 @@ async function appDockerStop(idOrName) {
     return `Flux App ${idOrName} is already stopped.`;
   }
 
-  await dockerContainer.stop();
+  const opts = timeout !== undefined ? { t: timeout } : {};
+  await dockerContainer.stop(opts);
   return `Flux App ${idOrName} successfully stopped.`;
 }
 

@@ -1,18 +1,13 @@
 class AsyncLock {
-  // ready = Promise.resolve();
-
-  // constructor() {
-  /**
-     * A synchronous disable method. Meaning that it can be called,
-     * and any further sync code can be run, before any code
-     * waiting on the promise will resolve.
-     */
-  // this.disable = () => { };
-  // }
-
   #waiterCount = 0;
 
   #lockUsers = [];
+
+  #maxConcurrent = 1;
+
+  constructor(maxConcurrent = 1) {
+    this.#maxConcurrent = maxConcurrent;
+  }
 
   get waiterCount() {
     return this.#waiterCount;
@@ -43,14 +38,26 @@ class AsyncLock {
 
     lockUser.push(promise);
 
-    const currentUserPromises = this.#userPromises;
     this.#lockUsers.push(lockUser);
 
-    if (this.#lockUsers.length > 1) {
+    if (this.#lockUsers.length > this.#maxConcurrent) {
       this.#waiterCount += 1;
-      await Promise.all(currentUserPromises);
+      // Wait for the holder whose slot we need to free up
+      const waitIndex = this.#lockUsers.length - 1 - this.#maxConcurrent;
+      await this.#lockUsers[waitIndex][1];
       this.#waiterCount -= 1;
     }
+  }
+
+  /**
+   * Occupies a lock slot without waiting. Useful for registering
+   * a long-running operation that should count against maxConcurrent.
+   */
+  register() {
+    const lockUser = [];
+    const promise = new Promise((resolve) => { lockUser.push(resolve); });
+    lockUser.push(promise);
+    this.#lockUsers.push(lockUser);
   }
 
   /**
