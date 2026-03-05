@@ -17,6 +17,7 @@ const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
+const messageHelper = require('./services/messageHelper');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -58,7 +59,6 @@ function isLocal(req, res, next) {
 
 function requireHttps(req, res, next) {
   if (!req.secure) {
-    const messageHelper = require('./services/messageHelper');
     const errMessage = messageHelper.createErrorMessage(
       'HTTPS required for ArcaneOS authentication endpoints',
       'ForbiddenProtocol',
