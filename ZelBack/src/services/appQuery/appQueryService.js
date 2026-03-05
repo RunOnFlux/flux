@@ -137,8 +137,8 @@ async function listRunningApps(req, res) {
         if (appsInBackupRestore.includes(appName)) {
           const alreadyIncluded = apps.some((app) => app.Names[0] === container.Names[0]);
           if (!alreadyIncluded) {
-            // Override State to "running" so FDM health checks pass
-            const containerCopy = { ...container, State: 'running' };
+            // Keep original state - FDM treats any container in list as active
+            const containerCopy = { ...container };
             apps.push(containerCopy);
           }
         }
