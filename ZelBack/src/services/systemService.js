@@ -829,7 +829,7 @@ async function enableFluxdZmq(zmqEndpoint) {
   try {
     const { protocol, hostname, port } = new URL(zmqEndpoint);
 
-    if (!protocol === 'tcp' || !hostname || !port) parseError = true;
+    if (protocol !== 'tcp:' || !hostname || !port) parseError = true;
   } catch {
     parseError = true;
   }

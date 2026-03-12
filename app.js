@@ -26,13 +26,7 @@ async function initiate() {
     res.send('OK');
   });
 
-  // Robots.txt endpoint
-  homeApp.get('/robots.txt', (req, res) => {
-    res.type('text/plain');
-    res.send('User-agent: *\nDisallow: /');
-  });
-
-  // Serve static files from CloudUI
+  // Serve static files from CloudUI (includes robots.txt and sitemap.xml)
   homeApp.use(express.static(cloudUI));
 
   // SPA fallback - serve index.html for all unmatched routes

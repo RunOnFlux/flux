@@ -143,7 +143,7 @@ async function trySpawningGlobalApplication() {
           _id: 0,
           name: '$name',
           actual: '$actual',
-          required: '$instances',
+          required: { $ifNull: ['$instances', 3] },
           nodes: { $ifNull: ['$nodes', []] },
           geolocation: { $ifNull: ['$geolocation', []] },
           hash: '$hash',

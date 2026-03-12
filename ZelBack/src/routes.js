@@ -17,6 +17,7 @@ const paymentService = require('./services/paymentService');
 const fluxService = require('./services/fluxService');
 const fluxCommunication = require('./services/fluxCommunication');
 const fluxCommunicationMessagesSender = require('./services/fluxCommunicationMessagesSender');
+const messageHelper = require('./services/messageHelper');
 
 // App modular services
 const appQueryService = require('./services/appQuery/appQueryService');
@@ -48,11 +49,24 @@ const fluxNetworkHelper = require('./services/fluxNetworkHelper');
 const enterpriseNodesService = require('./services/enterpriseNodesService');
 const backupRestoreService = require('./services/backupRestoreService');
 const IOUtils = require('./services/IOUtils');
+const arcaneAuthService = require('./services/arcaneAuthService');
 
 function isLocal(req, res, next) {
   const remote = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || req.headers['x-forwarded-for'];
   if (remote === 'localhost' || remote === '127.0.0.1' || remote === '::ffff:127.0.0.1' || remote === '::1') return next();
   return res.status(401).send('Access denied');
+}
+
+function requireHttps(req, res, next) {
+  if (!req.secure) {
+    const errMessage = messageHelper.createErrorMessage(
+      'HTTPS required for ArcaneOS authentication endpoints',
+      'ForbiddenProtocol',
+      403,
+    );
+    return res.status(403).json(errMessage);
+  }
+  return next();
 }
 
 const cache = apicache.middleware;
@@ -328,6 +342,9 @@ module.exports = (app) => {
   app.post('/flux/keepupnpportsopen', (req, res) => {
     fluxNetworkHelper.keepUPNPPortsOpen(req, res);
   });
+
+  // ArcaneOS Authentication Endpoints (HTTPS only)
+  app.get('/arcane/authchallenge', requireHttps, arcaneAuthService.authChallengeHandler);
 
   // Apps routes - now directly calling modular services
   app.get('/apps/listrunningapps', cache('15 seconds'), (req, res) => {
@@ -1238,6 +1255,9 @@ module.exports = (app) => {
   });
 
   // POST PUBLIC methods route
+  // ArcaneOS Authentication Endpoints (HTTPS only)
+  app.post('/arcane/configsync', requireHttps, arcaneAuthService.configSyncHandler);
+
   app.post('/id/verifylogin', (req, res) => {
     idService.verifyLogin(req, res);
   });
