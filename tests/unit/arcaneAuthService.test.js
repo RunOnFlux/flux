@@ -3,10 +3,6 @@ const sinon = require('sinon');
 
 const { expect } = chai;
 
-// Must set env vars before requiring arcaneAuthService (isArcane check at load time)
-process.env.FLUXOS_PATH = '/tmp/test-fluxos';
-process.env.FLUX_CONFIG_CONNECTION = 'unix:///tmp/flux-configd-test.sock';
-
 const log = require('../../ZelBack/src/lib/log');
 const messageHelper = require('../../ZelBack/src/services/messageHelper');
 const arcaneAuthService = require('../../ZelBack/src/services/arcaneAuthService');
@@ -18,18 +14,17 @@ describe('arcaneAuthService proxy tests', () => {
   let callFluxConfigdRPCStub;
 
   beforeEach(() => {
+    process.env.FLUXOS_PATH = '/tmp/test-fluxos';
+    process.env.FLUX_CONFIG_CONNECTION = 'unix:///tmp/flux-configd-test.sock';
     logInfoStub = sinon.stub(log, 'info');
     logErrorStub = sinon.stub(log, 'error');
     callFluxConfigdRPCStub = sinon.stub(fluxConfigdClient, 'callFluxConfigdRPC');
   });
 
   afterEach(() => {
-    sinon.restore();
-  });
-
-  after(() => {
     delete process.env.FLUXOS_PATH;
     delete process.env.FLUX_CONFIG_CONNECTION;
+    sinon.restore();
   });
 
   describe('authChallenge tests', () => {
@@ -185,7 +180,6 @@ describe('arcaneAuthService proxy tests', () => {
     });
 
     it('should return 502 if FLUX_CONFIG_CONNECTION is not set', async () => {
-      const original = process.env.FLUX_CONFIG_CONNECTION;
       delete process.env.FLUX_CONFIG_CONNECTION;
 
       const req = { ip: '192.168.1.100' };
@@ -197,8 +191,6 @@ describe('arcaneAuthService proxy tests', () => {
       const response = res.json.firstCall.args[0];
       expect(response.status).to.equal('error');
       expect(response.data.message).to.include('flux-configd not available');
-
-      process.env.FLUX_CONFIG_CONNECTION = original;
     });
   });
 
@@ -459,7 +451,6 @@ describe('arcaneAuthService proxy tests', () => {
     });
 
     it('should return 502 if FLUX_CONFIG_CONNECTION is not set', async () => {
-      const original = process.env.FLUX_CONFIG_CONNECTION;
       delete process.env.FLUX_CONFIG_CONNECTION;
 
       const req = {
@@ -479,8 +470,6 @@ describe('arcaneAuthService proxy tests', () => {
       const response = res.json.firstCall.args[0];
       expect(response.status).to.equal('error');
       expect(response.data.message).to.include('flux-configd not available');
-
-      process.env.FLUX_CONFIG_CONNECTION = original;
     });
 
     it('should handle different IP extraction methods', async () => {

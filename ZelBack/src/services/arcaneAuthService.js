@@ -2,7 +2,9 @@ const log = require('../lib/log');
 const messageHelper = require('./messageHelper');
 const fluxConfigdClient = require('./utils/fluxConfigdClient');
 
-const isArcane = Boolean(process.env.FLUXOS_PATH);
+function isArcane() {
+  return Boolean(process.env.FLUXOS_PATH);
+}
 
 /**
  * Generate authentication challenge for a requester
@@ -45,7 +47,7 @@ async function updateConfig(challenge, encryptedChallenge, signature, configData
  */
 async function authChallengeHandler(req, res) {
   try {
-    if (!isArcane) {
+    if (!isArcane()) {
       const errMessage = messageHelper.createErrorMessage(
         'This endpoint is only available on ArcaneOS nodes',
         'NotImplemented',
@@ -94,7 +96,7 @@ async function authChallengeHandler(req, res) {
  */
 async function configSyncHandler(req, res) {
   try {
-    if (!isArcane) {
+    if (!isArcane()) {
       const errMessage = messageHelper.createErrorMessage(
         'This endpoint is only available on ArcaneOS nodes',
         'NotImplemented',
