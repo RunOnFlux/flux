@@ -27,6 +27,11 @@ describe('arcaneAuthService proxy tests', () => {
     sinon.restore();
   });
 
+  after(() => {
+    delete process.env.FLUXOS_PATH;
+    delete process.env.FLUX_CONFIG_CONNECTION;
+  });
+
   describe('authChallenge tests', () => {
     it('should successfully proxy challenge generation to flux-configd', async () => {
       const mockChallenge = {

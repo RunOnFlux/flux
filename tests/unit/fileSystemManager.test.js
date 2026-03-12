@@ -448,7 +448,7 @@ describe('fileSystemManager tests', () => {
         runAsRoot: true,
         params: ['777', '/mnt/testapp/testfile.txt'],
       })).to.be.true;
-      expect(res.download.calledOnceWithExactly('/mnt/testapp/testfile.txt', 'testfile.txt')).to.be.true;
+      expect(res.download.calledOnceWithExactly('/mnt/testapp/testfile.txt', 'testfile.txt', { dotfiles: 'allow' })).to.be.true;
     });
 
     it('should deny unauthorized access', async () => {
