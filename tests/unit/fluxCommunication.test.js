@@ -19,17 +19,32 @@ const {
   outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
 } = require('../../ZelBack/src/services/utils/establishedConnections');
 
-const connectWs = (address) => new Promise((resolve, reject) => {
-  const server = new WebSocket(address);
-  server.onopen = () => {
-    resolve(server);
+let localWsServer;
+let localWsUrl;
+
+const connectWs = () => new Promise((resolve, reject) => {
+  const ws = new WebSocket(localWsUrl);
+  ws.onopen = () => {
+    resolve(ws);
   };
-  server.onerror = (err) => {
+  ws.onerror = (err) => {
     reject(err);
   };
 });
 
 describe('fluxCommunication tests', () => {
+  before((done) => {
+    localWsServer = new WebSocket.Server({ port: 0 }, () => {
+      const { port } = localWsServer.address();
+      localWsUrl = `ws://127.0.0.1:${port}`;
+      done();
+    });
+  });
+
+  after((done) => {
+    localWsServer.close(done);
+  });
+
   describe('handleAppMessages tests', () => {
     const privateKey = 'KxA2iy4aVuVKXsK8pBnJGM9vNm4z6PLNRTzsPuSFBw6vWL5StbqD';
     const ownerAddress = '13ienDRfUwFEgfZxm5dk4drTQsmj5hDGwL';
@@ -103,10 +118,10 @@ describe('fluxCommunication tests', () => {
         },
       };
 
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
-      const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
 
-      const wsOutgoing = await connectWs(wsuri);
+
+
+      const wsOutgoing = await connectWs();
       wsOutgoing.port = port;
       wsOutgoing.ip = '127.8.8.1';
       wsOutgoing._socket = {
@@ -115,7 +130,7 @@ describe('fluxCommunication tests', () => {
       };
       outgoingConnections.push(wsOutgoing);
 
-      const wsIncoming = await connectWs(wsuri2);
+      const wsIncoming = await connectWs();
       wsIncoming.port = port;
       wsIncoming.ip = '127.8.8.1';
       wsIncoming._socket = {
@@ -280,16 +295,16 @@ describe('fluxCommunication tests', () => {
         timestamp,
       };
 
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
-      const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
 
-      const wsOutgoing = await connectWs(wsuri);
+
+
+      const wsOutgoing = await connectWs();
       wsOutgoing.port = port;
       wsOutgoing.ip = '127.8.8.1';
       wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
       outgoingConnections.push(wsOutgoing);
 
-      const wsIncoming = await connectWs(wsuri2);
+      const wsIncoming = await connectWs();
       wsIncoming.port = port;
       wsIncoming.ip = '127.8.8.1';
       wsIncoming._socket = { remoteAddress: '::ffff:127.8.8.1' };
@@ -328,10 +343,10 @@ describe('fluxCommunication tests', () => {
         },
       };
 
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
-      const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
 
-      const wsOutgoing = await connectWs(wsuri);
+
+
+      const wsOutgoing = await connectWs();
       wsOutgoing.port = port;
       wsOutgoing.ip = '127.8.8.1';
       wsOutgoing._socket = {
@@ -340,7 +355,7 @@ describe('fluxCommunication tests', () => {
       };
       outgoingConnections.push(wsOutgoing);
 
-      const wsIncoming = await connectWs(wsuri2);
+      const wsIncoming = await connectWs();
       wsIncoming.port = port;
       wsIncoming.ip = '127.8.8.1';
       wsIncoming._socket = {
@@ -373,15 +388,15 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should return connected peers\' ips', async () => {
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
-      const wsuri2 = 'wss://api.runonflux.io/ws/flux2/';
+
+
       const port = 16127;
-      const wsOutgoing1 = await connectWs(wsuri);
+      const wsOutgoing1 = await connectWs();
       wsOutgoing1.port = port;
       wsOutgoing1.ip = '127.8.8.1';
       wsOutgoing1._socket = { remoteAddress: '127.8.8.1', end: sinon.fake(() => true) };
       outgoingConnections.push(wsOutgoing1);
-      const wsOutgoing2 = await connectWs(wsuri2);
+      const wsOutgoing2 = await connectWs();
       wsOutgoing2.port = port;
       wsOutgoing2.ip = '127.8.8.2';
       wsOutgoing2._socket = { remoteAddress: '127.8.8.2', end: sinon.fake(() => true) };
@@ -489,9 +504,9 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should close the connection with ip given in params if it exists', async () => {
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+
       const port = 16127;
-      const wsOutgoing1 = await connectWs(wsuri);
+      const wsOutgoing1 = await connectWs();
       wsOutgoing1.port = port;
       wsOutgoing1.ip = '127.0.3.1';
       wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
@@ -527,9 +542,9 @@ describe('fluxCommunication tests', () => {
     }).timeout(5000);
 
     it('should close the connection with ip given in query if it exists', async () => {
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+
       const port = 16127;
-      const wsOutgoing1 = await connectWs(wsuri);
+      const wsOutgoing1 = await connectWs();
       wsOutgoing1.port = port;
       wsOutgoing1.ip = '127.0.3.1';
       wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
@@ -682,16 +697,16 @@ describe('fluxCommunication tests', () => {
       incomingPeers.push(peer1);
       incomingPeers.push(peer2);
 
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+
       const port = 16127;
 
-      const wsIncoming1 = await connectWs(wsuri);
+      const wsIncoming1 = await connectWs();
       wsIncoming1.port = port;
       wsIncoming1.ip = '127.0.3.1';
       wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
       wsIncoming1.close = () => true;
 
-      const wsIncoming2 = await connectWs(wsuri);
+      const wsIncoming2 = await connectWs();
       wsIncoming2.port = port;
       wsIncoming2.ip = '192.168.0.0';
       wsIncoming2._socket = { remoteAddress: '192.168.0.0' };
@@ -1535,8 +1550,8 @@ describe('fluxCommunication tests', () => {
       // Mock finding apps on the node
       findInDatabaseStub.resolves([{ name: 'app1' }, { name: 'app2' }]);
 
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
-      const wsOutgoing = await connectWs(wsuri);
+
+      const wsOutgoing = await connectWs();
       wsOutgoing.port = port;
       wsOutgoing.ip = '127.8.8.1';
       wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
@@ -1613,17 +1628,17 @@ describe('fluxCommunication tests', () => {
 
       findInDatabaseStub.resolves([{ name: 'app1' }]);
 
-      const wsuri = 'wss://api.runonflux.io/ws/flux/';
+
 
       // Add sender connection
-      const wsSender = await connectWs(wsuri);
+      const wsSender = await connectWs();
       wsSender.port = port;
       wsSender.ip = fromIp;
       wsSender._socket = { remoteAddress: fromIp };
       outgoingConnections.push(wsSender);
 
       // Add another connection
-      const wsOther = await connectWs(wsuri);
+      const wsOther = await connectWs();
       wsOther.port = port;
       wsOther.ip = '127.8.8.1';
       wsOther._socket = { remoteAddress: '127.8.8.1' };
