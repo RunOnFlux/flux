@@ -42,6 +42,8 @@ describe('fluxCommunication tests', () => {
   });
 
   after((done) => {
+    // Force-close any lingering client connections (tests override ws.close with a no-op)
+    localWsServer.clients.forEach((client) => client.terminate());
     localWsServer.close(done);
   });
 
