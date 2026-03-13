@@ -119,8 +119,10 @@ describe('appValidator tests', () => {
         ensureAppUniquePorts: sinon.stub().resolves(true),
       },
       '../utils/establishedConnections': {
-        outgoingPeers: [],
-        incomingPeers: [],
+        peerManager: {
+          outboundCount: 0,
+          inboundCount: 0,
+        },
       },
       '../fluxNetworkHelper': {
         getNumberOfPeers: sinon.stub().returns(10),

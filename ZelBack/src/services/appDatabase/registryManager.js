@@ -1469,7 +1469,7 @@ async function registerAppGlobalyApi(req, res) {
   // eslint-disable-next-line global-require
   const fluxCommunicationMessagesSender = require('../fluxCommunicationMessagesSender');
   // eslint-disable-next-line global-require
-  const { outgoingPeers, incomingPeers } = require('../utils/establishedConnections');
+  const { peerManager } = require('../utils/establishedConnections');
 
   const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -1486,10 +1486,10 @@ async function registerAppGlobalyApi(req, res) {
         return;
       }
       // first check if this node is available for application registration
-      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+      if (peerManager.outboundCount < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application registration');
       }
-      if (incomingPeers.length < config.fluxapps.minIncoming) {
+      if (peerManager.inboundCount < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application registration');
       }
       const processedBody = serviceHelper.ensureObject(body);

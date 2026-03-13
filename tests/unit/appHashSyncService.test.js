@@ -127,10 +127,11 @@ describe('appHashSyncService tests', () => {
         config: configStub,
       }),
       '../utils/establishedConnections': {
-        outgoingPeers: [
-          { ip: '192.168.1.1', port: 16127 },
-          { ip: '192.168.1.2', port: 16127 },
-        ],
+        peerManager: {
+          getRandomPeer: () => ({
+            toPeerInfo: () => ({ ip: '192.168.1.1', port: '16127' }),
+          }),
+        },
       },
     });
   });

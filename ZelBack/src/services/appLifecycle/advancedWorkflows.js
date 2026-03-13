@@ -2906,12 +2906,12 @@ async function updateAppGlobalyApi(req, res) {
       }
       // Dynamic require to avoid circular dependency
       // eslint-disable-next-line global-require
-      const { outgoingPeers, incomingPeers } = require('../utils/establishedConnections');
+      const { peerManager } = require('../utils/establishedConnections');
       // first check if this node is available for application update
-      if (outgoingPeers.length < config.fluxapps.minOutgoing) {
+      if (peerManager.outboundCount < config.fluxapps.minOutgoing) {
         throw new Error('Sorry, This Flux does not have enough outgoing peers for safe application update');
       }
-      if (incomingPeers.length < config.fluxapps.minIncoming) {
+      if (peerManager.inboundCount < config.fluxapps.minIncoming) {
         throw new Error('Sorry, This Flux does not have enough incoming peers for safe application update');
       }
       const processedBody = serviceHelper.ensureObject(body);
@@ -4127,11 +4127,11 @@ async function masterSlaveApps(globalStateParam, installedApps, listRunningApps,
  */
 async function getPeerAppsInstallingErrorMessages() {
   try {
-    // Import outgoingPeers dynamically to avoid circular dependency
+    // Import peerManager dynamically to avoid circular dependency
     // eslint-disable-next-line global-require
-    const { outgoingPeers } = require('../utils/establishedConnections');
+    const { peerManager } = require('../utils/establishedConnections');
 
-    if (!outgoingPeers || outgoingPeers.length === 0) {
+    if (peerManager.outboundCount === 0) {
       log.info('getPeerAppsInstallingErrorMessages - No outgoing peers available');
       return;
     }
@@ -4140,7 +4140,9 @@ async function getPeerAppsInstallingErrorMessages() {
     let i = 0;
     while (!finished && i <= 10) {
       i += 1;
-      const client = outgoingPeers[Math.floor(Math.random() * outgoingPeers.length)];
+      const peer = peerManager.getRandomPeer('outbound');
+      if (!peer) break;
+      const client = peer.toPeerInfo();
       let axiosConfig = {
         timeout: 5000,
       };
