@@ -56,7 +56,6 @@ async function sendToAllPeers(data, wsList) {
       } catch (e) {
         try {
           peer.close(4009, 'send failure');
-          peerManager.remove(peer.key);
         } catch (err) {
           log.error(err);
         }
@@ -131,7 +130,6 @@ async function sendToAllIncomingConnections(data, wsList) {
       } catch (e) {
         try {
           peer.close(4010, 'send failure');
-          peerManager.remove(peer.key);
         } catch (err) {
           log.error(err);
         }
