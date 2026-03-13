@@ -662,7 +662,6 @@ async function closeConnection(ip, port) {
   }
   peer.close(4009, 'purposefully closed');
   log.info(`Connection to ${ip}:${port} closed with code 4009`);
-  peerManager.remove(key);
   return messageHelper.createSuccessMessage(`Outgoing connection to ${ip}:${port} closed`);
 }
 
@@ -683,7 +682,6 @@ async function closeIncomingConnection(ip, port) {
   }
   peer.close(4010, 'purposefully closed');
   log.info(`Connection from ${ip}:${port} closed with code 4010`);
-  peerManager.remove(key);
   return messageHelper.createSuccessMessage(`Incoming connection to ${ip}:${port} closed`);
 }
 
