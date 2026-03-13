@@ -30,7 +30,7 @@ async function checkAndSyncAppHashes() {
   try {
     checkAndSyncAppHashesRunning = true;
     // eslint-disable-next-line global-require
-    const { outgoingPeers } = require('../utils/establishedConnections');
+    const { peerManager } = require('../utils/establishedConnections');
     const dbopen = dbHelper.databaseConnection();
     const database = dbopen.db(config.database.daemon.database);
     // get flux app hashes that do not have a message;
@@ -48,7 +48,9 @@ async function checkAndSyncAppHashes() {
       let i = 0;
       while (!finished && i <= 5) {
         i += 1;
-        const client = outgoingPeers[Math.floor(Math.random() * outgoingPeers.length)];
+        const peer = peerManager.getRandomPeer('outbound');
+        if (!peer) break;
+        const client = peer.toPeerInfo();
         let axiosConfig = {
           timeout: 5000,
         };

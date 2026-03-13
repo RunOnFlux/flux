@@ -15,9 +15,7 @@ const messageStore = require('../../ZelBack/src/services/appMessaging/messageSto
 const generalService = require('../../ZelBack/src/services/generalService');
 const serviceHelper = require('../../ZelBack/src/services/serviceHelper');
 const networkStateService = require('../../ZelBack/src/services/networkStateService');
-const {
-  outgoingConnections, outgoingPeers, incomingPeers, incomingConnections,
-} = require('../../ZelBack/src/services/utils/establishedConnections');
+const { peerManager } = require('../../ZelBack/src/services/utils/establishedConnections');
 
 let localWsServer;
 let localWsUrl;
@@ -54,8 +52,7 @@ describe('fluxCommunication tests', () => {
     let sendToAllIncomingConnectionsSpy;
 
     beforeEach(async () => {
-      outgoingConnections.length = 0;
-      incomingConnections.length = 0;
+      peerManager._clear();
       await dbHelper.initiateDB();
       sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
       sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
@@ -68,7 +65,7 @@ describe('fluxCommunication tests', () => {
     it('should broadcast the app message if a proper data is given', async () => {
       sinon.stub(messageStore, 'storeAppTemporaryMessage').returns(true);
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const appSpecifications = {
         name: 'website',
         commands: [
@@ -120,44 +117,46 @@ describe('fluxCommunication tests', () => {
         },
       };
 
-
-
-
       const wsOutgoing = await connectWs();
-      wsOutgoing.port = port;
       wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing.port = port;
       wsOutgoing._socket = {
         remoteAddress: '127.8.8.1',
         end: sinon.fake(() => true),
       };
-      outgoingConnections.push(wsOutgoing);
+      wsOutgoing.on = sinon.stub();
+      peerManager.add(wsOutgoing, 'outbound', wsOutgoing.ip, port);
 
       const wsIncoming = await connectWs();
-      wsIncoming.port = port;
       wsIncoming.ip = '127.8.8.1';
+      wsIncoming.port = port;
       wsIncoming._socket = {
         remoteAddress: '::ffff:127.8.8.1',
         end: sinon.fake(() => true),
       };
-      incomingConnections.push(wsIncoming);
+      wsIncoming.on = sinon.stub();
+      peerManager.add(wsIncoming, 'inbound', wsIncoming.ip, port);
 
       const messageString = JSON.stringify(message);
+
+      // Build expected ws lists the same way the production code does:
+      // it iterates peerManager.outboundValues() and pushes peer.ws for non-sender peers
       const wsListOut = [];
-      outgoingConnections.forEach((client) => {
-        if (client._socket.remoteAddress === fromIp && client.port === port) {
+      for (const peer of peerManager.outboundValues()) {
+        if (peer.ip === fromIp && peer.port === port) {
           // do not broadcast to this peer
         } else {
-          wsListOut.push(client);
+          wsListOut.push(peer.ws);
         }
-      });
+      }
       const wsListIn = [];
-      incomingConnections.forEach((client) => {
-        if (client._socket.remoteAddress.replace('::ffff:', '') === fromIp && client.port === port) {
+      for (const peer of peerManager.inboundValues()) {
+        if (peer.ip === fromIp && peer.port === port) {
           // do not broadcast to this peer
         } else {
-          wsListIn.push(client);
+          wsListIn.push(peer.ws);
         }
-      });
+      }
 
       await fluxCommunication.handleAppMessages(message, fromIp, port);
 
@@ -167,7 +166,7 @@ describe('fluxCommunication tests', () => {
 
     it('should not send broadcast if signature is invalid', async () => {
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const appSpecifications = {
         name: 'website',
         commands: [
@@ -226,7 +225,7 @@ describe('fluxCommunication tests', () => {
 
     it('should not send broadcast if app data is invalid', async () => {
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const appSpecifications = {
         name: 'website',
         randomProperty: 'testing1',
@@ -262,8 +261,7 @@ describe('fluxCommunication tests', () => {
     let sendToAllIncomingConnectionsSpy;
 
     beforeEach(async () => {
-      outgoingConnections.length = 0;
-      incomingConnections.length = 0;
+      peerManager._clear();
       await dbHelper.initiateDB();
       sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
       sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
@@ -276,7 +274,7 @@ describe('fluxCommunication tests', () => {
     it('should broadcast the app message if a proper data is given', async () => {
       sinon.stub(messageStore, 'storeAppRunningMessage').returns(true);
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const type = 'fluxappregister';
       const name = 'myApp';
       const version = 1;
@@ -297,24 +295,39 @@ describe('fluxCommunication tests', () => {
         timestamp,
       };
 
-
-
-
       const wsOutgoing = await connectWs();
-      wsOutgoing.port = port;
       wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing.port = port;
       wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
-      outgoingConnections.push(wsOutgoing);
+      wsOutgoing.on = sinon.stub();
+      peerManager.add(wsOutgoing, 'outbound', wsOutgoing.ip, port);
 
       const wsIncoming = await connectWs();
-      wsIncoming.port = port;
       wsIncoming.ip = '127.8.8.1';
+      wsIncoming.port = port;
       wsIncoming._socket = { remoteAddress: '::ffff:127.8.8.1' };
-      incomingConnections.push(wsIncoming);
+      wsIncoming.on = sinon.stub();
+      peerManager.add(wsIncoming, 'inbound', wsIncoming.ip, port);
 
       const messageString = JSON.stringify(message);
-      const wsListOut = outgoingConnections.filter((client) => client._socket.remoteAddress !== fromIp);
-      const wsListIn = incomingConnections.filter((client) => client._socket.remoteAddress.replace('::ffff:', '') !== fromIp);
+
+      // Build expected ws lists the same way the production code does
+      const wsListOut = [];
+      for (const peer of peerManager.outboundValues()) {
+        if (peer.ip === fromIp && peer.port === port) {
+          // skip sender
+        } else {
+          wsListOut.push(peer.ws);
+        }
+      }
+      const wsListIn = [];
+      for (const peer of peerManager.inboundValues()) {
+        if (peer.ip === fromIp && peer.port === port) {
+          // skip sender
+        } else {
+          wsListIn.push(peer.ws);
+        }
+      }
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
@@ -324,7 +337,7 @@ describe('fluxCommunication tests', () => {
 
     it('should not send broadcast if message is older than 3900 seconds', async () => {
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const type = 'fluxappregister';
       const name = 'myApp';
       const version = 1;
@@ -345,26 +358,25 @@ describe('fluxCommunication tests', () => {
         },
       };
 
-
-
-
       const wsOutgoing = await connectWs();
-      wsOutgoing.port = port;
       wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing.port = port;
       wsOutgoing._socket = {
         remoteAddress: '127.8.8.1',
         end: sinon.fake(() => true),
       };
-      outgoingConnections.push(wsOutgoing);
+      wsOutgoing.on = sinon.stub();
+      peerManager.add(wsOutgoing, 'outbound', wsOutgoing.ip, port);
 
       const wsIncoming = await connectWs();
-      wsIncoming.port = port;
       wsIncoming.ip = '127.8.8.1';
+      wsIncoming.port = port;
       wsIncoming._socket = {
         remoteAddress: '::ffff:127.8.8.1',
         end: sinon.fake(() => true),
       };
-      incomingConnections.push(wsIncoming);
+      wsIncoming.on = sinon.stub();
+      peerManager.add(wsIncoming, 'inbound', wsIncoming.ip, port);
 
       await fluxCommunication.handleAppRunningMessage(message, fromIp, port);
 
@@ -382,7 +394,7 @@ describe('fluxCommunication tests', () => {
     };
 
     beforeEach(() => {
-      outgoingConnections.length = 0;
+      peerManager._clear();
     });
 
     afterEach(() => {
@@ -390,19 +402,21 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should return connected peers\' ips', async () => {
-
-
-      const port = 16127;
+      const port = '16127';
       const wsOutgoing1 = await connectWs();
-      wsOutgoing1.port = port;
       wsOutgoing1.ip = '127.8.8.1';
+      wsOutgoing1.port = port;
       wsOutgoing1._socket = { remoteAddress: '127.8.8.1', end: sinon.fake(() => true) };
-      outgoingConnections.push(wsOutgoing1);
+      wsOutgoing1.on = sinon.stub();
+      peerManager.add(wsOutgoing1, 'outbound', wsOutgoing1.ip, port);
+
       const wsOutgoing2 = await connectWs();
-      wsOutgoing2.port = port;
       wsOutgoing2.ip = '127.8.8.2';
+      wsOutgoing2.port = port;
       wsOutgoing2._socket = { remoteAddress: '127.8.8.2', end: sinon.fake(() => true) };
-      outgoingConnections.push(wsOutgoing2);
+      wsOutgoing2.on = sinon.stub();
+      peerManager.add(wsOutgoing2, 'outbound', wsOutgoing2.ip, port);
+
       const expectedResult = { status: 'success', data: ['127.8.8.1', '127.8.8.2'] };
 
       const res = generateResponse();
@@ -431,7 +445,7 @@ describe('fluxCommunication tests', () => {
     };
 
     beforeEach(() => {
-      outgoingPeers.length = 0;
+      peerManager._clear();
     });
 
     afterEach(() => {
@@ -439,25 +453,35 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should return connected connected websockets', async () => {
-      const peer1 = {
-        ip: '127.0.3.1', // can represent just one ip address, multiport
-        port: 16127,
-        lastPingTime: null,
-        latency: null,
-      };
-      const peer2 = {
-        ip: '192.168.0.0', // can represent just one ip address, multiport
-        port: 16127,
-        lastPingTime: Date.now(),
-        latency: 50,
-      };
-      outgoingPeers.push(peer1);
-      outgoingPeers.push(peer2);
+      // peerManager.add creates FluxPeerSocket objects whose toPeerInfo() returns
+      // { ip, port, latency: null, lastPingTime: null } for outbound peers
+      const ws1 = await connectWs();
+      ws1.ip = '127.0.3.1';
+      ws1.port = '16127';
+      ws1.on = sinon.stub();
+      peerManager.add(ws1, 'outbound', '127.0.3.1', '16127');
+
+      const ws2 = await connectWs();
+      ws2.ip = '192.168.0.0';
+      ws2.port = '16127';
+      ws2.on = sinon.stub();
+      peerManager.add(ws2, 'outbound', '192.168.0.0', '16127');
+
       const expectedResult = {
         status: 'success',
         data: [
-          peer1,
-          peer2,
+          {
+            ip: '127.0.3.1',
+            port: '16127',
+            latency: null,
+            lastPingTime: null,
+          },
+          {
+            ip: '192.168.0.0',
+            port: '16127',
+            latency: null,
+            lastPingTime: null,
+          },
         ],
       };
 
@@ -481,24 +505,23 @@ describe('fluxCommunication tests', () => {
   describe('removePeer tests', () => {
     let verificationHelperStub;
 
-    beforeEach(() => {
-      outgoingConnections.length = 0;
-      outgoingPeers.length = 0;
+    beforeEach(async () => {
+      peerManager._clear();
 
-      const peer1 = {
-        ip: '127.0.3.1',
-        port: 16127,
-        lastPingTime: null,
-        latency: null,
-      };
-      const peer2 = {
-        ip: '192.168.0.0',
-        port: 16137,
-        lastPingTime: Date.now(),
-        latency: 50,
-      };
-      outgoingPeers.push(peer1);
-      outgoingPeers.push(peer2);
+      // Add two outbound peers via peerManager
+      const ws1 = await connectWs();
+      ws1.ip = '127.0.3.1';
+      ws1.port = '16127';
+      ws1.close = () => true;
+      ws1.on = sinon.stub();
+      peerManager.add(ws1, 'outbound', '127.0.3.1', '16127');
+
+      const ws2 = await connectWs();
+      ws2.ip = '192.168.0.0';
+      ws2.port = '16137';
+      ws2.close = () => true;
+      ws2.on = sinon.stub();
+      peerManager.add(ws2, 'outbound', '192.168.0.0', '16137');
     });
 
     afterEach(() => {
@@ -506,14 +529,6 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should close the connection with ip given in params if it exists', async () => {
-
-      const port = 16127;
-      const wsOutgoing1 = await connectWs();
-      wsOutgoing1.port = port;
-      wsOutgoing1.ip = '127.0.3.1';
-      wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
-      wsOutgoing1.close = () => true;
-      outgoingConnections.push(wsOutgoing1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const expectedResult = {
         status: 'success',
@@ -544,14 +559,6 @@ describe('fluxCommunication tests', () => {
     }).timeout(5000);
 
     it('should close the connection with ip given in query if it exists', async () => {
-
-      const port = 16127;
-      const wsOutgoing1 = await connectWs();
-      wsOutgoing1.port = port;
-      wsOutgoing1.ip = '127.0.3.1';
-      wsOutgoing1._socket = { remoteAddress: '127.0.3.1' };
-      wsOutgoing1.close = () => true;
-      outgoingConnections.push(wsOutgoing1);
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const expectedResult = {
         status: 'success',
@@ -585,6 +592,8 @@ describe('fluxCommunication tests', () => {
     });
 
     it('should issue a warning if a connection does not exist', async () => {
+      // Clear peers so none exist
+      peerManager._clear();
       verificationHelperStub = sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
       const expectedResult = {
         status: 'warning',
@@ -680,42 +689,23 @@ describe('fluxCommunication tests', () => {
     let verificationHelperStub;
 
     beforeEach(async () => {
-      incomingConnections.length = 0;
-      incomingPeers.length = 0;
+      peerManager._clear();
 
-      const peer1 = {
-        ip: '127.0.3.1',
-        port: 16127,
-        lastPingTime: null,
-        latency: null,
-      };
-      const peer2 = {
-        ip: '192.168.0.0',
-        port: 16127,
-        lastPingTime: Date.now(),
-        latency: 50,
-      };
-
-      incomingPeers.push(peer1);
-      incomingPeers.push(peer2);
-
-
-      const port = 16127;
+      const port = '16127';
 
       const wsIncoming1 = await connectWs();
-      wsIncoming1.port = port;
       wsIncoming1.ip = '127.0.3.1';
-      wsIncoming1._socket = { remoteAddress: '127.0.3.1' };
+      wsIncoming1.port = port;
       wsIncoming1.close = () => true;
+      wsIncoming1.on = sinon.stub();
+      peerManager.add(wsIncoming1, 'inbound', '127.0.3.1', port);
 
       const wsIncoming2 = await connectWs();
-      wsIncoming2.port = port;
       wsIncoming2.ip = '192.168.0.0';
-      wsIncoming2._socket = { remoteAddress: '192.168.0.0' };
+      wsIncoming2.port = port;
       wsIncoming2.close = () => true;
-
-      incomingConnections.push(wsIncoming1);
-      incomingConnections.push(wsIncoming2);
+      wsIncoming2.on = sinon.stub();
+      peerManager.add(wsIncoming2, 'inbound', '192.168.0.0', port);
     });
 
     afterEach(() => {
@@ -888,8 +878,7 @@ describe('fluxCommunication tests', () => {
       logSpy = sinon.spy(log, 'info');
       lruRateLimitStub = sinon.stub(fluxNetworkHelper, 'lruRateLimit');
       ensureObjectSpy = sinon.spy(serviceHelper, 'ensureObject');
-      outgoingConnections.length = 0;
-      outgoingPeers.length = 0;
+      peerManager._clear();
       daemonServiceMiscRpcsStub = sinon.stub(daemonServiceMiscRpcs, 'isDaemonSynced');
       sinon.stub(fluxNetworkHelper, 'getMyFluxIPandPort').returns('44.192.51.11:16127');
     });
@@ -926,9 +915,9 @@ describe('fluxCommunication tests', () => {
       // slight delay to let onopen to be triggered
       await serviceHelper.delay(100);
 
-      expect(outgoingConnections).to.have.length(1);
-      expect(outgoingPeers).to.have.length(1);
-      expect(outgoingPeers[0].ip).to.equal(ip);
+      expect(peerManager.outboundCount).to.equal(1);
+      expect(peerManager.outgoingPeers).to.have.length(1);
+      expect(peerManager.outgoingPeers[0].ip).to.equal(ip);
     });
 
     it('should remove peer if server has closed', async () => {
@@ -963,7 +952,7 @@ describe('fluxCommunication tests', () => {
       // Wait for the close event to be processed
       await new Promise((resolve) => {
         const checkInterval = setInterval(() => {
-          if (outgoingConnections.length === 0 && outgoingPeers.length === 0) {
+          if (peerManager.outboundCount === 0) {
             clearInterval(checkInterval);
             resolve();
           }
@@ -975,11 +964,10 @@ describe('fluxCommunication tests', () => {
         }, 3000);
       });
 
-      expect(outgoingConnections).to.have.length(0);
-      expect(outgoingPeers).to.have.length(0);
+      expect(peerManager.outboundCount).to.equal(0);
+      expect(peerManager.outgoingPeers).to.have.length(0);
       sinon.assert.calledWith(logSpy, 'Outgoing connection to 127.0.0.2:16127 closed with code 1005');
-      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingConnections');
-      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
+      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from peerManager (outbound)');
     }).timeout(5000);
 
     it('should not react to the message if rate limit is exceeded', async () => {
@@ -1062,9 +1050,9 @@ describe('fluxCommunication tests', () => {
 
       sinon.assert.calledWithExactly(ensureObjectSpy, message);
       sinon.assert.calledWithExactly(websocketCloseSpy, 4006, 'blocked list');
-      sinon.assert.calledWith(logSpy, 'Closing outgoing connection, peer is on blockedList');
+      sinon.assert.calledWith(logSpy, 'Closing outbound connection, peer is on blockedList');
       sinon.assert.calledWith(logSpy, 'Outgoing connection to 127.0.0.2:16127 closed with code 4006');
-      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from outgoingPeers');
+      sinon.assert.calledWith(logSpy, 'Connection 127.0.0.2:16127 removed from peerManager (outbound)');
     });
 
     const appRequestCommands = ['fluxapprequest'];
@@ -1219,7 +1207,7 @@ describe('fluxCommunication tests', () => {
     });
 
     beforeEach(() => {
-      outgoingConnections.length = 0;
+      peerManager._clear();
     });
 
     afterEach(() => {
@@ -1286,7 +1274,7 @@ describe('fluxCommunication tests', () => {
       sinon.stub(verificationHelper, 'verifyPrivilege').returns(true);
 
       const ip = '123.4.1.1';
-      const port = 16127;
+      const port = '16127';
 
       const req = {
         params: {
@@ -1304,13 +1292,12 @@ describe('fluxCommunication tests', () => {
         },
       };
 
-      const socket = {
-        _socket: { remoteAddress: ip },
-        port: 16127,
-        ip,
-      };
-
-      outgoingConnections.push(socket);
+      // Add the peer via peerManager so addPeer sees it as already connected
+      const socket = await connectWs();
+      socket.ip = ip;
+      socket.port = port;
+      socket.on = sinon.stub();
+      peerManager.add(socket, 'outbound', ip, port);
 
       const res = generateResponse();
 
@@ -1321,7 +1308,7 @@ describe('fluxCommunication tests', () => {
 
     it('should return error message if user is unauthorized', async () => {
       const ip = '123.4.1.1';
-      const port = 16127;
+      const port = '16127';
       const req = {
         params: {
           ip,
@@ -1349,7 +1336,7 @@ describe('fluxCommunication tests', () => {
 
     it('should return success message if connection can be initiated', async () => {
       const ip = '123.4.1.1';
-      const port = 16127;
+      const port = '16127';
       const req = {
         params: {
           ip,
@@ -1510,8 +1497,7 @@ describe('fluxCommunication tests', () => {
     let logInfoSpy;
 
     beforeEach(async () => {
-      outgoingConnections.length = 0;
-      incomingConnections.length = 0;
+      peerManager._clear();
       await dbHelper.initiateDB();
       sendToAllPeersSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllPeers').resolves(true);
       sendToAllIncomingConnectionsSpy = sinon.stub(fluxCommunicationMessagesSender, 'sendToAllIncomingConnections').resolves(true);
@@ -1537,7 +1523,7 @@ describe('fluxCommunication tests', () => {
 
     it('should process sigterm message and rebroadcast when apps exist for the node', async () => {
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const broadcastedAt = Date.now();
       const message = {
         data: {
@@ -1552,12 +1538,12 @@ describe('fluxCommunication tests', () => {
       // Mock finding apps on the node
       findInDatabaseStub.resolves([{ name: 'app1' }, { name: 'app2' }]);
 
-
       const wsOutgoing = await connectWs();
-      wsOutgoing.port = port;
       wsOutgoing.ip = '127.8.8.1';
+      wsOutgoing.port = port;
       wsOutgoing._socket = { remoteAddress: '127.8.8.1' };
-      outgoingConnections.push(wsOutgoing);
+      wsOutgoing.on = sinon.stub();
+      peerManager.add(wsOutgoing, 'outbound', wsOutgoing.ip, port);
 
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
@@ -1570,7 +1556,7 @@ describe('fluxCommunication tests', () => {
 
     it('should not rebroadcast when no apps exist for the node', async () => {
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const broadcastedAt = Date.now();
       const message = {
         data: {
@@ -1595,7 +1581,7 @@ describe('fluxCommunication tests', () => {
 
     it('should not rebroadcast when message timestamp is too old', async () => {
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const broadcastedAt = Date.now() - (5 * 60 * 1000); // 5 minutes ago (exceeds 4 minute limit)
       const message = {
         data: {
@@ -1616,7 +1602,7 @@ describe('fluxCommunication tests', () => {
 
     it('should exclude sender from rebroadcast list', async () => {
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const broadcastedAt = Date.now();
       const message = {
         data: {
@@ -1630,21 +1616,21 @@ describe('fluxCommunication tests', () => {
 
       findInDatabaseStub.resolves([{ name: 'app1' }]);
 
-
-
       // Add sender connection
       const wsSender = await connectWs();
-      wsSender.port = port;
       wsSender.ip = fromIp;
+      wsSender.port = port;
       wsSender._socket = { remoteAddress: fromIp };
-      outgoingConnections.push(wsSender);
+      wsSender.on = sinon.stub();
+      peerManager.add(wsSender, 'outbound', fromIp, port);
 
       // Add another connection
       const wsOther = await connectWs();
-      wsOther.port = port;
       wsOther.ip = '127.8.8.1';
+      wsOther.port = port;
       wsOther._socket = { remoteAddress: '127.8.8.1' };
-      outgoingConnections.push(wsOther);
+      wsOther.on = sinon.stub();
+      peerManager.add(wsOther, 'outbound', wsOther.ip, port);
 
       await fluxCommunication.handleNodeSigtermMessage(message, fromIp, port);
 
@@ -1656,7 +1642,7 @@ describe('fluxCommunication tests', () => {
 
     it('should handle null apps result gracefully', async () => {
       const fromIp = '127.0.0.5';
-      const port = 16127;
+      const port = '16127';
       const broadcastedAt = Date.now();
       const message = {
         data: {
