@@ -277,6 +277,11 @@ module.exports = {
     ip: '127.0.0.1', // local
     port: 8384, // local
   },
+  cpuBurst: {
+    enabled: true,
+    burstMultiplier: 2.0,
+    periodUs: 100000,
+  },
   enterpriseAppOwners: [ // list of whitelisted app owner addresses allowed to deploy apps with datacenter=true
     '16mzUh6byiQr7rnYQxKraDbeBPsEHYpSTW',
   ],
