@@ -1080,7 +1080,8 @@ async function fluxDiscovery() {
       }
       log.info(`Reconnecting to queued peer: ${rKey} (attempt ${rEntry.attempts})`);
       initiateAndHandleConnection(`${rEntry.ip}:${rEntry.port}`);
-      peerManager.clearReconnectEntry(rKey);
+      // Don't clear here — if connection fails, remove() calls queueReconnect()
+      // which increments attempts. Successful connections clear via add().
       // eslint-disable-next-line no-await-in-loop
       await serviceHelper.delay(500);
     }

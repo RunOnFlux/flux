@@ -41,6 +41,8 @@ class FluxPeerManager {
       this._inboundKeys.add(peer.key);
     } else {
       this._outboundKeys.add(peer.key);
+      // Successful outbound connection — clear from reconnect queue
+      this._reconnectQueue.delete(peer.key);
     }
     return peer;
   }
