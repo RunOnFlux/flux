@@ -4,6 +4,7 @@ const verificationHelper = require('../verificationHelper');
 const messageHelper = require('../messageHelper');
 const dockerService = require('../dockerService');
 const { decryptEnterpriseApps } = require('../appQuery/appQueryService');
+const cpuBurstHelper = require('../utils/cpuBurstHelper');
 const log = require('../../lib/log');
 // eslint-disable-next-line no-unused-vars
 const { appConstants } = require('../utils/appConstants');
@@ -695,6 +696,26 @@ async function checkApplicationsCpuUSage(appsMonitored, installedApps) {
     let stats;
     // eslint-disable-next-line no-restricted-syntax
     for (const app of appsInstalled) {
+      // Skip CPU throttling for enterprise app owners — they get CFS burst instead
+      if (cpuBurstHelper.isEnterpriseOwner(app.owner)) {
+        log.info(`checkApplicationsCpuUSage ${app.name} is enterprise burst-enabled, skipping CPU throttling`);
+        if (app.version <= 3) {
+          if (appsMonitored[app.name]) {
+            // eslint-disable-next-line no-param-reassign
+            appsMonitored[app.name].lastHourstatsStore = [];
+          }
+        } else {
+          // eslint-disable-next-line no-restricted-syntax
+          for (const appComponent of app.compose) {
+            if (appsMonitored[`${appComponent.name}_${app.name}`]) {
+              // eslint-disable-next-line no-param-reassign
+              appsMonitored[`${appComponent.name}_${app.name}`].lastHourstatsStore = [];
+            }
+          }
+        }
+        // eslint-disable-next-line no-continue
+        continue;
+      }
       if (app.version <= 3) {
         stats = appsMonitored[app.name]?.lastHourstatsStore;
         // eslint-disable-next-line no-await-in-loop

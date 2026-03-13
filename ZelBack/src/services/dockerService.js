@@ -9,6 +9,7 @@ const deviceHelper = require('./deviceHelper');
 const generalService = require('./generalService');
 const fluxNetworkHelper = require('./fluxNetworkHelper');
 const log = require('../lib/log');
+const cpuBurstHelper = require('./utils/cpuBurstHelper');
 
 const isArcane = Boolean(process.env.FLUXOS_PATH);
 
@@ -700,6 +701,17 @@ const getContainerIP = async (containerName) => {
  * @param {bool} isComponent
  * @returns {object}
  */
+async function getCpuHostConfig(fullAppSpecs, appSpecifications, identifier) {
+  const appOwner = fullAppSpecs?.owner || null;
+  const isBurstEligible = appOwner && cpuBurstHelper.isEnterpriseOwner(appOwner) && await cpuBurstHelper.isCpuBurstSupported();
+  if (isBurstEligible) {
+    const { periodUs, quotaUs } = cpuBurstHelper.calculateBurstParams(appSpecifications.cpu);
+    log.info(`CPU burst: using CpuPeriod/CpuQuota for enterprise app ${identifier} (period=${periodUs}, quota=${quotaUs})`);
+    return { CpuPeriod: periodUs, CpuQuota: quotaUs };
+  }
+  return { NanoCPUs: Math.round(appSpecifications.cpu * 1e9) };
+}
+
 async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
@@ -890,7 +902,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     // Conditionally include Labels only if it's not null
     ...(labels && { Labels: labels }),
     HostConfig: {
-      NanoCPUs: Math.round(appSpecifications.cpu * 1e9),
+      ...await getCpuHostConfig(fullAppSpecs, appSpecifications, identifier),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
@@ -1003,6 +1015,21 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     log.error(error);
     throw error;
   });
+
+  // Set CFS burst for enterprise apps after container creation
+  try {
+    const appOwner = fullAppSpecs?.owner || null;
+    if (appOwner && cpuBurstHelper.isEnterpriseOwner(appOwner) && await cpuBurstHelper.isCpuBurstSupported()) {
+      const containerInspect = await app.inspect();
+      const fullContainerId = containerInspect.Id;
+      const { burstUs } = cpuBurstHelper.calculateBurstParams(appSpecifications.cpu);
+      await cpuBurstHelper.setCpuBurst(fullContainerId, burstUs);
+    }
+  } catch (error) {
+    // Burst is best-effort — do not fail container creation
+    log.warn(`CPU burst: failed to configure burst for ${identifier}: ${error.message}`);
+  }
+
   return app;
 }
 
@@ -1027,6 +1054,34 @@ async function appDockerUpdateCpu(idOrName, nanoCpus) {
   } catch (error) {
     log.error(error);
     throw new Error(`Failed to update CPU resources for ${idOrName}: ${error.message}`);
+  }
+}
+
+/**
+ * Updates the CPU limits of a Docker container using CpuPeriod/CpuQuota and sets CFS burst.
+ * Used for enterprise app owners with burst enabled.
+ *
+ * @param {string} idOrName - The ID or name of the Docker container.
+ * @param {number} cpuCores - The CPU allocation in cores (e.g. 2.5).
+ * @returns {Promise<string>} message
+ */
+async function appDockerUpdateCpuBurst(idOrName, cpuCores) {
+  try {
+    const dockerContainer = await getDockerContainerByIdOrName(idOrName);
+    const { periodUs, quotaUs, burstUs } = cpuBurstHelper.calculateBurstParams(cpuCores);
+
+    await dockerContainer.update({
+      CpuPeriod: periodUs,
+      CpuQuota: quotaUs,
+    });
+
+    const containerInspect = await dockerContainer.inspect();
+    await cpuBurstHelper.setCpuBurst(containerInspect.Id, burstUs);
+
+    return `Flux App ${idOrName} successfully updated with burst CPU (quota=${quotaUs}, burst=${burstUs}).`;
+  } catch (error) {
+    log.error(error);
+    throw new Error(`Failed to update burst CPU resources for ${idOrName}: ${error.message}`);
   }
 }
 
@@ -1490,6 +1545,7 @@ async function getAppNameByContainerIp(ip) {
 module.exports = {
   appDockerCreate,
   appDockerUpdateCpu,
+  appDockerUpdateCpuBurst,
   appDockerImageRemove,
   appDockerKill,
   appDockerPause,
