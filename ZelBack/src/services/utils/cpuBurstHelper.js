@@ -1,4 +1,4 @@
-const fs = require('fs');
+const fsp = require('fs').promises;
 const path = require('path');
 const config = require('config');
 const log = require('../../lib/log');
@@ -32,14 +32,16 @@ async function isCpuBurstSupported() {
 
     // Check cgroups v2: /sys/fs/cgroup/cgroup.controllers must exist
     const cgroupV2Marker = '/sys/fs/cgroup/cgroup.controllers';
-    if (!fs.existsSync(cgroupV2Marker)) {
+    try {
+      await fsp.access(cgroupV2Marker);
+    } catch {
       log.warn('CPU burst: cgroups v2 not detected, burst disabled');
       burstSupportCache = false;
       return false;
     }
 
     // Check kernel version >= 5.14 for cpu.cfs_burst_us support
-    const release = fs.readFileSync('/proc/version', 'utf8');
+    const release = await fsp.readFile('/proc/version', 'utf8');
     const match = release.match(/(\d+)\.(\d+)/);
     if (!match) {
       log.warn('CPU burst: unable to parse kernel version, burst disabled');
@@ -70,15 +72,18 @@ async function isCpuBurstSupported() {
  * @param {string} containerId - Full Docker container ID
  * @returns {string|null} Path to cpu.max.burst or null if not found
  */
-function getCgroupBurstPath(containerId) {
+async function getCgroupBurstPath(containerId) {
   const candidates = [
     path.join('/sys/fs/cgroup/system.slice', `docker-${containerId}.scope`, 'cpu.max.burst'),
     path.join('/sys/fs/cgroup/docker', containerId, 'cpu.max.burst'),
   ];
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
+    try {
+      await fsp.access(candidate);
       return candidate;
+    } catch {
+      // continue to next candidate
     }
   }
   return null;
@@ -106,15 +111,15 @@ function calculateBurstParams(cpuCores) {
  * @param {number} burstUs - Burst value in microseconds
  * @returns {boolean} true if burst was set, false on failure
  */
-function setCpuBurst(containerId, burstUs) {
+async function setCpuBurst(containerId, burstUs) {
   try {
-    const burstPath = getCgroupBurstPath(containerId);
+    const burstPath = await getCgroupBurstPath(containerId);
     if (!burstPath) {
       log.warn(`CPU burst: cgroup burst path not found for container ${containerId.substring(0, 12)}`);
       return false;
     }
 
-    fs.writeFileSync(burstPath, burstUs.toString());
+    await fsp.writeFile(burstPath, burstUs.toString());
     log.info(`CPU burst: set ${burstUs}us for container ${containerId.substring(0, 12)}`);
     return true;
   } catch (error) {

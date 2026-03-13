@@ -81,7 +81,7 @@ describe('cpuBurstHelper tests', () => {
     });
 
     it('should return false when cgroups v2 is not present', async () => {
-      sinon.stub(fs, 'existsSync').returns(false);
+      sinon.stub(fs.promises, 'access').rejects(new Error('ENOENT'));
       cpuBurstHelper.resetBurstSupportCache();
 
       const result = await cpuBurstHelper.isCpuBurstSupported();
@@ -89,8 +89,8 @@ describe('cpuBurstHelper tests', () => {
     });
 
     it('should return false for kernel < 5.14', async () => {
-      const existsStub = sinon.stub(fs, 'existsSync').returns(true);
-      sinon.stub(fs, 'readFileSync').returns('Linux version 5.4.0-generic');
+      sinon.stub(fs.promises, 'access').resolves();
+      sinon.stub(fs.promises, 'readFile').resolves('Linux version 5.4.0-generic');
       cpuBurstHelper.resetBurstSupportCache();
 
       const result = await cpuBurstHelper.isCpuBurstSupported();
@@ -98,8 +98,8 @@ describe('cpuBurstHelper tests', () => {
     });
 
     it('should return true for kernel >= 5.14 with cgroups v2', async () => {
-      sinon.stub(fs, 'existsSync').returns(true);
-      sinon.stub(fs, 'readFileSync').returns('Linux version 6.1.0-generic');
+      sinon.stub(fs.promises, 'access').resolves();
+      sinon.stub(fs.promises, 'readFile').resolves('Linux version 6.1.0-generic');
       cpuBurstHelper.resetBurstSupportCache();
 
       const result = await cpuBurstHelper.isCpuBurstSupported();
@@ -107,69 +107,81 @@ describe('cpuBurstHelper tests', () => {
     });
 
     it('should cache the result on subsequent calls', async () => {
-      sinon.stub(fs, 'existsSync').returns(true);
-      const readStub = sinon.stub(fs, 'readFileSync').returns('Linux version 6.1.0-generic');
+      sinon.stub(fs.promises, 'access').resolves();
+      const readStub = sinon.stub(fs.promises, 'readFile').resolves('Linux version 6.1.0-generic');
       cpuBurstHelper.resetBurstSupportCache();
 
       await cpuBurstHelper.isCpuBurstSupported();
       await cpuBurstHelper.isCpuBurstSupported();
-      // existsSync called once for cgroup check, readFileSync called once for kernel
+      // access called once for cgroup check, readFile called once for kernel
       expect(readStub.callCount).to.equal(1);
     });
   });
 
   describe('getCgroupBurstPath', () => {
-    it('should return systemd cgroup path when it exists', () => {
+    it('should return systemd cgroup path when it exists', async () => {
       const containerId = 'abc123def456';
-      sinon.stub(fs, 'existsSync').callsFake((p) => p.includes('system.slice'));
+      sinon.stub(fs.promises, 'access').callsFake((p) => {
+        if (p.includes('system.slice')) return Promise.resolve();
+        return Promise.reject(new Error('ENOENT'));
+      });
 
-      const result = cpuBurstHelper.getCgroupBurstPath(containerId);
+      const result = await cpuBurstHelper.getCgroupBurstPath(containerId);
       expect(result).to.include('system.slice');
       expect(result).to.include(containerId);
       expect(result).to.include('cpu.max.burst');
     });
 
-    it('should return docker cgroup path as fallback', () => {
+    it('should return docker cgroup path as fallback', async () => {
       const containerId = 'abc123def456';
-      sinon.stub(fs, 'existsSync').callsFake((p) => p.includes('/docker/'));
+      sinon.stub(fs.promises, 'access').callsFake((p) => {
+        if (p.includes('/docker/')) return Promise.resolve();
+        return Promise.reject(new Error('ENOENT'));
+      });
 
-      const result = cpuBurstHelper.getCgroupBurstPath(containerId);
+      const result = await cpuBurstHelper.getCgroupBurstPath(containerId);
       expect(result).to.include('/docker/');
       expect(result).to.include(containerId);
     });
 
-    it('should return null when no cgroup path exists', () => {
-      sinon.stub(fs, 'existsSync').returns(false);
+    it('should return null when no cgroup path exists', async () => {
+      sinon.stub(fs.promises, 'access').rejects(new Error('ENOENT'));
 
-      const result = cpuBurstHelper.getCgroupBurstPath('abc123');
+      const result = await cpuBurstHelper.getCgroupBurstPath('abc123');
       expect(result).to.be.null;
     });
   });
 
   describe('setCpuBurst', () => {
-    it('should write burst value to cgroup file', () => {
+    it('should write burst value to cgroup file', async () => {
       const containerId = 'abc123def456789012345678901234567890123456789012345678901234abcd';
-      sinon.stub(fs, 'existsSync').callsFake((p) => p.includes('system.slice'));
-      const writeStub = sinon.stub(fs, 'writeFileSync');
+      sinon.stub(fs.promises, 'access').callsFake((p) => {
+        if (p.includes('system.slice')) return Promise.resolve();
+        return Promise.reject(new Error('ENOENT'));
+      });
+      const writeStub = sinon.stub(fs.promises, 'writeFile').resolves();
 
-      const result = cpuBurstHelper.setCpuBurst(containerId, 100000);
+      const result = await cpuBurstHelper.setCpuBurst(containerId, 100000);
       expect(result).to.be.true;
       expect(writeStub.calledOnce).to.be.true;
       expect(writeStub.firstCall.args[1]).to.equal('100000');
     });
 
-    it('should return false when cgroup path not found', () => {
-      sinon.stub(fs, 'existsSync').returns(false);
+    it('should return false when cgroup path not found', async () => {
+      sinon.stub(fs.promises, 'access').rejects(new Error('ENOENT'));
 
-      const result = cpuBurstHelper.setCpuBurst('abc123', 100000);
+      const result = await cpuBurstHelper.setCpuBurst('abc123', 100000);
       expect(result).to.be.false;
     });
 
-    it('should return false when write fails', () => {
-      sinon.stub(fs, 'existsSync').callsFake((p) => p.includes('system.slice'));
-      sinon.stub(fs, 'writeFileSync').throws(new Error('Permission denied'));
+    it('should return false when write fails', async () => {
+      sinon.stub(fs.promises, 'access').callsFake((p) => {
+        if (p.includes('system.slice')) return Promise.resolve();
+        return Promise.reject(new Error('ENOENT'));
+      });
+      sinon.stub(fs.promises, 'writeFile').rejects(new Error('Permission denied'));
 
-      const result = cpuBurstHelper.setCpuBurst('abc123def456', 100000);
+      const result = await cpuBurstHelper.setCpuBurst('abc123def456', 100000);
       expect(result).to.be.false;
     });
   });

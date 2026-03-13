@@ -701,6 +701,17 @@ const getContainerIP = async (containerName) => {
  * @param {bool} isComponent
  * @returns {object}
  */
+async function getCpuHostConfig(fullAppSpecs, appSpecifications, identifier) {
+  const appOwner = fullAppSpecs?.owner || null;
+  const isBurstEligible = appOwner && cpuBurstHelper.isEnterpriseOwner(appOwner) && await cpuBurstHelper.isCpuBurstSupported();
+  if (isBurstEligible) {
+    const { periodUs, quotaUs } = cpuBurstHelper.calculateBurstParams(appSpecifications.cpu);
+    log.info(`CPU burst: using CpuPeriod/CpuQuota for enterprise app ${identifier} (period=${periodUs}, quota=${quotaUs})`);
+    return { CpuPeriod: periodUs, CpuQuota: quotaUs };
+  }
+  return { NanoCPUs: Math.round(appSpecifications.cpu * 1e9) };
+}
+
 async function appDockerCreate(appSpecifications, appName, isComponent, fullAppSpecs) {
   const identifier = isComponent ? `${appSpecifications.name}_${appName}` : appName;
   let exposedPorts = {};
@@ -891,16 +902,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
     // Conditionally include Labels only if it's not null
     ...(labels && { Labels: labels }),
     HostConfig: {
-      ...await (async () => {
-        const appOwner = fullAppSpecs?.owner || null;
-        const isBurstEligible = appOwner && cpuBurstHelper.isEnterpriseOwner(appOwner) && await cpuBurstHelper.isCpuBurstSupported();
-        if (isBurstEligible) {
-          const { periodUs, quotaUs } = cpuBurstHelper.calculateBurstParams(appSpecifications.cpu);
-          log.info(`CPU burst: using CpuPeriod/CpuQuota for enterprise app ${identifier} (period=${periodUs}, quota=${quotaUs})`);
-          return { CpuPeriod: periodUs, CpuQuota: quotaUs };
-        }
-        return { NanoCPUs: Math.round(appSpecifications.cpu * 1e9) };
-      })(),
+      ...await getCpuHostConfig(fullAppSpecs, appSpecifications, identifier),
       Memory: Math.round(appSpecifications.ram * 1024 * 1024),
       MemorySwap: Math.round((appSpecifications.ram + (config.fluxapps.defaultSwap * 1000)) * 1024 * 1024), // default 2GB swap
       // StorageOpt: { size: '5G' }, // root fs has max default 5G size, v8 is 5G + specified as per config.fluxapps.hddFileSystemMinimum
@@ -1021,7 +1023,7 @@ async function appDockerCreate(appSpecifications, appName, isComponent, fullAppS
       const containerInspect = await app.inspect();
       const fullContainerId = containerInspect.Id;
       const { burstUs } = cpuBurstHelper.calculateBurstParams(appSpecifications.cpu);
-      cpuBurstHelper.setCpuBurst(fullContainerId, burstUs);
+      await cpuBurstHelper.setCpuBurst(fullContainerId, burstUs);
     }
   } catch (error) {
     // Burst is best-effort — do not fail container creation
@@ -1074,7 +1076,7 @@ async function appDockerUpdateCpuBurst(idOrName, cpuCores) {
     });
 
     const containerInspect = await dockerContainer.inspect();
-    cpuBurstHelper.setCpuBurst(containerInspect.Id, burstUs);
+    await cpuBurstHelper.setCpuBurst(containerInspect.Id, burstUs);
 
     return `Flux App ${idOrName} successfully updated with burst CPU (quota=${quotaUs}, burst=${burstUs}).`;
   } catch (error) {
