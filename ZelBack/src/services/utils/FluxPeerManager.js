@@ -50,9 +50,10 @@ class FluxPeerManager {
   /**
    * Remove a peer by key. Single cleanup path.
    * @param {string} key - ip:port
+   * @param {number} [closeCode] - WebSocket close code, used to decide reconnect behavior
    * @returns {FluxPeerSocket|null}
    */
-  remove(key) {
+  remove(key, closeCode) {
     const peer = this._peers.get(key);
     if (!peer) return null;
 
@@ -63,8 +64,10 @@ class FluxPeerManager {
     // Track disconnect for unstable node detection
     this.trackDisconnect(peer.ip, peer.port);
 
-    // Queue outbound peers for reconnection by fluxDiscovery
-    if (peer.direction === 'outbound') {
+    // Queue outbound peers for reconnection only on unexpected disconnections.
+    // Deliberate closes (send failure, policy violation, blocked, purposeful)
+    // should not be retried.
+    if (peer.direction === 'outbound' && !this._isDeliberateClose(closeCode)) {
       this.queueReconnect(peer.ip, peer.port);
     }
 
@@ -246,6 +249,24 @@ class FluxPeerManager {
         this._unstableNodes.delete(key);
       }
     }
+  }
+
+  // --- Close code classification ---
+
+  /**
+   * Returns true if the close code indicates a deliberate/policy close
+   * that should not trigger a reconnection attempt.
+   * @param {number} [code]
+   * @returns {boolean}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  _isDeliberateClose(code) {
+    if (!code) return false;
+    // 4003-4008: blocked/badOrigin/blockedOrigin (both directions)
+    // 4009-4010: purposefully closed
+    // 4011: dead connection (pruned)
+    // 4016-4017: invalidMsg (both directions)
+    return (code >= 4003 && code <= 4011) || code === 4016 || code === 4017;
   }
 
   // --- Network state ---

@@ -184,7 +184,7 @@ class FluxPeerSocket {
 
     ws.onclose = (evt) => {
       log.info(`${this.direction === 'inbound' ? 'Incoming' : 'Outgoing'} connection ${this.direction === 'inbound' ? 'from' : 'to'} ${this.key} closed with code ${evt.code}`);
-      manager.remove(this.key);
+      manager.remove(this.key, evt.code);
     };
 
     ws.onerror = (evt) => {
