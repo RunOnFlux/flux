@@ -89,27 +89,34 @@ let lastUpdate = 0;
  * @param {FluxNetworkMessage} broadcast Flux network layer message containing public key, timestamp, signature and version.
  * @returns {Promise<boolean>} False unless message is successfully verified.
  */
+const VerifyResult = Object.freeze({
+  OK: 'ok',
+  MALFORMED: 'malformed',
+  NODE_NOT_FOUND: 'nodeNotFound',
+  BAD_SIGNATURE: 'badSignature',
+});
+
 async function verifyFluxBroadcast(broadcast) {
   const {
     pubKey, timestamp, signature, version, data: payload,
   } = broadcast;
 
-  if (version !== 1) return false;
+  if (version !== 1) return VerifyResult.MALFORMED;
 
   const message = serviceHelper.ensureString(payload);
 
-  if (!message) return false;
+  if (!message) return VerifyResult.MALFORMED;
 
   const { type: msgType } = payload;
 
-  if (!msgType) return false;
+  if (!msgType) return VerifyResult.MALFORMED;
 
   const now = Date.now();
 
   // message was broadcasted in the future. Allow 120 sec clock sync
   if (now < timestamp - 120_000) {
     log.error('VerifyBroadcast: Message from future, rejecting');
-    return false;
+    return VerifyResult.MALFORMED;
   }
 
   counter += 1;
@@ -177,7 +184,7 @@ async function verifyFluxBroadcast(broadcast) {
   // no public key found in cache
   if (target === null) {
     log.warn(error);
-    return false;
+    return VerifyResult.NODE_NOT_FOUND;
   }
 
   // if we get a map, we have hit the default case and searched for pubkeys
@@ -187,7 +194,7 @@ async function verifyFluxBroadcast(broadcast) {
 
   if (!found) {
     log.warn(error);
-    return false;
+    return VerifyResult.NODE_NOT_FOUND;
   }
 
   const messageToVerify = version + message + timestamp;
@@ -197,7 +204,7 @@ async function verifyFluxBroadcast(broadcast) {
     signature,
   );
 
-  return verified;
+  return verified ? VerifyResult.OK : VerifyResult.BAD_SIGNATURE;
 }
 
 /**
@@ -236,13 +243,13 @@ function verifyTimestampInFluxBroadcast(data, currentTimeStamp, maxOld = 300_000
 async function verifyOriginalFluxBroadcast(data, currentTimeStamp) {
   const timeStampOK = verifyTimestampInFluxBroadcast(data, currentTimeStamp);
   if (timeStampOK) {
-    const broadcastOK = await verifyFluxBroadcast(data);
-    return broadcastOK;
+    return verifyFluxBroadcast(data);
   }
-  return false;
+  return VerifyResult.MALFORMED;
 }
 
 module.exports = {
+  VerifyResult,
   getNodeCount,
   verifyTimestampInFluxBroadcast,
   verifyOriginalFluxBroadcast,

@@ -544,8 +544,10 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     return;
   }
   const currentTimeStamp = Date.now();
-  const messageOK = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
-  if (messageOK === true) {
+  const { VerifyResult } = fluxCommunicationUtils;
+  const verifyResult = await fluxCommunicationUtils.verifyFluxBroadcast(msgObj, undefined, currentTimeStamp);
+
+  if (verifyResult === VerifyResult.OK) {
     const timestampOK = fluxCommunicationUtils.verifyTimestampInFluxBroadcast(msgObj, currentTimeStamp);
     if (timestampOK === true) {
       try {
@@ -572,32 +574,20 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
         log.error(e);
       }
     } else {
-      // NAK: send stale message notification back to sender (Fix 6)
       peerSocket.sendNak(messageHash, 'stale');
     }
+  } else if (verifyResult === VerifyResult.NODE_NOT_FOUND) {
+    // Originator's node is not in the deterministic list — stale list or node went offline.
+    // The relay peer is not at fault. Drop the message, don't punish the relay.
+    log.warn(`Dropping message from ${peerSocket.direction} peer ${peerSocket.key}: originator pubkey ${pubKey} not found in node list`);
   } else {
-    // invalid message — close connection and potentially blocklist
-    try {
-      const nodes = await fluxCommunicationUtils.deterministicFluxList({ filter: pubKey });
-      const connection = `${peerSocket.ip}:${peerSocket.port}`;
-
-      const nodeFound = nodes.find((node) => {
-        const normalized = serviceHelper.normalizeNodeIpApiPort(node.ip);
-        if (!normalized) return false;
-        const [targetIp, targetPort] = normalized;
-        return targetIp === peerSocket.ip && targetPort === peerSocket.port;
-      });
-
-      if (!nodeFound) {
-        log.warn(`Invalid message received from ${peerSocket.direction} peer ${connection} which is not an originating node of ${pubKey}.`);
-        peerSocket.close(codes.badOrigin, 'invalid message, disconnect');
-      } else {
-        wsPeerCache.set(pubKey, '');
-        log.warn(`closing ${peerSocket.direction} connection, adding peers ${pubKey} to the blockedList. Originated from ${connection}.`);
-        peerSocket.close(codes.blockedOrigin, 'invalid message, blocked');
-      }
-    } catch (e) {
-      log.error(e);
+    // BAD_SIGNATURE or MALFORMED — the message is corrupted or forged.
+    // Track against this relay peer. If they keep sending bad messages, disconnect.
+    peerSocket.badMessageCount += 1;
+    log.warn(`Bad message (${verifyResult}) from ${peerSocket.direction} peer ${peerSocket.key}, count: ${peerSocket.badMessageCount}`);
+    if (peerSocket.badMessageCount >= 5) {
+      log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key} after ${peerSocket.badMessageCount} bad messages`);
+      peerSocket.close(codes.badOrigin, 'too many bad messages');
     }
   }
 }
