@@ -582,11 +582,19 @@ async function dispatchFluxMessage(msgObj, peerSocket) {
     log.warn(`Dropping message from ${peerSocket.direction} peer ${peerSocket.key}: originator pubkey ${pubKey} not found in node list`);
   } else {
     // BAD_SIGNATURE or MALFORMED — the message is corrupted or forged.
-    // Track against this relay peer. If they keep sending bad messages, disconnect.
+    // Track against this relay peer within a rolling window.
+    // If they send 5+ bad messages in 10 minutes, disconnect.
+    const BAD_MSG_WINDOW = 10 * 60 * 1000;
+    const BAD_MSG_THRESHOLD = 5;
+    const now = Date.now();
+    if (now - peerSocket.badMessageWindowStart > BAD_MSG_WINDOW) {
+      peerSocket.badMessageCount = 0;
+      peerSocket.badMessageWindowStart = now;
+    }
     peerSocket.badMessageCount += 1;
     log.warn(`Bad message (${verifyResult}) from ${peerSocket.direction} peer ${peerSocket.key}, count: ${peerSocket.badMessageCount}`);
-    if (peerSocket.badMessageCount >= 5) {
-      log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key} after ${peerSocket.badMessageCount} bad messages`);
+    if (peerSocket.badMessageCount >= BAD_MSG_THRESHOLD) {
+      log.warn(`Disconnecting ${peerSocket.direction} peer ${peerSocket.key} after ${peerSocket.badMessageCount} bad messages in ${BAD_MSG_WINDOW / 60000} minutes`);
       peerSocket.close(codes.badOrigin, 'too many bad messages');
     }
   }
