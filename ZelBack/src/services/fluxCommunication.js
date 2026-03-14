@@ -659,6 +659,26 @@ async function removeIncomingPeer(req, res) {
  * @param {string} connection IP address (and port if applicable).
  */
 let myPort = null;
+
+function onOutboundError(error) {
+  log.error(`Outbound connection to ${this.ip}:${this.port} failed: ${error.message}`);
+}
+
+function onOutboundOpen() {
+  peerManager.add(this, 'outbound', this.ip, this.port);
+}
+
+function onOutboundUpgrade(response) {
+  const capHeader = response.headers['x-flux-capabilities'];
+  if (capHeader) {
+    this._remoteCapabilities = capHeader.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  const clockHeader = response.headers['x-flux-clock-offset'];
+  if (clockHeader !== undefined) {
+    this._remoteClockOffsetMs = Number(clockHeader);
+  }
+}
+
 async function initiateAndHandleConnection(connection) {
   let ip = connection;
   let port = config.server.apiport.toString();
@@ -707,22 +727,12 @@ async function initiateAndHandleConnection(connection) {
     const websocket = new WebSocket(wsuri, options);
     websocket.port = port;
     websocket.ip = ip;
-    // Parse remote capabilities and clock offset from the HTTP upgrade response.
-    // Old nodes won't include these headers.
-    websocket.on('upgrade', (response) => {
-      const capHeader = response.headers['x-flux-capabilities'];
-      if (capHeader) {
-        websocket._remoteCapabilities = capHeader.split(',').map((s) => s.trim()).filter(Boolean);
-      }
-      const clockHeader = response.headers['x-flux-clock-offset'];
-      if (clockHeader !== undefined) {
-        websocket._remoteClockOffsetMs = Number(clockHeader);
-      }
-    });
-    websocket.onopen = () => {
-      // Add to peerManager — FluxPeerSocket constructor binds all handlers
-      peerManager.add(websocket, 'outbound', ip, port);
-    };
+    // Catch connection errors that occur before onopen (e.g. ETIMEDOUT, ECONNREFUSED).
+    // Without this, the error bubbles up as an uncaughtException and crashes the process.
+    // Uses a shared handler — ip/port are read from the websocket instance.
+    websocket.on('error', onOutboundError);
+    websocket.on('upgrade', onOutboundUpgrade);
+    websocket.onopen = onOutboundOpen;
   } catch (error) {
     log.error(error);
   }
