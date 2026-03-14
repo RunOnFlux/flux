@@ -1202,6 +1202,8 @@ function peerToDetailedInfo(peer) {
     connectedAt: peer.connectedAt,
     isAlive: peer.isAlive,
     badMessages: peer.badMessageTimestamps.length,
+    capabilities: [...peer.remoteCapabilities],
+    lastTransmissionDelay: peer.lastTransmissionDelay,
   };
 }
 
