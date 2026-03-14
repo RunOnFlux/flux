@@ -2,14 +2,39 @@ const WebSocket = require('ws');
 const log = require('../../lib/log');
 const serviceHelper = require('../serviceHelper');
 
-const CLOSE_CODES = {
-  inbound: {
-    invalidMsg: 4016, blocked: 4003, badOrigin: 4004, blockedOrigin: 4005,
-  },
-  outbound: {
-    invalidMsg: 4017, blocked: 4006, badOrigin: 4007, blockedOrigin: 4008,
-  },
-};
+const CLOSE_CODES = Object.freeze({
+  // Inbound validation (FluxPeerManager.validateAndAddInbound)
+  MAX_CONNECTIONS: 4000,
+  DUPLICATE_PEER: 4001,
+  PRIVATE_IP: 4002,
+
+  // Policy violations — inbound
+  BLOCKED_INBOUND: 4003,
+  BAD_ORIGIN_INBOUND: 4004,
+  BLOCKED_ORIGIN_INBOUND: 4005,
+
+  // Policy violations — outbound
+  BLOCKED_OUTBOUND: 4006,
+  BAD_ORIGIN_OUTBOUND: 4007,
+  BLOCKED_ORIGIN_OUTBOUND: 4008,
+
+  // Purposeful close (admin action or send failure)
+  CLOSED_OUTBOUND: 4009,
+  CLOSED_INBOUND: 4010,
+
+  // Dead connection (keepalive failure)
+  DEAD_CONNECTION: 4011,
+
+  // Auth failures (paymentService, idService)
+  AUTH_FAILURE_1: 4012,
+  AUTH_FAILURE_2: 4013,
+  AUTH_FAILURE_3: 4014,
+  AUTH_FAILURE_4: 4015,
+
+  // Invalid messages
+  INVALID_MSG_INBOUND: 4016,
+  INVALID_MSG_OUTBOUND: 4017,
+});
 
 class FluxPeerSocket {
   /**
@@ -60,7 +85,15 @@ class FluxPeerSocket {
   }
 
   get closeCodes() {
-    return CLOSE_CODES[this.direction];
+    return this.direction === 'inbound'
+      ? {
+        invalidMsg: CLOSE_CODES.INVALID_MSG_INBOUND, blocked: CLOSE_CODES.BLOCKED_INBOUND,
+        badOrigin: CLOSE_CODES.BAD_ORIGIN_INBOUND, blockedOrigin: CLOSE_CODES.BLOCKED_ORIGIN_INBOUND,
+      }
+      : {
+        invalidMsg: CLOSE_CODES.INVALID_MSG_OUTBOUND, blocked: CLOSE_CODES.BLOCKED_OUTBOUND,
+        badOrigin: CLOSE_CODES.BAD_ORIGIN_OUTBOUND, blockedOrigin: CLOSE_CODES.BLOCKED_ORIGIN_OUTBOUND,
+      };
   }
 
   get isAlive() {
@@ -70,6 +103,10 @@ class FluxPeerSocket {
   onPingSent() {
     this.lastPingTime = Date.now();
     this.missedPongs += 1;
+    if (this.missedPongs >= 3) {
+      log.info(`Peer ${this.key} missed ${this.missedPongs} pongs, closing`);
+      this.close(CLOSE_CODES.DEAD_CONNECTION, 'dead connection');
+    }
   }
 
   onPongReceived() {
